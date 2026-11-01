@@ -16,6 +16,7 @@ use std::{
     future::Future,
     pin::Pin,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 fn schema() -> Vec<Setting> {
@@ -86,6 +87,28 @@ fn context(
         daemon_epoch: "epoch".into(),
         generation: generation.into(),
     }
+}
+
+/// Waits until `server` answers calls: a call sent right after a
+/// connection's first export can be dropped (#528), so a ping is resent
+/// until one is answered.
+async fn served(client: &zbus::Connection, server: &zbus::Connection) {
+    let peer = zbus::fdo::PeerProxy::builder(client)
+        .destination(server.unique_name().unwrap().to_string())
+        .unwrap()
+        .path("/")
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !matches!(
+            tokio::time::timeout(Duration::from_millis(100), peer.ping()).await,
+            Ok(Ok(()))
+        ) {}
+    })
+    .await
+    .expect("the provider answers calls");
 }
 
 fn error_name(result: zbus::Result<impl std::fmt::Debug>) -> String {
@@ -226,6 +249,7 @@ async fn translations_are_validated_at_export_and_served() {
     serve_settings(&provider, Translated(table.clone()), receiver)
         .await
         .unwrap();
+    served(&daemon, &provider).await;
     let settings = ProviderSettingsProxy::builder(&daemon)
         .destination(provider.unique_name().unwrap().clone())
         .unwrap()

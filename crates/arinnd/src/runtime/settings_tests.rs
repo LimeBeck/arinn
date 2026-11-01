@@ -189,6 +189,10 @@ impl Fixture {
         // right after their first exports (#528).
         served(&client, &server).await;
         served(&client, &library).await;
+        // `plain` serves no ProviderSettings1, but its object server must
+        // run to answer UnknownInterface rather than leave calls unanswered.
+        let _ = plain.object_server();
+        served(&client, &plain).await;
         Self {
             bus,
             folder,

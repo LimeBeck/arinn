@@ -7,8 +7,8 @@
 
 use crate::store::{Settings, Store};
 use arinn_plugin_sdk::runtime::{
-    LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
-    SettingsHandler, run_library_on, serve_settings,
+    AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler,
+    LibraryService, SettingsHandler, run_library_on, serve_settings,
 };
 use arinn_protocol::{
     library::{Addition, Collection, ImportCandidate, Item, Resume, RootState},
@@ -93,6 +93,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             "unavailable"
         },
         LibraryExtensions::default()
+            .assets(bridge.clone())
             .resume(bridge.clone())
             .import(bridge.clone())
             .roots()
@@ -125,6 +126,33 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     tokio::select! {
         result = running => result.map_err(|_| ErrorCode::Internal)?,
         result = run_library_on(connection, service) => result.map_err(|_| ErrorCode::Unavailable),
+    }
+}
+
+impl AssetHandler for Bridge {
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<arinn_protocol::assets::Asset, ErrorCode>> + Send + '_>>
+    {
+        let store = self.store.clone();
+        let settings = self.settings.clone();
+        Box::pin(async move {
+            tokio::task::spawn_blocking(move || {
+                let roots = settings
+                    .lock()
+                    .map_err(|_| ErrorCode::Internal)?
+                    .roots
+                    .clone();
+                let source = store
+                    .lock()
+                    .map_err(|_| ErrorCode::Internal)?
+                    .asset_source(&id, &roots)?;
+                source.read()
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)?
+        })
     }
 }
 

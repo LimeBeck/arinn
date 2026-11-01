@@ -6,6 +6,7 @@
 
 use arinn_plugin_library::serve;
 use arinn_protocol::{
+    assets::AssetProviderProxy,
     library::{
         ImportCandidate, LibraryAdditionsProxy, LibraryImportProxy, LibraryProviderProxy,
         LibraryResumeProxy, LibraryRootsProxy, RootState,
@@ -90,6 +91,8 @@ async fn scenario() {
     let root = scratch.join("media-root");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("QuietTitle (1999).mkv"), b"film").unwrap();
+    let poster_bytes = vec![0xff, 0xd8, 0xff, 0xe0, 1, 2, 3];
+    fs::write(root.join("QuietTitle (1999)-poster.jpg"), &poster_bytes).unwrap();
     let home = scratch.join("home");
     let config_home = scratch.join("config");
     let state_home = scratch.join("state");
@@ -126,11 +129,49 @@ async fn scenario() {
         .await
         .unwrap();
     let (page,) = wait_item(&proxy, "QuietTitle").await;
+    let film_art = page
+        .items
+        .iter()
+        .find(|item| item.title == "QuietTitle")
+        .unwrap();
+    assert!(!film_art.poster.is_empty());
+    let assets = AssetProviderProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (poster,) = assets
+        .get_asset(&page.generation, &film_art.poster)
+        .await
+        .unwrap();
+    assert_eq!(poster.mime, "image/jpeg");
+    assert_eq!(poster.data, poster_bytes);
+    assert!(
+        assets
+            .get_asset("stale-generation", &film_art.poster)
+            .await
+            .is_err()
+    );
+    let outsider = bus.connection().await;
+    let outside_assets = AssetProviderProxy::builder(&outsider)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert!(
+        outside_assets
+            .get_asset(&page.generation, &film_art.poster)
+            .await
+            .is_err()
+    );
     assert_eq!(
         proxy.features().await.unwrap(),
         vec![
             "LibraryResume1".to_string(),
             "LibraryImport1".into(),
+            "AssetProvider1".into(),
             "LibraryAdditions1".into(),
             "LibraryRoots1".into()
         ]

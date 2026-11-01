@@ -742,13 +742,13 @@ fn trim_seps(value: &str) -> String {
 /// `hevc`. `WEB-DL` keeps its hyphen.
 fn tag_base(token: &str) -> String {
     let token = token.to_ascii_lowercase();
-    if token.starts_with("web-dl") || token.starts_with("blu-ray") || token.starts_with("dts-hd") {
-        let (head, rest) = token.split_at(if token.starts_with("blu-ray") { 7 } else { 6 });
-        return if rest.starts_with('-') || rest.is_empty() {
-            head.to_string()
-        } else {
-            token
-        };
+    // Hyphenated tags, longest first, so `WEB-DLRip-GROUP` is `web-dlrip`.
+    for tag in ["web-dlrip", "web-dl", "blu-ray", "dts-hd"] {
+        if let Some(rest) = token.strip_prefix(tag)
+            && (rest.is_empty() || rest.starts_with('-'))
+        {
+            return tag.to_string();
+        }
     }
     token
         .split_once('-')
@@ -883,7 +883,18 @@ fn strip_release_tags(text: &str) -> String {
     while start > 0 && service_release_tag(&tokens[start - 1]) {
         start -= 1;
     }
-    trim_seps(&tokens[..start].join(" "))
+    // A year inside the suffix (`Movie 1080p 2020`) stays, so `take_year`
+    // still finds it.
+    let mut kept: Vec<&str> = tokens[..start].iter().map(String::as_str).collect();
+    kept.extend(
+        tokens[start..]
+            .iter()
+            .filter(|token| {
+                token.chars().all(|ch| ch.is_ascii_digit()) && year_token(token).is_some()
+            })
+            .map(String::as_str),
+    );
+    trim_seps(&kept.join(" "))
 }
 
 fn fallback_title(parsed: &str, stem: &str) -> String {
@@ -1095,6 +1106,9 @@ mod tests {
             ("Dark Web DV", "Dark Web DV"),
             ("Director's Cut", "Director's Cut"),
             ("Pilot 1080p Extended", "Pilot 1080p Extended"),
+            ("Movie 1080p 2020", "Movie 2020"),
+            ("Show S02 WEB-DLRip-GROUP", "Show S02"),
+            ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
             ("", ""),
         ] {
             assert_eq!(strip_release_tags(text), expected, "{text:?}");
@@ -1169,6 +1183,30 @@ mod tests {
         assert_eq!(episode.title, "Pilot");
         assert!(episode.has_year);
         assert_eq!(episode.year, 2019);
+
+        // A year after the release tags is kept as well.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show S02 1080p 2019/Example Show - 01.mkv"),
+        )
+        .unwrap();
+        assert_eq!(episode.series_title, "Example Show");
+        assert_eq!(episode.season, 2);
+        assert!(episode.series_has_year);
+        assert_eq!(episode.series_year, 2019);
+        let film = parse_video(root, Path::new("/library/Example Film 1080p 2020.mkv")).unwrap();
+        assert_eq!(film.title, "Example Film");
+        assert!(film.has_year);
+        assert_eq!(film.year, 2020);
+
+        // A WEB-DLRip source with an attached group.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show S03 WEB-DLRip-GROUP/Example Show - 01.mkv"),
+        )
+        .unwrap();
+        assert_eq!(episode.series_title, "Example Show");
+        assert_eq!(episode.season, 3);
 
         // The same holds for a film.
         let film = parse_video(

@@ -852,6 +852,43 @@ TestCase {
         verify(!mute.visible);
         verify(!wifi.visible);
     }
+    // #659: with the New row focused the rows move up; none of them may
+    // show inside the header band of the menu button and the status area.
+    function test_new_row_focus_keeps_rows_out_of_the_header() {
+        const menu = child("menuButton");
+        const headerBottom = menu.mapToItem(home, 0, menu.height).y;
+        const rows = ["continue", "favorites", "new"].map(name => child(name));
+        // Down twice: Continue → Favorites → New.
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        keyClick(Qt.Key_Down);
+        focused("entry-n");
+        tryVerify(() => home.homeOffset < 0);
+        // The translation animates: wait until the rows reach their offset.
+        const continueRow = child("continue");
+        tryVerify(() => Math.abs(continueRow.mapToItem(home, 0, 0).y - (continueRow.y + home.homeOffset)) < 0.5,
+                  3000, "the rows reach the New row offset");
+        verify(continueRow.mapToItem(home, 0, 0).y < headerBottom, "this fixture moves Continue into the header band");
+        // Then no row that is still shown may overlap the header.
+        tryVerify(() => {
+            for (const row of rows) {
+                const top = row.mapToItem(home, 0, 0).y;
+                const shown = row.visible && row.opacity > 0.01;
+                if (shown && top < headerBottom)
+                    return false;
+            }
+            return true;
+        }, 3000, "a shown row overlaps the header");
+        verify(child("new").opacity === 1);
+        verify(child("entry-n").mapToItem(home, 0, 0).y >= headerBottom);
+        // Back up: the Continue row returns at full opacity.
+        keyClick(Qt.Key_Up);
+        focused("entry-f");
+        keyClick(Qt.Key_Up);
+        focused("entry-a");
+        tryCompare(child("continue"), "opacity", 1);
+        tryCompare(home, "homeOffset", 0);
+    }
     // #408 (owner decision 2026-11-01): a cable glyph on a wired link, a
     // crossed-out Wi-Fi while disconnected, nothing for another link or an
     // unknown state.

@@ -152,7 +152,7 @@ Power emits an intent only; it never opens a destructive confirmation or perform
 a session action.
 
 `HomeView` accepts immutable `continueEntries`, `favoriteEntries` and `newEntries`
-arrays. Activating a New card emits `libraryEntryRequested(id)` for the existing library detail; other rows retain their established intents. The caller supplies the bounded, sorted recent-library projection (ADR-0120). Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
+arrays. Activating a New card emits `libraryEntryRequested(id)` for the existing library detail; other rows retain their established intents. Focusing the New row moves the rows up (`homeOffset`, at most 360 px) and fades the hero; a row that this moves above y 120, below the menu button and the status area, fades out too and takes no pointer focus, so no card slides under the header ([#659](https://github.com/LimeBeck/arinn/issues/659)). The caller supplies the bounded, sorted recent-library projection (ADR-0120). Each entry has a unique opaque `id`, `title`, and optional `subtitle`,
 `artwork`, `monogram`, `running`, `progress`, `enabled`, `busy` and
 `webShortcut`. Media entries (`kind: "media"`) may carry the provider's reported
 `positionUs` and `durationUs`; Home derives the time left and the card progress

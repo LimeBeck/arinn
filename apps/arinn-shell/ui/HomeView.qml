@@ -190,6 +190,11 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    // The menu button and the status area end at y 108. A row that the New
+    // row's offset moves above this line fades out, as the hero does, so no
+    // card slides under the header (#659).
+    readonly property real headerClearance: 120
+    function rowClearsHeader(row) { return row.y + homeOffset >= headerClearance; }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
@@ -831,10 +836,12 @@ FocusScope {
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"
+                    opacity: root.rowClearsHeader(continueRow) ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 300 } }
                     x: 120; y: 372; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
-                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
                     onEdge: key => root.rowEdge(continueRow, key)
@@ -844,11 +851,13 @@ FocusScope {
                 }
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
+                    opacity: root.rowClearsHeader(favoritesRow) ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: 300 } }
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
-                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(favoritesRow)
                     onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)

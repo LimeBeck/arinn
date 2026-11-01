@@ -562,6 +562,12 @@ TestCase {
         compare(home.continuePresentation[0].id, "activity");
         compare(home.continuePresentation[1].serviceId, "tab-1");
         compare(home.continuePresentation.filter(entry => entry.serviceId === "tab-1").length, 1);
+        // A linked tab below the visible limit must not disappear either.
+        home.continueEntries = [1, 2, 3, 4, 5].map(i => ({id: "film" + i, title: "Film " + i, kind: "media"}))
+            .concat([{id: "late-session", title: "Video", kind: "media", serviceId: "tab-1"}]);
+        compare(home.continuePresentation.length, 4);
+        compare(home.continuePresentation[0].id, "late-session");
+        compare(home.continuePresentation[0].mediaId, "late-session");
         home.currentServiceId = "tab-1";
         home.currentServiceTitle = "Page 1";
         compare(home.continuePresentation[0].kind, "service");

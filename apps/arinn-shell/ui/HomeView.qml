@@ -241,10 +241,14 @@ FocusScope {
         // evidence. The summary is hidden for one tab, so give that tab its
         // own card. Its action activates the tab; it must not imply Return.
         if (!shown && openServices.length === 1
-                && !activity.concat(rest).some(entry => entry.serviceId === openServices[0].id)) {
+                && !activity.some(entry => entry.serviceId === openServices[0].id)) {
             const tab = openServices[0];
-            rest.unshift({id: "open-service", serviceId: tab.id, visualIdentity: tab.id,
-                          title: tab.title, running: true, kind: "tab"});
+            const linked = rest.findIndex(entry => entry.serviceId === tab.id);
+            if (linked < 0)
+                rest.unshift({id: "open-service", serviceId: tab.id, visualIdentity: tab.id,
+                              title: tab.title, running: true, kind: "tab"});
+            else if (linked >= 4)
+                rest.unshift(rest.splice(linked, 1)[0]);
         }
         // Services that already have a card in this row, by identity only,
         // never by title (#358, #207). Only cards that fit count: with the

@@ -90,6 +90,40 @@ registration or secret is bundled. The fixed HTTPS service origin, disabled
 redirects, sensitive authorization header, response size limit and redacted
 error enum keep service URLs/credentials out of diagnostics and shell models.
 
+### Required connection flow
+
+The owner selected device-code sign-in, matching CloudMus, on 2026-11-01.
+CloudMus calls `Client.device_auth` and publishes a verification URL, user code
+and expiry before receiving the access token automatically; see its
+[Yandex auth backend](https://github.com/cloudmus/cloudmus/blob/d8f5c6dad9818a1f3bfe5935437f97ddf138818e/backends/yandex-music/cloudmus_backend_yandex/auth.py)
+and [connection card](https://github.com/cloudmus/cloudmus/blob/d8f5c6dad9818a1f3bfe5935437f97ddf138818e/fronts/qt/src/Ui/AuthCard.cpp).
+
+The production connection must:
+
+- Start from Connect and show the provider's verification address, user code,
+  expiry and waiting state. The user confirms access on Yandex's page from a
+  phone or browser; Arinn receives the result automatically.
+- Allow cancellation and retry after expiry or failure. Cancellation,
+  disconnect or a newer attempt must invalidate late authorization results;
+  they must not store credentials or reconnect the account.
+- Keep device credentials, access tokens and polling inside the provider. Only
+  the bounded verification prompt and account state reach the generic UI.
+  Never collect the account password or require manual access-token copying as
+  the normal connection path.
+- Store credentials through the agreed secure provider storage lifecycle,
+  restore the connection across restarts and remove local credentials on
+  disconnect. Expired or revoked access must offer a new sign-in.
+- Cover pending, success, denial, expiry, cancellation, retry, polling limits,
+  restart and late-result races with synthetic tests before live qualification.
+
+This flow is a delivery requirement, **not implemented by the current token-only
+adapter**. The upstream example establishes the interaction, not official API
+support or permission to reuse a third-party application registration. Qualify
+the underlying device-auth endpoints, client identity and credential lifecycle
+before shipping it.
+
+### Radio and qualification
+
 The radio adapter uses session JSON requests with an explicit originating batch
 for each feedback call. Fetching batch B must not relabel the finish/skip of a
 track still playing from batch A. Track-seeded sessions normalize an

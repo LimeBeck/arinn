@@ -26,6 +26,9 @@ FocusScope {
     property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
     readonly property real cellHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
     readonly property real gap: variant === "content" ? 32 : 24
+    // Room for the focus glow, lift and scale around a card (Surface). The
+    // viewport reaches this far past the row's safe edges.
+    readonly property real glowMargin: 48
     signal selected(var entry)
     signal activated(string entryId)
     signal actionsRequested(string entryId)
@@ -101,6 +104,10 @@ FocusScope {
         if (left < next + margin) next = left - margin;
         else if (left + cellWidth > next + viewport.width - margin)
             next = left + cellWidth - viewport.width + margin;
+        // The viewport is wider than the safe area by its glow margins. Keep
+        // the card's body inside the safe right edge, e.g. a partly visible
+        // poster that the pointer focuses (#564).
+        if (left + cellWidth > next + width) next = left + cellWidth - width;
         viewport.contentX = Math.max(0, Math.min(next, Math.max(0, viewport.contentWidth - viewport.width)));
     }
     Keys.onPressed: event => {
@@ -119,7 +126,7 @@ FocusScope {
     Flickable {
         id: viewport
         objectName: root.objectName + "Viewport"
-        x: -48; y: 10; width: parent.width + 96; height: root.cellHeight + 104
+        x: -root.glowMargin; y: 10; width: parent.width + 2 * root.glowMargin; height: root.cellHeight + 104
         clip: true
         contentWidth: cardsRow.width + 96
         contentHeight: height
@@ -137,90 +144,128 @@ FocusScope {
                 // whenever one entry changes, e.g. a playing session's
                 // position (#441).
                 model: ListModel { id: keyModel }
-                delegate: Loader {
-                    id: entryLoader
+                delegate: Item {
+                    id: slot
                     required property string key
                     required property int index
-                    readonly property var modelData: root.byKey[key] || ({})
+                    readonly property var item: entryLoader.item
                     width: root.cellWidth; height: root.cellHeight
-                    sourceComponent: root.variant === "app" ? tile : card
-                    function chosen() {
-                        root.selectedIndex = index;
-                        root.selectedId = modelData.id;
-                        root.selected(modelData);
-                        root.reveal(index);
-                    }
-                    Component {
-                        id: tile
-                        AppTile {
-                            objectName: "entry-" + entryLoader.modelData.id
-                            width: entryLoader.width; height: entryLoader.height
-                            text: entryLoader.modelData.title
-                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
-                            monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
-                            iconSource: entryLoader.modelData.iconSource || ""
-                            subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
-                            running: entryLoader.modelData.running || false
-                            serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
-                            enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            // An unavailable saved favorite is focusable so it can be removed.
-                            unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
-                            onActivated: root.activated(entryLoader.modelData.id)
-                            onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
-                            Keys.onPressed: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                    if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
-                                    event.accepted = true;
+                    // The row's safe area (handoff 01: x120 to x1824) in
+                    // this slot's coordinates.
+                    readonly property real safeLeft: viewport.contentX - x
+                    readonly property real safeRight: safeLeft + root.width
+                    // Only a focused card whose body is inside the safe
+                    // area may paint past it: its glow and focus scale use
+                    // the viewport's margin. Every other card is cut at the safe edges, so
+                    // no neighbour or flicked card shows past them (#564).
+                    readonly property bool focusedInside: !!item && item.activeFocus
+                        && safeLeft <= 0 && safeRight >= width
+                    readonly property bool painted: focusedInside || (safeLeft < width && safeRight > 0)
+                    Item {
+                        id: cardClip
+                        objectName: "cardClip"
+                        clip: true
+                        x: slot.focusedInside ? -root.glowMargin : Math.max(-root.glowMargin, slot.safeLeft)
+                        y: -root.glowMargin
+                        width: !slot.painted ? 0 : Math.max(0, (slot.focusedInside ? slot.width + root.glowMargin
+                            : Math.min(slot.width + root.glowMargin, slot.safeRight)) - x)
+                        height: slot.height + 2 * root.glowMargin
+                        Loader {
+                            id: entryLoader
+                            readonly property var modelData: root.byKey[slot.key] || ({})
+                            x: -cardClip.x; y: root.glowMargin
+                            width: root.cellWidth; height: root.cellHeight
+                            sourceComponent: root.variant === "app" ? tile : card
+                            function chosen() {
+                                root.selectedIndex = slot.index;
+                                root.selectedId = modelData.id;
+                                root.selected(modelData);
+                                root.reveal(slot.index);
+                            }
+                            Component {
+                                id: tile
+                                AppTile {
+                                    objectName: "entry-" + entryLoader.modelData.id
+                                    width: entryLoader.width; height: entryLoader.height
+                                    text: entryLoader.modelData.title
+                                    visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                                    monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
+                                    iconSource: entryLoader.modelData.iconSource || ""
+                                    subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
+                                    running: entryLoader.modelData.running || false
+                                    serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
+                                    enabled: entryLoader.modelData.enabled !== false
+                                    busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
+                                    pointerMode: root.pointerMode
+                                    // A hidden card must not take focus from the pointer.
+                                    hoverFocusEnabled: root.hoverFocusEnabled && slot.painted
+                                    // An unavailable saved favorite is focusable so it can be removed.
+                                    unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
+                                    onActivated: root.activated(entryLoader.modelData.id)
+                                    onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
+                                    Keys.onPressed: event => {
+                                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                            if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
+                                            event.accepted = true;
+                                        }
+                                    }
+                                    property bool holdHandled: false
+                                    Timer {
+                                        id: holdTimer; interval: 650
+                                        onTriggered: {
+                                            parent.holdHandled = true; parent.down = false;
+                                            root.actionsRequested(entryLoader.modelData.id);
+                                        }
+                                    }
+                                    Keys.onReleased: event => {
+                                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                            if (event.isAutoRepeat) { event.accepted = true; return; }
+                                            holdTimer.stop();
+                                            if (holdHandled) { down = false; event.accepted = true; }
+                                            else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
+                                            event.accepted = true;
+                                        }
+                                    }
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) entryLoader.chosen();
+                                        else holdTimer.stop();
+                                    }
+                                    onDpadRequested: root.dpadRequested()
                                 }
                             }
-                            property bool holdHandled: false
-                            Timer {
-                                id: holdTimer; interval: 650
-                                onTriggered: {
-                                    parent.holdHandled = true; parent.down = false;
-                                    root.actionsRequested(entryLoader.modelData.id);
+                            Component {
+                                id: card
+                                ContentCard {
+                                    objectName: "entry-" + entryLoader.modelData.id
+                                    width: entryLoader.width; height: entryLoader.height
+                                    text: entryLoader.modelData.title
+                                    visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                                    subtitle: entryLoader.modelData.subtitle || ""
+                                    artwork: entryLoader.modelData.artwork || ""
+                                    stack: entryLoader.modelData.stack || []
+                                    running: entryLoader.modelData.running || false
+                                    showProgress: entryLoader.modelData.progress !== undefined
+                                    progress: entryLoader.modelData.progress || 0
+                                    enabled: entryLoader.modelData.enabled !== false
+                                    busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
+                                    pointerMode: root.pointerMode
+                                    // A hidden card must not take focus from the pointer.
+                                    hoverFocusEnabled: root.hoverFocusEnabled && slot.painted
+                                    onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                                    onActivated: root.activated(entryLoader.modelData.id)
+                                    onDpadRequested: root.dpadRequested()
                                 }
                             }
-                            Keys.onReleased: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                    if (event.isAutoRepeat) { event.accepted = true; return; }
-                                    holdTimer.stop();
-                                    if (holdHandled) { down = false; event.accepted = true; }
-                                    else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
-                                    event.accepted = true;
-                                }
-                            }
-                            onActiveFocusChanged: {
-                                if (activeFocus) entryLoader.chosen();
-                                else holdTimer.stop();
-                            }
-                            onDpadRequested: root.dpadRequested()
                         }
                     }
-                    Component {
-                        id: card
-                        ContentCard {
-                            objectName: "entry-" + entryLoader.modelData.id
-                            width: entryLoader.width; height: entryLoader.height
-                            text: entryLoader.modelData.title
-                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
-                            subtitle: entryLoader.modelData.subtitle || ""
-                            artwork: entryLoader.modelData.artwork || ""
-                            stack: entryLoader.modelData.stack || []
-                            running: entryLoader.modelData.running || false
-                            showProgress: entryLoader.modelData.progress !== undefined
-                            progress: entryLoader.modelData.progress || 0
-                            enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
-                            onActivated: root.activated(entryLoader.modelData.id)
-                            onDpadRequested: root.dpadRequested()
-                        }
+                    // A hidden card takes no clicks; D-pad focus still
+                    // reaches it and reveal() scrolls it into view.
+                    MouseArea {
+                        objectName: "hiddenCardBlocker"
+                        anchors.fill: parent
+                        z: 1000
+                        enabled: !slot.painted
+                        acceptedButtons: Qt.AllButtons
                     }
                 }
             }

@@ -402,12 +402,17 @@ FocusScope {
         const top = entry.y;
         const bottom = entry.y + entry.height;
         let y = services.contentY;
-        const limit = Math.max(0, services.contentHeight - services.height);
+        // The scroll range includes the list's margins: at the top the first
+        // row sits topMargin below the clip edge, so its focus scale and ring
+        // are not cut off (#639).
+        const first = services.originY - services.topMargin;
+        const limit = Math.max(first, services.originY + services.contentHeight
+                               + services.bottomMargin - services.height);
         if (bottom > y + services.height - marginBelow)
             y = bottom - (services.height - marginBelow);
         if (top < y + marginAbove)
             y = top - marginAbove;
-        y = Math.max(0, Math.min(y, limit));
+        y = Math.max(first, Math.min(y, limit));
         if (Math.abs(services.contentY - y) > 0.5)
             services.contentY = y;
     }
@@ -709,10 +714,14 @@ FocusScope {
                 reuseItems: false
                 model: ListModel { id: serviceRows }
                 spacing: 16
-                topMargin: 14
+                // The first row starts at y 212, as in handoff OS-1/OS-2/OS-4.
+                topMargin: 16
                 bottomMargin: 14
                 leftMargin: 24
                 rightMargin: 24
+                // Removing or resizing rows above the view moves originY after
+                // reveal() has scrolled; keep the focused row in view (#639).
+                onOriginYChanged: if (root.showTabs && root.focusRow === "list") root.reveal(root.listIndex)
                 displaced: Transition {
                     NumberAnimation { properties: "y"; duration: Ui.Theme.focusDuration }
                 }

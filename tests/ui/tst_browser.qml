@@ -279,6 +279,49 @@ TestCase {
         compare(child("browserBrowseLabel").text, "Site or search");
     }
 
+    // #639: the first row starts at y 212 (handoff OS-1/OS-2), and its
+    // focus scale and close plate stay inside the list's clip.
+    function test_first_row_is_not_clipped() {
+        const list = child("serviceList");
+        const clipTop = list.mapToItem(suite, 0, 0).y;
+        const firstId = view.orderedTabs[0].id;
+        const top = item => item.mapToItem(suite, 0, 0).y;
+        const plate = child("row-" + firstId);
+        focused("row-" + firstId);
+        tryVerify(() => Math.abs(plate.scale - 1.02) < 0.001);
+        // Unscaled, the row starts at 212.
+        tryVerify(() => Math.round(top(child("entry-" + firstId))) === 212, 5000,
+                  "first row starts at y 212");
+        // mapToItem includes the scale, so this is the drawn top edge.
+        verify(top(plate) >= clipTop, "focused row top " + top(plate) + " is above the clip at " + clipTop);
+        const close = child("close-" + firstId);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Right);
+        focused("close-" + firstId);
+        tryVerify(() => Math.abs(close.scale - 1.06) < 0.001);
+        verify(top(close) >= clipTop, "focused close top " + top(close) + " is above the clip at " + clipTop);
+    }
+
+    // #639: scrolling down and back keeps the top margin.
+    function test_first_row_margin_after_scrolling_back() {
+        const list = child("serviceList");
+        const top = item => item.mapToItem(suite, 0, 0).y;
+        const tabs = [];
+        for (let i = 0; i < 12; ++i)
+            tabs.push({id: "n" + i, windowId: "w", title: "Service " + i, url: "svc" + i + ".example/a", active: i === 0, audible: false});
+        view.tabs = tabs;
+        focused("row-n0");
+        for (let i = 0; i < 8; ++i)
+            view.move(Qt.Key_Down, false);
+        focused("row-n8");
+        tryVerify(() => list.contentY > 0);
+        for (let i = 0; i < 8; ++i)
+            view.move(Qt.Key_Up, false);
+        focused("row-n0");
+        tryVerify(() => Math.round(top(child("entry-n0"))) === 212, 5000,
+                  "first row starts at y 212 after scrolling back");
+    }
+
     function test_scroll_position_and_hold() {
         const tabs = [];
         for (let i = 0; i < 12; ++i)

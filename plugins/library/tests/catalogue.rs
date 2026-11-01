@@ -147,10 +147,9 @@ fn scans_films_series_artwork_and_hostile_nfo() {
     assert!(!film.fanart.is_empty());
     assert_eq!(film.duration_us, -1);
 
-    let resolution = items
-        .iter()
-        .find(|item| item.title == "Movie 1080p")
-        .unwrap();
+    // The resolution is a release tag: dropped from the title (#660), and
+    // never read as a year.
+    let resolution = items.iter().find(|item| item.title == "Movie").unwrap();
     assert!(!resolution.has_year);
 
     let episode = items.iter().find(|item| item.title == "The Pilot").unwrap();

@@ -47,6 +47,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-music-common"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "arinn-platform-x11"
 version = "0.2.0"
 dependencies = [
@@ -153,6 +160,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arinn-plugin-music-local"
+version = "0.2.0"
+dependencies = [
+ "arinn-music-common",
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "uuid",
+]
+
+[[package]]
 name = "arinn-plugin-sdk"
 version = "0.2.0"
 dependencies = [
@@ -178,6 +197,16 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "zbus",
+]
+
+[[package]]
+name = "arinn-plugin-yandex-music"
+version = "0.2.0"
+dependencies = [
+ "arinn-music-common",
+ "reqwest 0.12.28",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

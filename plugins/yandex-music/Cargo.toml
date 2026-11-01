@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "arinn-plugin-yandex-music"
+version.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+
+[dependencies]
+arinn-music-common = { path = "../music-common" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+serde_json.workspace = true
+tokio.workspace = true

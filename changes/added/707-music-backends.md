@@ -1,0 +1,1 @@
+- Begin the local/Yandex music implementation with provider-private catalogue, bounded audio probing, queue/radio primitives and a tested HTTP adapter. These foundations do not yet register providers, connect accounts or enable music playback in the shell; implementation remains in progress under #707.

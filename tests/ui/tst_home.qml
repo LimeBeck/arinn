@@ -858,10 +858,23 @@ TestCase {
         const menu = child("menuButton");
         const headerBottom = menu.mapToItem(home, 0, menu.height).y;
         const rows = ["continue", "favorites", "new"].map(name => child(name));
+        const overlapping = () => rows.filter(row => row.visible && row.opacity > 0.01
+                                                 && row.mapToItem(home, 0, 0).y < headerBottom)
+                                      .map(row => row.objectName + "@" + Math.round(row.mapToItem(home, 0, 0).y));
+        // Sample the frames of a transition: the translation animates, so a
+        // row must stay out of the header while it moves, not only after.
+        const sampleTransition = () => {
+            for (let i = 0; i < 40; ++i) {
+                const bad = overlapping();
+                verify(bad.length === 0, "during the transition: " + bad.join(", "));
+                wait(16);
+            }
+        };
         // Down twice: Continue → Favorites → New.
         keyClick(Qt.Key_Down);
         focused("entry-f");
         keyClick(Qt.Key_Down);
+        sampleTransition();
         focused("entry-n");
         tryVerify(() => home.homeOffset < 0);
         // The translation animates: wait until the rows reach their offset.
@@ -881,8 +894,10 @@ TestCase {
         }, 3000, "a shown row overlaps the header");
         verify(child("new").opacity === 1);
         verify(child("entry-n").mapToItem(home, 0, 0).y >= headerBottom);
-        // Back up: the Continue row returns at full opacity.
+        // Back up: the Continue row returns at full opacity, without
+        // crossing the header visibly on the way.
         keyClick(Qt.Key_Up);
+        sampleTransition();
         focused("entry-f");
         keyClick(Qt.Key_Up);
         focused("entry-a");

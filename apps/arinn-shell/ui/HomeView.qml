@@ -190,11 +190,17 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
-    // The menu button and the status area end at y 108. A row that the New
-    // row's offset moves above this line fades out, as the hero does, so no
-    // card slides under the header (#659).
+    // The menu button and the status area end at y 108. A row fades out as
+    // its on-screen top (the animated translation, not the target offset)
+    // nears this line: fully shown from 60 px below it, gone at it, so no card
+    // slides under the header during or after the New row's offset (#659).
     readonly property real headerClearance: 120
-    function rowClearsHeader(row) { return row.y + homeOffset >= headerClearance; }
+    readonly property real headerFade: 60
+    function rowHeaderOpacity(row) {
+        const top = row.y + homeShift.y;
+        return Math.max(0, Math.min(1, (top - headerClearance) / headerFade));
+    }
+    function rowClearsHeader(row) { return rowHeaderOpacity(row) >= 1; }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
@@ -815,6 +821,7 @@ FocusScope {
                 visible: root.homeState === "ready"
                 // A translation keeps all rows in a single logical screen.
                 transform: Translate {
+                    id: homeShift
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
@@ -836,8 +843,7 @@ FocusScope {
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"
-                    opacity: root.rowClearsHeader(continueRow) ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: 300 } }
+                    opacity: root.rowHeaderOpacity(continueRow)
                     x: 120; y: 372; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
@@ -851,8 +857,7 @@ FocusScope {
                 }
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
-                    opacity: root.rowClearsHeader(favoritesRow) ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: 300 } }
+                    opacity: root.rowHeaderOpacity(favoritesRow)
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds

@@ -171,9 +171,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: fsfe/reuse-action@v6
+      # Every section of deny.toml: licenses, advisories, bans and sources
+      # (#613).
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          command: check licenses
+          command: check
 
   docs:
     name: Documentation consistency

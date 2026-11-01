@@ -3,6 +3,7 @@
 [package]
 name = "arinn-platform-x11"
 version.workspace = true
+publish.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
 repository.workspace = true

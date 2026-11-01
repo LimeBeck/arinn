@@ -4,6 +4,7 @@
 [package]
 name = "arinn-plugin-sdk"
 version.workspace = true
+publish.workspace = true
 edition.workspace = true
 license = "MIT OR Apache-2.0"
 repository.workspace = true

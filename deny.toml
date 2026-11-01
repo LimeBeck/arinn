@@ -32,6 +32,14 @@ allow-wildcard-paths = true
 
 [advisories]
 version = 2
+# zbus 6 folds these crates into zbus itself; until the workspace moves to
+# zbus 6 (#671), zbus 5 still depends on them. They are unmaintained, with
+# no vulnerability reported.
+ignore = [
+  { id = "RUSTSEC-2026-0370", reason = "zvariant: part of zbus 5 until #671" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names: part of zbus 5 until #671" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive: part of zbus 5 until #671" },
+]
 
 [sources]
 unknown-registry = "deny"

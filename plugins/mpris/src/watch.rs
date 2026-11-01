@@ -19,7 +19,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, RwLock};
 use zbus::{
     Connection,
     proxy::CacheProperties,
@@ -54,11 +54,26 @@ impl Drop for AbortOnDrop {
     }
 }
 
+#[derive(Clone, PartialEq, Eq)]
+struct ProcessEvidence {
+    owner: String,
+    process: u32,
+    proxy_for: u32,
+}
+impl ProcessEvidence {
+    fn application(&self) -> u32 {
+        if self.proxy_for != 0 {
+            self.proxy_for
+        } else {
+            self.process
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ObservedPlayer {
     raw: RawPlayer,
-    process: u32,
-    proxy_for: u32,
+    evidence: ProcessEvidence,
 }
 
 #[derive(Clone)]
@@ -80,6 +95,7 @@ struct Tracked {
     sample: Option<Sample>,
     session: Option<Session>,
     track_id: Option<String>,
+    evidence: Option<ProcessEvidence>,
     latest: Arc<Mutex<PlayerRead>>,
     listener: Option<tokio::task::JoinHandle<()>>,
     reader: tokio::task::JoinHandle<()>,
@@ -88,6 +104,8 @@ struct Tracked {
 #[derive(Clone)]
 struct Bridge {
     connection: Connection,
+    // Serializes published process evidence with the SDK snapshot revision.
+    publication: Arc<RwLock<()>>,
     players: Arc<Mutex<BTreeMap<String, Tracked>>>,
     force: Arc<Mutex<HashSet<String>>>,
     /// A tracked bus name changed owner since the last publish. The next
@@ -100,6 +118,7 @@ struct Bridge {
 pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
     let bridge = Bridge {
         connection: connection.clone(),
+        publication: Arc::new(RwLock::new(())),
         players: Arc::new(Mutex::new(BTreeMap::new())),
         force: Arc::new(Mutex::new(HashSet::new())),
         moved: Arc::new(AtomicBool::new(false)),
@@ -124,9 +143,10 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
     }
 }
 
-/// `MediaProcess1` (ADR-0096): the process that owns a player's bus name,
-/// for the daemon only. Read at call time, so a name that moves to another
-/// process never reports a stale ID. Never logged.
+/// `MediaProcess1` (ADR-0096/0126): verified controlling application,
+/// for the daemon only. Revalidated against the published evidence at call
+/// time; a moved owner or changed proxy claim never returns a new identity
+/// under an old snapshot. Never logged.
 struct Processes {
     bridge: Bridge,
     registrations: tokio::sync::watch::Receiver<Option<RegistrationContext>>,
@@ -149,6 +169,39 @@ impl Processes {
         Ok(())
     }
 }
+impl Processes {
+    async fn final_process(
+        &self,
+        sender: &str,
+        generation: &str,
+        id: &str,
+        evidence: Option<ProcessEvidence>,
+        latest: &Arc<Mutex<PlayerRead>>,
+        fresh: Option<ObservedPlayer>,
+    ) -> production::Result<u32> {
+        // A registration or published snapshot that changed across the await
+        // must not give this caller evidence from a different session/owner.
+        let _publication = self.bridge.publication.read().await;
+        let players = self.bridge.players.lock().await;
+        self.check(sender, generation, id)?;
+        let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
+        if tracked.session.is_none() {
+            return Err(ErrorCode::NotFound.into());
+        }
+        let process = match (evidence, fresh) {
+            (Some(published), Some(read))
+                if Arc::ptr_eq(latest, &tracked.latest)
+                    && tracked.evidence.as_ref() == Some(&published)
+                    && read.evidence == published =>
+            {
+                published.application()
+            }
+            _ => media_association::UNKNOWN_PROCESS,
+        };
+        Ok(process)
+    }
+}
+
 #[zbus::interface(name = "org.arinn.MediaProcess1")]
 impl Processes {
     async fn get_process_id(
@@ -159,28 +212,29 @@ impl Processes {
     ) -> production::Result<u32> {
         let sender = header.sender().ok_or(ErrorCode::PermissionDenied)?.as_str();
         self.check(sender, generation, id)?;
-        let bus_name = {
+        let (bus_name, evidence, latest) = {
+            let _publication = self.bridge.publication.read().await;
             let players = self.bridge.players.lock().await;
+            self.check(sender, generation, id)?;
             let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
             if tracked.session.is_none() {
                 return Err(ErrorCode::NotFound.into());
             }
-            tracked.bus_name.clone()
+            (
+                tracked.bus_name.clone(),
+                tracked.evidence.clone(),
+                tracked.latest.clone(),
+            )
         };
-        let Ok(name) = zbus::names::BusName::try_from(bus_name.as_str()) else {
-            return Ok(media_association::UNKNOWN_PROCESS);
-        };
-        let process = match zbus::fdo::DBusProxy::new(&self.bridge.connection).await {
-            Ok(bus) => tokio::time::timeout(READ_TIMEOUT, bus.get_connection_unix_process_id(name))
-                .await
-                .ok()
-                .and_then(Result::ok)
-                .unwrap_or(media_association::UNKNOWN_PROCESS),
-            Err(_) => media_association::UNKNOWN_PROCESS,
-        };
-        // A registration that changed meanwhile must not get this answer.
-        self.check(sender, generation, id)?;
-        Ok(process)
+        let fresh = tokio::time::timeout(
+            READ_TIMEOUT,
+            read_observed(&self.bridge.connection, &bus_name),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok);
+        self.final_process(sender, generation, id, evidence, &latest, fresh)
+            .await
     }
 }
 
@@ -246,6 +300,7 @@ impl Bridge {
                     }
                     // Keep the transport sample/anchor across an identical
                     // owner replacement, but discard all process evidence.
+                    tracked.evidence = None;
                     tracked.latest = Arc::new(Mutex::new(PlayerRead::Pending));
                     tracked.reader = spawn_reader(
                         self.connection.clone(),
@@ -308,6 +363,7 @@ impl Bridge {
                     sample: None,
                     session: None,
                     track_id: None,
+                    evidence: None,
                     latest,
                     listener: Some(listener),
                     reader,
@@ -317,6 +373,7 @@ impl Bridge {
     }
 
     async fn publish(&self, service: &MediaService) -> Result<(), ErrorCode> {
+        let _publication = self.publication.write().await;
         // Taken first: a move during this publish is seen by the next one.
         let moved = self.moved.swap(false, Ordering::SeqCst);
         let names: Vec<Snapshot> = {
@@ -347,23 +404,28 @@ impl Bridge {
         let mut samples = BTreeMap::new();
         let mut tracks = BTreeMap::new();
         let mut published = BTreeMap::new();
+        let mut evidence = BTreeMap::new();
+        let mut suppressed = Vec::new();
+        let mut unverified = Vec::new();
         for player in names {
             let Some(read) = observed.get(&player.id) else {
+                unverified.push(player.id.clone());
                 if let Some(last) = player.published {
                     sessions.push(last);
                 }
                 continue;
             };
-            if read.proxy_for != 0
+            if read.evidence.proxy_for != 0
                 && observed
                     .iter()
                     .filter(|(id, candidate)| {
                         !plasma_proxy(&format!("{}{}", map::NAME_PREFIX, id))
-                            && candidate.process == read.proxy_for
+                            && candidate.evidence.process == read.evidence.proxy_for
                     })
                     .count()
                     == 1
             {
+                suppressed.push(player.id);
                 continue;
             }
             let (session, sample) = map::project(
@@ -382,13 +444,30 @@ impl Bridge {
             }
             tracks.insert(player.id.clone(), read.raw.track_id.clone());
             samples.insert(player.id.clone(), sample);
+            evidence.insert(player.id.clone(), read.evidence.clone());
             published.insert(player.id, session.clone());
             sessions.push(session);
         }
+        let mut process_changed = moved;
         {
             let mut players = self.players.lock().await;
+            for id in unverified {
+                if let Some(tracked) = players.get_mut(&id) {
+                    process_changed |= tracked.evidence.take().is_some();
+                }
+            }
+            for id in suppressed {
+                if let Some(tracked) = players.get_mut(&id) {
+                    tracked.session = None;
+                    tracked.evidence = None;
+                    tracked.track_id = None;
+                }
+            }
             for (id, sample) in samples {
                 if let Some(tracked) = players.get_mut(&id) {
+                    let next = evidence.remove(&id);
+                    process_changed |= tracked.evidence != next;
+                    tracked.evidence = next;
                     tracked.track_id = tracks.remove(&id).flatten();
                     tracked.sample = Some(sample);
                     tracked.session = published.remove(&id);
@@ -398,7 +477,7 @@ impl Bridge {
         service.replace(sessions, "available").await?;
         // Before registration there is no revision to move, and nothing the
         // daemon could have cached.
-        if moved {
+        if process_changed {
             let _ = service.touch().await;
         }
         Ok(())
@@ -618,10 +697,14 @@ async fn read_observed(connection: &Connection, name: &str) -> Result<ObservedPl
         .await
         .unwrap_or(0);
     let values = read_values(connection, owner.as_str()).await?;
-    let reported = values
-        .get("Metadata")
-        .map(dictionary)
-        .and_then(|metadata| metadata.get("kde:pid").and_then(integer))
+    // GetAll may omit a property whose getter failed. Missing/malformed
+    // required Metadata is a failed read, not a fresh empty native session.
+    let metadata = values.get("Metadata").ok_or(ErrorCode::Unavailable)?;
+    let metadata = HashMap::<String, OwnedValue>::try_from(metadata.clone())
+        .map_err(|_| ErrorCode::Unavailable)?;
+    let reported = metadata
+        .get("kde:pid")
+        .and_then(integer)
         .and_then(|pid| u32::try_from(pid).ok())
         .unwrap_or(0);
     let proxy_for =
@@ -635,10 +718,13 @@ async fn read_observed(connection: &Connection, name: &str) -> Result<ObservedPl
     }
     Ok(ObservedPlayer {
         raw: decode(&values),
-        process,
-        // Unverified proxies remain independent; they must not become native
-        // candidates merely because their parent could not be established.
-        proxy_for,
+        evidence: ProcessEvidence {
+            owner: owner.to_string(),
+            process,
+            // Unverified proxies remain independent; they must not become native
+            // candidates merely because their parent could not be established.
+            proxy_for,
+        },
     })
 }
 
@@ -744,4 +830,160 @@ fn dictionary(value: &OwnedValue) -> HashMap<String, OwnedValue> {
     // Artwork URLs stay out of the map the session is built from.
     map.remove("mpris:artUrl");
     map
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        process::{Child, Command, Stdio},
+    };
+
+    struct PrivateBus(Child);
+    impl Drop for PrivateBus {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_and_registration_fence_process_answers() {
+        let mut child = Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let _bus = PrivateBus(child);
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let generation = "00000000-0000-4000-8000-000000000002";
+        let owner = connection.unique_name().unwrap().to_string();
+        let (registration, registrations) =
+            tokio::sync::watch::channel(Some(RegistrationContext {
+                connection: connection.clone(),
+                daemon_owner: owner.clone(),
+                daemon_epoch: "00000000-0000-4000-8000-000000000001".into(),
+                generation: generation.into(),
+            }));
+        let evidence = ProcessEvidence {
+            owner: owner.clone(),
+            process: 101,
+            proxy_for: 100,
+        };
+        let read = ObservedPlayer {
+            raw: decode(&HashMap::new()),
+            evidence: evidence.clone(),
+        };
+        let latest = Arc::new(Mutex::new(PlayerRead::Ready(read.clone())));
+        let (session, _) = map::project("fixture", &read.raw, None, false, Instant::now(), 1);
+        let tracked = Tracked {
+            bus_name: "org.mpris.MediaPlayer2.fixture".into(),
+            sample: None,
+            session: Some(session),
+            track_id: None,
+            evidence: Some(evidence.clone()),
+            latest: latest.clone(),
+            listener: None,
+            reader: tokio::spawn(std::future::pending()),
+        };
+        let processes = Processes {
+            bridge: Bridge {
+                connection,
+                publication: Arc::new(RwLock::new(())),
+                players: Arc::new(Mutex::new(BTreeMap::from([("fixture".into(), tracked)]))),
+                force: Arc::new(Mutex::new(HashSet::new())),
+                moved: Arc::new(AtomicBool::new(false)),
+                wake: Arc::new(Notify::new()),
+            },
+            registrations,
+        };
+        // Poll at the contested boundary, without a timing sleep. The answer
+        // cannot observe evidence before the publisher advances its revision.
+        let publishing = processes.bridge.publication.write().await;
+        let answer = processes.final_process(
+            &owner,
+            generation,
+            "fixture",
+            Some(evidence.clone()),
+            &latest,
+            Some(read.clone()),
+        );
+        tokio::pin!(answer);
+        assert!(
+            answer
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        processes
+            .bridge
+            .players
+            .lock()
+            .await
+            .get_mut("fixture")
+            .unwrap()
+            .evidence
+            .as_mut()
+            .unwrap()
+            .proxy_for = 200;
+        drop(publishing);
+        assert_eq!(answer.await.unwrap(), 0);
+
+        processes
+            .bridge
+            .players
+            .lock()
+            .await
+            .get_mut("fixture")
+            .unwrap()
+            .evidence = Some(evidence.clone());
+        assert_eq!(
+            processes
+                .final_process(
+                    &owner,
+                    generation,
+                    "fixture",
+                    Some(evidence.clone()),
+                    &latest,
+                    Some(read.clone())
+                )
+                .await
+                .unwrap(),
+            100
+        );
+        // Registration can change while the published players lock is busy.
+        let players = processes.bridge.players.lock().await;
+        let answer = processes.final_process(
+            &owner,
+            generation,
+            "fixture",
+            Some(evidence),
+            &latest,
+            Some(read),
+        );
+        tokio::pin!(answer);
+        assert!(
+            answer
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        registration.send_replace(None);
+        drop(players);
+        assert!(
+            matches!(answer.await, Err(error) if error.to_string().contains("PermissionDenied"))
+        );
+        for tracked in processes.bridge.players.lock().await.values() {
+            tracked.reader.abort();
+        }
+    }
 }

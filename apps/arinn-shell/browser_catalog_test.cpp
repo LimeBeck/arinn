@@ -512,6 +512,40 @@ private slots:
     bus.unregisterService("org.arinn.Daemon1");
     QDBusConnection::disconnectFromBus("open-fixture");
   }
+  void internalTabsAreNotHomeServices() {
+    auto bus = QDBusConnection::sessionBus();
+    BrowserDaemon daemon;
+    daemon.scripted = true;
+    daemon.scriptedWindows = {{"w1", {}, true}, {"w2", {}, false}};
+    daemon.scriptedTabs = {{"t1", "w1", "Video", "https://example.test/watch", true, true},
+                           {"t2", "w2", "New tab", "chrome://newtab/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    BrowserCatalog catalog;
+    QTRY_COMPARE(catalog.tabs().size(), 2);
+    const auto services = catalog.property("serviceTabs").toList();
+    QCOMPARE(services.size(), 1);
+    QCOMPARE(services.first().toMap().value("title").toString(), QString("Video"));
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto home = engine.rootObjects().first()->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    QVERIFY(home);
+    QTRY_COMPARE(home->property("openServices").toList().size(), 1);
+    // The complete browser inventory still supports activating internal tabs.
+    const auto internal = catalog.tabs().at(1).toMap().value("id").toString();
+    catalog.activateTab(internal);
+    QTRY_COMPARE(daemon.activatedId, QString("t2"));
+    daemon.scriptedTabs.clear();
+    catalog.refresh();
+    QTRY_VERIFY(catalog.tabs().isEmpty());
+    QVERIFY(catalog.property("serviceTabs").toList().isEmpty());
+  }
   void snapshotActivateAndClose() {
     auto bus = QDBusConnection::sessionBus();
     BrowserDaemon daemon;

@@ -234,6 +234,17 @@ compact Up control; plain empty-folder text and an unavailable-root notice above
 retained entries. These controls are local to LibraryView; shared controls and
 historical handoff materials are unchanged.
 Season/episode focus raises the detail rail, keeping its captions in the viewport.
+The long-series regression covers wrapped headings, descriptions and resume progress,
+with and without season pills. It traverses twelve episodes in both directions,
+checks the focused still and caption against viewport coordinates, launches the
+last episode, and returns through the primary action to the opener.
+Horizontal episode focus reveals animate over 450 ms with the shared ease-out
+curve. A new key retargets from the current visual position; native pointer
+dragging or flicking cancels the focus animation. Season and detail changes
+cancel motion and reset the row, so an old target cannot move a new list.
+Offset changes suppress hover focus until 500 ms after the final movement.
+Tests observe intermediate positions, settling, rapid reversal, pointer flick
+interruption and season/detail resets as well as final focus and launch.
 Back from that rail restores the primary action before leaving detail. Physical
 episodes resolve their already-present parent series from the presentation model;
 `detailOpenerId` retains the original file card independently of the series detail

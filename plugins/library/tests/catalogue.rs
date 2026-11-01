@@ -803,6 +803,55 @@ fn ffprobe_supplies_duration_and_languages() {
 }
 
 #[test]
+fn ffprobe_output_larger_than_the_pipe_buffer_is_read() {
+    // A release with dozens of font attachments prints far more JSON than
+    // the 64 KiB pipe buffer; ffprobe must not block on a full pipe (#600).
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("Attached (2019).mkv"), b"film").unwrap();
+    let attachments: Vec<String> = (0..4000)
+        .map(|index| {
+            format!(
+                r#"{{"codec_type":"attachment","tags":{{"filename":"font-{index:04}.ttf","mimetype":"font/ttf"}}}}"#
+            )
+        })
+        .collect();
+    let json = format!(
+        r#"{{"format":{{"duration":"7"}},"streams":[{{"codec_type":"audio","tags":{{"language":"ja"}}}},{}]}}"#,
+        attachments.join(",")
+    );
+    assert!(json.len() > 4 * 65_536, "{}", json.len());
+    let output = scratch.path().join("probe.json");
+    fs::write(&output, json).unwrap();
+    let probe = scratch.path().join("ffprobe");
+    // dd writes through write(2); cat may splice page-cache folios into the
+    // pipe and never fill it.
+    fs::write(
+        &probe,
+        format!("#!/bin/sh\ndd if='{}' bs=4096 status=none\n", output.display()),
+    )
+    .unwrap();
+    fs::set_permissions(&probe, fs::Permissions::from_mode(0o755)).unwrap();
+    let mut store = open(&scratch);
+    let started = Instant::now();
+    store.scan(&settings(&root, true, probe)).unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(4),
+        "the scan waited for the probe timeout"
+    );
+    let film = store
+        .snapshot()
+        .unwrap()
+        .1
+        .into_iter()
+        .find(|item| item.kind == "film")
+        .unwrap();
+    assert_eq!(film.duration_us, 7_000_000);
+    assert_eq!(store.launch(&film.id).unwrap().audio_language, "ja");
+}
+
+#[test]
 fn missing_ffprobe_keeps_the_catalogue_and_unknown_duration() {
     let scratch = Scratch::new();
     let root = scratch.path().join("root");

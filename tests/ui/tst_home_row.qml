@@ -180,6 +180,35 @@ TestCase {
         mouseMove(suite, 10, suite.height - 10);
     }
 
+    function test_pointer_focus_brings_a_partly_visible_card_inside() {
+        // New has 180 px posters: the ninth spans x 1752 to 1932 at rest,
+        // across the safe right edge x 1824.
+        createTemporaryObject(backdropFactory, suite);
+        const entries = [];
+        for (let i = 0; i < 12; ++i)
+            entries.push({id: "p" + i, title: "Poster " + i});
+        const home = createTemporaryObject(homeRowFactory, suite, {variant: "poster", entries: entries});
+        tryCompare(home, "count", 12);
+        const poster = findChild(home, "entry-p8");
+        const slot = poster.parent;
+        compare(Math.round(slot.mapToItem(suite, 0, 0).x), 1752);
+        const y = Math.round(slot.mapToItem(suite, 0, slot.height / 2).y);
+        mouseMove(suite, 10, suite.height - 10);
+        home.pointerMode = true;
+        mouseMove(suite, 1790, y);
+        tryCompare(poster, "activeFocus", true);
+        // The card's body ends at the safe edge, so only its glow uses the
+        // widened clip; the next poster stays hidden.
+        tryVerify(() => Math.round(slot.mapToItem(suite, slot.width, 0).x) === 1824);
+        compare(findChild(home, "entry-p9").parent.opacity, 0);
+        verify(waitForRendering(home));
+        tryVerify(() => {
+            const pixels = grabImage(suite);
+            return Math.abs(pixels.red(1866, y) - pixels.red(1905, y)) <= 2;
+        }, 5000, "a poster shows past the safe edge");
+        mouseMove(suite, 10, suite.height - 10);
+    }
+
     function test_added_and_removed_entries() {
         // A removed card must not first bind to an empty entry.
         failOnWarning(/Unable to assign/);

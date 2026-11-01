@@ -109,6 +109,10 @@ FocusScope {
         if (left < next + margin) next = left - margin;
         else if (left + cellWidth > next + viewport.width - margin)
             next = left + cellWidth - viewport.width + margin;
+        // The viewport is wider than the safe area by its glow margins. Keep
+        // the card's body inside the safe right edge, e.g. a partly visible
+        // poster that the pointer focuses (#564).
+        if (left + cellWidth > next + width) next = left + cellWidth - width;
         viewport.contentX = Math.max(0, Math.min(next, Math.max(0, viewport.contentWidth - viewport.width)));
     }
     Keys.onPressed: event => {
@@ -125,8 +129,8 @@ FocusScope {
     }
     UiText { width: parent.width; text: root.title; role: "section"; maximumLineCount: 1; elide: Text.ElideRight }
     // Cards past the right safe edge must not show through the viewport's
-    // glow margin (#564). The viewport keeps its geometry, so scrolling and
-    // reveal() are unchanged; this item only limits what is painted.
+    // glow margin (#564). The viewport keeps its geometry and scrolling;
+    // this item only limits what is painted.
     Item {
         id: safeClip
         objectName: root.objectName + "SafeClip"

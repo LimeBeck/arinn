@@ -31,9 +31,13 @@ FocusScope {
     // The focused card's left edge relative to the row's safe area.
     readonly property real focusedLeft: selectedIndex * (cellWidth + gap) - viewport.contentX
     // The clip ends at the safe edges (handoff 01: x120 to x1824). It
-    // reaches past an edge only where the focused card's glow needs it.
-    readonly property real clipLeft: activeFocus && focusedLeft < glowMargin ? glowMargin : 0
-    readonly property real clipRight: activeFocus && focusedLeft + cellWidth > width - glowMargin ? glowMargin : 0
+    // reaches past an edge only for the focused card's glow: while the card's
+    // body is inside the safe area and near that edge. A card flicked across
+    // an edge is cut there like any other card.
+    readonly property bool focusedInside: activeFocus && focusedLeft >= 0
+        && focusedLeft + cellWidth <= width
+    readonly property real clipLeft: focusedInside && focusedLeft < glowMargin ? glowMargin : 0
+    readonly property real clipRight: focusedInside && focusedLeft + cellWidth > width - glowMargin ? glowMargin : 0
     signal selected(var entry)
     signal activated(string entryId)
     signal actionsRequested(string entryId)

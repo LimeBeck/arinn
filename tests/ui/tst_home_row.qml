@@ -209,6 +209,56 @@ TestCase {
         mouseMove(suite, 10, suite.height - 10);
     }
 
+    function test_flicked_focused_card_stays_inside_the_safe_edges() {
+        // A flick moves the row without reveal(). A focused card that ends up
+        // across a safe edge is cut there; the clip widens only for the glow
+        // of a card whose body is inside.
+        createTemporaryObject(backdropFactory, suite);
+        const entries = [];
+        for (let i = 0; i < 6; ++i)
+            entries.push({id: "abcdef"[i], title: "Item " + i});
+        const home = createTemporaryObject(homeRowFactory, suite, {entries: entries});
+        tryCompare(home, "count", 6);
+        const clip = findChild(home, "continueSafeClip");
+        const viewport = findChild(home, "continueViewport");
+        const edges = () => {
+            const left = Math.round(clip.mapToItem(suite, 0, 0).x);
+            return [left, left + Math.round(clip.width)];
+        };
+        const first = findChild(home, "entry-a");
+        const y = Math.round(first.mapToItem(suite, 0, first.height / 2).y);
+        const plain = (x, reference) => {
+            const pixels = grabImage(suite);
+            return Math.abs(pixels.red(x, y) - pixels.red(reference, y)) <= 2
+                && Math.abs(pixels.green(x, y) - pixels.green(reference, y)) <= 2;
+        };
+        mouseMove(suite, 10, suite.height - 10);
+        home.pointerMode = true;
+
+        // Left edge: the first card keeps focus while the row moves 100 px.
+        first.forceActiveFocus();
+        tryCompare(first, "activeFocus", true);
+        tryVerify(() => edges()[0] === 72);
+        viewport.contentX = 100;
+        tryVerify(() => edges()[0] === 120 && edges()[1] === 1824);
+        verify(waitForRendering(home));
+        tryVerify(() => plain(100, 30), 5000, "the focused card shows left of x 120");
+
+        // Right edge: the fifth card ends at the safe edge, then the row moves
+        // back 32 px and the card crosses it.
+        viewport.contentX = 432;
+        const fifth = findChild(home, "entry-e");
+        fifth.forceActiveFocus();
+        tryCompare(fifth, "activeFocus", true);
+        compare(viewport.contentX, 432);
+        tryVerify(() => edges()[1] === 1872);
+        viewport.contentX = 400;
+        tryVerify(() => edges()[0] === 120 && edges()[1] === 1824);
+        verify(waitForRendering(home));
+        tryVerify(() => plain(1840, 1905), 5000, "the focused card shows past x 1824");
+        mouseMove(suite, 10, suite.height - 10);
+    }
+
     function test_added_and_removed_entries() {
         // A removed card must not first bind to an empty entry.
         failOnWarning(/Unable to assign/);

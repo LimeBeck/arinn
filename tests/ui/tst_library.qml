@@ -508,6 +508,58 @@ TestCase {
         focused("detailPlay");
     }
 
+    function test_long_series_episode_navigation_data() {
+        return [{tag: "season", withSeason: true}, {tag: "no-season", withSeason: false}];
+    }
+
+    function test_long_series_episode_navigation(data) {
+        const list = [];
+        for (let i = 0; i < 12; ++i)
+            list.push({id: "ep" + i, title: "Episode " + (i + 1), seasonId: data.withSeason ? "s1" : "",
+                duration: "42 min", number: i + 1});
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series",
+            title: "A very long synthetic series title that wraps across two lines on the detail screen",
+            description: "A synthetic description that adds height above the episodes. ".repeat(12),
+            kind: "series", year: 2026, progress: 0.4,
+            seasons: data.withSeason ? [{id: "s1", title: "Season 1"}] : [], episodes: list}]});
+        library.openEntry("show");
+        focused("detailPlay");
+        keyClick(Qt.Key_Down);
+        if (data.withSeason) {
+            focused("season-s1");
+            keyClick(Qt.Key_Down);
+        }
+        for (let i = 0; i < list.length; ++i) {
+            focused("episode-ep" + i);
+            const still = child("episode-ep" + i);
+            const caption = child("episodeDuration-ep" + i);
+            tryVerify(() => {
+                const top = still.mapToItem(library, 0, 0);
+                const bottom = caption.mapToItem(library, caption.width, caption.height);
+                return top.x >= 0 && top.y >= 0 && top.x + still.width <= library.width
+                        && bottom.y <= library.height;
+            }, 1500, "Episode " + i + " and caption must be inside the viewport");
+            if (i + 1 < list.length)
+                keyClick(Qt.Key_Right);
+        }
+        keyClick(Qt.Key_Return);
+        compare(episodes.count, 1);
+        compare(episodes.signalArguments[0][1], "ep11");
+        for (let i = list.length - 2; i >= 0; --i) {
+            keyClick(Qt.Key_Left);
+            focused("episode-ep" + i);
+        }
+        keyClick(Qt.Key_Up);
+        if (data.withSeason) {
+            focused("season-s1");
+            keyClick(Qt.Key_Up);
+        }
+        focused("detailPlay");
+        tryVerify(() => child("detailPlay").mapToItem(library, 0, 0).y >= 0);
+        keyClick(Qt.Key_Escape);
+        focused("poster-show");
+    }
+
     function test_back_from_season_rail_returns_to_primary_action_before_grid() {
         createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
             seasons: [{id: "s1", title: "Season 1"}], episodes: [{id: "ep", title: "One", seasonId: "s1"}]}]});

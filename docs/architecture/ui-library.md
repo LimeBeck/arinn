@@ -234,6 +234,10 @@ compact Up control; plain empty-folder text and an unavailable-root notice above
 retained entries. These controls are local to LibraryView; shared controls and
 historical handoff materials are unchanged.
 Season/episode focus raises the detail rail, keeping its captions in the viewport.
+The long-series regression covers wrapped headings, descriptions and resume progress,
+with and without season pills. It traverses twelve episodes in both directions,
+checks the focused still and caption against viewport coordinates, launches the
+last episode, and returns through the primary action to the opener.
 Back from that rail restores the primary action before leaving detail. Physical
 episodes resolve their already-present parent series from the presentation model;
 `detailOpenerId` retains the original file card independently of the series detail

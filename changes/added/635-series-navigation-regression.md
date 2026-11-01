@@ -1,0 +1,1 @@
+- Add regression coverage for remote and keyboard navigation through long series: keep the selected episode and caption visible, reach the last episode, and return to the series opener.

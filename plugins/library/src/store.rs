@@ -175,6 +175,7 @@ struct DiskFile {
     rel: String,
     absolute: PathBuf,
     parsed: Parsed,
+    description: String,
     inode: Option<i64>,
     size: Option<i64>,
     mtime_sec: i64,
@@ -810,13 +811,16 @@ impl Store {
             .collect();
         let mut rows = Vec::new();
         let mut metas = HashMap::new();
+        let mut descriptions = HashMap::new();
         for (file, old) in paired {
             let meta = (file.parsed.kind == Kind::Episode).then(|| SeriesMeta {
                 title: file.parsed.series_title.clone(),
                 has_year: file.parsed.series_has_year,
                 year: file.parsed.series_year,
             });
+            let description = file.description.clone();
             let row = file_row(root_id, file, old);
+            descriptions.insert(row.id.clone(), description);
             if let Some(meta) = meta {
                 metas.insert(row.id.clone(), meta);
             }
@@ -847,8 +851,8 @@ impl Store {
             .into_iter()
             .filter(|row| row.kind == "series")
             .collect();
-        link_series(root, &mut rows, series_existing, &metas);
-        self.replace_root(root_id, &rows)
+        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        self.replace_root(root_id, &rows, &descriptions)
     }
 
     fn upsert_file(
@@ -888,8 +892,10 @@ impl Store {
             has_year: pair.0.parsed.series_has_year,
             year: pair.0.parsed.series_year,
         });
+        let description = pair.0.description.clone();
         let row = file_row(root_id, pair.0, pair.1);
         let id = row.id.clone();
+        let mut descriptions = HashMap::from([(id.clone(), description)]);
         let mut metas = HashMap::new();
         if let Some(meta) = meta {
             metas.insert(id.clone(), meta);
@@ -904,8 +910,8 @@ impl Store {
             .filter(|item| item.kind == "series")
             .collect();
         rows.push(row);
-        link_series(root, &mut rows, series_existing, &metas);
-        self.replace_root(root_id, &rows)?;
+        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        self.replace_root(root_id, &rows, &descriptions)?;
         let parent = path
             .parent()
             .and_then(|p| p.strip_prefix(root).ok())
@@ -915,12 +921,33 @@ impl Store {
         Ok(Some(id))
     }
 
-    fn replace_root(&mut self, root_id: &str, rows: &[Row]) -> Result<(), ErrorCode> {
+    fn replace_root(
+        &mut self,
+        root_id: &str,
+        rows: &[Row],
+        descriptions: &HashMap<String, String>,
+    ) -> Result<(), ErrorCode> {
         self.conn
             .execute_batch("SAVEPOINT arinn_replace")
             .map_err(|_| ErrorCode::Internal)?;
         let saved = (|| {
             self.write_root(root_id, rows)?;
+            for (id, description) in descriptions {
+                if description.is_empty() {
+                    self.conn
+                        .execute("DELETE FROM item_descriptions WHERE item_id = ?1", [id])
+                        .map_err(|_| ErrorCode::Internal)?;
+                } else {
+                    self.conn
+                        .execute(
+                            "INSERT INTO item_descriptions (item_id, description) VALUES (?1, ?2)
+                        ON CONFLICT(item_id) DO UPDATE SET description=excluded.description
+                        WHERE description != excluded.description",
+                            params![id, description],
+                        )
+                        .map_err(|_| ErrorCode::Internal)?;
+                }
+            }
             self.conn
                 .execute_batch("RELEASE SAVEPOINT arinn_replace")
                 .map_err(|_| ErrorCode::Internal)?;
@@ -944,45 +971,7 @@ impl Store {
             .unwrap_or_default()
             .as_micros()
             .clamp(1, i64::MAX as u128) as i64;
-        let root: String = self
-            .conn
-            .query_row("SELECT path FROM roots WHERE id = ?1", [root_id], |r| {
-                r.get(0)
-            })
-            .map_err(|_| ErrorCode::Internal)?;
-        let root = Path::new(&root);
         for row in rows {
-            if row.available {
-                let nfo = if row.kind == "series" {
-                    row.series_key
-                        .strip_prefix("dir:")
-                        .filter(|p| !p.is_empty())
-                        .map(|dir| root.join(dir).join("tvshow.nfo"))
-                } else {
-                    Some(root.join(&row.rel_path).with_extension("nfo"))
-                };
-                let description = nfo
-                    .and_then(|p| parse::read_nfo(&p, root))
-                    .and_then(|nfo| nfo.description)
-                    .unwrap_or_default();
-                if description.is_empty() {
-                    self.conn
-                        .execute(
-                            "DELETE FROM item_descriptions WHERE item_id = ?1",
-                            [&row.id],
-                        )
-                        .map_err(|_| ErrorCode::Internal)?;
-                } else {
-                    self.conn
-                        .execute(
-                            "INSERT INTO item_descriptions (item_id, description) VALUES (?1, ?2)
-                        ON CONFLICT(item_id) DO UPDATE SET description=excluded.description
-                        WHERE description != excluded.description",
-                            params![row.id, description],
-                        )
-                        .map_err(|_| ErrorCode::Internal)?;
-                }
-            }
             if row.available && matches!(row.kind.as_str(), "film" | "episode") {
                 self.conn.execute(
                     "INSERT OR IGNORE INTO item_additions (item_id, added_at_us) VALUES (?1, ?2)",
@@ -1643,6 +1632,7 @@ fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
         rel,
         absolute: path.to_path_buf(),
         parsed,
+        description: nfo.description.unwrap_or_default(),
         inode: i64::try_from(meta.ino()).ok(),
         size: i64::try_from(meta.len()).ok(),
         mtime_sec: meta.mtime(),
@@ -1773,6 +1763,7 @@ fn link_series(
     rows: &mut Vec<Row>,
     existing: Vec<Row>,
     metas: &HashMap<String, SeriesMeta>,
+    descriptions: &mut HashMap<String, String>,
 ) {
     let mut pool = existing;
     let mut created: HashMap<String, String> = HashMap::new();
@@ -1821,7 +1812,9 @@ fn link_series(
             }
         }
         if !dir.is_empty() {
+            descriptions.insert(series.id.clone(), String::new());
             if let Some(nfo) = parse::read_nfo(&root.join(&dir).join("tvshow.nfo"), root) {
+                descriptions.insert(series.id.clone(), nfo.description.unwrap_or_default());
                 if let Some(title) = nfo.title {
                     series.title = title;
                 }

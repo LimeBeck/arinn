@@ -854,10 +854,16 @@ fn decode_entities(input: &str) -> String {
     while let Some(start) = rest.find('&') {
         out.push_str(&rest[..start]);
         rest = &rest[start + 1..];
-        let Some(end) = rest.find(';') else {
+        // Do not consume another entity (or scan an unbounded suffix for
+        // each bare ampersand) while preserving malformed text literally.
+        let Some(end) = rest.find(|ch: char| ch == ';' || ch == '&' || ch.is_whitespace()) else {
             out.push('&');
             break;
         };
+        if rest.as_bytes()[end] != b';' {
+            out.push('&');
+            continue;
+        }
         let token = &rest[..end];
         rest = &rest[end + 1..];
         match token {
@@ -1140,5 +1146,7 @@ mod description_tests {
         let nfo =
             parse_nfo("<movie><title>A &#38; &#x1F31F; &unknown; B & C</title></movie>").unwrap();
         assert_eq!(nfo.title.as_deref(), Some("A & 🌟 &unknown; B & C"));
+        let mixed = parse_nfo("<movie><plot>A & B &amp; C &&#38; D</plot></movie>").unwrap();
+        assert_eq!(mixed.description.as_deref(), Some("A & B & C && D"));
     }
 }

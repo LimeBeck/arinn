@@ -311,7 +311,7 @@ impl Store {
 
     /// Provider-owned physical folders, with memberships using existing item IDs.
     pub fn hierarchy(&self) -> Result<(Vec<Folder>, Vec<FolderMember>), ErrorCode> {
-        let mut stmt = self.conn.prepare("SELECT f.id, f.root_id, f.rel_path, f.available, r.path FROM library_folders f JOIN roots r ON r.id=f.root_id ORDER BY f.root_id, f.rel_path")
+        let mut stmt = self.conn.prepare("SELECT f.id, f.root_id, f.rel_path, f.available, r.path FROM library_folders f JOIN roots r ON r.id=f.root_id ORDER BY f.root_id, f.rel_path LIMIT 100001")
             .map_err(|_| ErrorCode::Internal)?;
         let rows = stmt
             .query_map([], |r| {
@@ -326,6 +326,9 @@ impl Store {
             .map_err(|_| ErrorCode::Internal)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| ErrorCode::Internal)?;
+        if rows.len() > 100_000 {
+            return Err(ErrorCode::Unavailable);
+        }
         let ids: HashMap<_, _> = rows
             .iter()
             .map(|(id, root, rel, _, _)| ((root.clone(), rel.clone()), id.clone()))

@@ -264,7 +264,7 @@ Candidates: Steam provider (library, artwork, recent games), ES-DE provider, Jel
 
 Goal: browse and play music through one native Arinn interface, with tracks, albums, playlists and search supplied by separate providers. Opening service websites is not the intended music experience.
 
-Initial providers:
+Initial provider candidates (support is subject to feasibility checks):
 
 - Yandex Music;
 - Spotify;
@@ -277,7 +277,7 @@ Work proceeds in this order:
 1. Define requirements and check each service's API, authentication, playback and subscription restrictions. Record supported features and blockers before promising provider support; define local library scanning and metadata requirements.
 2. Design the shared music experience: source selection, search, artists, albums, playlists, track lists, playback queue and player controls. Include remote navigation and focus, account connection, loading, empty, unavailable and error states. Review the design before implementation.
 3. Specify the provider contract and playback ownership through an API review (R-09, R-10). Keep service-specific integration in providers and route shell commands through the daemon.
-4. Implement the shared interface and the five providers in separately scoped tasks, after their contracts and dependencies are ready.
+4. Implement the shared interface and providers that pass the feasibility checks in separately scoped tasks, after their contracts and dependencies are ready. Keep blocked candidates tracked with their restrictions and evidence; the owner decides whether to defer them or approve an alternative. Do not treat a blocked candidate as implemented or silently remove it from the requested scope.
 5. Verify browsing, search, playback and queue behaviour, account and service failures, local file availability and remote navigation. Qualify each provider separately; require explicit permission for real-desktop operator tests.
 
 ## Backlog

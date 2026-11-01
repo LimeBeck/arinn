@@ -62,14 +62,17 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     }
     let dir = series_dir(rel);
     let season_from_dir = dir.season;
-    let cleaned = clean_name(stem);
+    // Markers are found in the name as it is: a release suffix is dropped
+    // only from the parts around the marker (or from a film's whole name),
+    // so no marker form can be lost with a tag before it (#660).
+    let cleaned = clean(stem);
     let (mut text, mut year) = take_year(&cleaned);
     let mut marker = find_marker(&text).map(|(s, e, start, end)| (s, Some(e), start, end));
     if marker.is_none() {
         // Anime names (ADR-0085) keep a `TVn` season or the episode number
         // in `[...]` groups, which the plain cleaning drops. A standalone
         // `Snn` season marks a season the same way (ADR-0109).
-        let (alt, alt_year) = take_year(&clean_name(&unwrap_markers(stem)));
+        let (alt, alt_year) = take_year(&clean(&unwrap_markers(stem)));
         marker = season_marker(&alt);
         if marker.is_some() || season_from_dir.is_some() {
             text = alt;
@@ -79,17 +82,18 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     let without_year = text;
     let episode = marker.is_some() || season_from_dir.is_some();
     if !episode {
-        let title = fallback_title(&without_year, stem);
-        return Some(film(title, year));
+        // A film has no marker to keep: its whole name is cleaned, and a
+        // year before the release suffix is then found (`Film.2020.2160p`).
+        let (title, film_year) = take_year(&clean_name(stem));
+        return Some(film(fallback_title(&title, stem), film_year.or(year)));
     }
     let (season, episode_no, before, after) = match marker {
-        Some((season, episode_no, start, end)) => {
-            let before = trim_seps(&without_year[..start]);
-            // `S02E01.2160p.NF.WEB-DL...`: the release suffix is no episode
-            // title (#660).
-            let after = strip_release_tags(&trim_seps(&without_year[end..]));
-            (Some(season), episode_no, before, after)
-        }
+        Some((season, episode_no, start, end)) => (
+            Some(season),
+            episode_no,
+            trim_seps(&without_year[..start]),
+            trim_seps(&without_year[end..]),
+        ),
         // In a season folder the episode number may stand alone (ADR-0085).
         None => match loose_episode(&without_year) {
             Some((episode_no, start, end)) => (
@@ -101,6 +105,11 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
             None => (season_from_dir, None, without_year.clone(), String::new()),
         },
     };
+    // `Show.1080p.S02E03.Pilot.2019.WEB-DL`: release tags around the marker
+    // are no series or episode title; a year in them stays and is read.
+    let before = strip_release_tags(&before);
+    let (after, after_year) = take_year(&strip_release_tags(&after));
+    let year = year.or(after_year);
     let season = season.or(season_from_dir);
     let series_dir = dir.path;
     let (series_title, series_year) = match dir.title {
@@ -1223,6 +1232,23 @@ mod tests {
         assert_eq!(episode.season, 2);
         assert_eq!(episode.episode, 3);
         assert_eq!(episode.title, "Pilot");
+
+        // A loose episode marker after an early release tag keeps its number.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show/Season 2/Show.1080p.E02.mkv"),
+        )
+        .unwrap();
+        assert_eq!(episode.season, 2);
+        assert!(episode.has_episode);
+        assert_eq!(episode.episode, 2);
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show/Season 2/Show 1080p - 03.mkv"),
+        )
+        .unwrap();
+        assert!(episode.has_episode);
+        assert_eq!(episode.episode, 3);
 
         // A WEB-DLRip source with an attached group.
         let episode = parse_video(

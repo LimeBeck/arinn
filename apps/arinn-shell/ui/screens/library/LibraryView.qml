@@ -44,6 +44,7 @@ FocusScope {
     property bool detailRailActive: false
     onDetailRailActiveChanged: hoverDelay.restart()
     onDetailEntryIdChanged: {
+        if (episodeFlick) episodeFlick.resetScroll();
         detailRailActive = false;
         if (!detailEntryId.length) {
             detailOpenerId = "";
@@ -159,6 +160,7 @@ FocusScope {
     property int episodeIndex: 0
     property int seasonIndex: 0
     property string currentSeasonId: ""
+    onCurrentSeasonIdChanged: if (episodeFlick) episodeFlick.resetScroll()
     // Survives delegate destruction so a removed poster can restore a neighbour.
     property string focusPlace: "tab"
     readonly property int skeletonSlots: 14
@@ -457,7 +459,6 @@ FocusScope {
         if (season && currentSeasonId !== season.id) {
             currentSeasonId = season.id;
             episodeIndex = 0;
-            episodeFlick.contentX = 0;
         }
         Ui.Focus.take(item);
         return true;
@@ -505,6 +506,7 @@ FocusScope {
         const target = series || entry;
         focusedPosterId = id;
         detailOpenerId = id;
+        episodeFlick.resetScroll();
         detailRailActive = false;
         detailEntryId = target.id;
         episodeIndex = 0;
@@ -1392,6 +1394,7 @@ FocusScope {
                 }
                 Flickable {
                     id: episodeFlick
+                    objectName: "episodeScroller"
                     width: parent.width
                     height: episodeRow.height
                     visible: episodeRepeater.count > 0
@@ -1400,6 +1403,40 @@ FocusScope {
                     clip: true
                     flickableDirection: Flickable.HorizontalFlick
                     boundsBehavior: Flickable.StopAtBounds
+                    // Animate focus reveals only. Native pointer flicks retain
+                    // their own physics and can interrupt a keyboard reveal.
+                    function resetScroll() {
+                        episodeScroll.stop();
+                        cancelFlick();
+                        contentX = 0;
+                    }
+                    function reveal(cell) {
+                        episodeScroll.stop();
+                        cancelFlick();
+                        const left = cell.x;
+                        const right = left + cell.width;
+                        const target = Math.max(0, Math.min(contentWidth - width,
+                                left < contentX ? left : right > contentX + width ? right - width : contentX));
+                        if (Math.abs(target - contentX) < 0.5)
+                            return;
+                        episodeScroll.to = target;
+                        episodeScroll.start();
+                    }
+                    onContentXChanged: hoverDelay.restart()
+                    onDraggingChanged: if (dragging) episodeScroll.stop()
+                    onFlickingChanged: if (flicking) episodeScroll.stop()
+                    onContentWidthChanged: {
+                        episodeScroll.stop();
+                        contentX = Math.max(0, Math.min(contentX, contentWidth - width));
+                    }
+                    NumberAnimation {
+                        id: episodeScroll
+                        target: episodeFlick
+                        property: "contentX"
+                        duration: 450
+                        easing.type: Easing.BezierSpline
+                        easing.bezierCurve: Ui.Theme.easing
+                    }
                     Row {
                         id: episodeRow
                         spacing: 40
@@ -1435,12 +1472,7 @@ FocusScope {
                                             return;
                                         root.detailRailActive = true;
                                         root.episodeIndex = index;
-                                        const left = episodeCell.x;
-                                        const right = left + episodeCell.width;
-                                        if (left < episodeFlick.contentX)
-                                            episodeFlick.contentX = left;
-                                        else if (right > episodeFlick.contentX + episodeFlick.width)
-                                            episodeFlick.contentX = Math.max(0, right - episodeFlick.width);
+                                        episodeFlick.reveal(episodeCell);
                                     }
                                     onActivated: root.episodeRequested(root.detailEntryId, modelData.id)
                                     contentItem: Item {

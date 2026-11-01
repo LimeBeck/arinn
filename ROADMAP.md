@@ -280,6 +280,14 @@ Work proceeds in this order:
 4. Implement the shared interface and providers that pass the feasibility checks in separately scoped tasks, after their contracts and dependencies are ready. Keep blocked candidates tracked with their restrictions and evidence; the owner decides whether to defer them or approve an alternative. Do not treat a blocked candidate as implemented or silently remove it from the requested scope.
 5. Verify browsing, search, playback and queue behaviour, account and service failures, local file availability and remote navigation. Qualify each provider separately; require explicit permission for real-desktop operator tests.
 
+The design scope also includes provider-owned personal selections and continuous
+radio (My Wave, personal mixes and radio from a track), station pins and supported
+feedback. The prototype distinguishes finite playlists from replenished queues
+and covers refill/loading/retry, exhausted-buffer and feedback failure states;
+see [MU-11–MU-15](docs/architecture/music-discovery.md#proposed-common-requirements).
+Recommendations remain provider-owned; this is not an Arinn recommendation engine
+or evidence of a qualified streaming integration.
+
 ## Backlog
 
 - Multi-monitor edge cases: hot unplug, mirrored outputs, moving the Activity while Home is open.

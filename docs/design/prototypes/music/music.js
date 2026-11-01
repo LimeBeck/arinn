@@ -22,6 +22,84 @@
     ['First Light','3:42'],['Glass Rivers','4:18'],['The Long Way Home','5:06'],
     ['Soft Edges','3:57'],['Still Water','4:31'],['Northbound','3:28']
   ];
+  const stations = [
+    {id:'wave',source:'yandex',title:'My Wave',subtitle:'Personal radio · Made for you',kind:'radio'},
+    {id:'daily',source:'yandex',title:'Playlist of the Day',subtitle:'Your daily selection · 6 tracks',kind:'playlist'},
+    {id:'premiere',source:'yandex',title:'Premiere',subtitle:'New releases for you · 6 tracks',kind:'playlist'},
+    {id:'supermix',source:'youtube',title:'My Supermix',subtitle:'Your personal mix · Continuous radio',kind:'radio'},
+    {id:'discover',source:'youtube',title:'Discover Mix',subtitle:'Discover something new · 6 tracks',kind:'playlist'},
+    {id:'seed',source:'yandex',title:'Radio from First Light',subtitle:'Inspired by this track · Continuous radio',kind:'radio'}
+  ];
+  let radio = null;
+  let pinned = new Set(['wave','supermix']);
+  const ratings = new Map();
+  function radioFixture() {return s.designRadio && ['yandex','youtube'].includes(s.source);}
+  function radioNotice() {return '<div class="notice fixture-note">Design fixture · No service connected. Tracks and recommendations are synthetic.</div>';}
+  function stationGrid() {
+    const available=stations.filter(x=>x.source===s.source&&x.id!=='seed');
+    return `${radioNotice()}<nav class="tabs">${button('for-you','For you','recommendations','','selected pill')}${button('radio-tracks','Tracks','radio-tracks','','pill')}</nav><div class="section-title"><h2>Made for you</h2><span class="small">${esc(sourceName(s.source))}</span></div><div class="station-grid">${available.map((station,i)=>`<article class="station-card">${art(i)}<div class="station-copy"><span class="eyebrow">${station.kind==='radio'?'ENDLESS RADIO':'PERSONAL PLAYLIST'}</span><h2>${esc(station.title)}</h2><p>${esc(station.subtitle)}</p><div class="gap">${button('station-'+station.id,'Listen','station',station.id,'primary pill')}${station.kind==='radio'?button('pin-'+station.id,pinned.has(station.id)?'Unpin':'Pin station','pin',station.id,'pill'):''}</div></div></article>`).join('')}</div><div class="section-title"><h2>Pinned stations</h2></div><div class="gap">${stations.filter(x=>pinned.has(x.id)&&x.source===s.source).map(x=>button('pinned-'+x.id,esc(x.title),'station',x.id,'pill')).join('')||'<p class="small">Pin a station to find it here next time.</p>'}</div>`;
+  }
+  function radioQueueNotice() {
+    if(!radio)return '';
+    return `${radioNotice()}<div class="notice radio-status"><span class="grow"><strong>${esc(radio.station.title)}</strong><br>${radio.state==='empty'?'No upcoming tracks. Waiting for new recommendations.':radio.state==='loading'?'Finding the next tracks…':radio.state==='error'?'Could not load the next tracks. Current music is preserved.':'Continuous queue · More music arrives as you listen'}</span>${['error','empty'].includes(radio.state)?button('radio-retry','Try again','radio-retry','','primary pill'):''}${button('radio-stop','Stop radio','radio-stop','','pill')}</div>`;
+  }
+  function trimRadioWindow() {
+    const index=queue.findIndex(x=>x.key===session?.key);
+    if(index>2)queue=queue.slice(index-2);
+  }
+  function recordRadioEvent(event) {
+    radio.events.push(event);
+    radio.events=radio.events.slice(-32);
+  }
+  function appendRadioBatch() {
+    for(let i=0;i<3;i++) {
+      const n=++radio.batch,track=6+(n-1)%18;
+      tracks[track]=[['Distant Shore','Golden Hour','Open Skies'][i]+' '+String(n).padStart(2,'0'),'3:48'];
+      ratings.delete(radio.station.source+':'+track);
+      queue.push({track,album:i%albums.length,key:++serial});
+    }
+  }
+  function replenish() {
+    if(!radio||radio.state!=='ready')return;
+    const active=radio,revision=radio.revision||0,resume=queue.length===0;
+    active.state='loading';render(document.activeElement.id);
+    setTimeout(()=>{
+      if(radio!==active||(active.revision||0)!==revision)return;
+      const focusedKey=document.activeElement.dataset.entryKey;
+      appendRadioBatch();
+      if(resume){selectEntry(queue[0]);session.paused=false;}
+      trimRadioWindow();active.state='ready';
+      const top=content.scrollTop,preferred=focusedKey?'track-'+Math.max(0,queue.findIndex(x=>String(x.key)===focusedKey)):document.activeElement.id;
+      render(preferred);content.scrollTop=top;
+      if(focusedKey)document.getElementById(preferred)?.scrollIntoView({block:'nearest'});
+    },650);
+  }
+  function feedbackState() {
+    if(!session?.fixture)return '';
+    if(s.feedbackStatus==='loading')return '<div class="notice small">Saving your feedback… '+button('feedback-cancel','Cancel','feedback-cancel','','pill')+'</div>';
+    if(s.feedbackStatus==='error')return '<div class="notice small">Could not save your feedback. '+button('feedback-retry','Try again','feedback-retry','','pill')+'</div>';
+    return '';
+  }
+  function beginStation(id,confirmed=false) {
+    if(!radioFixture()) {openModal('settings');return;}
+    const station=id==='seed'?{...stations.find(x=>x.id==='seed'),source:s.source,title:'Radio from '+tracks[s.seedTrack||0][0]}:stations.find(x=>x.id===id&&x.source===s.source);
+    if(!station)return;
+    if(session&&!confirmed){openModal('replace-station',id);return;}
+    s.feedbackStatus='ready';
+    radio=station.kind==='radio'?{station,state:'ready',batch:0,events:[]}:null;
+    queue=[];
+    if(radio)appendRadioBatch();else queue=queueFor(0);
+    session={source:s.source,album:0,track:0,paused:false,fixture:true};selectEntry(queue[0]);
+    if(radio)recordRadioEvent({type:'started',key:session.key});
+    modal=null;drawModal();navigate({screen:'player',scene:'catalogue'});
+  }
+  function rateTrack(value) {
+    if(!session?.fixture||s.feedbackStatus==='loading')return;
+    const key=session.source+':'+session.track;
+    ratings.set(key,ratings.get(key)===value?null:value);
+    if(radio){recordRadioEvent({type:ratings.get(key)||'ratingCleared',key:session.key});if(ratings.get(key)==='dislike'){radio.revision=(radio.revision||0)+1;radio.state='ready';const current=queue.findIndex(x=>x.key===session.key);queue=queue.slice(0,current+1);appendRadioBatch();trimRadioWindow();}}
+    render('rating-'+value);
+  }
   const states = {
     loading:['Loading your music','Your catalogue will appear here.'],
     empty:['No music yet','Add a music folder to start building your library.'],
@@ -45,7 +123,7 @@
   let s = {screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene:'catalogue'};
   let session = null;
   let serial = 0;
-  const queueFor = album => tracks.map((_,track) => ({track,album,key:++serial}));
+  const queueFor = album => tracks.slice(0,6).map((_,track) => ({track,album,key:++serial}));
   const playlists = ['Evening rotation','Weekend paths','Quiet hours','On the move','Favourites'];
   let queue = queueFor(0);
   function selectEntry(entry) {if(session && entry) Object.assign(session,{track:entry.track,album:entry.album,key:entry.key});}
@@ -68,8 +146,8 @@
     else {navigate({screen:s.screen === 'home'?'catalogue':'home'});}
   }
   function openModal(kind,arg) {modalOpener=document.activeElement.id;modal={kind,arg};drawModal();}
-  function rows(indices=tracks.map((_,i)=>i),queueMode=false) {
-    return `<div class="list">${indices.map((entry,n)=>{const i=queueMode?entry.track:entry,album=queueMode?entry.album:s.album,current=queueMode?session?.key===entry.key:session?.track===i&&session?.album===album;return button(`track-${n}`,`<span class="number">${current?'♪':String(n+1).padStart(2,'0')}</span><span class="meta"><h3>${esc(tracks[i][0])}</h3><p>${s.scene==='metadata'?'Unknown artist · Unknown album':esc(albums[album][1])+' · '+esc(albums[album][0])}</p></span><span class="duration">${tracks[i][1]}</span>`,queueMode?'queue-action':'track',queueMode?n:i,`track ${current?'current':''}`);}).join('')}</div>`;
+  function rows(indices=tracks.slice(0,6).map((_,i)=>i),queueMode=false) {
+    return `<div class="list">${indices.map((entry,n)=>{const i=queueMode?entry.track:entry,album=queueMode?entry.album:s.album,current=queueMode?session?.key===entry.key:session?.track===i&&session?.album===album;return button(`track-${n}`,`<span class="number">${current?'♪':String(n+1).padStart(2,'0')}</span><span class="meta"><h3>${esc(tracks[i][0])}</h3><p>${s.scene==='metadata'?'Unknown artist · Unknown album':esc(albums[album][1])+' · '+esc(albums[album][0])}</p></span><span class="duration">${tracks[i][1]}</span>`,queueMode?'queue-action':'track',queueMode?n:i,`track ${current?'current':''}`).replace('<button',queueMode?'<button data-entry-key="'+entry.key+'"':'<button');}).join('')}</div>`;
   }
   function grid() {
     return `<div class="grid">${albums.map((a,i)=>button(`album-${i}`,`${art(i,s.tab==='Artists'?'artist':'')}<h3>${esc(s.tab==='Artists'?a[1]:s.tab==='Playlists'?playlists[i]:a[0])}</h3><p>${s.tab==='Artists'?'Artist':s.tab==='Playlists'?'Local library · 6 tracks':esc(a[1])+' · Album'}</p>`,s.tab==='Artists'?'artist':'detail',i,'card')).join('')}</div>`;
@@ -80,11 +158,15 @@
     let html = '';
     if (s.screen==='home') html=`<div class="state"><div class="eyebrow">YOUR SPACE</div><h2>Make yourself at home.</h2><p>Your music keeps its place.</p>${button('music','Open music','music','','primary pill')}</div>`;
     else if (s.screen==='player' && session) {
-      html=`<div class="now">${art(session.album)}<div class="info"><div class="eyebrow">${esc(sourceName(session.source))} · Demo session</div><h1>${esc(tracks[session.track][0])}</h1><p>${esc(albums[session.album][1])}</p><p class="muted">${esc(albums[session.album][0])}</p><div class="timeline"><div class="bar"><div class="fill"></div></div><div class="gap"><span>1:12</span><span>${tracks[session.track][1]}</span></div></div><div class="gap transport">${button('previous','Previous','previous')}${button('pause',session.paused?'Play':'Pause','pause','','primary')}${button('next','Next','next')}</div><div class="gap">${button('queue','View queue','queue','','pill')}${button('seek','Seek +10s','seek','','quiet')}</div></div></div>`;
+      html=`<div class="now">${art(session.album)}<div class="info"><div class="eyebrow">${esc(sourceName(session.source))} · ${session.fixture?'Design fixture · No service connected':'Demo session'}</div>${radio?'<div class="radio-label">'+esc(radio.station.title)+' · Endless radio'+(radio.state==='loading'?' · Loading more…':radio.state==='error'?' · Refill unavailable':'')+'</div>':''}<h1>${esc(tracks[session.track][0])}</h1><p>${esc(albums[session.album][1])}</p><p class="muted">${esc(albums[session.album][0])}</p><div class="timeline"><div class="bar"><div class="fill"></div></div><div class="gap"><span>1:12</span><span>${tracks[session.track][1]}</span></div></div><div class="gap transport">${button('previous','Previous','previous')}${button('pause',session.paused?'Play':'Pause','pause','','primary')}${button('next','Next','next')}</div><div class="gap">${button('queue','View queue','queue','','pill')}${button('seek','Seek +10s','seek','','quiet')}</div>${feedbackState()}${session.fixture&&s.feedbackStatus!=='loading'?'<div class="gap feedback">'+button('rating-like',ratings.get(session.source+':'+session.track)==='like'?'Liked':'Like','rating','like','pill')+button('rating-dislike',ratings.get(session.source+':'+session.track)==='dislike'?'Disliked':'Not for me','rating','dislike','pill')+button('track-radio','Track radio','track-menu',session.track,'quiet')+'</div>':''}</div></div>`;
     } else if (s.screen==='queue') {
-      html=`<div class="section-title"><h2>Up next</h2><span class="small">${queue.length} tracks · ${esc(sourceName(session?.source || s.source))}</span></div><p class="small">Select a track for queue actions.</p>${rows(queue,true)}`;
+      html=`${radioQueueNotice()}<div class="section-title"><h2>Up next</h2><span class="small">${queue.length} ${radio?'loaded tracks':'tracks'} · ${esc(sourceName(session?.source || s.source))}</span></div><p class="small">${radio?'This is the loaded part of a continuous station, not its total length.':'Select a track for queue actions.'}</p>${rows(queue,true)}`;
+    } else if(s.screen==='recommendations'&&radioFixture()) {
+      html=stationGrid();
+    } else if(s.screen==='radio-tracks'&&radioFixture()) {
+      html=`${radioNotice()}<div class="section-title"><h2>Tracks</h2><span class="small">Open a track menu to start its radio</span></div>${rows()}<div class="gap">${button('track-menu','First Light · Track actions','track-menu',0,'pill')}${button('recommendations','For you','recommendations','','pill')}</div>`;
     } else if (s.screen==='search') {
-      html=`<input id="query" class="search-field" placeholder="Search ${esc(sourceName(s.source))}" aria-label="Search music" value="${esc(s.query)}">${button('keyboard','On-screen keyboard','keyboard','','pill')}<div class="section-title"><h2>${s.query?'Results for “'+esc(s.query)+'”':'Find your next favourite'}</h2><span class="small">${esc(sourceName(s.source))}</span></div>${s.query?(tracks.some(t=>t[0].toLowerCase().includes(s.query.toLowerCase()))?rows(tracks.map((_,i)=>i).filter(i=>tracks[i][0].toLowerCase().includes(s.query.toLowerCase()))):'<p class="small">No matches. Try a different title.</p>'):'<p class="small">Search by track title in this synthetic catalogue.</p>'}`;
+      html=`<input id="query" class="search-field" placeholder="Search ${esc(sourceName(s.source))}" aria-label="Search music" value="${esc(s.query)}">${button('keyboard','On-screen keyboard','keyboard','','pill')}<div class="section-title"><h2>${s.query?'Results for “'+esc(s.query)+'”':'Find your next favourite'}</h2><span class="small">${esc(sourceName(s.source))}</span></div>${s.query?(tracks.slice(0,6).some(t=>t[0].toLowerCase().includes(s.query.toLowerCase()))?rows(tracks.slice(0,6).map((_,i)=>i).filter(i=>tracks[i][0].toLowerCase().includes(s.query.toLowerCase()))):'<p class="small">No matches. Try a different title.</p>'):'<p class="small">Search by track title in this synthetic catalogue.</p>'}`;
     } else if (s.screen==='artist') {
       html=`<div class="detail">${art(s.album,'artist')}<div><div class="eyebrow">ARTIST</div><h1>${esc(albums[s.album][1])}</h1><p>Albums in your local library</p></div></div><div class="grid">${button('release',`${art(s.album)}<h3>${esc(albums[s.album][0])}</h3><p>6 tracks · Album</p>`,'detail',s.album,'card')}</div>`;
     } else if (s.screen==='detail') {
@@ -102,7 +184,7 @@
   }
   function drawPlayer() {
     if(!session){player.innerHTML='';return;}
-    player.innerHTML=`${art(session.album)}${button('mini-title',`<h3>${esc(tracks[session.track][0])}</h3><p>${esc(albums[session.album][1])} · ${esc(sourceName(session.source))}</p>`,'player','','identity')}${button('mini-previous','Previous','previous','','quiet')}${button('mini-pause',session.paused?'Play':'Pause','pause','','primary pill')}${button('mini-next','Next','next','','quiet')}${button('mini-queue','Queue','queue','','pill')}`;
+    player.innerHTML=`${art(session.album)}${button('mini-title',`<h3>${esc(tracks[session.track][0])}</h3><p>${esc(albums[session.album][1])} · ${esc(sourceName(session.source))}${session.fixture?' · Design fixture':''}</p>`,'player','','identity')}${button('mini-previous','Previous','previous','','quiet')}${button('mini-pause',session.paused?'Play':'Pause','pause','','primary pill')}${button('mini-next','Next','next','','quiet')}${button('mini-queue','Queue','queue','','pill')}`;
   }
   function drawModal() {
     content.inert=Boolean(modal);player.inert=Boolean(modal);
@@ -111,17 +193,25 @@
     if(modal.kind==='sources') html=`<h2>Your music sources</h2><p>One place for your music. Choose where to browse.</p>${sources.map(([id,name,status],i)=>button(`source-${id}`,`<span class="source-icon">${i===0?'♪':name[0]}</span><span class="grow">${name}<span>${status}</span></span>${s.source===id?'✓':'›'}`,'source',id,'source-row')).join('')}${button('close-sheet','Done','back','','pill')}`;
     if(modal.kind==='settings') html=`<h2>${esc(sourceName(s.source))}</h2><p>${s.source==='local'?'Your local music folders. This preview never reads your files.':esc(sources.find(x=>x[0]===s.source)[2])+'. No account will be opened by this preview.'}</p>${s.source==='local'?'<div class="notice">Music collection <span class="tag">Demo root</span></div>':'<div class="notice">Account not connected</div>'}<div class="gap">${button('close-sheet','Back to music','back','','primary pill')}</div>`;
     if(modal.kind==='keyboard') html=`<h2>Search music</h2><p id="typed">${esc(s.query)||'Enter a title'}</p><div class="keyboard">${'ABCDEFGHIJKLMNOPQRSTUVWXYZ '.split('').map((c,i)=>button('key-'+i,c===' '?'Space':c,'key',c)).join('')}</div><div class="gap">${button('erase','Delete','erase')}${button('keyboard-done','Done','keyboard-done','','primary')}</div>`;
-    if(modal.kind==='queue-action') html=`<h2>${esc(tracks[queue[modal.arg].track][0])}</h2><p>Queue actions · ${esc(sourceName(session?.source||s.source))}</p><div class="list">${button('queue-play','Play now','queue-play',modal.arg)}${button('queue-up','Move earlier','queue-up',modal.arg)}${button('queue-remove','Remove from queue','queue-remove',modal.arg)}${button('close-sheet','Cancel','back','','quiet')}</div>`;
+    if(modal.kind==='queue-action') html=`<h2>${esc(tracks[queue[modal.arg].track][0])}</h2><p>Queue actions · ${esc(sourceName(session?.source||s.source))}</p><div class="list">${button('queue-play','Play now','queue-play',modal.arg)}${!radio?button('queue-up','Move earlier','queue-up',modal.arg)+button('queue-remove','Remove from queue','queue-remove',modal.arg):''}${button('close-sheet','Cancel','back','','quiet')}</div>`;
     if(modal.kind==='replace'){type='dialog';html=`<h2>Replace the current music?</h2><p>Playing this selection replaces the current queue. Your ${esc(sourceName(session.source))} session will stop.</p><div class="gap">${button('replace-cancel','Cancel','back','','pill')}${button('replace-confirm','Replace and play','replace',modal.arg,'primary pill')}</div>`;}
+    if(modal.kind==='track-menu') html=`<h2>${esc(tracks[Number(modal.arg)][0])}</h2><p>Track actions · ${esc(sourceName(s.source))}</p><div class="list">${button('seed-radio','Radio from this track','station','seed','primary pill')}${button('close-sheet','Cancel','back','','quiet')}</div>`;
+    if(modal.kind==='replace-station'){type='dialog';html=`<h2>Start this station?</h2><p>This replaces your current queue. Your existing music is kept until you confirm.</p><div class="gap">${button('replace-cancel','Cancel','back','','pill')}${button('station-confirm','Replace and listen','station-confirm',modal.arg,'primary pill')}</div>`;}
     if(modal.kind==='message'){type='dialog';html=`<h2>${esc(modal.arg)}</h2><p>This is an interaction preview. No audio is played.</p>${button('close-sheet','Done','back','','primary pill')}`;}
     overlay.innerHTML=`<div class="scrim"><section class="${type}" role="dialog" aria-modal="true" aria-label="Music options">${html}</section></div>`;
-    focus(modal.kind==='replace'?'replace-cancel':null);
+    focus(['replace','replace-station'].includes(modal.kind)?'replace-cancel':null);
   }
-  function start(track) {if(s.source!=='local'){openModal('settings');return;}session={source:s.source,album:s.album,track:Number(track),paused:false};queue=queueFor(s.album);selectEntry(queue[Number(track)]);modal=null;drawModal();drawPlayer();render(document.activeElement.id);}
+  function start(track) {if(s.source!=='local'){openModal('settings');return;}radio=null;session={source:s.source,album:s.album,track:Number(track),paused:false};queue=queueFor(s.album);selectEntry(queue[Number(track)]);modal=null;drawModal();drawPlayer();render(document.activeElement.id);}
   function play(track) {if(s.source!=='local'){openModal('settings');return;}if(session && (session.source!==s.source || session.album!==s.album)){openModal('replace',track);}else start(track);}
   function applyScene(scene) {
-    s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene};history=[];modal=null;session=null;queue=queueFor(0);
+    s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene,designRadio:false};history=[];modal=null;session=null;radio=null;tracks.length=6;queue=queueFor(0);
     if(['player','queue','home'].includes(scene)){session={source:'local',album:0,track:1,paused:false};s.screen=scene;selectEntry(queue[1]);}
+    if(['yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio'].includes(scene)) {
+      s.source=scene==='youtube-mixes'?'youtube':'yandex';s.designRadio=true;s.screen='recommendations';
+      if(scene==='track-radio')s.screen='radio-tracks';
+      if(scene.startsWith('radio-')||scene.startsWith('feedback-')){beginStation('wave',true);history=[];s.screen=scene==='radio-player'||scene.startsWith('feedback-')?'player':'queue';if(scene==='radio-loading')radio.state='loading';if(scene==='radio-error')radio.state='error';if(scene==='radio-empty'){radio.state='empty';queue=[];session.paused=true;}if(scene.startsWith('feedback-'))s.feedbackStatus=scene==='feedback-loading'?'loading':'error';}
+      render();return;
+    }
     if(scene==='sources'){render();openModal('sources');return;}
     if(scene==='search'){s.screen='search';s.query='Glass';}
     if(scene==='detail')s.screen='detail';
@@ -137,23 +227,34 @@
     else if(a==='music'){if(history.length)back();else navigate({screen:'catalogue',scene:'catalogue'});}
     else if(a==='sources')openModal('sources');
     else if(a==='settings')openModal('settings');
-    else if(a==='source'){modal=null;drawModal();navigate({source:arg,screen:'catalogue',scene:'catalogue'});}
-    else if(a==='local')navigate({source:'local',screen:'catalogue',scene:'catalogue'});
+    else if(a==='source'){modal=null;drawModal();navigate({source:arg,screen:'catalogue',scene:'catalogue',designRadio:false});}
+    else if(a==='local')navigate({source:'local',screen:'catalogue',scene:'catalogue',designRadio:false});
     else if(a==='tab'){s.tab=arg;render('tab-'+arg);}
     else if(a==='detail'||a==='artist')navigate({screen:a,album:Number(arg)});
     else if(a==='search'){if(s.source==='local')navigate({screen:'search',query:'',scene:'catalogue'});else openModal('settings');}
     else if(a==='keyboard')openModal('keyboard');
     else if(a==='key'||a==='erase'){s.query=a==='key'?s.query+arg:s.query.slice(0,-1);overlay.querySelector('#typed').textContent=s.query||'Enter a title';}
     else if(a==='keyboard-done'){modal=null;render('query');}
+    else if(a==='recommendations')navigate({screen:'recommendations'});
+    else if(a==='radio-tracks')navigate({screen:'radio-tracks'});
+    else if(a==='station')beginStation(arg);
+    else if(a==='station-confirm')beginStation(arg,true);
+    else if(a==='pin'){pinned.has(arg)?pinned.delete(arg):pinned.add(arg);render(b.id);}
+    else if(a==='track-menu'){if(radioFixture()){s.seedTrack=Number(arg);openModal('track-menu',arg);}else openModal('settings');}
+    else if(a==='rating')rateTrack(arg);
+    else if(a==='feedback-cancel'){s.feedbackStatus='ready';render('rating-like');}
+    else if(a==='feedback-retry'){s.feedbackStatus='ready';rateTrack('like');}
+    else if(a==='radio-retry'&&radio){radio.state='ready';replenish();}
+    else if(a==='radio-stop'){radio=null;session=null;queue=[];navigate({screen:radioFixture()?'recommendations':'catalogue'});}
     else if(a==='track')play(Number(arg));
     else if(a==='play')play(arg);
     else if(a==='replace')start(arg);
     else if(a==='pause'&&session){const id=b.id;session.paused=!session.paused;s.screen==='player'?render(id):(drawPlayer(),focus(id));}
-    else if(a==='next'||a==='previous'){if(session&&queue.length){const id=b.id,index=queue.findIndex(entry=>entry.key===session.key);const target=index<0?0:(index+(a==='next'?1:queue.length-1))%queue.length;selectEntry(queue[target]);render(id);}}
-    else if(a==='player')navigate({screen:'player',scene:'catalogue'});
-    else if(a==='queue')navigate({screen:'queue',source:session?.source||s.source,album:session?.album||0,scene:'catalogue'});
+    else if(a==='next'||a==='previous'){if(session&&queue.length){const id=b.id,index=queue.findIndex(entry=>entry.key===session.key);if(radio){if(a==='next'){recordRadioEvent({type:'skip',key:session.key});if(index+1<queue.length){selectEntry(queue[index+1]);session.paused=false;}if(queue.length-queue.findIndex(x=>x.key===session.key)-1<2)replenish();}else if(index>0)selectEntry(queue[index-1]);}else{const target=index<0?0:(index+(a==='next'?1:queue.length-1))%queue.length;selectEntry(queue[target]);}render(id);}}
+    else if(a==='player')navigate({screen:'player',scene:'catalogue',source:session.source,designRadio:Boolean(session.fixture)});
+    else if(a==='queue')navigate({screen:'queue',source:session?.source||s.source,album:session?.album||0,scene:'catalogue',designRadio:Boolean(session?.fixture)});
     else if(a==='queue-action')openModal('queue-action',Number(arg));
-    else if(a==='queue-play'){selectEntry(queue[Number(arg)]);modal=null;render('track-'+arg);}
+    else if(a==='queue-play'){selectEntry(queue[Number(arg)]);modal=null;if(radio&&queue.length-Number(arg)-1<2)replenish();render('track-'+arg);}
     else if(a==='queue-up'){const i=Number(arg);if(i>0)[queue[i-1],queue[i]]=[queue[i],queue[i-1]];modal=null;render('track-'+Math.max(0,i-1));}
     else if(a==='queue-remove'){queue.splice(Number(arg),1);modal=null;render('track-'+Math.min(Number(arg),queue.length-1));}
     else if(a==='add'){if(session&&session.source!==s.source)openModal('message','Choose the current source to add music');else{queue.push(...queueFor(s.album));openModal('message','Added to the demo queue');}}
@@ -178,7 +279,7 @@
     const next=els.filter(x=>x!==document.activeElement).map(x=>{const r=x.getBoundingClientRect(),xv=r.x+r.width/2-ox,yv=r.y+r.height/2-oy;return {x,along:xv*dx+yv*dy,cross:Math.abs(xv*dy-yv*dx)};}).filter(x=>x.along>1).sort((a,b)=>(a.along+a.cross*3)-(b.along+b.cross*3))[0];
     if(next)next.x.focus();
   });
-  const scenes=['catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
+  const scenes=['yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio','catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
   document.querySelector('#scene').innerHTML=scenes.map(x=>`<option>${x}</option>`).join('');
   document.querySelector('#scene').addEventListener('change',e=>applyScene(e.target.value));
   function resize(){document.documentElement.style.setProperty('--scale',Math.min(innerWidth/1920,innerHeight/1080));}

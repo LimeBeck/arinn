@@ -20,6 +20,8 @@ Click inside to take focus. Use arrow keys and Enter, Escape/Backspace for Back,
 and H for Home. Tab also works; sheets/dialogs trap it. Text search accepts a
 physical keyboard or the prototype's simple letter keyboard. Source selection,
 artists/albums/playlists/tracks, detail, player and queue are interactive.
+Provider-owned personal selections, track-seeded radio, station pins and feedback
+are explored in explicitly labelled radio review scenes.
 
 The page loads the repository's Onest font and local assets only. No CDN,
 external artwork, audio, network account requests, file scans or browser storage
@@ -72,6 +74,32 @@ The review scene selector and `?scene=NAME` deep links cover:
 | `offline`, `unreadable`, `codec` | Local availability failures |
 | `restricted`, `preview`, `no-device`, `rate`, `unavailable`, `restart`, `stale` | Capability, session and service failures |
 
+### Personal selections and radio
+
+After the owner's [CloudMus](https://github.com/cloudmus/cloudmus) comparison,
+the prototype includes a source landing for My Wave and finite personal
+playlists, and a separate YouTube personal-mix scene. Use the review selector or
+append `?scene=yandex-wave`, `?scene=youtube-mixes` or `?scene=track-radio`.
+These are labelled synthetic fixtures; ordinary source selection still shows
+availability blockers. No service radio, login or account feedback is implemented.
+
+- Listen starts the chosen fixture; a daily playlist is finite, distinct from
+  an endless station. Pin/unpin affects only the current preview.
+- Track actions start a seeded station. Replacing a session requires confirmation
+  with Cancel focused first.
+- The radio player displays its station and separate Like / Not for me actions.
+  They are local fixture state, not account sync. Dislike keeps the playing track
+  and replaces upcoming recommendations. `feedback-loading` and `feedback-error`
+  illustrate pending/cancel and failure/retry without optimistic success.
+- A low buffer triggers asynchronous synthetic replenishment. Stopped or
+  superseded sessions discard late batches. The queue trims old entries and
+  restores focus by entry identity; fixture track storage and event history are
+  bounded too. This does not qualify a production streaming backend.
+- `radio-player`, `radio-queue`, `radio-loading`, `radio-error` and `radio-empty`
+  cover feedback, the loaded window, pending refill, failure and an exhausted
+  buffer. Retry keeps the station. A station has no fictional total length.
+  Whole-queue shuffle/repeat and generated-entry edit controls are not offered.
+
 These are review scenes, not a model of every actual service. Recovery buttons
 reset the synthetic scene or open an explanation; they cannot repair accounts,
 files or service permission. Seek is illustrated, not a real transport command.
@@ -89,6 +117,15 @@ flows remain design/contract questions. No mixed-source playback is promised.
 | Queue | [Preview](screenshots/queue-1080.png) | — |
 | Missing root | [Preview](screenshots/offline-1080.png) | — |
 | Replace queue | [Preview](screenshots/replace-1080.png) | — |
+| My Wave and selections | [Preview](screenshots/yandex-wave-1080.png) | [Preview](screenshots/yandex-wave-2160.png) |
+| YouTube personal mixes | [Preview](screenshots/youtube-mixes-1080.png) | — |
+| Radio player and feedback | [Preview](screenshots/radio-player-1080.png) | [Preview](screenshots/radio-player-2160.png) |
+| Continuous queue | [Preview](screenshots/radio-queue-1080.png) | — |
+| Replenishment | [Preview](screenshots/radio-loading-1080.png) | — |
+| Refill error / retry | [Preview](screenshots/radio-error-1080.png) | — |
+| Exhausted radio buffer | [Preview](screenshots/radio-empty-1080.png) | — |
+| Feedback pending | [Preview](screenshots/feedback-loading-1080.png) | — |
+| Feedback failed | [Preview](screenshots/feedback-error-1080.png) | — |
 
 Captures are Chromium renders of this prototype, not production QML screenshots.
 Visual review inspected catalogue and player at 1080p. Uniform 4K rendering is
@@ -105,7 +142,7 @@ node --check docs/design/prototypes/music/music.js
 
 The verifier starts a loopback-only server, checks detail without autoplay,
 filtered-track identity, source/session isolation, queue edits, keyboard/sheet
-focus, safe Cancel, Home return, all 29 direct scenes and absence of external
+focus, safe Cancel, Home return, all 39 direct scenes and absence of external
 asset requests. `--capture` regenerates the captures. Override `--chromium` if
 the Chromium executable is elsewhere. This is not an operator test.
 
@@ -119,6 +156,15 @@ review found blocked-source search, edited-queue transport, input-blur click,
 playlist-title and cross-album identity bugs; each was fixed and covered by a
 browser regression case. The full rerun passed.
 This history does not imply a clean initial run or production acceptance.
+
+Radio checks cover finite/radio distinction, station pins, track seeds, feedback,
+automatic refill, retry, bounded queue history and focus during background trim.
+An early fixture-label assertion failed because uppercase rendered text was
+compared case-sensitively; it now normalizes case. An intermediate syntax error
+was caught by `node --check` and corrected. Independent review identified and
+prompted fixes for focus during trimming and history growth during repeated
+dislike/skip, with additional review scenes for exhausted-buffer and feedback
+failure/pending coverage. See PR validation for subsequent full rerun results.
 
 Owner review of these screens and scenarios is required before production UI
 work. #677 remains open, and provider feasibility blockers remain unchanged.

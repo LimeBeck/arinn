@@ -70,6 +70,37 @@ Cancel with safe initial focus. Never imply mixed-source queue support.
   have visible progress and cannot be repeated accidentally; display confirmed
   playback/queue state rather than optimistic success.
 
+## Personal selections and continuous radio
+
+Owner-directed addition on 2026-11-01 after reviewing
+[CloudMus](https://github.com/cloudmus/cloudmus): design provider-owned discovery
+alongside ordinary music-library browsing. Add a For you source landing with
+personal playlists and a distinct station treatment: My Wave, personal mixes and
+radio from a track where the provider supports them. A daily playlist remains
+finite unless its provider explicitly reports a continuous session.
+
+Show the station name on Now playing and Queue. A continuous queue displays the
+loaded upcoming window and the promise of more tracks, not a total track count
+or duration for the station. Cover normal replenishment, loading, an empty buffer,
+failure/retry, stopping, and replacement with Cancel initially focused. Current
+playback survives a refill failure; late batches from a stopped/replaced station
+must not reappear. Do not offer whole-queue shuffle/repeat or edit actions merely
+because ordinary playlists have them.
+
+Track menus expose Radio from this track only with the relevant capability.
+Pin/unpin stations for quick access. Like and dislike are separate account
+actions with distinct selected, pending and failure states; a dislike need not
+cut off the current track, but may change upcoming recommendations. Display
+service-confirmed state in production; the prototype only explores local fixture
+transitions. Keep playback start, natural completion and explicit skip distinct
+when preparing the future contract; service-specific feedback stays in providers.
+
+The [prototype](prototypes/music/README.md) includes explicit synthetic Yandex
+and YouTube radio review scenes. Normal source selection still shows unresolved
+availability and never grants a connection or playback capability. The research
+report's MU-11–MU-15 capture these proposed requirements. Production service
+permission, account integration, persistent pins and feedback sync are untested.
+
 ## Required state sheets
 
 Visual designs must cover loading, empty catalogue, no search results, missing

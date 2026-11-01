@@ -104,11 +104,89 @@ def main():
             assert page.locator("#replace-cancel").evaluate("el => el === document.activeElement")
             page.locator("#replace-cancel").click()
             assert "Glass Rivers" in page.locator("#mini-title").inner_text()
+            page.goto(url + "&scene=yandex-wave")
+            assert page.locator("#player button").count() == 0, "Browsing recommendations must not start radio"
+            page.locator("#pin-wave").click()
+            assert page.locator("#pinned-wave").count() == 0
+            page.locator("#pin-wave").click()
+            page.locator("#station-wave").click()
+            assert "My Wave" in page.locator(".radio-label").inner_text()
+            assert "no service connected" in page.locator(".now .eyebrow").inner_text().lower()
+            current = page.locator("#mini-title h3").inner_text()
+            page.locator("#rating-like").click()
+            assert page.locator("#rating-like").inner_text() == "Liked"
+            page.locator("#rating-dislike").click()
+            assert page.locator("#mini-title h3").inner_text() == current, "Dislike must not cut off the playing track"
+            assert page.locator("#rating-like").inner_text() == "Like"
+            page.locator("#queue").click()
+            assert page.locator(".track").count() == 4
+            page.locator("#mini-next").click()
+            page.locator("#mini-next").click()
+            page.wait_for_function("document.querySelectorAll('.track').length > 4")
+            assert "Continuous queue" in page.locator(".radio-status").inner_text()
+            assert page.locator("#queue-up").count() == 0
+            last = page.locator(".track").last
+            key = last.get_attribute("data-entry-key")
+            last.click()
+            page.locator("#queue-play").click()
+            page.wait_for_function("document.querySelector('.radio-status').textContent.includes('Continuous queue')")
+            assert page.evaluate("document.activeElement.dataset.entryKey") == key, "Background trim/refill must retain focused track identity"
+            page.goto(url + "&scene=radio-error")
+            assert page.locator(".track").count() == 3
+            page.locator("#radio-retry").click()
+            page.wait_for_function("document.querySelectorAll('.track').length === 6")
+            assert page.locator("#mini-title h3").inner_text() == "Distant Shore 01"
+            page.locator("#radio-stop").click()
+            assert page.locator("#player button").count() == 0
+            page.goto(url + "&scene=radio-error")
+            page.locator("#radio-retry").click()
+            page.locator("#radio-stop").click()
+            page.wait_for_timeout(800)
+            assert page.locator("#player button").count() == 0, "Late refill must not revive a stopped station"
+            page.goto(url + "&scene=radio-player")
+            page.locator("#sources").click()
+            page.locator("#source-local").click()
+            page.locator("#search").click()
+            page.locator("#query").fill("Distant Shore")
+            page.keyboard.press("Enter")
+            assert page.locator(".track").count() == 0, "Generated radio fixtures must not leak into local search"
+            page.goto(url + "&scene=yandex-wave")
+            page.locator("#station-daily").click()
+            assert page.locator(".radio-label").count() == 0, "A personal playlist is finite, not automatically a radio"
+            page.locator("#queue").click()
+            assert page.locator(".radio-status").count() == 0
+            page.goto(url + "&scene=track-radio")
+            page.locator("#track-menu").click()
+            page.locator("#seed-radio").click()
+            assert "Radio from First Light" in page.locator(".radio-label").inner_text()
+            page.goto(url + "&scene=youtube-mixes")
+            page.locator("#station-supermix").click()
+            assert "My Supermix" in page.locator(".radio-label").inner_text()
+            page.goto(url + "&scene=radio-empty")
+            assert page.locator(".track").count() == 0
+            assert "No upcoming tracks" in page.locator(".radio-status").inner_text()
+            page.locator("#radio-retry").click()
+            page.wait_for_function("document.querySelectorAll('.track').length === 3")
+            page.goto(url + "&scene=feedback-loading")
+            assert "Saving your feedback" in page.locator(".now").inner_text()
+            assert page.locator("#rating-like").count() == 0
+            page.locator("#feedback-cancel").click()
+            assert page.locator("#rating-like").count() == 1
+            page.goto(url + "&scene=feedback-error")
+            page.locator("#feedback-retry").click()
+            assert page.locator("#rating-like").inner_text() == "Liked"
+            page.goto(url + "&scene=yandex-wave")
+            page.locator("#station-wave").click()
+            for _ in range(22):
+                page.locator("#rating-dislike").click()
+                page.locator("#next").click()
+            page.locator("#queue").click()
+            assert page.locator(".track").count() <= 6, "Feedback replacement must also bound queue history"
             if args.capture:
                 (HERE / "screenshots").mkdir(exist_ok=True)
                 for width, height, scenes_to_capture in [
-                    (1920, 1080, ["catalogue", "sources", "detail", "player", "queue", "offline", "replace"]),
-                    (3840, 2160, ["catalogue", "player"]),
+                    (1920, 1080, ["catalogue", "sources", "detail", "player", "queue", "offline", "replace", "yandex-wave", "youtube-mixes", "radio-player", "radio-queue", "radio-loading", "radio-error", "radio-empty", "feedback-loading", "feedback-error"]),
+                    (3840, 2160, ["catalogue", "player", "yandex-wave", "radio-player"]),
                 ]:
                     page.set_viewport_size({"width": width, "height": height})
                     for scene in scenes_to_capture:

@@ -207,6 +207,54 @@ def main():
             assert "Paused" in page.locator(".home-status").inner_text()
             page.locator("#open-music-player").click()
             assert page.locator("#pause").get_attribute("aria-label") == "Play", "Opening a Home card preserves playback state"
+            for variant in ["inline", "balanced", "minimal"]:
+                for width, height in [(1920, 1080), (3840, 2160)]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    page.goto(url + "&scene=controls-" + variant)
+                    controls = page.locator(".now .transport button").all()
+                    assert len(controls) == (5 if variant == "minimal" else 8)
+                    centers = [el.bounding_box()["y"] + el.bounding_box()["height"] / 2 for el in controls]
+                    assert max(centers) - min(centers) < 2
+                    info = page.locator(".now .info").bounding_box()
+                    assert all(el.bounding_box()["x"] >= info["x"] and el.bounding_box()["x"] + el.bounding_box()["width"] <= info["x"] + info["width"] + 1 for el in controls)
+                    if variant == "balanced":
+                        pause = page.locator("#pause").bounding_box()
+                        assert abs(pause["x"] + pause["width"] / 2 - (info["x"] + info["width"] / 2)) < 2
+                if variant != "minimal":
+                    page.locator("#pause").focus()
+                    target, direction = "rating-dislike", "ArrowLeft" if variant == "balanced" else "ArrowRight"
+                    hops = 0
+                    while page.evaluate("document.activeElement.id") != target and hops < 10:
+                        page.keyboard.press(direction)
+                        hops += 1
+                    assert hops == (2 if variant == "balanced" else 5), (variant, hops)
+            page.locator("#pause").focus()
+            for _ in range(3):
+                page.keyboard.press("ArrowRight")
+            assert page.evaluate("document.activeElement.id") == "more"
+            page.keyboard.press("Enter")
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "more-dislike"
+            page.keyboard.press("Escape")
+            page.locator("#more").click()
+            assert page.locator("#more-like").count() == 1
+            page.keyboard.press("Escape")
+            assert page.locator("#more").evaluate("el => el === document.activeElement")
+            page.locator("#more").click()
+            page.locator("#more-like").click()
+            assert page.locator("#more").evaluate("el => el === document.activeElement")
+            page.locator("#more").click()
+            assert page.locator("#more-like").inner_text() == "Unlike"
+            assert page.locator("#more-like").get_attribute("aria-pressed") == "true"
+            page.locator("#more-dislike").click()
+            page.locator("#more").click()
+            assert page.locator("#more-dislike").inner_text() == "Undo dislike"
+            assert page.locator("#more-dislike").get_attribute("aria-pressed") == "true"
+            page.locator("#more-radio").click()
+            page.locator("#seed-radio").click()
+            assert page.locator("#replace-cancel").evaluate("el => el === document.activeElement")
+            page.locator("#replace-cancel").click()
+            assert page.locator("#more").evaluate("el => el === document.activeElement")
             if args.capture:
                 (HERE / "screenshots").mkdir(exist_ok=True)
                 for width, height, scenes_to_capture in [
@@ -227,6 +275,19 @@ def main():
                         "x": box["x"] - 12, "y": box["y"] - 12,
                         "width": box["width"] + 24, "height": box["height"] + 24,
                     })
+                for width, height in [(1920, 1080), (3840, 2160)]:
+                    page.set_viewport_size({"width": width, "height": height})
+                    for variant in ["inline", "balanced", "minimal"]:
+                        page.goto(url + "&scene=controls-" + variant)
+                        page.evaluate("document.fonts.ready")
+                        page.screenshot(path=str(HERE / "screenshots" / f"controls-{variant}-{height}.png"))
+                        if width == 1920:
+                            info = page.locator(".now .info").bounding_box()
+                            row = page.locator(".now .transport").bounding_box()
+                            page.screenshot(path=str(HERE / "screenshots" / f"controls-{variant}-strip.png"), clip={
+                                "x": info["x"] - 10, "y": row["y"] - 12,
+                                "width": info["width"] + 20, "height": row["height"] + 72,
+                            })
             assert not errors, errors
             assert all(request.startswith(origin + "/") for request in requests), "External requests"
             browser.close()

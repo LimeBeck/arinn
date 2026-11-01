@@ -64,6 +64,10 @@ station titles and recovery actions keep readable text.
 Place player actions in one horizontal row, grouped by transport, queue/seek and
 feedback/radio, while keeping the Play/Pause action prominent. Do not stack the
 compact icon groups into separate rows at the 1080p/4K target sizes.
+The owner requested several alternatives before selecting a final arrangement;
+the [control-layout comparison](prototypes/music/control-layouts.md) proposes a
+linear row, balanced groups with centered transport, and a minimal row with an
+overflow sheet. These are review alternatives, not three permanent user settings.
 
 The proposed Home music card belongs to the existing Continue row and follows its
 400×225 content-card geometry. Artwork, track and artist identify current music;

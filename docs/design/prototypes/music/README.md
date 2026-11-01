@@ -121,6 +121,11 @@ flows remain design/contract questions. No mixed-source playback is promised.
 
 ## Captures
 
+[Three player-control layouts and evaluation](control-layouts.md) compare the
+linear row, centered transport with balanced side groups, and a minimal row with
+More. The scenes are `controls-inline`, `controls-balanced` and
+`controls-minimal`. The current default remains the linear row pending selection.
+
 | Screen | 1080p | 4K |
 | --- | --- | --- |
 | Catalogue | [Preview](screenshots/catalogue-1080.png) | [Preview](screenshots/catalogue-2160.png) |
@@ -157,7 +162,7 @@ node --check docs/design/prototypes/music/music.js
 
 The verifier starts a loopback-only server, checks detail without autoplay,
 filtered-track identity, source/session isolation, queue edits, keyboard/sheet
-focus, safe Cancel, Home return, all 41 direct scenes and absence of external
+focus, safe Cancel, Home return, all 44 direct scenes and absence of external
 asset requests. `--capture` regenerates the captures. Override `--chromium` if
 the Chromium executable is elsewhere. This is not an operator test.
 

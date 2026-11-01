@@ -16,3 +16,6 @@
 
 /* One remote-navigation row for all player actions. */
 .now .transport{display:flex;flex-wrap:nowrap;gap:12px;align-items:center;margin:28px 0}.control-divider{height:32px;width:1px;flex-shrink:0;background:#ffffff20;margin:0 4px}.now .info{min-width:0}.now .transport .icon-button{width:68px;height:68px;min-width:68px!important;padding:18px!important}.now .transport .icon-button.primary{width:84px;height:84px;min-width:84px!important}.now>.art{flex-shrink:0}
+
+/* Review alternatives; all retain one horizontal row of primary actions. */
+.control-group{display:flex;align-items:center;gap:10px;min-width:0}.now .layout-balanced{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);column-gap:20px}.layout-balanced .feedback-group{justify-content:flex-start}.layout-balanced .secondary-group{justify-content:flex-end}.now .layout-balanced .icon-button{width:68px;height:68px;min-width:68px!important;padding:18px!important}.now .layout-balanced .icon-button.primary{width:84px;height:84px;min-width:84px!important}.now .layout-balanced .secondary-group .icon-button{width:68px;height:68px;min-width:68px!important;padding:18px!important}.now .layout-minimal .icon-button{width:76px;height:76px;min-width:76px!important}.now .layout-minimal .icon-button.primary{width:92px;height:92px;min-width:92px!important}

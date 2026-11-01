@@ -134,6 +134,7 @@
   const sourceName = id => sources.find(x => x[0] === id)[1];
   // Original SVG geometry; no external icon/font dependency.
   const icons = {
+    more:'<circle cx="5" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="19" cy="12" r="1.5" fill="currentColor"/>',
     play:'<path d="M8 4l13 8-13 8z" fill="currentColor" stroke="none"/>',
     pause:'<path d="M7 4h4v16H7zm7 0h4v16h-4z" fill="currentColor" stroke="none"/>',
     previous:'<path d="M5 4v16"/><path d="M19 5L9 12l10 7z" fill="currentColor" stroke="none"/>',
@@ -144,10 +145,11 @@
     dislike:'<g transform="translate(24 24) rotate(180)"><path d="M8 10l4-7c2 0 3 2 2 5h5c2 0 3 1 2 3l-2 8H8zM3 10h5v10H3z"/></g>',
     radio:'<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 0 0 0 10m10-10a7 7 0 0 1 0 10M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16"/>'
   };
-  function button(id,label,action,arg='',cls='') {
-    const kind=action==='pause'?(session?.paused?'play':'pause'):action==='play'?'play':action==='rating'?arg:id==='track-radio'?'radio':['previous','next','queue','seek'].includes(action)?action:null;
-    const pressed=action==='rating'?ratings.get(session?.source+':'+session?.track)===arg:null;
-    const attributes=kind?` aria-label="${esc(label)}" title="${esc(label)}" data-tooltip="${esc(label)}"${pressed===null?'':` aria-pressed="${pressed}"`}`:'';
+  function button(id,label,action,arg='',cls='',iconOnly=true) {
+    const kind=!iconOnly?null:action==='more'?'more':action==='pause'?(session?.paused?'play':'pause'):action==='play'?'play':action==='rating'?arg:id==='track-radio'?'radio':['previous','next','queue','seek'].includes(action)?action:null;
+    const isRating=['rating','more-rating'].includes(action);
+    const pressed=isRating?ratings.get(session?.source+':'+session?.track)===arg:null;
+    const attributes=kind||isRating?` aria-label="${esc(label)}" title="${esc(label)}" data-tooltip="${esc(label)}"${pressed===null?'':` aria-pressed="${pressed}"`}`:'';
     const body=kind?`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[kind]}</svg>`:label;
     return `<button id="${id}" class="${cls}${kind?' icon-button':''}" data-action="${action}" data-arg="${esc(arg)}"${attributes}>${body}</button>`;
   }
@@ -163,7 +165,11 @@
     if (prev) {s=prev.state;render(prev.focus);content.scrollTop=prev.scroll;}
     else {navigate({screen:s.screen === 'home'?'catalogue':'home'});}
   }
-  function openModal(kind,arg) {modalOpener=document.activeElement.id;modal={kind,arg};drawModal();}
+  function openModal(kind,arg) {
+    // Confirmation replaces a sheet; keep its surviving player opener.
+    if(!modal||!['replace','replace-station'].includes(kind))modalOpener=document.activeElement.id;
+    modal={kind,arg};drawModal();
+  }
   function rows(indices=tracks.slice(0,6).map((_,i)=>i),queueMode=false) {
     return `<div class="list">${indices.map((entry,n)=>{const i=queueMode?entry.track:entry,album=queueMode?entry.album:s.album,current=queueMode?session?.key===entry.key:session?.track===i&&session?.album===album;return button(`track-${n}`,`<span class="number">${current?'♪':String(n+1).padStart(2,'0')}</span><span class="meta"><h3>${esc(tracks[i][0])}</h3><p>${s.scene==='metadata'?'Unknown artist · Unknown album':esc(albums[album][1])+' · '+esc(albums[album][0])}</p></span><span class="duration">${tracks[i][1]}</span>`,queueMode?'queue-action':'track',queueMode?n:i,`track ${current?'current':''}`).replace('<button',queueMode?'<button data-entry-key="'+entry.key+'"':'<button');}).join('')}</div>`;
   }
@@ -174,13 +180,24 @@
     const title=tracks[session.track][0],artist=albums[session.album][1];
     return `<div class="home-music"><div class="eyebrow">YOUR SPACE</div><h2>Continue</h2><article class="home-music-card">${button('open-music-player',`${art(session.album)}<span class="home-card-scrim"></span><span class="home-status">♪ ${session.paused?'Paused':'Playing'}</span><span class="home-card-copy"><strong>${esc(title)}</strong><span>${esc(artist)}</span><small>${esc(sourceName(session.source))}${radio?' · '+esc(radio.station.title):''}</small></span>`,'player','','home-card-open')}${button('home-toggle',session.paused?'Play':'Pause','pause','','home-card-control primary')}</article><p class="small home-fixture">Design fixture · No service connected</p>${button('music','Back to music browsing','music','','quiet pill')}</div>`;
   }
+  function playerControls() {
+    const transport=button('previous','Previous','previous')+button('pause',session.paused?'Play':'Pause','pause','','primary')+button('next','Next','next');
+    const queueButton=button('queue','View queue','queue','','pill');
+    const secondary=queueButton+button('seek','Seek +10s','seek','','quiet');
+    const feedback=session.fixture&&s.feedbackStatus!=='loading'?button('rating-like',ratings.get(session.source+':'+session.track)==='like'?'Liked':'Like','rating','like','pill')+button('rating-dislike',ratings.get(session.source+':'+session.track)==='dislike'?'Disliked':'Not for me','rating','dislike','pill'):'';
+    const radioButton=session.fixture?button('track-radio','Track radio','track-menu',session.track,'quiet'):'';
+    const divider='<span class="control-divider" aria-hidden="true"></span>';
+    if(s.variant==='balanced')return `<div class="transport layout-balanced" aria-label="Player controls"><div class="control-group feedback-group">${feedback}</div><div class="control-group primary-group">${transport}</div><div class="control-group secondary-group">${secondary}${radioButton}</div></div>`;
+    if(s.variant==='minimal')return `<div class="transport layout-minimal" aria-label="Player controls">${transport}${divider}${queueButton}${button('more','More actions','more','','quiet')}</div>`;
+    return `<div class="gap transport" aria-label="Player controls">${transport}${divider}${secondary}${feedback?divider+feedback:''}${radioButton}</div>`;
+  }
   function render(preferred) {
     const isState = Boolean(states[s.scene]);
     const header = `<header>${button('back','‹','back','','quiet')}<div class="title"><div class="eyebrow">${s.screen==='home'?'ARINN':esc(sourceName(s.source))}</div><h1>${s.screen==='player'?'Now playing':s.screen==='queue'?'Play queue':s.screen==='home'?'Home':'Music'}</h1></div>${button('sources',esc(sourceName(s.source))+' ⌄','sources','','pill')}${s.source==='local'?button('search','Search','search','','pill'):''}${button('settings','Settings','settings','','quiet')}</header>`;
     let html = '';
     if (s.screen==='home') html=session?homeMusicCard():`<div class="state"><div class="eyebrow">YOUR SPACE</div><h2>Make yourself at home.</h2><p>Your music keeps its place.</p>${button('music','Open music','music','','primary pill')}</div>`;
     else if (s.screen==='player' && session) {
-      html=`<div class="now">${art(session.album)}<div class="info"><div class="eyebrow">${esc(sourceName(session.source))} · ${session.fixture?'Design fixture · No service connected':'Demo session'}</div>${radio?'<div class="radio-label">'+esc(radio.station.title)+' · Endless radio'+(radio.state==='loading'?' · Loading more…':radio.state==='error'?' · Refill unavailable':'')+'</div>':''}<h1>${esc(tracks[session.track][0])}</h1><p>${esc(albums[session.album][1])}</p><p class="muted">${esc(albums[session.album][0])}</p><div class="timeline"><div class="bar"><div class="fill"></div></div><div class="gap"><span>1:12</span><span>${tracks[session.track][1]}</span></div></div><div class="gap transport">${button('previous','Previous','previous')}${button('pause',session.paused?'Play':'Pause','pause','','primary')}${button('next','Next','next')}<span class="control-divider" aria-hidden="true"></span>${button('queue','View queue','queue','','pill')}${button('seek','Seek +10s','seek','','quiet')}${session.fixture&&s.feedbackStatus!=='loading'?'<span class="control-divider" aria-hidden="true"></span>'+button('rating-like',ratings.get(session.source+':'+session.track)==='like'?'Liked':'Like','rating','like','pill')+button('rating-dislike',ratings.get(session.source+':'+session.track)==='dislike'?'Disliked':'Not for me','rating','dislike','pill')+button('track-radio','Track radio','track-menu',session.track,'quiet'):''}</div>${feedbackState()}</div></div>`;
+      html=`<div class="now">${art(session.album)}<div class="info"><div class="eyebrow">${esc(sourceName(session.source))} · ${session.fixture?'Design fixture · No service connected':'Demo session'}</div>${radio?'<div class="radio-label">'+esc(radio.station.title)+' · Endless radio'+(radio.state==='loading'?' · Loading more…':radio.state==='error'?' · Refill unavailable':'')+'</div>':''}<h1>${esc(tracks[session.track][0])}</h1><p>${esc(albums[session.album][1])}</p><p class="muted">${esc(albums[session.album][0])}</p><div class="timeline"><div class="bar"><div class="fill"></div></div><div class="gap"><span>1:12</span><span>${tracks[session.track][1]}</span></div></div>${playerControls()}${feedbackState()}</div></div>`;
     } else if (s.screen==='queue') {
       html=`${radioQueueNotice()}<div class="section-title"><h2>Up next</h2><span class="small">${queue.length} ${radio?'loaded tracks':'tracks'} · ${esc(sourceName(session?.source || s.source))}</span></div><p class="small">${radio?'This is the loaded part of a continuous station, not its total length.':'Select a track for queue actions.'}</p>${rows(queue,true)}`;
     } else if(s.screen==='recommendations'&&radioFixture()) {
@@ -218,6 +235,7 @@
     if(modal.kind==='queue-action') html=`<h2>${esc(tracks[queue[modal.arg].track][0])}</h2><p>Queue actions · ${esc(sourceName(session?.source||s.source))}</p><div class="list">${button('queue-play','Play now','queue-play',modal.arg)}${!radio?button('queue-up','Move earlier','queue-up',modal.arg)+button('queue-remove','Remove from queue','queue-remove',modal.arg):''}${button('close-sheet','Cancel','back','','quiet')}</div>`;
     if(modal.kind==='replace'){type='dialog';html=`<h2>Replace the current music?</h2><p>Playing this selection replaces the current queue. Your ${esc(sourceName(session.source))} session will stop.</p><div class="gap">${button('replace-cancel','Cancel','back','','pill')}${button('replace-confirm','Replace and play','replace',modal.arg,'primary pill')}</div>`;}
     if(modal.kind==='track-menu') html=`<h2>${esc(tracks[Number(modal.arg)][0])}</h2><p>Track actions · ${esc(sourceName(s.source))}</p><div class="list">${button('seed-radio','Radio from this track','station','seed','primary pill')}${button('close-sheet','Cancel','back','','quiet')}</div>`;
+    if(modal.kind==='player-more') html=`<h2>More actions</h2><p>${esc(tracks[session.track][0])}</p><div class="list">${session.fixture?button('more-like',ratings.get(session.source+':'+session.track)==='like'?'Unlike':'Like','more-rating','like','',false)+button('more-dislike',ratings.get(session.source+':'+session.track)==='dislike'?'Undo dislike':'Not for me','more-rating','dislike','',false):''}${button('more-seek','Seek +10 seconds','more-seek','','',false)}${session.fixture?button('more-radio','Radio from this track','more-radio','','',false):''}${button('close-sheet','Back','back','','quiet')}</div>`;
     if(modal.kind==='replace-station'){type='dialog';html=`<h2>Start this station?</h2><p>This replaces your current queue. Your existing music is kept until you confirm.</p><div class="gap">${button('replace-cancel','Cancel','back','','pill')}${button('station-confirm','Replace and listen','station-confirm',modal.arg,'primary pill')}</div>`;}
     if(modal.kind==='message'){type='dialog';html=`<h2>${esc(modal.arg)}</h2><p>This is an interaction preview. No audio is played.</p>${button('close-sheet','Done','back','','primary pill')}`;}
     overlay.innerHTML=`<div class="scrim"><section class="${type}" role="dialog" aria-modal="true" aria-label="Music options">${html}</section></div>`;
@@ -228,6 +246,9 @@
   function applyScene(scene) {
     s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene,designRadio:false};history=[];modal=null;session=null;radio=null;tracks.length=6;queue=queueFor(0);
     if(['player','queue','home'].includes(scene)){session={source:'local',album:0,track:1,paused:false};s.screen=scene;selectEntry(queue[1]);}
+    if(scene.startsWith('controls-')) {
+      s.source='yandex';s.designRadio=true;s.variant=scene.slice(9);beginStation('wave',true);history=[];s.screen='player';render('pause');return;
+    }
     if(scene==='home-card'||scene==='home-card-paused') {
       s.source='yandex';s.designRadio=true;beginStation('wave',true);history=[];s.screen='home';session.paused=scene==='home-card-paused';render('home-toggle');return;
     }
@@ -267,6 +288,10 @@
     else if(a==='pin'){pinned.has(arg)?pinned.delete(arg):pinned.add(arg);render(b.id);}
     else if(a==='track-menu'){if(radioFixture()){s.seedTrack=Number(arg);openModal('track-menu',arg);}else openModal('settings');}
     else if(a==='rating')rateTrack(arg);
+    else if(a==='more')openModal('player-more');
+    else if(a==='more-rating'){modal=null;drawModal();rateTrack(arg);focus('more');}
+    else if(a==='more-seek'){modal=null;drawModal();focus('more');openModal('message','Seek preview');}
+    else if(a==='more-radio'){modal=null;drawModal();focus('more');s.seedTrack=session.track;openModal('track-menu',session.track);}
     else if(a==='feedback-cancel'){s.feedbackStatus='ready';render('rating-like');}
     else if(a==='feedback-retry'){s.feedbackStatus='ready';rateTrack('like');}
     else if(a==='radio-retry'&&radio){radio.state='ready';replenish();}
@@ -304,7 +329,7 @@
     const next=els.filter(x=>x!==document.activeElement).map(x=>{const r=x.getBoundingClientRect(),xv=r.x+r.width/2-ox,yv=r.y+r.height/2-oy;return {x,along:xv*dx+yv*dy,cross:Math.abs(xv*dy-yv*dx)};}).filter(x=>x.along>1).sort((a,b)=>(a.along+a.cross*3)-(b.along+b.cross*3))[0];
     if(next)next.x.focus();
   });
-  const scenes=['home-card','home-card-paused','yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio','catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
+  const scenes=['controls-inline','controls-balanced','controls-minimal','home-card','home-card-paused','yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio','catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
   document.querySelector('#scene').innerHTML=scenes.map(x=>`<option>${x}</option>`).join('');
   document.querySelector('#scene').addEventListener('change',e=>applyScene(e.target.value));
   function resize(){document.documentElement.style.setProperty('--scale',Math.min(innerWidth/1920,innerHeight/1080));}

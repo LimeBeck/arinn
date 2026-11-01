@@ -107,7 +107,8 @@ No real service account has been accessed and no service audio has been played.
 Focused commands, with the configured session Rust toolchain:
 
 Install FFmpeg (including `ffprobe`) before running the backend integration
-tests. The Arch CI build image includes it; the package smoke image does not.
+tests. Both CI build images include it, and package test dependencies declare
+it. The package smoke images do not include it.
 
 ```sh
 cargo fmt --all --check

@@ -18,6 +18,7 @@ Build-Depends:
  libunwind-dev,
  libssl-dev,
  dbus-daemon <!nocheck>,
+ ffmpeg <!nocheck>,
  libglib2.0-bin <!nocheck>,
  python3 <!nocheck>,
  python-is-python3 <!nocheck>,

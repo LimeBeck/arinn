@@ -30,7 +30,10 @@ rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
 `ambientTimeoutMinutes` for `Main.qml`, which binds the light field behind Home
 to `lightField`. An invalid hand-edited value of either key in `config.toml`
 reads as its default, with one warning line and no value in the log. The
-titles, descriptions and option titles of the `arinn`
+same source lists `browser_application` and, when search engines are
+packaged, `search_engine` under Applications. The daemon checks its own schema
+with the same rules as a provider schema, so every row has a category the
+screen knows (#682). The titles, descriptions and option titles of the `arinn`
 source are shown translated; provider texts are shown as sent.
 
 ## What the view receives

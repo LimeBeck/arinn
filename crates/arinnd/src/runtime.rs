@@ -105,6 +105,8 @@ struct State {
     /// Configured roots and their availability of `library` providers that
     /// list `LibraryRoots1` (ADR-0071), by provider id.
     library_roots: BTreeMap<String, arinn_protocol::library::Roots>,
+    library_hierarchy: BTreeMap<String, arinn_plugin_sdk::snapshots::HierarchySnapshots>,
+    library_hierarchy_ready: HashSet<String>,
     library_additions: BTreeMap<String, arinn_protocol::library::Additions>,
     library_additions_seen: BTreeMap<String, arinn_protocol::library::Additions>,
 }
@@ -164,6 +166,8 @@ impl Core {
                 error: String::new(),
                 listings: crate::listings::Listings::default(),
                 library_roots: BTreeMap::new(),
+                library_hierarchy: BTreeMap::new(),
+                library_hierarchy_ready: HashSet::new(),
                 library_additions: BTreeMap::new(),
                 library_additions_seen: BTreeMap::new(),
             })),
@@ -685,6 +689,8 @@ impl Core {
             let mut state = self.state.lock().await;
             if state.providers.get(id).is_some_and(|p| p.owner == owner) {
                 state.library_roots.remove(id);
+                state.library_hierarchy.remove(id);
+                state.library_hierarchy_ready.remove(id);
                 state.library_additions.remove(id);
                 state.library_additions_seen.remove(id);
             }
@@ -749,7 +755,8 @@ impl Core {
                     // Every daemon-served snapshot leases pages to its caller (#616).
                     if let Some(cache)=p.session_cache.as_mut(){cache.disconnect(name);}
                     if let Some(cache)=p.library_cache.as_mut(){cache.disconnect(name);}
-                    if let Some(cache)=p.resume_cache.as_mut(){cache.disconnect(name);}}}
+                    if let Some(cache)=p.resume_cache.as_mut(){cache.disconnect(name);}}
+                    for cache in state.library_hierarchy.values_mut(){cache.disconnect(name);}}
                     for download in self.downloads.lock().await.values_mut(){download.disconnect(name);}
                     let ids:Vec<_>=self.state.lock().await.providers.iter().filter(|(_,p)|p.owner==name).map(|(id,_)|id.clone()).collect();
                     for id in ids {self.unavailable(&id,name).await;}

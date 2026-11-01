@@ -392,6 +392,12 @@ Steam and EmulationStation MUST be available in the MVP as dedicated Home tiles,
 - MPRIS remains the integration for other players and does not have to implement tracks or thumbnails.
 - The wire contract is [ADR-0054](../adr/0054-media-and-library-wire-contract.md). `LibraryResume1` and `LibraryImport1` are optional. Launch resolves a local file for the daemon, which opens it through `MediaOpen1`. The shell never sees the file URI.
 
+Optional provider-owned folder topology uses the additive
+[LibraryHierarchy1 contract](../adr/0123-library-folder-hierarchy.md), scoped to
+the catalogue generation/revision. It preserves content/series identity and
+keeps filesystem traversal inside the provider; this contract alone does not
+implement folder navigation.
+
 ### 7.5. Downloads and Transmission
 
 ([ADR-0025](../adr/0025-downloads-mvp.md), [Transmission MVP](../architecture/transmission-mvp.md), [API review](../plugin-api/mvp-extensions.md))

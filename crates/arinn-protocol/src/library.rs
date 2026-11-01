@@ -138,6 +138,133 @@ pub struct LibraryPage {
     pub next_token: String,
 }
 
+/// Optional filesystem-independent folder tree. Root folders have no parent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Folder {
+    pub id: String,
+    pub parent_id: String,
+    pub title: String,
+    pub available: bool,
+}
+
+/// An existing catalogue item shown in a folder, not a second content identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct FolderMember {
+    pub folder_id: String,
+    pub item_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct HierarchyPage {
+    pub generation: String,
+    pub revision: u64,
+    pub folders: Vec<Folder>,
+    pub members: Vec<FolderMember>,
+    pub next_token: String,
+}
+
+pub const FEATURE_HIERARCHY: &str = "LibraryHierarchy1";
+
+impl HierarchyPage {
+    pub fn encoded_len(&self) -> Result<usize, ErrorCode> {
+        to_bytes(Context::new_dbus(LE, 0), &(self,))
+            .map(|b| b.len())
+            .map_err(|_| ErrorCode::InvalidArgument)
+    }
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        uuid::Uuid::parse_str(&self.generation).map_err(|_| ErrorCode::InvalidArgument)?;
+        if self.revision == 0
+            || self.folders.len() + self.members.len() > MAX_PAGE_ENTRIES
+            || self.encoded_len()? > MAX_BODY_BYTES
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if !self.next_token.is_empty() {
+            validation::id(&self.next_token)?;
+        }
+        validate_hierarchy_rows(&self.folders, &self.members)
+    }
+}
+
+fn validate_hierarchy_rows(folders: &[Folder], members: &[FolderMember]) -> Result<(), ErrorCode> {
+    for folder in folders {
+        validation::id(&folder.id)?;
+        if !folder.parent_id.is_empty() {
+            validation::id(&folder.parent_id)?;
+        }
+        validation::text(&folder.title)?;
+    }
+    for member in members {
+        validation::id(&member.folder_id)?;
+        validation::id(&member.item_id)?;
+    }
+    Ok(())
+}
+
+/// Validate the fully assembled hierarchy, not an individual page.
+pub fn validate_hierarchy(folders: &[Folder], members: &[FolderMember]) -> Result<(), ErrorCode> {
+    validate_hierarchy_rows(folders, members)?;
+    let by_id: HashMap<_, _> = folders.iter().map(|f| (f.id.as_str(), f)).collect();
+    if by_id.len() != folders.len() {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    // Bounded depth also bounds malicious validation cost for long chains.
+    for folder in folders {
+        let mut parent = folder.parent_id.as_str();
+        let mut depth = 0;
+        while !parent.is_empty() {
+            depth += 1;
+            if depth > 64 || parent == folder.id {
+                return Err(ErrorCode::InvalidArgument);
+            }
+            parent = by_id
+                .get(parent)
+                .ok_or(ErrorCode::InvalidArgument)?
+                .parent_id
+                .as_str();
+        }
+    }
+    let mut pairs = HashSet::new();
+    for member in members {
+        if !by_id.contains_key(member.folder_id.as_str())
+            || !pairs.insert((member.folder_id.as_str(), member.item_id.as_str()))
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_hierarchy_items(
+    folders: &[Folder],
+    members: &[FolderMember],
+    items: &[Item],
+) -> Result<(), ErrorCode> {
+    validate_hierarchy(folders, members)?;
+    let ids: HashSet<_> = items.iter().map(|i| i.id.as_str()).collect();
+    if members.iter().any(|m| !ids.contains(m.item_id.as_str())) {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    Ok(())
+}
+
+pub mod hierarchy {
+    use super::HierarchyPage;
+    #[zbus::proxy(
+        interface = "org.arinn.LibraryHierarchy1",
+        default_path = "/org/arinn/Provider1"
+    )]
+    pub trait LibraryHierarchy {
+        fn get_hierarchy(
+            &self,
+            generation: &str,
+            revision: u64,
+            token: &str,
+        ) -> zbus::Result<(HierarchyPage,)>;
+    }
+}
+pub use hierarchy::LibraryHierarchyProxy;
+
 /// A provider-owned top-level discovery time, in Unix microseconds. For a
 /// series this is the latest discovery of an episode, not a metadata edit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -566,6 +693,12 @@ pub use roots::LibraryRootsProxy;
     default_service = "org.arinn.Daemon1"
 )]
 pub trait LibraryApi {
+    fn get_hierarchy(
+        &self,
+        generation: &str,
+        revision: u64,
+        token: &str,
+    ) -> zbus::Result<(HierarchyPage,)>;
     fn get_library(&self, token: &str) -> zbus::Result<(LibraryPage,)>;
     fn get_item(&self, generation: &str, id: &str) -> zbus::Result<(Item,)>;
     fn features(&self) -> zbus::Result<Vec<String>>;
@@ -617,6 +750,67 @@ mod tests {
             fanart: String::new(),
             available: true,
         }
+    }
+
+    #[test]
+    fn hierarchy_checks_cycles_orphans_members_and_wire_bounds() {
+        let folder = Folder {
+            id: "root".into(),
+            parent_id: String::new(),
+            title: "Media".into(),
+            available: true,
+        };
+        let child = Folder {
+            id: "child".into(),
+            parent_id: "root".into(),
+            title: "Films".into(),
+            available: false,
+        };
+        let member = FolderMember {
+            folder_id: "child".into(),
+            item_id: "film-1".into(),
+        };
+        validate_hierarchy_items(
+            &[folder.clone(), child.clone()],
+            std::slice::from_ref(&member),
+            &[film()],
+        )
+        .unwrap();
+        assert!(validate_hierarchy(std::slice::from_ref(&child), &[]).is_err());
+        assert!(validate_hierarchy(&[folder.clone(), folder.clone()], &[]).is_err());
+        let mut cycle = folder.clone();
+        cycle.parent_id = "child".into();
+        assert!(validate_hierarchy(&[cycle, child.clone()], &[]).is_err());
+        assert!(
+            validate_hierarchy(
+                &[folder.clone(), child.clone()],
+                &[member.clone(), member.clone()]
+            )
+            .is_err()
+        );
+        assert!(
+            validate_hierarchy_items(
+                &[folder.clone(), child.clone()],
+                std::slice::from_ref(&member),
+                &[]
+            )
+            .is_err()
+        );
+        let page = HierarchyPage {
+            generation: uuid::Uuid::new_v4().to_string(),
+            revision: 1,
+            folders: vec![folder, child],
+            members: vec![member],
+            next_token: String::new(),
+        };
+        page.validate().unwrap();
+        assert_eq!(HierarchyPage::SIGNATURE.to_string(), "(sta(sssb)a(ss)s)");
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &(page.clone(),)).unwrap();
+        let (decoded,): (HierarchyPage,) = encoded.deserialize().unwrap().0;
+        assert_eq!(decoded, page);
+        let mut bad = page;
+        bad.revision = 0;
+        assert!(bad.validate().is_err());
     }
 
     #[test]

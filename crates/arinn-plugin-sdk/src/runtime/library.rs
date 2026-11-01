@@ -5,11 +5,12 @@
 //! root availability (ADR-0071).
 //! Launch returns a file URI to the daemon only. The SDK does not log it.
 use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
-use crate::snapshots::{LibrarySnapshots, ResumeSnapshots};
+use crate::snapshots::{HierarchySnapshots, LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Addition, Additions, Collection, FEATURE_ADDITIONS, FEATURE_IMPORT, FEATURE_RESUME,
-        FEATURE_ROOTS, ImportCandidate, Item, LibraryPage, Resume, ResumePage, RootState, Roots,
+        self, Addition, Additions, Collection, FEATURE_ADDITIONS, FEATURE_HIERARCHY,
+        FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, Folder, FolderMember, HierarchyPage,
+        ImportCandidate, Item, LibraryPage, Resume, ResumePage, RootState, Roots,
     },
     media::{self, PlaybackSource},
     production::{self, PROVIDER_PATH},
@@ -60,8 +61,14 @@ pub struct LibraryExtensions {
     import: Option<Arc<dyn LibraryImportHandler>>,
     roots: bool,
     additions: bool,
+    hierarchy: bool,
 }
 impl LibraryExtensions {
+    pub fn hierarchy(mut self) -> Self {
+        self.hierarchy = true;
+        self
+    }
+
     /// Serve bounded, provider-owned discovery times (`LibraryAdditions1`).
     /// Publish them atomically with the catalogue using `replace_with_additions`.
     pub fn additions(mut self) -> Self {
@@ -102,6 +109,9 @@ struct Data {
     resume_revision: u64,
     roots: Vec<RootState>,
     additions: Vec<Addition>,
+    folders: Vec<Folder>,
+    members: Vec<FolderMember>,
+    hierarchy_snapshots: Option<HierarchySnapshots>,
     roots_revision: u64,
 }
 
@@ -156,6 +166,9 @@ impl LibraryService {
                 resume_revision: 0,
                 roots: Vec::new(),
                 additions: Vec::new(),
+                folders: Vec::new(),
+                members: Vec::new(),
+                hierarchy_snapshots: None,
                 roots_revision: 0,
             })),
             handler: Arc::new(handler),
@@ -178,8 +191,15 @@ impl LibraryService {
         items: Vec<Item>,
         backend: &str,
     ) -> Result<(), ErrorCode> {
-        self.replace_snapshot(collections, items, backend, Vec::new())
-            .await
+        self.replace_snapshot(
+            collections,
+            items,
+            backend,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
     }
 
     /// Atomically publish discovery metadata and its matching catalogue.
@@ -194,7 +214,31 @@ impl LibraryService {
         if !self.extensions.additions {
             return Err(ErrorCode::Unsupported);
         }
-        self.replace_snapshot(collections, items, backend, additions)
+        self.replace_snapshot(
+            collections,
+            items,
+            backend,
+            additions,
+            Vec::new(),
+            Vec::new(),
+        )
+        .await
+    }
+
+    /// Atomically replace the catalogue, additions and folder hierarchy.
+    pub async fn replace_with_hierarchy(
+        &self,
+        collections: Vec<Collection>,
+        items: Vec<Item>,
+        backend: &str,
+        additions: Vec<Addition>,
+        folders: Vec<Folder>,
+        members: Vec<FolderMember>,
+    ) -> Result<(), ErrorCode> {
+        if !self.extensions.hierarchy || (!additions.is_empty() && !self.extensions.additions) {
+            return Err(ErrorCode::Unsupported);
+        }
+        self.replace_snapshot(collections, items, backend, additions, folders, members)
             .await
     }
 
@@ -204,13 +248,27 @@ impl LibraryService {
         items: Vec<Item>,
         backend: &str,
         additions: Vec<Addition>,
+        folders: Vec<Folder>,
+        members: Vec<FolderMember>,
     ) -> Result<(), ErrorCode> {
+        library::validate_hierarchy_items(&folders, &members, &items)?;
         library::validate_addition_items(&additions, &items)?;
         library::validate_entries(&collections, &items)?;
         backend_state(backend)?;
         let update = {
             let mut data = self.data.lock().await;
-            let backend_changed = data.backend != backend || data.additions != additions;
+            let backend_changed = data.backend != backend
+                || data.additions != additions
+                || data.folders != folders
+                || data.members != members;
+            // Prepare the hierarchy first so a failed bounded-page build changes nothing.
+            let mut hierarchy = if data.snapshots.is_some() && self.extensions.hierarchy {
+                let mut h = HierarchySnapshots::new(&data.generation)?;
+                h.publish(folders.clone(), members.clone())?;
+                Some(h)
+            } else {
+                None
+            };
             let before = data.revision;
             let revision = if let Some(snapshots) = data.snapshots.as_mut() {
                 let mut revision = snapshots.publish(collections.clone(), items.clone())?;
@@ -224,6 +282,18 @@ impl LibraryService {
             if revision > 0 {
                 data.revision = revision;
             }
+            if let Some(h) = hierarchy.as_mut() {
+                h.import(revision, folders.clone(), members.clone())?;
+            }
+            if hierarchy.is_some() {
+                if let Some(current) = data.hierarchy_snapshots.as_mut() {
+                    current.import(revision, folders.clone(), members.clone())?;
+                } else {
+                    data.hierarchy_snapshots = hierarchy;
+                }
+            }
+            data.folders = folders;
+            data.members = members;
             data.additions = additions;
             data.collections = collections;
             data.items = items;
@@ -303,6 +373,9 @@ impl LibraryService {
         }
         if self.extensions.assets.is_some() {
             names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
+        }
+        if self.extensions.hierarchy {
+            names.push(FEATURE_HIERARCHY.into());
         }
         if self.extensions.additions {
             names.push(FEATURE_ADDITIONS.into());
@@ -422,6 +495,35 @@ impl LibraryService {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+
+#[derive(Clone)]
+struct HierarchyIface(LibraryService);
+#[zbus::interface(name = "org.arinn.LibraryHierarchy1")]
+impl HierarchyIface {
+    async fn get_hierarchy(
+        &self,
+        generation: &str,
+        revision: u64,
+        token: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(HierarchyPage,)> {
+        self.0.authorized(&header).await?;
+        let owner = header.sender().ok_or(ErrorCode::PermissionDenied)?.as_str();
+        let mut data = self.0.data.lock().await;
+        if data.generation != generation || data.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        let page = data
+            .hierarchy_snapshots
+            .as_mut()
+            .ok_or(ErrorCode::Unavailable)?
+            .page(owner, token, Instant::now())?;
+        if page.generation != generation || page.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((page,))
+    }
 }
 
 #[derive(Clone)]
@@ -619,6 +721,7 @@ impl Endpoint for LibraryService {
     async fn clear(&self) {
         let mut data = self.data.lock().await;
         data.snapshots = None;
+        data.hierarchy_snapshots = None;
         data.resume_snapshots = None;
         data.generation.clear();
         data.daemon_owner.clear();
@@ -638,6 +741,11 @@ impl Endpoint for LibraryService {
         let mut data = self.data.lock().await;
         let mut snapshots = LibrarySnapshots::new(generation)?;
         data.revision = snapshots.publish(data.collections.clone(), data.items.clone())?;
+        if self.extensions.hierarchy {
+            let mut h = HierarchySnapshots::new(generation)?;
+            h.import(data.revision, data.folders.clone(), data.members.clone())?;
+            data.hierarchy_snapshots = Some(h);
+        }
         data.generation = generation.into();
         data.snapshots = Some(snapshots);
         if self.extensions.roots {
@@ -674,6 +782,12 @@ impl Endpoint for LibraryService {
             .await?
         {
             return Err("provider endpoint already exported".into());
+        }
+        if self.extensions.hierarchy {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, HierarchyIface(self.clone()))
+                .await?;
         }
         if self.extensions.additions {
             connection

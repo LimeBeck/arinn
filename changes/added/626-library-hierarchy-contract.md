@@ -1,0 +1,1 @@
+- Add optional paged LibraryHierarchy1 provider/daemon metadata with opaque folders and existing item memberships, atomic SDK publication and catalogue revision fencing; provider scanning and folder UI follow separately.

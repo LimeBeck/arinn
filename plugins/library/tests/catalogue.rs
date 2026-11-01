@@ -1350,6 +1350,21 @@ fn local_descriptions_refresh_without_changing_identity_or_resume() {
     store.scan(&cfg).unwrap();
     assert!(!store.descriptions().unwrap().contains_key(&film.id));
     assert_eq!(store.resumes().unwrap(), resumes);
+    // A missing series folder also keeps text while the rest of the root
+    // remains readable, consistently with unavailable films and episodes.
+    fs::rename(root.join("Show"), scratch.path().join("series-away")).unwrap();
+    store.scan(&cfg).unwrap();
+    assert!(
+        !store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .find(|i| i.id == series.id)
+            .unwrap()
+            .available
+    );
+    assert_eq!(store.descriptions().unwrap()[&series.id], "Series plot");
     // An unavailable root keeps previously known local descriptive metadata.
     fs::rename(&root, scratch.path().join("away")).unwrap();
     store.scan(&cfg).unwrap();

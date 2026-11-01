@@ -1846,6 +1846,10 @@ fn link_series(
         .collect();
     for row in rows.iter_mut().filter(|row| row.kind == "series") {
         row.available = live.contains(&row.id);
+        // Match films/episodes: an unavailable series keeps known metadata.
+        if !row.available {
+            descriptions.remove(&row.id);
+        }
     }
 }
 

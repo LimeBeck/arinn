@@ -211,8 +211,9 @@ that change settles.
 
 While a row has focus, the bottom-left hint bar reads "OK Edit · Back To
 sections" (handoff se-lf-1), or "OK Unavailable" where OK does nothing on the
-focused part: a row with `enabled` false (ED-2), a row still saving, or Add on
-a path list at its `maxItems` (LF-5). When the rows overflow, 72 px fade masks cover
+focused part: a row with `enabled` false (ED-2), a row still saving, a boolean
+or integer whose value is unsupported, an unknown type, or Add on a path list at
+its `maxItems` (LF-5). `partActionable` mirrors the OK handlers. When the rows overflow, 72 px fade masks cover
 the top and bottom edges of the list, and scrolling keeps the focused row clear
 of them; at either end of the list that mask is hidden.
 

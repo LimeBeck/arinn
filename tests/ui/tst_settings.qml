@@ -225,6 +225,33 @@ TestCase {
         compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
     }
 
+    // OK does nothing on an unsupported value or an unknown type.
+    function test_unsupported_value_hint() {
+        view.rows = [
+            {providerId: "p", providerName: "P", id: "flag", categoryId: "media", title: "Flag",
+             type: "boolean", currentValue: "maybe", constraints: {}, enabled: true},
+            {providerId: "p", providerName: "P", id: "count", categoryId: "media", title: "Count",
+             type: "integer", currentValue: "many", constraints: {min: 0, max: 9}, enabled: true},
+            {providerId: "p", providerName: "P", id: "mode", categoryId: "media", title: "Mode",
+             type: "enum", currentValue: "gone", constraints: {options: [{value: "a", title: "A"}]}, enabled: true},
+            {providerId: "p", providerName: "P", id: "odd", categoryId: "media", title: "Odd",
+             type: "colour", currentValue: "red", constraints: {}, enabled: true}
+        ];
+        keyClick(Qt.Key_Right);
+        focused("setting-p-flag");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-p-count");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        // An enum with an unknown value still opens its options.
+        keyClick(Qt.Key_Down);
+        focused("setting-p-mode");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-p-odd");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+    }
+
     // LF-5: Add on a full path list stays focusable but does nothing.
     function test_full_path_list_add_hint() {
         view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",

@@ -159,9 +159,25 @@ FocusScope {
     function pathFull(row) {
         return hasBound(row, "maxItems") && pathList(row).length >= Number(row.constraints.maxItems);
     }
-    // Whether OK on this part of the row does something.
+    // Whether OK on this part of the row does something. It mirrors the
+    // handlers: the main control's onClicked with openOptions, openInteger,
+    // openString and openEditor, and Add's `full` guard.
     function partActionable(row, part) {
-        return canEdit(row) && !(part === "add" && pathFull(row));
+        if (!canEdit(row)) return false;
+        if (part === "add") return !pathFull(row);
+        if (part !== "main") return true;
+        switch (row.type) {
+        case "boolean":
+        case "integer":
+            return !valueUnsupported(row);
+        case "enum":
+            return optionsOf(row).length > 0;
+        case "string":
+        case "path":
+            return true;
+        default:
+            return false;
+        }
     }
     function optionsOf(row) {
         const options = row && row.constraints && row.constraints.options;

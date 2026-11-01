@@ -529,7 +529,8 @@ descriptions atomically and never changes existing Item/LibraryPage signatures.
 ### Delegated media process evidence
 
 `MediaProcess1.GetProcessId` identifies the verified application controlling the
-media. Direct endpoints keep reporting their owner; a recognized delegated proxy
+media. Direct MPRIS endpoints keep reporting their bus owner; other verified producer
+mechanisms, including the mpv Unix IPC peer (ADR-0117), remain unchanged. A recognized delegated MPRIS proxy
 may report its represented application only with the pinned-owner, direct kernel
 parent and matching protocol-claim evidence in
 [ADR-0126](../adr/0126-delegated-media-process.md). Existing wire signatures,

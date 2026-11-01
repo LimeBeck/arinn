@@ -24,8 +24,9 @@ retained. This contract prerequisite changes no runtime code or UI projection.
 ## Decision
 
 MediaProcess1 reports the verified **application process controlling the media**.
-For direct endpoints this is the endpoint owner's process, as before. For a
-recognized delegated endpoint the provider may instead report its represented
+Direct MPRIS endpoints report the endpoint owner's process, as before. Other
+verified producer mechanisms remain unchanged: the mpv provider reports the
+current Unix IPC peer under ADR-0117. For a recognized delegated MPRIS endpoint the provider may instead report its represented
 application process only when all of these hold:
 
 - the endpoint's unique D-Bus owner is pinned and current;
@@ -38,7 +39,7 @@ application process only when all of these hold:
 
 Do not traverse arbitrary process ancestry. A provider must not infer delegation
 from titles, URLs, matching duration/position or arbitrary numeric metadata.
-Unverified endpoints retain direct-owner evidence or return 0 (unknown); an
+Unverified MPRIS endpoints retain direct-owner evidence or return 0 (unknown); an
 unpublished session is NotFound. Registration/caller checks still precede argument
 validation, and only the registered daemon owner reads process evidence.
 

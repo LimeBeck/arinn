@@ -29,7 +29,8 @@ and `Browser1` signatures do not change. Types and validation are in
   arguments are `InvalidArgument`.
 - The result is the verified application process controlling the media
   (`MediaProcess1`), or the browser process the window belongs to
-  (`BrowserProcess1`). Direct media endpoints report their bus-owner process.
+  (`BrowserProcess1`). Direct MPRIS endpoints report their bus-owner process; the mpv provider
+  retains its verified current Unix IPC peer (ADR-0117).
   A recognized delegated endpoint may report its represented application process
   only under the pinned-owner, direct kernel-parent and matching protocol-claim
   rules of [ADR-0126](../adr/0126-delegated-media-process.md). 0 means unknown.

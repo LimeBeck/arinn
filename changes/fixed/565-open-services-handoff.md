@@ -1,0 +1,1 @@
+- Open services matches the design handoff more closely. "On screen" and "Sound" now follow the domain on each row instead of sitting at the far right. Close buttons show a thin close icon instead of a text "×". The "Site or search" button has a "+" icon and sits at the right of the header ([#565](https://github.com/LimeBeck/arinn/issues/565)).

@@ -903,6 +903,27 @@ TestCase {
         focused("entry-a");
         tryCompare(child("continue"), "opacity", 1);
         tryCompare(home, "homeOffset", 0);
+        // Down to New again for the pointer checks.
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        keyClick(Qt.Key_Down);
+        focused("entry-n");
+        tryVerify(() => Math.abs(continueRow.mapToItem(home, 0, 0).y - (continueRow.y + home.homeOffset)) < 0.5, 3000);
+        // The faded Continue cards still lie over the header and below it;
+        // they must not take the pointer. A click on an invisible card does
+        // nothing, and a click on the menu button reaches the menu button.
+        const hidden = child("entry-a");
+        const spot = hidden.mapToItem(home, hidden.width / 2, hidden.height - 20);
+        verify(spot.y > headerBottom, "the hidden card reaches below the header");
+        mouseClick(home, spot.x, spot.y);
+        wait(50);
+        compare(returns.count + entries.count, 0, "a click on a faded card activated it");
+        verify(!home.navOpen);
+        const menuSpot = menu.mapToItem(home, menu.width / 2, menu.height / 2);
+        mouseClick(home, menuSpot.x, menuSpot.y);
+        tryCompare(home, "navOpen", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(home, "navOpen", false);
     }
     // #408 (owner decision 2026-11-01): a cable glyph on a wired link, a
     // crossed-out Wi-Fi while disconnected, nothing for another link or an

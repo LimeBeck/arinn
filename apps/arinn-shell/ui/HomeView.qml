@@ -642,6 +642,9 @@ FocusScope {
         BrandButton {
             id: menuButton
             objectName: "menuButton"
+            // Above the rows, which a New row offset can move into the
+            // header band (#659).
+            z: 1
             x: Theme.safeLeft - lockupInset; y: 44; height: 64; text: "Arinn"
             pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.openNavigation()
@@ -655,6 +658,7 @@ FocusScope {
         // state (handoff 01). Unknown platform state shows nothing (#387).
         Row {
             objectName: "statusArea"
+            z: 1
             anchors.right: parent.right; anchors.rightMargin: Theme.safeRight
             y: 44; height: 64; spacing: 24
             Row {
@@ -844,6 +848,7 @@ FocusScope {
                 HomeRow {
                     id: continueRow; objectName: "continue"
                     opacity: root.rowHeaderOpacity(continueRow)
+                    pointerBlocked: !root.rowClearsHeader(continueRow)
                     x: 120; y: 372; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
@@ -858,6 +863,7 @@ FocusScope {
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
                     opacity: root.rowHeaderOpacity(favoritesRow)
+                    pointerBlocked: !root.rowClearsHeader(favoritesRow)
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds

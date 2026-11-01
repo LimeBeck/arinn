@@ -20,6 +20,7 @@ class LibraryCatalog : public QObject {
   Q_PROPERTY(QVariantList entries READ entries NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList folderEntries READ folderEntries NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList newEntries READ newEntries NOTIFY catalogChanged)
+  Q_PROPERTY(QVariantList continueEntries READ continueEntries NOTIFY catalogChanged)
   Q_PROPERTY(QString operationState READ operationState NOTIFY operationChanged)
   Q_PROPERTY(QString launchingId READ launchingId NOTIFY operationChanged)
 public:
@@ -29,6 +30,7 @@ public:
   QVariantList entries() const { return m_entries; }
   QVariantList folderEntries() const { return m_folderEntries; }
   QVariantList newEntries() const { return m_newEntries; }
+  QVariantList continueEntries() const { return m_continueEntries; }
   QString operationState() const { return m_operation; }
   QString launchingId() const { return m_launchingId; }
   Q_INVOKABLE void launch(const QString &id);
@@ -124,6 +126,7 @@ private:
   QVariantList m_folderEntries, m_hierarchies;
   QVariantList m_entries;
   QVariantList m_newEntries;
+  QVariantList m_continueEntries;
   QList<ItemRow> m_items;
   // What the last catalogChanged announced, so that an unchanged reload
   // stays silent (#441).

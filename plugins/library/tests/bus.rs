@@ -91,6 +91,11 @@ async fn scenario() {
     let root = scratch.join("media-root");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("QuietTitle (1999).mkv"), b"film").unwrap();
+    fs::write(
+        root.join("QuietTitle (1999).nfo"),
+        "<movie><plot>Local &#38; literal &lt;b&gt;plot&lt;/b&gt;</plot></movie>",
+    )
+    .unwrap();
     let poster_bytes = vec![0xff, 0xd8, 0xff, 0xe0, 1, 2, 3];
     fs::write(root.join("QuietTitle (1999)-poster.jpg"), &poster_bytes).unwrap();
     let home = scratch.join("home");
@@ -172,6 +177,7 @@ async fn scenario() {
             "LibraryResume1".to_string(),
             "LibraryImport1".into(),
             "AssetProvider1".into(),
+            "LibraryDescriptions1".into(),
             "LibraryHierarchy1".into(),
             "LibraryAdditions1".into(),
             "LibraryRoots1".into()
@@ -183,6 +189,19 @@ async fn scenario() {
         .find(|item| item.title == "QuietTitle")
         .unwrap();
     let id = film.id.clone();
+    let descriptions = arinn_protocol::library::LibraryDescriptionsProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (description,) = descriptions
+        .get_description(&page.generation, page.revision, &id)
+        .await
+        .unwrap();
+    assert_eq!(description.text, "Local & literal <b>plot</b>");
+    assert_eq!(description.id, id);
+    assert_eq!(description.revision, page.revision);
     let hierarchy = LibraryHierarchyProxy::builder(&server)
         .destination(destination.clone())
         .unwrap()

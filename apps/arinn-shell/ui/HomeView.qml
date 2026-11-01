@@ -237,6 +237,19 @@ FocusScope {
         const activity = shown ? service : lead ? [lead] : [];
         const rest = (shown || !lead ? own : own.slice(1))
             .map(entry => entry.kind === "media" && entry.serviceId ? tabCard(entry) : entry);
+        // A fresh shell may know the open tab before it has Return or media
+        // evidence. The summary is hidden for one tab, so give that tab its
+        // own card. Its action activates the tab; it must not imply Return.
+        if (!shown && openServices.length === 1
+                && !activity.some(entry => entry.serviceId === openServices[0].id)) {
+            const tab = openServices[0];
+            const linked = rest.findIndex(entry => entry.serviceId === tab.id);
+            if (linked < 0)
+                rest.unshift({id: "open-service", serviceId: tab.id, visualIdentity: tab.id,
+                              title: tab.title, running: true, kind: "tab"});
+            else if (linked >= 4)
+                rest.unshift(rest.splice(linked, 1)[0]);
+        }
         // Services that already have a card in this row, by identity only,
         // never by title (#358, #207). Only cards that fit count: with the
         // summary, three further entries remain; without it nothing is left

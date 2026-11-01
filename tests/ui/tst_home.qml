@@ -529,6 +529,50 @@ TestCase {
             rows.push({id: "tab-" + i, title: "Page " + i, letter: String.fromCharCode(64 + i)});
         return rows;
     }
+    SignalSpy { id: tabs; signalName: "tabRequested" }
+    function test_single_open_tab_without_return_or_media() {
+        home.continueEntries = [];
+        home.openServices = openTabs(1);
+        compare(home.continuePresentation.length, 1);
+        const card = home.continuePresentation[0];
+        compare(card.kind, "tab");
+        compare(card.serviceId, "tab-1");
+        compare(card.title, "Page 1");
+        tabs.target = home; tabs.clear();
+        home.activate(card.id);
+        compare(tabs.count, 1);
+        compare(tabs.signalArguments[0][0], "tab-1");
+        compare(returns.count, 0);
+        compare(serviceCard.count, 0);
+        home.openServices = [{id: "replacement", title: "Another page"}];
+        home.activate(home.continuePresentation[0].id);
+        compare(tabs.signalArguments[1][0], "replacement");
+        home.openServices = [];
+        compare(home.continuePresentation.length, 0);
+        tabs.target = null;
+    }
+    function test_single_open_tab_keeps_media_dedup_and_card_bound() {
+        home.openServices = openTabs(1);
+        home.continueEntries = [{id: "session", title: "Video", kind: "media", serviceId: "tab-1"}];
+        compare(home.continuePresentation.length, 1);
+        compare(home.continuePresentation[0].id, "session");
+        home.continueEntries = [{id: "activity", title: "Application", running: true}].concat(
+            [1, 2, 3, 4, 5].map(i => ({id: "film" + i, title: "Film " + i, kind: "media"})));
+        compare(home.continuePresentation.length, 5);
+        compare(home.continuePresentation[0].id, "activity");
+        compare(home.continuePresentation[1].serviceId, "tab-1");
+        compare(home.continuePresentation.filter(entry => entry.serviceId === "tab-1").length, 1);
+        // A linked tab below the visible limit must not disappear either.
+        home.continueEntries = [1, 2, 3, 4, 5].map(i => ({id: "film" + i, title: "Film " + i, kind: "media"}))
+            .concat([{id: "late-session", title: "Video", kind: "media", serviceId: "tab-1"}]);
+        compare(home.continuePresentation.length, 4);
+        compare(home.continuePresentation[0].id, "late-session");
+        compare(home.continuePresentation[0].mediaId, "late-session");
+        home.currentServiceId = "tab-1";
+        home.currentServiceTitle = "Page 1";
+        compare(home.continuePresentation[0].kind, "service");
+        compare(home.continuePresentation.filter(entry => entry.serviceId === "tab-1").length, 1);
+    }
     function test_continue_open_services_cards() {
         home.currentServiceId = "tab-1";
         home.currentServiceTitle = "Page";

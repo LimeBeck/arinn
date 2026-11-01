@@ -285,6 +285,46 @@ impl Store {
         self.commit_discovered(settings, discovered, &baseline)
     }
 
+    /// Resolve only a currently published local artwork id. Filesystem work is
+    /// performed after releasing the catalogue lock, by AssetSource::read.
+    pub(crate) fn asset_source(
+        &self,
+        id: &str,
+        configured_roots: &[PathBuf],
+    ) -> Result<crate::assets::AssetSource, ErrorCode> {
+        arinn_protocol::assets::asset_id(id)?;
+        let source = self
+            .conn
+            .query_row(
+                "SELECT roots.path, items.rel_path, items.kind, items.poster_id
+             FROM items JOIN roots ON roots.id = items.root_id
+             WHERE items.available = 1 AND (items.poster_id = ?1 OR items.fanart_id = ?1)
+             LIMIT 1",
+                [id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| ErrorCode::Internal)?
+            .ok_or(ErrorCode::NotFound)?;
+        let root = PathBuf::from(source.0);
+        if !configured_roots.contains(&root) {
+            return Err(ErrorCode::NotFound);
+        }
+        Ok(crate::assets::AssetSource {
+            root,
+            relative: source.1,
+            series: source.2 == "series",
+            poster: source.3 == id,
+        })
+    }
+
     pub fn snapshot(&self) -> Result<(Vec<Collection>, Vec<Item>), ErrorCode> {
         let collections = self.collections()?;
         let mut rows = self.load_all()?;

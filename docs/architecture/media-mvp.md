@@ -33,6 +33,17 @@ The provider also lists `LibraryRoots1` and publishes every configured root exac
 
 MVP metadata: title, year, season and episode from the file name and sidecar NFO; duration and languages from ffprobe when it is installed; local poster and fanart next to the video become asset ids. When data is missing: the file name, an empty artwork id and unknown fields — never an invented plot or year. NFO XML is parsed without external entities or network DTDs. A long item is completed by a short playback step into the final 90 seconds, or by confirmed EOF; a seek does not complete it. Online enrichment is not required for a usable MVP and may be added later through provider configuration. This fallback works with any folder and needs no API key.
 
+The library provider serves local poster and fanart bytes through `AssetProvider1`
+(ADR-0062). Only artwork ids belonging to available catalogue items in the current
+configured roots resolve. Lookup releases the catalogue lock before filesystem
+work on a blocking worker. Reads are limited to 8 MiB and validated by raster
+signature; missing files and unknown ids are `NotFound`, unsupported/oversized
+images are `Unsupported`. Opening is anchored below the configured root using
+Linux `openat2` (`RESOLVE_BENEATH` and `RESOLVE_NO_MAGICLINKS`), so replacing an
+ancestor with an escaping symlink cannot expose files outside the root. Safe
+in-root symlinks still work. The SDK fences requests by daemon owner and provider
+generation. No artwork paths or bytes enter logs, and no remote URL is fetched.
+
 `arinn-plugin-mpv` implements MediaProvider plus additional typed playback interfaces. mpv is a separate player process with a regular video window. Commands and events go through a private Unix JSON IPC socket in `XDG_RUNTIME_DIR` (directory 0700, no public `/tmp` endpoint). The shell never touches the socket and embeds no media engine. mpv offers JSON IPC and a track list, which is why it was chosen ([mpv manual](https://mpv.io/manual/stable/)). The process, the command shapes and the thumbnail extractor are [ADR-0057](../adr/0057-mpv-ipc-and-process-scope.md) and [below](#mpv).
 
 ## Shell OSD and platform

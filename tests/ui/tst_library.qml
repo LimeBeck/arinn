@@ -19,6 +19,7 @@ TestCase {
         id: factory
         Library.LibraryView {}
     }
+    Component { id: otherFocusFactory; Item { width: 1; height: 1 } }
     SignalSpy { id: tabsSpy; signalName: "tabRequested" }
     SignalSpy { id: entriesSpy; signalName: "entryRequested" }
     SignalSpy { id: plays; signalName: "playRequested" }
@@ -408,17 +409,17 @@ TestCase {
         focused("tab-films");
         keyClick(Qt.Key_Down);
         focused("poster-a");
-        verify(child("posterCaption-a").lift < 0);
+        verify(child("posterCaption-a").lift > 0);
         library.pointerMode = false;
-        compare(child("posterCaption-a").lift, -10);
+        compare(child("posterCaption-a").lift, 14);
         library.pointerMode = true;
-        compare(child("posterCaption-a").lift, -4);
+        compare(child("posterCaption-a").lift, 6);
         tryVerify(function() { return child("poster-a").scale > 1.01; });
         keyClick(Qt.Key_Up);
         focused("tab-films");
         keyClick(Qt.Key_Right);
         focused("tab-series");
-        compare(child("tabUnderline-series").visible, true);
+        compare(child("tabUnderline-series").visible, false);
         compare(child("tabUnderline-films").visible, false);
         compare(child("posterKind-s").visible, true);
         compare(child("posterKindLabel-s").text, "Series");
@@ -478,6 +479,7 @@ TestCase {
         compare(child("detailMeta").font.pixelSize, 30);
         keyClick(Qt.Key_Down);
         focused("season-s1");
+        tryVerify(() => Math.abs(child("detailRail").mapToItem(library, 0, 0).y - 170) < 1);
         ember(child("seasonUnderline-s1").color);
         compare(child("seasonUnderline-s2").visible, false);
         compare(child("episode-p1").width, 420);
@@ -488,13 +490,14 @@ TestCase {
         compare(findChild(library, "episode-p2"), null);
         keyClick(Qt.Key_Down);
         focused("episode-p1");
+        verify(child("episodeDuration-p1").mapToItem(library, 0, child("episodeDuration-p1").height).y < library.height);
         keyClick(Qt.Key_Right);
         focused("episode-p1");
         keyClick(Qt.Key_Up);
         focused("season-s1");
         keyClick(Qt.Key_Right);
         focused("season-s2");
-        compare(child("seasonUnderline-s2").visible, true);
+        compare(child("seasonUnderline-s2").visible, false);
         compare(findChild(library, "episode-p1"), null);
         keyClick(Qt.Key_Down);
         focused("episode-p2");
@@ -503,6 +506,19 @@ TestCase {
         focused("season-s2");
         keyClick(Qt.Key_Up);
         focused("detailPlay");
+    }
+
+    function test_back_from_season_rail_returns_to_primary_action_before_grid() {
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
+            seasons: [{id: "s1", title: "Season 1"}], episodes: [{id: "ep", title: "One", seasonId: "s1"}]}]});
+        library.openEntry("show"); focused("detailPlay");
+        keyClick(Qt.Key_Down); focused("season-s1");
+        keyClick(Qt.Key_Down); focused("episode-ep");
+        keyClick(Qt.Key_Escape); focused("detailPlay");
+        compare(library.detailEntryId, "show");
+        compare(library.detailRailActive, false);
+        keyClick(Qt.Key_Escape); focused("poster-show");
+        compare(backs.count, 0);
     }
 
     function test_operation_waiting_and_failure() {
@@ -594,8 +610,8 @@ TestCase {
         keyClick(Qt.Key_Escape); compare(backs.count, 1);
         library.chooseView(false); focused("libraryMode-catalogue");
         compare(library.folderMode, false);
-        keyClick(Qt.Key_Down); focused("tab-films");
         keyClick(Qt.Key_Down); focused("poster-film");
+        keyClick(Qt.Key_Up); focused("tab-films");
     }
     function test_empty_and_unavailable_folders_remain_navigable() {
         createLibrary(foldersFixture());
@@ -604,18 +620,47 @@ TestCase {
         keyClick(Qt.Key_Right); focused("poster-offline");
         compare(child("missingLabel-offline").text, "Unavailable");
         keyClick(Qt.Key_Return); tryCompare(library, "currentFolderId", "offline");
-        focused("libraryStatus");
+        focused("libraryFolderBack");
+        verify(child("libraryFolderUnavailable").visible);
         keyClick(Qt.Key_Escape); focused("poster-offline");
         library.openEntry("root"); focused("poster-nested");
         keyClick(Qt.Key_Right); focused("poster-empty");
         keyClick(Qt.Key_Return); tryCompare(library, "currentFolderId", "empty");
-        focused("libraryStatus");
+        focused("libraryFolderBack");
+        verify(child("libraryFolderEmpty").visible);
+        compare(child("libraryStatus").visible, false);
         keyClick(Qt.Key_Escape); focused("poster-empty");
         // Catalogue refresh under the global menu must not take focus.
         library.ownsFocus = false;
         const updated = library.folderEntries.slice(); updated[2] = Object.assign({}, updated[2], {title: "Changed"});
         library.folderEntries = updated;
         wait(50); compare(library.currentFolderId, "root");
+    }
+    function test_view_switch_restores_each_grid_and_scroll() {
+        const fixture = foldersFixture();
+        fixture.columns = 1;
+        createLibrary(fixture);
+        focused("libraryMode-folders");
+        library.openEntry("root"); focused("poster-nested");
+        tryCompare(child("poster-empty").parent, "y", 475);
+        keyClick(Qt.Key_Down); focused("poster-empty");
+        const scroll = child("libraryGrid").contentY;
+        verify(scroll > 0);
+        library.chooseView(false); focused("libraryMode-catalogue");
+        keyClick(Qt.Key_Down); focused("poster-film");
+        library.chooseView(true); focused("libraryMode-folders");
+        keyClick(Qt.Key_Down); focused("poster-empty");
+        compare(child("libraryGrid").contentY, scroll);
+        // Activating the current mode must not reset its remembered card.
+        library.chooseView(true); focused("libraryMode-folders");
+        keyClick(Qt.Key_Down); focused("poster-empty");
+        verify(child("posterCaption-empty").visible);
+        compare(child("posterArtTitle-empty").visible, false);
+        compare(child("posterYear-empty").text, "Folder");
+        library.openEntry("nested"); focused("poster-film");
+        library.ownsFocus = false;
+        library.ownsFocus = true;
+        focused("poster-film");
     }
     function test_unknown_season_does_not_leak_into_known_seasons() {
         createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
@@ -627,6 +672,53 @@ TestCase {
         keyClick(Qt.Key_Right); focused("season-unknown");
         compare(library.detailEpisodes.length, 1); compare(library.detailEpisodes[0].id, "extra");
         keyClick(Qt.Key_Down); focused("episode-extra");
+    }
+    function test_physical_episode_opens_its_series_and_returns_to_file() {
+        createLibrary({tabs: [{id: "series", title: "Series"}, {id: "@folders", title: "Folders"}], currentTabId: "@folders",
+            entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
+                seasons: [{id: "s1", title: "Season 1"}, {id: "unknown", title: "Without season"}],
+                episodes: [{id: "ep", title: "One", seasonId: "s1"}, {id: "extra", title: "Extra", seasonId: "unknown"}]}],
+            folderEntries: [{id: "root", folderId: "", title: "Media", kind: "folder"},
+                {id: "ep", folderId: "root", title: "One", kind: "episode"},
+                {id: "extra", folderId: "root", title: "Extra", kind: "episode"}]});
+        focused("libraryMode-folders");
+        library.openEntry("root"); focused("poster-ep");
+        keyClick(Qt.Key_Right); focused("poster-extra");
+        keyClick(Qt.Key_Return); focused("episode-extra");
+        compare(library.detailEntryId, "show");
+        compare(library.currentSeasonId, "unknown");
+        keyClick(Qt.Key_Return); compare(episodes.count, 1);
+        compare(episodes.signalArguments[0][0], "show");
+        compare(episodes.signalArguments[0][1], "extra");
+        keyClick(Qt.Key_Escape); focused("detailPlay");
+        keyClick(Qt.Key_Escape); focused("poster-extra");
+        compare(library.currentFolderId, "root");
+        keyClick(Qt.Key_Escape); focused("poster-root");
+    }
+    function test_deferred_detail_focus_respects_an_overlay() {
+        createLibrary(catalogue()); focused("tab-films");
+        const other = createTemporaryObject(otherFocusFactory, suite);
+        library.openEntry("a");
+        library.ownsFocus = false;
+        other.forceActiveFocus();
+        wait(50); verify(other.activeFocus);
+        library.closeDetail();
+        wait(50); verify(other.activeFocus);
+        library.ownsFocus = true;
+    }
+    function test_home_return_restores_card_without_stealing_overlay_focus() {
+        createLibrary(foldersFixture()); focused("libraryMode-folders");
+        library.openEntry("root"); focused("poster-nested");
+        keyClick(Qt.Key_Right); focused("poster-empty");
+        library.visible = false;
+        library.ownsFocus = false;
+        const other = createTemporaryObject(otherFocusFactory, suite);
+        other.forceActiveFocus();
+        library.visible = true;
+        wait(50); verify(other.activeFocus);
+        library.ownsFocus = true;
+        focused("poster-empty");
+        compare(library.currentFolderId, "root");
     }
 
 }

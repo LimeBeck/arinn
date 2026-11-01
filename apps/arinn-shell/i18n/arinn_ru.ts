@@ -995,12 +995,24 @@
         <translation>Каталог</translation>
     </message>
     <message>
-        <source>Back · Up one level</source>
-        <translation>Назад · На уровень выше</translation>
-    </message>
-    <message>
         <source>Unavailable</source>
         <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Folder</source>
+        <translation>Папка</translation>
+    </message>
+    <message>
+        <source>Up one level</source>
+        <translation>На уровень выше</translation>
+    </message>
+    <message>
+        <source>There are no videos in this folder yet</source>
+        <translation>В этой папке пока нет видео</translation>
+    </message>
+    <message>
+        <source>Folder unavailable · check the connection</source>
+        <translation>Папка недоступна · проверьте подключение</translation>
     </message>
 </context>
 <context>

@@ -1,6 +1,6 @@
 # Library navigation prototype
 
-Editable HTML/JS derivative of the owner's [interactive design prototype](../../handoff/design/arinn.dc.html), prepared for #629 / #630. The owner requested a prototype-first workflow on 2026-11-01. This is a working design proposal; review it before further shell presentation changes. The historical handoff and its runtime remain unchanged.
+Editable HTML/JS derivative of the owner's [interactive design prototype](../../handoff/design/arinn.dc.html), prepared for #629 / #630. The owner requested a prototype-first workflow on 2026-11-01 and then asked to continue shell alignment after viewing the prototype. LibraryView follows this presentation in the same PR. The historical handoff and its runtime remain unchanged; owner-only merge is still required.
 
 Serve the repository root, then open:
 
@@ -58,3 +58,23 @@ git diff --no-index -- docs/design/handoff/design/arinn.dc.html docs/design/prot
 ```
 
 The implementation specification and ADR-0124 describe the product behavior. This prototype proposes its visual presentation; it does not amend the historical handoff or mark roadmap gates complete.
+
+## Shell implementation previews
+
+These captures come from the Qt LibraryView after alignment with the prototype,
+using synthetic fixtures. Fixtures use English labels; Russian UI translations
+are included and checked separately. Empty artwork slots remain generic; the
+prototype's abstract placeholder artwork is not a production poster source.
+
+| State | Qt shell |
+| --- | --- |
+| Inside Media | [Screenshot](implementation/library-folder-nested.png) |
+| Empty folder | [Screenshot](implementation/library-folder-empty.png) |
+| Unavailable root | [Screenshot](implementation/library-folder-offline.png) |
+| Season rail | [Screenshot](implementation/library-series-groups.png) |
+| Without season | [Screenshot](implementation/library-series-without-season.png) |
+
+The focused QML suite checks mode-specific card/scroll restoration, raised season
+rails with visible captions, two-step detail Back, physical episode-to-series
+selection and return to the file card, and focus ownership under an overlay.
+The capture manifest also renders these states at 1080p and a 4K canvas.

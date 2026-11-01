@@ -178,11 +178,15 @@ The owner-approved offline navigation uses a **Catalogue / Folders** view switch
 ([ADR-0124](../adr/0124-offline-folder-and-season-navigation.md)). Catalogue keeps
 Films/Series categories; Folders follows configured roots and nested directories,
 including known unavailable entries. Both views use the same content identities,
-progress and launch actions. Back leaves detail, then one folder level, restoring
+progress and launch actions. From the season/episode rail, Back first restores
+the detail's primary action; another Back leaves detail, then one folder level, restoring
 the opener and scroll position; Back at the root follows the existing Library rule.
 Series use numeric season/episode order. When known and unknown seasons coexist,
 a separate **Without season** group keeps the latter reachable without repeating
 them in known seasons; an entirely unknown-season series keeps its direct list.
+Focusing seasons or episodes raises their rail so episode captions stay visible.
+A physical episode opens its existing series at that episode when its parent
+series is present, and returning from detail restores the physical file card.
 No online metadata source is selected by this increment.
 
 ### 5.4. Downloads

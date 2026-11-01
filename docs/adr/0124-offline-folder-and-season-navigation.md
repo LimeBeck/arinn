@@ -19,7 +19,8 @@ On 2026-11-01 the owner requested that visual changes be developed first in the
 original HTML/JS design prototype. The editable
 [working derivative](../design/prototypes/library-navigation/README.md) keeps
 the historical handoff unchanged. Further shell presentation changes follow
-review of that prototype.
+review of that prototype. After viewing it, the owner requested continuation;
+the shell presentation follows the derivative in the same pull request.
 
 ## Decision proposed for owner merge
 
@@ -46,11 +47,17 @@ from content UUIDs. The view switch is absent when no provider supplies valid
 hierarchy. Changing modes remembers the folder location and the last still-valid
 catalogue category. It does not duplicate content/progress records.
 
-Opening a folder remembers the opener and scroll position. Back leaves detail
-first, then one folder level per press, restoring that level's opener; at the
+Opening a folder remembers the opener and scroll position. From a focused
+season/episode rail, Back first returns to the detail's primary action, matching
+the HTML prototype. Another Back leaves detail, then one folder level per press,
+restoring that level's opener; at the
 folder root it follows the existing Library Back behavior. A visible Back button
 supports pointer input. Category and mode controls remain reachable with the
 D-pad, and data refresh under another overlay never takes focus.
+
+Focusing the season/episode rail raises it to keep its captions on-screen.
+Opening a physical episode selects that episode in its existing series when
+the series is present; closing detail restores the physical file opener.
 
 Series episodes sort numerically by known season and episode, then by opaque ID;
 unknown values sort last. If known seasons coexist with unknown ones, use a

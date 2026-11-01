@@ -222,9 +222,22 @@ memberships. Unsupported or invalid metadata leaves Catalogue available.
 Only current-level folder members are visible. `folderTrail` retains openers and
 scroll positions; Back from detail preserves the current folder, and another
 Back restores its parent opener. Empty and unavailable folders stay navigable.
-The mode controls are reachable from categories with Up; Down returns to the
-category or current folder grid. A pointer Back button provides the same level
+The mode controls are reachable from categories with Up; Down returns to each
+mode's remembered card and scroll position. The current directory survives mode
+changes. A pointer Back button provides the same level
 transition. Refreshes respect `ownsFocus`, including while the global menu is up.
+
+Presentation follows the [editable HTML prototype](../design/prototypes/library-navigation/README.md):
+transparent view/category/season pills, a white fill for focus and an ember
+underline for an unfocused selection; folder names below their icon plates; a
+compact Up control; plain empty-folder text and an unavailable-root notice above
+retained entries. These controls are local to LibraryView; shared controls and
+historical handoff materials are unchanged.
+Season/episode focus raises the detail rail, keeping its captions in the viewport.
+Back from that rail restores the primary action before leaving detail. Physical
+episodes resolve their already-present parent series from the presentation model;
+`detailOpenerId` retains the original file card independently of the series detail
+ID, so Back and Home return to the physical location.
 
 Validation fixtures are in `library_catalog_test.cpp` and `tst_library.qml`;
 provider persistence is described in [media-mvp.md](media-mvp.md). This change

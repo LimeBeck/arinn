@@ -26,7 +26,10 @@ FocusScope {
     readonly property bool hasFolderView: (tabs || []).some(t => t.id === "@folders")
     property string lastCatalogueTab: ""
     property var folderTrail: []
+    property var viewPositions: ({})
     readonly property string currentFolderId: folderTrail.length ? folderTrail[folderTrail.length - 1].id : ""
+    readonly property var currentFolder: (folderEntries || []).find(e => e.kind === "folder" && e.id === currentFolderId) || null
+    readonly property bool folderEmpty: folderMode && libraryState === "ready" && visibleEntries.length === 0 && !detailOpen
     readonly property string folderBreadcrumb: {
         let labels = [qsTr("Folders")];
         for (const step of folderTrail) {
@@ -37,6 +40,9 @@ FocusScope {
     }
     property int columns: 0
     property string detailEntryId: ""
+    property string detailOpenerId: ""
+    property bool detailRailActive: false
+    onDetailRailActiveChanged: hoverDelay.restart()
     property string operationState: ""
     property string launchingId: ""
     // The shell's input mode (ADR-0095); tests may assign it directly.
@@ -71,7 +77,7 @@ FocusScope {
     readonly property int gridGapX: 40
     readonly property int gridGapY: 48
     readonly property int marginLeft: 120
-    readonly property int marginRight: 96
+    readonly property int marginRight: 120
     // The handoff grid is seven 210-wide posters. Tests may set a smaller count.
     readonly property int columnCount: columns > 0 ? columns : 7
     readonly property var visibleEntries: {
@@ -231,16 +237,75 @@ FocusScope {
             border.color: Ui.Theme.textHint
         }
     }
-    component FolderGlyph: Item {
-        width: 64; height: 52
-        Rectangle { x: 0; y: 0; width: 28; height: 16; radius: 5; color: Ui.Theme.textHint }
-        Rectangle { x: 0; y: 10; width: 64; height: 42; radius: 7; color: Ui.Theme.background; border.width: 3; border.color: Ui.Theme.textHint }
+    component FolderGlyph: Canvas {
+        width: 80; height: 64
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            ctx.strokeStyle = Ui.Theme.textHint;
+            ctx.lineWidth = 6;
+            ctx.lineJoin = "round";
+            ctx.beginPath();
+            ctx.moveTo(6, 3); ctx.lineTo(29, 3); ctx.lineTo(37, 11);
+            ctx.lineTo(74, 11); ctx.lineTo(77, 14); ctx.lineTo(77, 58);
+            ctx.lineTo(74, 61); ctx.lineTo(6, 61); ctx.lineTo(3, 58);
+            ctx.lineTo(3, 6); ctx.closePath(); ctx.stroke();
+        }
+    }
+    // The editable HTML prototype uses the same transparent pill for view,
+    // category and season selection. White fill belongs only to remote focus.
+    component LibraryPill: Ui.Surface {
+        id: pill
+        property bool selected: false
+        property string labelName: objectName + "Label"
+        property string underlineName: objectName + "Underline"
+        implicitWidth: label.implicitWidth + 56
+        implicitHeight: 64
+        height: 64
+        cornerRadius: 32
+        focusScale: 1.06
+        restingColor: "transparent"
+        focusedColor: Ui.Theme.textPrimary
+        transform: Translate { y: 0 }
+        background: Rectangle { radius: 32; color: pill.activeFocus ? pill.focusedColor : "transparent" }
+        contentItem: Ui.UiText {
+            id: label
+            objectName: pill.labelName
+            text: pill.text
+            font.pixelSize: 28
+            font.weight: 600
+            color: pill.activeFocus ? Ui.Theme.ink : pill.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        Rectangle {
+            objectName: pill.underlineName
+            x: 28; width: parent.width - 56
+            y: parent.height - 11; height: 4; radius: 2
+            color: Ui.Theme.ember
+            visible: pill.selected && !pill.activeFocus
+        }
     }
     function chooseView(folders) {
         if (folders && !hasFolderView) return;
+        if (folders === folderMode) {
+            focusPlace = "mode";
+            Ui.Focus.take(folders ? folderModeButton : catalogueModeButton);
+            return;
+        }
+        if (folders !== folderMode) {
+            const positions = Object.assign({}, viewPositions);
+            positions[folderMode ? "folders" : "catalogue"] = {id: focusedPosterId, index: focusedPosterIndex, scrollY: scroller.contentY};
+            viewPositions = positions;
+        }
         const remembered = catalogueTabs.some(t => t.id === lastCatalogueTab) ? lastCatalogueTab : "";
-        currentTabId = folders ? "@folders" : (remembered || (catalogueTabs.length ? catalogueTabs[0].id : ""));
         focusPlace = "mode";
+        currentTabId = folders ? "@folders" : (remembered || (catalogueTabs.length ? catalogueTabs[0].id : ""));
+        const position = viewPositions[folders ? "folders" : "catalogue"];
+        focusedPosterId = position ? position.id : "";
+        focusedPosterIndex = position ? position.index : 0;
+        posterGrid.forceLayout();
+        scroller.contentY = position ? position.scrollY : 0;
         Ui.Focus.take(folders ? folderModeButton : catalogueModeButton);
     }
     function openFolder(entry) {
@@ -330,6 +395,9 @@ FocusScope {
         const cell = posterRepeater.itemAt(next);
         if (!cell)
             return false;
+        // A mode change replaces delegates before the positioner's next
+        // polish; reveal the new card only after its row has been laid out.
+        posterGrid.forceLayout();
         focusedPosterIndex = next;
         focusedPosterId = visibleEntries[next].id;
         cell.focusPoster();
@@ -349,6 +417,11 @@ FocusScope {
             scroller.contentY = Math.max(0, bottom - scroller.height);
     }
     function focusStatus() {
+        if (folderEmpty) {
+            focusPlace = "status";
+            Ui.Focus.take(folderBackButton.visible ? folderBackButton : folderModeButton);
+            return true;
+        }
         if (!libraryStatus.visible)
             return false;
         focusPlace = "status";
@@ -356,6 +429,7 @@ FocusScope {
         return true;
     }
     function focusDetailAction() {
+        detailRailActive = false;
         const entry = detailEntry;
         const button = entry && entry.missing ? detailRemove : detailPlay;
         if (button && button.visible)
@@ -367,6 +441,7 @@ FocusScope {
         const item = seasonRepeater.itemAt(index);
         if (!item)
             return false;
+        detailRailActive = true;
         seasonIndex = index;
         const season = detailSeasons[index];
         if (season && currentSeasonId !== season.id) {
@@ -384,13 +459,19 @@ FocusScope {
         const item = episodeRepeater.itemAt(index);
         if (!item)
             return false;
+        detailRailActive = true;
         episodeIndex = index;
         item.focusStill();
         return true;
     }
     function focusInitial() {
+        if (!ownsFocus || !visible || !enabled) return;
         if (detailOpen) {
             focusDetailAction();
+            return;
+        }
+        if (showGrid && focusPlace === "poster" && focusedPosterId.length) {
+            focusPosterById(focusedPosterId);
             return;
         }
         if (tabs && tabs.length) {
@@ -408,19 +489,36 @@ FocusScope {
         if (!entry || entry.enabled === false || entry.busy)
             return;
         if (entry.kind === "folder") { openFolder(entry); return; }
+        const series = folderMode ? (entries || []).find(candidate => candidate.kind === "series"
+                && (candidate.episodes || []).some(episode => episode.id === id)) : null;
+        const selectedEpisode = series ? series.episodes.find(episode => episode.id === id) : null;
+        const target = series || entry;
         focusedPosterId = id;
-        detailEntryId = id;
+        detailOpenerId = id;
+        detailRailActive = false;
+        detailEntryId = target.id;
         episodeIndex = 0;
         seasonIndex = 0;
-        const seasons = entry.seasons || [];
-        currentSeasonId = seasons.length ? seasons[0].id : "";
-        entryRequested(id);
-        Qt.callLater(focusDetailAction);
+        const seasons = target.seasons || [];
+        currentSeasonId = selectedEpisode ? (selectedEpisode.seasonId || "unknown") : seasons.length ? seasons[0].id : "";
+        if (selectedEpisode && !seasons.length) currentSeasonId = "";
+        seasonIndex = Math.max(0, seasons.findIndex(season => season.id === currentSeasonId));
+        entryRequested(target.id);
+        Qt.callLater(() => {
+            if (!ownsFocus || !visible || !enabled || detailEntryId !== target.id) return;
+            if (selectedEpisode) {
+                const index = detailEpisodes.findIndex(episode => episode.id === id);
+                if (focusEpisode(index)) return;
+            }
+            focusDetailAction();
+        });
     }
     function closeDetail() {
-        const id = detailEntryId;
+        const id = detailOpenerId || detailEntryId;
+        detailRailActive = false;
         detailEntryId = "";
-        Qt.callLater(() => focusPosterById(id));
+        detailOpenerId = "";
+        Qt.callLater(() => { if (ownsFocus && visible && enabled) focusPosterById(id); });
     }
     function movePoster(key) {
         const count = visibleEntries.length;
@@ -500,6 +598,10 @@ FocusScope {
     }
     function back() {
         if (detailOpen) {
+            if (detailRailActive) {
+                focusDetailAction();
+                return;
+            }
             closeDetail();
             return;
         }
@@ -587,12 +689,12 @@ FocusScope {
             return;
         }
         if (event.key === Qt.Key_Home) {
-            const restoreId = detailEntryId;
+            const restoreId = detailOpenerId || detailEntryId;
             if (detailOpen)
                 detailEntryId = "";
             homeRequested();
             if (restoreId.length)
-                Qt.callLater(() => focusPosterById(restoreId));
+                Qt.callLater(() => { if (ownsFocus && visible && enabled) focusPosterById(restoreId); });
             event.accepted = true;
             return;
         }
@@ -619,8 +721,8 @@ FocusScope {
             if (event.key === Qt.Key_Left) chooseView(false);
             else if (event.key === Qt.Key_Right) chooseView(true);
             else if (event.key === Qt.Key_Down) {
-                if (folderMode) { if (!focusPosterIndex(0)) focusStatus(); }
-                else focusCurrentTab();
+                if (showGrid) focusPosterById(focusedPosterId);
+                else focusStatus();
             }
             return;
         }
@@ -671,44 +773,18 @@ FocusScope {
         Repeater {
             id: tabRepeater
             model: root.catalogueTabs
-            delegate: Ui.Surface {
-                id: tabButton
+            delegate: LibraryPill {
                 required property var modelData
                 required property int index
                 objectName: "tab-" + modelData.id
-                implicitWidth: Math.max(120, tabLabel.implicitWidth + 56)
-                height: 64
-                implicitHeight: 64
-                cornerRadius: 32
-                focusScale: 1.02
+                labelName: "tabLabel-" + modelData.id
+                underlineName: "tabUnderline-" + modelData.id
+                selected: modelData.id === root.currentTabId
                 text: modelData.title || ""
-                restingColor: modelData.id === root.currentTabId ? Qt.rgba(1, 1, 1, 0.16) : Ui.Theme.plate
                 pointerMode: root.pointerMode
                 hoverFocusEnabled: root.hoverFocusEnabled
                 onDpadRequested: Ui.InputMode.keyPressed()
                 onActivated: root.focusTab(index)
-                contentItem: Ui.UiText {
-                    id: tabLabel
-                    objectName: "tabLabel-" + modelData.id
-                    text: tabButton.text
-                    font.pixelSize: 28
-                    font.weight: 600
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                Rectangle {
-                    objectName: "tabUnderline-" + modelData.id
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.leftMargin: 28
-                    anchors.rightMargin: 28
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 7
-                    height: 4
-                    radius: 2
-                    color: Ui.Theme.ember
-                    visible: modelData.id === root.currentTabId
-                }
             }
         }
     }
@@ -717,46 +793,92 @@ FocusScope {
         objectName: "libraryViewModes"
         anchors.right: parent.right
         anchors.rightMargin: root.marginRight
-        y: 100
+        y: 96
         spacing: 12
         visible: root.hasFolderView && !root.detailOpen
-        Ui.ActionButton {
+        LibraryPill {
             id: catalogueModeButton
             objectName: "libraryMode-catalogue"
             text: qsTr("Catalogue")
-            implicitHeight: 64
+            selected: !root.folderMode
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.chooseView(false)
             onDpadRequested: Ui.InputMode.keyPressed()
-            Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 7; width: 70; height: 4; radius: 2; color: Ui.Theme.ember; visible: !root.folderMode }
         }
-        Ui.ActionButton {
+        LibraryPill {
             id: folderModeButton
             objectName: "libraryMode-folders"
             text: qsTr("Folders")
-            implicitHeight: 64
+            selected: root.folderMode
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.chooseView(true)
             onDpadRequested: Ui.InputMode.keyPressed()
-            Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 7; width: 70; height: 4; radius: 2; color: Ui.Theme.ember; visible: root.folderMode }
         }
     }
     Ui.UiText {
         objectName: "libraryFolderBreadcrumb"
-        x: root.marginLeft; y: 210
+        x: root.marginLeft; y: 206
         width: root.width - root.marginLeft - root.marginRight
         visible: root.folderMode && !root.detailOpen
         text: root.folderBreadcrumb
-        font.pixelSize: 24
+        font.pixelSize: 26
         color: Ui.Theme.textHint
         maximumLineCount: 1
         elide: Text.ElideLeft
     }
-    Ui.ActionButton {
+    Ui.UiText {
+        objectName: "libraryFolderUnavailable"
+        x: root.marginLeft; y: 264
+        visible: root.folderMode && !!root.currentFolder && !!root.currentFolder.missing && !root.detailOpen
+        text: qsTr("Folder unavailable · check the connection")
+        font.pixelSize: 24
+        color: Ui.Theme.error
+    }
+    Ui.UiText {
+        objectName: "libraryFolderEmpty"
+        x: root.marginLeft; y: 390
+        visible: root.folderEmpty
+        text: qsTr("There are no videos in this folder yet")
+        font.pixelSize: 36
+        color: Ui.Theme.textHint
+    }
+    Ui.Surface {
         id: folderBackButton
         objectName: "libraryFolderBack"
-        x: root.marginLeft; y: root.height - height - 24
+        x: root.marginLeft; y: root.height - height - 40
+        implicitWidth: folderBackLabel.implicitWidth + 100
+        height: 64
+        cornerRadius: 32
+        focusScale: 1.06
+        transform: Translate { y: 0 }
+        restingColor: Qt.rgba(1, 1, 1, 0.13)
+        focusedColor: Ui.Theme.textPrimary
         z: 4
         visible: root.folderMode && root.folderTrail.length > 0 && !root.detailOpen
-        text: qsTr("Back · Up one level")
+        text: qsTr("Up one level")
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        contentItem: Row {
+            leftPadding: 28
+            spacing: 12
+            Ui.UiText {
+                anchors.verticalCenter: parent.verticalCenter
+                width: 32
+                text: "←"
+                font.pixelSize: 32
+                color: folderBackButton.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+            }
+            Ui.UiText {
+                id: folderBackLabel
+                anchors.verticalCenter: parent.verticalCenter
+                text: folderBackButton.text
+                font.pixelSize: 26
+                font.weight: 600
+                color: folderBackButton.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+            }
+        }
         onActivated: root.upFolder()
         onDpadRequested: Ui.InputMode.keyPressed()
         Keys.onUpPressed: { if (!root.focusPosterIndex(root.focusedPosterIndex)) root.focusCurrentTab(); }
@@ -766,7 +888,7 @@ FocusScope {
         objectName: "libraryStage"
         y: 282
         width: parent.width
-        height: parent.height - y - (root.folderMode && root.folderTrail.length ? folderBackButton.height + 48 : 0)
+        height: parent.height - y - (root.folderMode && root.folderTrail.length ? 124 : 0)
         clip: true
 
         Ui.StatusPane {
@@ -775,7 +897,7 @@ FocusScope {
             anchors.horizontalCenter: parent.horizontalCenter
             y: 48
             width: Math.min(820, parent.width)
-            visible: root.showStatus
+            visible: root.showStatus && !root.folderEmpty
             kind: root.statusKind
             title: root.resolvedStatusTitle
             description: root.resolvedStatusDescription
@@ -866,7 +988,8 @@ FocusScope {
                             width: root.posterWidth
                             height: root.posterHeight
                             cornerRadius: 20
-                            focusScale: 1.06
+                            focusScale: modelData.kind === "folder" ? 1.02 : 1.06
+                            transform: Translate { y: modelData.kind === "folder" ? 0 : poster.lift }
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
@@ -889,8 +1012,8 @@ FocusScope {
                                     radius: 20
                                     visible: posterImage.status !== Image.Ready
                                     gradient: Gradient {
-                                        GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
-                                        GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
+                                        GradientStop { position: 0.0; color: modelData.kind === "folder" ? "#292c31" : Qt.rgba(0.29, 0.29, 0.31, 1) }
+                                        GradientStop { position: 1.0; color: modelData.kind === "folder" ? "#17191d" : Qt.rgba(0.21, 0.21, 0.23, 1) }
                                     }
                                 }
                                 Image {
@@ -922,6 +1045,7 @@ FocusScope {
                                     }
                                     Ui.UiText {
                                         objectName: "posterArtTitle-" + modelData.id
+                                        visible: modelData.kind !== "folder"
                                         anchors.left: parent.left
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
@@ -987,8 +1111,7 @@ FocusScope {
                         Item {
                             id: caption
                             objectName: "posterCaption-" + modelData.id
-                            visible: modelData.kind !== "folder"
-                            property real lift: poster.activeFocus ? (root.pointerMode ? -4 : -10) : 0
+                            property real lift: poster.activeFocus ? (root.pointerMode ? 6 : 14) : 0
                             x: 4
                             y: root.posterHeight + 16
                             width: parent.width - 8
@@ -1001,6 +1124,7 @@ FocusScope {
                                 text: modelData.title || ""
                                 font.pixelSize: 26
                                 font.weight: poster.activeFocus ? 600 : 500
+                                color: poster.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
                                 maximumLineCount: 2
                                 elide: Text.ElideRight
                             }
@@ -1009,7 +1133,8 @@ FocusScope {
                                 anchors.top: posterLabel.bottom
                                 anchors.topMargin: 4
                                 width: parent.width
-                                text: modelData.year !== undefined && modelData.year !== null && String(modelData.year).length
+                                text: modelData.kind === "folder" ? (modelData.missing ? qsTr("Unavailable") : qsTr("Folder"))
+                                    : modelData.year !== undefined && modelData.year !== null && String(modelData.year).length
                                       ? String(modelData.year) : (modelData.subtitle || "")
                                 font.pixelSize: 24
                                 font.weight: 500
@@ -1075,8 +1200,13 @@ FocusScope {
         Item {
             z: 3
             anchors.fill: parent
+            transform: Translate {
+                y: root.detailRailActive ? Math.min(0, 170 - detailRail.y) : 0
+                Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.InOutCubic } }
+            }
             Column {
                 id: detailCopy
+                opacity: root.detailRailActive ? 0.18 : 1
                 x: root.marginLeft
                 y: (root.detailEntry && root.detailEntry.kind === "series") || root.detailSeasons.length ? 180 : 320
                 width: 1140
@@ -1179,6 +1309,7 @@ FocusScope {
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         onDpadRequested: Ui.InputMode.keyPressed()
+                        onActiveFocusChanged: if (activeFocus) root.detailRailActive = false
                         onActivated: root.playRequested(root.detailEntryId)
                     }
                     Ui.ActionButton {
@@ -1219,6 +1350,8 @@ FocusScope {
                 }
             }
             Column {
+                id: detailRail
+                objectName: "detailRail"
                 x: root.marginLeft
                 width: parent.width - x
                 anchors.top: detailCopy.bottom
@@ -1232,43 +1365,18 @@ FocusScope {
                     Repeater {
                         id: seasonRepeater
                         model: root.detailSeasons
-                        delegate: Ui.Surface {
-                            id: seasonButton
+                        delegate: LibraryPill {
                             required property var modelData
                             required property int index
                             objectName: "season-" + modelData.id
-                            implicitWidth: Math.max(120, seasonLabel.implicitWidth + 56)
-                            height: 64
-                            implicitHeight: 64
-                            cornerRadius: 32
-                            focusScale: 1.02
+                            underlineName: "seasonUnderline-" + modelData.id
+                            selected: modelData.id === root.currentSeasonId
                             text: modelData.title || ""
-                            restingColor: modelData.id === root.currentSeasonId ? Qt.rgba(1, 1, 1, 0.16) : Ui.Theme.plate
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: Ui.InputMode.keyPressed()
+                            onActiveFocusChanged: if (activeFocus) root.detailRailActive = true
                             onActivated: root.focusSeason(index)
-                            contentItem: Ui.UiText {
-                                id: seasonLabel
-                                text: seasonButton.text
-                                font.pixelSize: 28
-                                font.weight: 600
-                                horizontalAlignment: Text.AlignHCenter
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            Rectangle {
-                                objectName: "seasonUnderline-" + modelData.id
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.leftMargin: 28
-                                anchors.rightMargin: 28
-                                anchors.bottom: parent.bottom
-                                anchors.bottomMargin: 7
-                                height: 4
-                                radius: 2
-                                color: Ui.Theme.ember
-                                visible: modelData.id === root.currentSeasonId
-                            }
                         }
                     }
                 }
@@ -1315,6 +1423,7 @@ FocusScope {
                                     onActiveFocusChanged: {
                                         if (!activeFocus)
                                             return;
+                                        root.detailRailActive = true;
                                         root.episodeIndex = index;
                                         const left = episodeCell.x;
                                         const right = left + episodeCell.width;

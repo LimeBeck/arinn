@@ -397,22 +397,29 @@ TestCase {
                 ],
                 runningEntries: [{id: "r", title: "Cinder Rally", monogram: "C", running: true}]
             })};
-        if (id === "library-folder-roots" || id === "library-folder-nested") {
+        if (id === "library-folder-roots" || id === "library-folder-nested" || id === "library-folder-empty" || id === "library-folder-offline") {
             const nested = id === "library-folder-nested";
+            const empty = id === "library-folder-empty";
+            const offline = id === "library-folder-offline";
+            const trail = nested || empty ? [{id: "media", title: "Media", openerId: "media", scrollY: 0}] : [];
+            if (empty) trail.push({id: "empty", title: "New folder", openerId: "empty", scrollY: 0});
+            if (offline) trail.push({id: "offline", title: "Network drive", openerId: "offline", scrollY: 0});
             return {factory: libraryFactory, props: {
-                width: 1920, height: 1080, currentTabId: "@folders",
+                width: 1920, height: 1080, currentTabId: "@folders", folderTrail: trail,
                 tabs: [{id: "films", title: "Films"}, {id: "series", title: "Series"}, {id: "@folders", title: "Folders"}],
-                folderTrail: nested ? [{id: "media", title: "Media", openerId: "media", scrollY: 0}] : [],
                 folderEntries: [
                     {id: "media", folderId: "", title: "Media", kind: "folder"},
-                    {id: "family", folderId: "", title: "Family", kind: "folder"},
-                    {id: "archive", folderId: "", title: "Archive", kind: "folder", missing: true},
-                    {id: "classics", folderId: "media", title: "Classics", kind: "folder"},
-                    {id: "new", folderId: "media", title: "New", kind: "folder"},
-                    {id: "film", folderId: "media", title: "The Quiet Harbor", kind: "film", year: 2024, progress: 0.25},
-                    {id: "second", folderId: "media", title: "Paper Moons", kind: "film", year: 2023}
+                    {id: "archive", folderId: "", title: "Archive", kind: "folder"},
+                    {id: "offline", folderId: "", title: "Network drive", kind: "folder", missing: true},
+                    {id: "movies", folderId: "media", title: "Movies", kind: "folder"},
+                    {id: "shows", folderId: "media", title: "Series", kind: "folder"},
+                    {id: "empty", folderId: "media", title: "New folder", kind: "folder"},
+                    {id: "retained", folderId: "offline", title: "Last winter", kind: "film", missing: true, year: 2023}
                 ]
-            }, expect: ["libraryViewModes", "libraryFolderBreadcrumb", nested ? "folderGlyph-classics" : "folderGlyph-media"]};
+            }, tune: item => {
+                if (empty) item.focusStatus();
+                else item.focusPosterIndex(0);
+            }, expect: ["libraryViewModes", "libraryFolderBreadcrumb", empty ? "libraryFolderEmpty" : offline ? "libraryFolderUnavailable" : nested ? "folderGlyph-movies" : "folderGlyph-media"]};
         }
         if (id === "library-grid")
             return {factory: libraryFactory, props: {
@@ -426,20 +433,22 @@ TestCase {
                 tabs: [{id: "films", title: "Films"}],
                 entries: [{id: "p0", tabId: "films", title: "The Quiet Harbor", year: "2001", kind: "film", description: "A ferry captain spends one last winter on a northern island before the route closes.", progress: 0.4}]
             }};
-        if (id === "library-series")
+        if (id === "library-series" || id === "library-series-groups" || id === "library-series-without-season")
             return {factory: libraryFactory, props: {
                 width: 1920, height: 1080, detailEntryId: "show", currentSeasonId: "s1",
                 tabs: [{id: "series", title: "Series"}],
                 entries: [{
                     id: "show", tabId: "series", title: "Lighthouse Keepers", subtitle: "2011", kind: "series",
                     description: "Two keepers, one rock and a light that must not go out.",
-                    seasons: [{id: "s1", title: "Season 1"}, {id: "s2", title: "Season 2"}],
+                    seasons: [{id: "s1", title: "Season 1"}, {id: "s2", title: "Season 2"}].concat(id === "library-series" ? [] : [{id: "unknown", title: "Without season"}]),
                     episodes: [
                         {id: "p1", seasonId: "s1", title: "First Watch", duration: "40 min", number: 1},
-                        {id: "p2", seasonId: "s1", title: "Supply Boat", duration: "41 min", number: 2}
+                        {id: "p2", seasonId: "s1", title: "Supply Boat", duration: "41 min", number: 2},
+                        {id: "p3", seasonId: "unknown", title: "Unsorted episode", duration: "40 min"}
                     ]
                 }]
-            }};
+            }, tune: id === "library-series" ? null : item => item.focusSeason(id === "library-series-without-season" ? 2 : 0),
+            expect: id === "library-series" ? [] : [id === "library-series-without-season" ? "episode-p3" : "episode-p1"]};
         if (id === "library-empty")
             return {factory: libraryFactory, props: {width: 1920, height: 1080, libraryState: "empty", tabs: [{id: "films", title: "Films"}]}};
         if (id === "library-loading")

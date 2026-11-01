@@ -57,7 +57,7 @@ These four captures come from the current Qt/QML views through `tests/ui/visual`
 <details>
 <summary>Open services</summary>
 
-Managed browser activities, with the active service and sound state marked. Bookmark actions are drawn icons, independent of installed icon fonts.
+Managed browser activities, with the on-screen and sound marks next to each address, bookmark and close actions, and the Site or search button. The icons are drawn, independent of installed icon fonts.
 
 ![Arinn Open services with fictional services, bookmark actions and close controls](docs/design/showcase/open-services.png)
 
@@ -66,7 +66,7 @@ Managed browser activities, with the active service and sound state marked. Book
 <details>
 <summary>Settings</summary>
 
-Appearance settings for the light field, ambient timeout and text size, with their source lines.
+Appearance settings for the light field, ambient timeout and text size. The focused row also shows which component provides it.
 
 ![Arinn Appearance settings for the light field, ambient timeout and text size](docs/design/showcase/settings.png)
 

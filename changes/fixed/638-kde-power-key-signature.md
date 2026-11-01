@@ -1,0 +1,1 @@
+- Fix KDE power-key takeover sending an invalid D-Bus argument to KGlobalAccel, which left the remote power button with the desktop instead of opening Arinn's power menu.

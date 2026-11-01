@@ -102,7 +102,9 @@ where
 /// answer or answered something else: the holder is unknown, which is not
 /// the same as free (Codex on #517).
 async fn holder(connection: &Connection, key: &(Vec<i32>,)) -> Result<Option<Vec<String>>, ()> {
-    let reply = call(connection, "actionList", key).await.ok_or(())?;
+    // The method takes one QKeySequence struct, not its integer array.
+    // Keep the argument tuple outside the struct's own tuple.
+    let reply = call(connection, "actionList", &(key,)).await.ok_or(())?;
     let owner: Vec<String> = reply.body().deserialize().map_err(drop)?;
     match owner.len() {
         0 => Ok(None),
@@ -599,7 +601,16 @@ mod tests {
     #[zbus::interface(name = "org.kde.KGlobalAccel")]
     impl Service {
         #[zbus(name = "actionList")]
-        fn action_list(&self, key: (Vec<i32>,)) -> zbus::fdo::Result<Vec<String>> {
+        fn action_list(
+            &self,
+            key: (Vec<i32>,),
+            #[zbus(header)] header: zbus::message::Header<'_>,
+        ) -> zbus::fdo::Result<Vec<String>> {
+            // Qt dispatches by the exact wire signature. zbus deserialization
+            // alone also accepts an unwrapped single-field struct.
+            if header.signature().to_string() != "(ai)" {
+                return Err(zbus::fdo::Error::UnknownMethod("expected (ai)".into()));
+            }
             let accel = self.0.lock().unwrap();
             if accel.fail_lookups {
                 return Err(zbus::fdo::Error::Failed("fixture".into()));
@@ -768,6 +779,20 @@ mod tests {
         fn writes(&self) -> Vec<String> {
             self.accel.lock().unwrap().writes.clone()
         }
+    }
+
+    /// Qt rejects an unwrapped array even though zbus can deserialize it
+    /// as a single-field struct. Keep the private-bus fixture equally strict.
+    #[tokio::test]
+    async fn holder_uses_qt_key_sequence_wire_signature() {
+        let f = fixture(plasma()).await;
+        assert!(
+            call(&f.daemon, "actionList", &key(POWER_OFF))
+                .await
+                .is_none()
+        );
+        let owner = holder(&f.daemon, &key(POWER_OFF)).await.unwrap().unwrap();
+        assert_eq!(owner[1], "PowerOff");
     }
 
     /// Spec §5.7: while Arinn runs, the power key opens Arinn's power menu

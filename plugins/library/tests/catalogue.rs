@@ -147,9 +147,10 @@ fn scans_films_series_artwork_and_hostile_nfo() {
     assert!(!film.fanart.is_empty());
     assert_eq!(film.duration_us, -1);
 
-    // The resolution is a release tag: dropped from the title (#660), and
-    // never read as a year.
-    let resolution = items.iter().find(|item| item.title == "Movie").unwrap();
+    let resolution = items
+        .iter()
+        .find(|item| item.title == "Movie 1080p")
+        .unwrap();
     assert!(!resolution.has_year);
 
     let episode = items.iter().find(|item| item.title == "The Pilot").unwrap();
@@ -287,7 +288,6 @@ fn release_tagged_season_folders_form_one_series() {
         .filter(|item| item.kind == "episode")
         .map(|item| {
             assert_eq!(item.parent_id, series[0].id);
-            assert!(!item.title.contains("WEB-DL"), "{}", item.title);
             (item.season, item.episode)
         })
         .collect();

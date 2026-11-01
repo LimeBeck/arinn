@@ -62,9 +62,6 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     }
     let dir = series_dir(rel);
     let season_from_dir = dir.season;
-    // Markers are found in the name as it is: a release suffix is dropped
-    // only from the parts around the marker (or from a film's whole name),
-    // so no marker form can be lost with a tag before it (#660).
     let cleaned = clean(stem);
     let (mut text, mut year) = take_year(&cleaned);
     let mut marker = find_marker(&text).map(|(s, e, start, end)| (s, Some(e), start, end));
@@ -82,18 +79,15 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     let without_year = text;
     let episode = marker.is_some() || season_from_dir.is_some();
     if !episode {
-        // A film has no marker to keep: its whole name is cleaned, and a
-        // year before the release suffix is then found (`Film.2020.2160p`).
-        let (title, film_year) = take_year(&clean_name(stem));
-        return Some(film(fallback_title(&title, stem), film_year.or(year)));
+        let title = fallback_title(&without_year, stem);
+        return Some(film(title, year));
     }
     let (season, episode_no, before, after) = match marker {
-        Some((season, episode_no, start, end)) => (
-            Some(season),
-            episode_no,
-            trim_seps(&without_year[..start]),
-            trim_seps(&without_year[end..]),
-        ),
+        Some((season, episode_no, start, end)) => {
+            let before = trim_seps(&without_year[..start]);
+            let after = trim_seps(&without_year[end..]);
+            (Some(season), episode_no, before, after)
+        }
         // In a season folder the episode number may stand alone (ADR-0085).
         None => match loose_episode(&without_year) {
             Some((episode_no, start, end)) => (
@@ -105,11 +99,6 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
             None => (season_from_dir, None, without_year.clone(), String::new()),
         },
     };
-    // `Show.1080p.S02E03.Pilot.2019.WEB-DL`: release tags around the marker
-    // are no series or episode title; a year in them stays and is read.
-    let before = strip_release_tags(&before);
-    let (after, after_year) = take_year(&strip_release_tags(&after));
-    let year = year.or(after_year);
     let season = season.or(season_from_dir);
     let series_dir = dir.path;
     let (series_title, series_year) = match dir.title {
@@ -1112,6 +1101,8 @@ mod tests {
 
     #[test]
     fn release_season_folder_names_its_series() {
+        // Only folder names drop a release suffix; file names are read as
+        // they are.
         let root = Path::new("/library");
         let episode = parse_video(
             root,
@@ -1125,7 +1116,6 @@ mod tests {
         assert_eq!(episode.series_title, "Example Show");
         assert_eq!(episode.season, 2);
         assert_eq!(episode.episode, 1);
-        assert!(!episode.title.contains("2160p"), "{}", episode.title);
 
         // A marker-only season folder with a release suffix.
         let episode = parse_video(
@@ -1135,29 +1125,6 @@ mod tests {
         .unwrap();
         assert_eq!(episode.series_title, "Example Show");
         assert_eq!(episode.season, 3);
-
-        // A series folder with a year and a release suffix.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show 2019 1080p BluRay x264-GRP/Example.Show.S01E01.Pilot.1080p.BluRay.x264-GRP.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert!(episode.series_has_year);
-        assert_eq!(episode.series_year, 2019);
-        assert_eq!(episode.title, "Pilot");
-
-        // A year between the marker and the release suffix is the series
-        // year, not text after the marker.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show S02 2019 1080p WEB-DL/Example.Show.S02E03.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 2);
-        assert!(episode.series_has_year);
-        assert_eq!(episode.series_year, 2019);
 
         // `Season N` with a release suffix is still a season folder.
         let episode = parse_video(
@@ -1169,86 +1136,32 @@ mod tests {
         assert_eq!(episode.series_title, "Example Show");
         assert_eq!(episode.season, 2);
 
-        // A year in a file name before its release suffix is found.
+        // A series folder with a year and a release suffix.
         let episode = parse_video(
             root,
-            Path::new("/library/Example Show/Season 2/Example.Show.S02E01.Pilot.2019.1080p.WEB-DL.x264.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.title, "Pilot");
-        assert!(episode.has_year);
-        assert_eq!(episode.year, 2019);
-
-        // A year after the release tags is kept as well.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show S02 1080p 2019/Example Show - 01.mkv"),
+            Path::new("/library/Example Show 2019 1080p BluRay x264-GRP/Example.Show.S01E01.mkv"),
         )
         .unwrap();
         assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 2);
         assert!(episode.series_has_year);
         assert_eq!(episode.series_year, 2019);
-        let film = parse_video(root, Path::new("/library/Example Film 1080p 2020.mkv")).unwrap();
-        assert_eq!(film.title, "Example Film");
-        assert!(film.has_year);
-        assert_eq!(film.year, 2020);
-        let film = parse_video(
-            root,
-            Path::new("/library/Example.Film.1080p.2020-GROUP.mkv"),
-        )
-        .unwrap();
-        assert_eq!(film.title, "Example Film");
-        assert!(film.has_year);
-        assert_eq!(film.year, 2020);
 
-        // A parenthesized year after the tags is kept as well.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show S04 1080p (2021)/Example Show - 01.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 4);
-        assert!(episode.series_has_year);
-        assert_eq!(episode.series_year, 2021);
-        let film = parse_video(root, Path::new("/library/Example.Film.1080p.(2020).mkv")).unwrap();
-        assert_eq!(film.title, "Example Film");
-        assert!(film.has_year);
-        assert_eq!(film.year, 2020);
-
-        let film = parse_video(
-            root,
-            Path::new("/library/Example.Film.1080p.(2020)-GROUP.mkv"),
-        )
-        .unwrap();
-        assert_eq!(film.title, "Example Film");
-        assert!(film.has_year);
-        assert_eq!(film.year, 2020);
-
-        // A release tag before the episode marker keeps the marker.
-        let episode = parse_video(root, Path::new("/library/Show.1080p.S02E03.Pilot.mkv")).unwrap();
-        assert_eq!(episode.kind, Kind::Episode);
-        assert_eq!(episode.season, 2);
-        assert_eq!(episode.episode, 3);
-        assert_eq!(episode.title, "Pilot");
-
-        // A loose episode marker after an early release tag keeps its number.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show/Season 2/Show.1080p.E02.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.season, 2);
-        assert!(episode.has_episode);
-        assert_eq!(episode.episode, 2);
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show/Season 2/Show 1080p - 03.mkv"),
-        )
-        .unwrap();
-        assert!(episode.has_episode);
-        assert_eq!(episode.episode, 3);
+        // A year before, after or inside the folder's release suffix is the
+        // series year.
+        for (folder, year) in [
+            ("Example Show S02 2019 1080p WEB-DL", 2019),
+            ("Example Show S02 1080p 2019", 2019),
+            ("Example Show S02 1080p 2019-GROUP", 2019),
+            ("Example Show S02 1080p (2021)", 2021),
+            ("Example Show S02 1080p (2021)-GROUP", 2021),
+        ] {
+            let path = format!("/library/{folder}/Example Show - 01.mkv");
+            let episode = parse_video(root, Path::new(&path)).unwrap();
+            assert_eq!(episode.series_title, "Example Show", "{folder}");
+            assert_eq!(episode.season, 2, "{folder}");
+            assert!(episode.series_has_year, "{folder}");
+            assert_eq!(episode.series_year, year, "{folder}");
+        }
 
         // A WEB-DLRip source with an attached group.
         let episode = parse_video(
@@ -1259,16 +1172,10 @@ mod tests {
         assert_eq!(episode.series_title, "Example Show");
         assert_eq!(episode.season, 3);
 
-        // The same holds for a film.
-        let film = parse_video(
-            root,
-            Path::new("/library/Example.Film.2020.2160p.WEB-DL.DDP5.1.HEVC-GROUP.mkv"),
-        )
-        .unwrap();
+        // File names are not cleaned: a release-tagged film keeps its name.
+        let film = parse_video(root, Path::new("/library/Example.Film.2160p.WEB-DL.mkv")).unwrap();
         assert_eq!(film.kind, Kind::Film);
-        assert_eq!(film.title, "Example Film");
-        assert!(film.has_year);
-        assert_eq!(film.year, 2020);
+        assert_eq!(film.title, "Example Film 2160p WEB-DL");
 
         // Text after the marker that is not a release suffix keeps today's
         // reading: the folder stays the series directory.
@@ -1482,8 +1389,7 @@ mod tests {
         let film =
             parse_video(Path::new("/library"), Path::new("/library/Movie.1080p.mkv")).unwrap();
         assert!(!film.has_year);
-        // The resolution is a release tag and is dropped (#660).
-        assert_eq!(film.title, "Movie");
+        assert_eq!(film.title, "Movie 1080p");
     }
 }
 

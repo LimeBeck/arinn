@@ -9,7 +9,7 @@ they do not extend Linux MVP acceptance or commit a delivery date.
 ## Scope and decisions still pending
 
 The proposed product is a TV-first home screen with application tiles and
-D-pad/OK/Back navigation, preserving Arinn's visual language and plugin model.
+D-pad/OK/Back and touch navigation, preserving Arinn's visual language and plugin model.
 Execution follows the Linux MVP, including its current KDE/Wayland and XFCE/X11
 scope. #186 is related portability work, not an Android prerequisite.
 
@@ -54,6 +54,36 @@ arbitrary executable plugin downloads, phone/tablet UI and a remote companion
 are outside this scope. Desktop Native Messaging/Chrome and external Linux mpv
 need separate adaptation work; neither is automatically portable.
 
+## Touch input adaptation
+
+Owner addition: touch is a required input path for the planned Android interface
+where the device exposes a touchscreen. D-pad navigation remains fully usable on
+devices without touch; touch hardware must not become an installation requirement
+for the TV app. This adds input adaptation to the TV-first presentation, without
+qualifying a separate phone/tablet product or changing Linux MVP requirements.
+
+| Interaction | Proposed behavior / verification criterion |
+| --- | --- |
+| Tap | Activate the tapped enabled control once on release; no preliminary focus tap, hover or double-tap required; cancelled gestures activate nothing |
+| Drag / swipe | Scroll vertical lists and horizontal rails naturally, including fling and bounds; crossing the drag threshold cancels tile activation; nested rails must not trap vertical navigation |
+| Secondary actions | Provide visible tappable controls for tile actions, menus and dismissal; long press may be a shortcut, never the only route |
+| Back / navigation | Provide reachable on-screen Back where needed and honor supported Android system Back, including gesture Back; use the same modal/nested navigation semantics and do not intercept the system Home gesture |
+| Input switching | Touch reaches the item under the finger; the next D-pad action restores a visible, valid focus anchored to the last interacted item or a deterministic nearby fallback without activating it |
+| Touch targets / feedback | Use at least 48 x 48 Android dp hit targets with adequate separation, pressed/disabled feedback and no hover-only information; verify density conversion in Qt and native candidates rather than treating QML pixels as dp |
+| Text input | A tap focuses the field and opens the selected Android-compatible input method; text, selection, keyboard dismissal and window insets must remain usable; do not show two keyboards at once |
+| Lifecycle / interruption | Pointer cancellation, leaving the app, opening a modal or process recreation must not leave a pressed state, cause a deferred launch or replay a gesture |
+
+Stage B must run a touch-only pass of every primary action as well as the
+remote-only pass. Include taps near target edges, scroll versus activation,
+nested scrolling, long-press cancellation, modal dismissal, software keyboard
+occlusion, switching repeatedly between touch and D-pad, and focus after a
+touched item disappears. Compare Qt/QML and native candidates on these same cases.
+Record viewport, density, input source, gesture thresholds and results.
+Use a touch-capable emulator configuration and, only with separate owner
+permission, representative touch hardware. Mouse clicks alone do not qualify
+touch or multi-pointer cancellation. Touch support remains **not tested** until
+evidence is attached; unsupported input sources must be stated per target.
+
 ## Architecture constraints and portability seams
 
 The existing [architecture rules](../specifications/arinn-specification.md#20-architecture-rules)
@@ -88,7 +118,7 @@ An emulator result never qualifies an untested physical device.
 | Stage | Work and verification criteria | Exit / next dependency |
 | --- | --- | --- |
 | A: feasibility | Select a versioned Android TV emulator image and representative owner-approved physical TV/Google TV device. Record HOME resolution, role availability, selection/cancel/deny, app-mode fallback and recovery path. Compare shared Qt/QML and native host using identical navigation fixture | Publish observations and unresolved restrictions; select no production UI without the comparison and owner review |
-| B: presentation | Package the isolated QML gallery without Linux transport. Exercise every focusable control with D-pad/OK/Back, focus fallback, 1080p/4K scaling, repeated background/foreground, activity recreation and process recreation | Reproducible APK/build steps and case results; measure cold/warm launch, input-to-frame latency, frame pacing and memory on stated hardware; owner approves budgets before performance acceptance |
+| B: presentation | Package the isolated QML gallery without Linux transport. Exercise every focusable control with D-pad/OK/Back and the touch-only/input-switching cases above, focus fallback, 1080p/4K scaling, repeated background/foreground, activity recreation and process recreation | Reproducible APK/build steps and case results; measure cold/warm launch, input-to-frame latency, frame pacing and memory on stated hardware; owner approves budgets before performance acceptance |
 | C: runtime | Bind one application provider and a demo provider through the candidate transport. Discover/launch a synthetic TV app; inject unauthorized caller, unsupported feature, timeout, provider death, reconnect and delayed old-generation reply | Shell survives provider death; actions complete or fail within recorded finite limits, stale replies cannot mutate current state, fresh snapshots restore operation; review transport/trust ADR before production implementation |
 | D: Home | After rollback rehearsal, explicitly opt in on a supported device; test Home from another app, launch/return, repeated Home, cancel setup, restart/reboot and shell process death; restore previous Home | Device-specific behavior and limitations recorded; previous launcher is reachable and restored through supported settings; otherwise only ordinary-app mode is eligible |
 | E: decision | Consolidate support matrix and UI/runtime comparison, outstanding failures, permissions, distribution constraints and proposed follow-up zones | Owner approves bounded implementation scope and reviewed ADRs; create separate tasks only for approved scope, with explicit dependencies and criteria |

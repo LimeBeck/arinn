@@ -115,8 +115,8 @@ Arinn is a **shared household device** used by two people. Version 1 has no logi
 Android TV / Google TV home-screen support ([#198](https://github.com/LimeBeck/arinn/issues/198))
 is post-MVP planning, not a current supported platform or an extension of AC-01–AC-19.
 The [Android TV specification and PoC plan](../architecture/android-tv-plan.md)
-records proposed Home/app modes, platform constraints, staged experiments and
-verification criteria. Production UI, transport and device support remain undecided;
+records proposed Home/app modes, D-pad and touchscreen input adaptation,
+platform constraints, staged experiments and verification criteria. Production UI, transport and device support remain undecided;
 reviewed specification/ADR work precedes implementation. Linux MVP scope and
 D-Bus contracts remain unchanged. Real-device/operator tests need separate
 explicit owner permission.

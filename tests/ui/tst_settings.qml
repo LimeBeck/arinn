@@ -328,6 +328,26 @@ TestCase {
         compare(top.visible, true);
     }
 
+    // #641: a row title without a description is centred on the row, and a
+    // title with a description keeps its top inset.
+    function test_title_without_description_is_centred() {
+        view.rows = [
+            {providerId: "p", providerName: "P", id: "size", categoryId: "media", title: "Text size",
+             type: "enum", currentValue: "m", constraints: {options: [{value: "m", title: "Regular"}]}, enabled: true},
+            {providerId: "p", providerName: "P", id: "light", categoryId: "media", title: "Light field",
+             description: "Artwork colour lights the background", type: "boolean", currentValue: true,
+             constraints: {}, enabled: true}
+        ];
+        const row = child("setting-p-size");
+        const title = child("title-p-size");
+        tryVerify(() => title.height > 0 && row.height >= 112);
+        const centre = title.mapToItem(row, 0, title.height / 2).y;
+        verify(Math.abs(centre - row.height / 2) <= 2,
+               "title centre " + centre + " in a row of " + row.height);
+        const described = child("title-p-light");
+        compare(Math.round(described.mapToItem(child("setting-p-light"), 0, 0).y), 20);
+    }
+
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

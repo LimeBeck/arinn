@@ -671,13 +671,22 @@ Window {
     // Continue media cards without session artwork use the backdrop of the
     // library item they play (#365, ADR-0062). `library` only makes the
     // binding follow catalog changes.
-    function continueMedia(entries, library) {
-        return entries.map(entry => {
-            if (entry.artwork) return entry;
+    function continueMedia(entries, library, saved) {
+        const persisted = saved || [];
+        const savedTitles = new Set(persisted.map(entry => entry.libraryEntryId));
+        const liveTitles = new Set();
+        const live = entries.map(entry => {
             const content = mediaCatalog.libraryContent(entry.id);
+            const title = content.local ? libraryCatalog.entryIdFor(content.provider, content.local) : "";
+            // A retained stopped player may describe an older episode. The
+            // library owns the current saved selection once playback stopped.
+            if (entry.state === "stopped" && savedTitles.has(title)) return null;
+            if (title) liveTitles.add(title);
+            if (entry.artwork) return entry;
             const artwork = content.local ? libraryCatalog.artworkFor(content.provider, content.local) : "";
             return artwork ? Object.assign({}, entry, {artwork: artwork}) : entry;
-        });
+        }).filter(entry => entry !== null);
+        return live.concat(persisted.filter(entry => !liveTitles.has(entry.libraryEntryId)));
     }
     // An imported download shows the poster of the library entry its Watch
     // opens: the first library ref, through entryIdFor (#360, ADR-0062).
@@ -847,7 +856,7 @@ Window {
                 && backend.daemonEpoch === browserCatalog.returnEpoch
                 && backend.returnWindow === browserCatalog.returnTarget
             continueEntries: (returnIsWebService ? [] : backend.continueEntries)
-                .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries))
+                .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries, libraryCatalog.continueEntries))
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(backend.favorites)
             newEntries: libraryCatalog.newEntries
@@ -912,6 +921,11 @@ Window {
                     libraryCatalog.launchContent(target.provider, target.local);
                 } else
                     root.openSession(entryId, false);
+            }
+            onLibraryResumeRequested: entryId => {
+                root.resumeFromHome = true;
+                root.launchFromHome = true;
+                libraryCatalog.launch(entryId);
             }
             onCloseShellRequested: root.close()
             onPowerRequested: powerOverlay.openMenu()

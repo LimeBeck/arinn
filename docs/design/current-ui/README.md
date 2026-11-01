@@ -16,8 +16,11 @@ The development gallery `arinn-ui-gallery` is a component catalogue only and
 no longer renders screens (#567).
 
 Captured on 2026-10-27 from `master` 9987ba0 at 1920 × 1080 with Qt 6.8.2, the
-offscreen platform and the software Qt Quick renderer. Each file is the 1080p
-render of one manifest state:
+offscreen platform and the software Qt Quick renderer. `home.png`,
+`open-services.png` and `settings.png` were recaptured on 2026-11-01 from
+`master` eed451c with Qt 6.12.0, after the Home, Open services and Settings
+handoff alignment (#628, #633, #634; #636). Each file is the 1080p render of
+one manifest state:
 
 | File | Manifest state |
 | --- | --- |

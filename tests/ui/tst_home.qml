@@ -26,6 +26,7 @@ TestCase {
     }
     SignalSpy { id: returns; signalName: "returnRequested" }
     SignalSpy { id: libraryEntries; signalName: "libraryEntryRequested" }
+    SignalSpy { id: libraryResumes; signalName: "libraryResumeRequested" }
     SignalSpy { id: entries; signalName: "entryRequested" }
     SignalSpy { id: retry; signalName: "retryRequested" }
     SignalSpy { id: closes; signalName: "closeShellRequested" }
@@ -119,6 +120,20 @@ TestCase {
         keyClick(Qt.Key_Back); tryCompare(home,"tileActionsOpen",false);
     }
     function init() { createHome(); }
+    function test_persisted_resume_and_new_card_have_distinct_actions() {
+        libraryResumes.target = home; libraryResumes.clear();
+        libraryEntries.target = home; libraryEntries.clear();
+        home.continueEntries = [{id: "resume:film", title: "Film", kind: "media", resumeContentId: "film", progress: 0.5}];
+        home.newEntries = [{id: "film", title: "Film"}];
+        home.activate("resume:film");
+        compare(libraryResumes.count, 1);
+        compare(libraryResumes.signalArguments[0][0], "film");
+        compare(libraryEntries.count, 0);
+        home.activate("film");
+        compare(libraryEntries.count, 1);
+        compare(libraryResumes.count, 1);
+        libraryResumes.target = null;
+    }
     function cleanup() {
         closes.target = null;
         returns.target = null; entries.target = null; retry.target = null;

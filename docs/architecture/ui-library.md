@@ -208,6 +208,25 @@ dbus-run-session -- ./build/apps/arinn-shell/arinn-library-catalog-test
 Operator tests, television readability and the 22-screen design gate are not
 part of this increment.
 
+## Persisted Home Continue (#643)
+
+LibraryCatalog projects up to four available, unfinished film/series cards from
+LibraryResume1, ordered by the saved observation time. One series card selects
+the same most recent unfinished episode as Library launch. Unknown duration
+does not discard a positive saved position. A fresh shell reads these cards
+without requiring a retained Media1 session; no second history database is made.
+
+Home merges this projection with current media sessions. Active sessions
+take precedence for their library title; an old stopped session does not hide the
+provider's newer saved episode. Prefixed presentation IDs keep Continue separate
+from New. OK resumes the exact saved content through LibraryCatalog.launch,
+while the same title in New continues to open detail without playback.
+
+External browser/app sessions remain live-provider data. Restarting the shell
+rediscovers a surviving player; retaining watched-video history after that player
+exits needs a durable provider-owned reopen target and is not supplied by this
+local-library correction.
+
 ## Offline folder mode (#629)
 
 The Catalogue/Folders switch separates collection categories from physical
@@ -234,6 +253,17 @@ compact Up control; plain empty-folder text and an unavailable-root notice above
 retained entries. These controls are local to LibraryView; shared controls and
 historical handoff materials are unchanged.
 Season/episode focus raises the detail rail, keeping its captions in the viewport.
+The long-series regression covers wrapped headings, descriptions and resume progress,
+with and without season pills. It traverses twelve episodes in both directions,
+checks the focused still and caption against viewport coordinates, launches the
+last episode, and returns through the primary action to the opener.
+Horizontal episode focus reveals animate over 450 ms with the shared ease-out
+curve. A new key retargets from the current visual position; native pointer
+dragging or flicking cancels the focus animation. Season and detail changes
+cancel motion and reset the row, so an old target cannot move a new list.
+Offset changes suppress hover focus until 500 ms after the final movement.
+Tests observe intermediate positions, settling, rapid reversal, pointer flick
+interruption and season/detail resets as well as final focus and launch.
 Back from that rail restores the primary action before leaving detail. Physical
 episodes resolve their already-present parent series from the presentation model;
 `detailOpenerId` retains the original file card independently of the series detail

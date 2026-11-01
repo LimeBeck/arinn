@@ -192,6 +192,7 @@ void LibraryCatalog::publish() {
   }
   QVariantList entries;
   QHash<QString, QVariantMap> allEntries;
+  QList<QPair<const ItemRow *, const ItemRow *>> resumable;
   for (const auto &item : m_items) {
     auto kids = children.value(item.providerId + QLatin1Char('\n') + item.localId);
     std::sort(kids.begin(), kids.end(), [this](int a, int b) {
@@ -247,14 +248,20 @@ void LibraryCatalog::publish() {
     auto progress = resumeFraction(item.resumePosition, item.resumeDuration,
                                    item.durationUs, item.resumeCompleted,
                                    item.hasResume);
+    const ItemRow *resume = &item;
     if (item.kind == QLatin1String("series") || !kids.isEmpty()) {
-      if (const auto *target = seriesTarget(item))
+      resume = seriesTarget(item);
+      if (const auto *target = resume)
         progress = resumeFraction(target->resumePosition, target->resumeDuration,
                                   target->durationUs, target->resumeCompleted,
                                   target->hasResume);
       else
         progress = 0;
     }
+    if (item.parentLocal.isEmpty() && item.available && resume && resume->available &&
+        (item.kind == QLatin1String("film") || item.kind == QLatin1String("series")) &&
+        resume->hasResume && !resume->resumeCompleted && resume->resumePosition > 0)
+      resumable.append(QPair<const ItemRow *, const ItemRow *>{&item, resume});
     const auto poster = AssetImages::imageUrl(item.providerId, item.path,
                                               item.generation, item.poster);
     const auto fanart = AssetImages::imageUrl(item.providerId, item.path,
@@ -342,12 +349,40 @@ void LibraryCatalog::publish() {
       }
     }
   }
-  const auto changed = tabs != m_tabs || entries != m_entries || folderEntries != m_folderEntries || newEntries != m_newEntries ||
+  std::sort(resumable.begin(), resumable.end(), [](const auto &a, const auto &b) {
+    if (a.second->resumeObserved != b.second->resumeObserved)
+      return a.second->resumeObserved > b.second->resumeObserved;
+    return a.first->id < b.first->id;
+  });
+  QVariantList continued;
+  for (const auto &[title, target] : std::as_const(resumable)) {
+    if (continued.size() == 4) break;
+    auto card = allEntries.value(title->id);
+    // Home needs one bounded card, not the series' complete episode rail.
+    card.remove(QStringLiteral("episodes"));
+    card.remove(QStringLiteral("seasons"));
+    // Distinct from the same title's New/detail card. No live session ID or
+    // runtime artwork reference is persisted: Resume1 remains authoritative.
+    card.insert(QStringLiteral("id"), QStringLiteral("resume:") + title->id);
+    card.insert(QStringLiteral("libraryEntryId"), title->id);
+    card.insert(QStringLiteral("resumeContentId"), target->id);
+    card.insert(QStringLiteral("kind"), QStringLiteral("media"));
+    card.insert(QStringLiteral("state"), QStringLiteral("stopped"));
+    card.insert(QStringLiteral("running"), false);
+    card.insert(QStringLiteral("positionUs"), static_cast<double>(target->resumePosition));
+    card.insert(QStringLiteral("durationUs"), static_cast<double>(target->resumeDuration > 0 ? target->resumeDuration : target->durationUs));
+    card.insert(QStringLiteral("subtitle"), target == title ? QString() : target->title);
+    const auto art = artworkFor(target->providerId, target->localId);
+    if (!art.isEmpty()) card.insert(QStringLiteral("artwork"), art);
+    continued.append(card);
+  }
+  const auto changed = tabs != m_tabs || entries != m_entries || folderEntries != m_folderEntries || newEntries != m_newEntries || continued != m_continueEntries ||
                        m_items != m_publishedItems;
   m_tabs = tabs;
   m_folderEntries = folderEntries;
   m_entries = entries;
   m_newEntries = newEntries;
+  m_continueEntries = continued;
   if (!changed && libraryState() == m_publishedState)
     return;
   // A deep copy: sharing would let the next non-const pass over m_items

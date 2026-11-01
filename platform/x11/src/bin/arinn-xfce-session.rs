@@ -39,6 +39,7 @@ const SYSTEMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 const HANDOVER: Duration = Duration::from_secs(65);
 const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
 const LOCK_PROVIDER_MISSING: &str = "no lock provider: start xfce4-screensaver or light-locker";
+const LOCK_PROVIDER_UNRESPONSIVE: &str = "lock provider not responding";
 
 #[derive(Debug)]
 struct LockProviderMissing;
@@ -50,10 +51,10 @@ impl std::fmt::Display for LockProviderMissing {
 impl std::error::Error for LockProviderMissing {}
 
 #[derive(Debug)]
-struct LockProviderUnresponsive(&'static str);
+struct LockProviderUnresponsive;
 impl std::fmt::Display for LockProviderUnresponsive {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "lock provider not responding: {}", self.0)
+        formatter.write_str(LOCK_PROVIDER_UNRESPONSIVE)
     }
 }
 impl std::error::Error for LockProviderUnresponsive {}
@@ -281,8 +282,8 @@ async fn run() -> Result<()> {
         lock_preflight::ProviderWaitOutcome::Missing => {
             return Err(anyhow::Error::new(LockProviderMissing));
         }
-        lock_preflight::ProviderWaitOutcome::Unresponsive { service } => {
-            return Err(anyhow::Error::new(LockProviderUnresponsive(service)));
+        lock_preflight::ProviderWaitOutcome::Unresponsive { service: _ } => {
+            return Err(anyhow::Error::new(LockProviderUnresponsive));
         }
     }
     let mut startup = Box::pin(start());
@@ -335,7 +336,7 @@ async fn main() {
             std::process::exit(1);
         }
         Err(error) if error.downcast_ref::<LockProviderUnresponsive>().is_some() => {
-            eprintln!("arinn-xfce-session: {error}");
+            eprintln!("arinn-xfce-session: {LOCK_PROVIDER_UNRESPONSIVE}");
             std::process::exit(1);
         }
         Err(_) => {

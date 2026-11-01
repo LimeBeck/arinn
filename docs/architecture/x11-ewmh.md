@@ -375,8 +375,8 @@ the session bus (re-probing on ScreenSaver `NameOwnerChanged`, then
 still be found. After that bound with no answering provider it exits with
 `arinn-xfce-session: no lock provider: start xfce4-screensaver or
 light-locker`; if a name is owned but `GetActive` times out or is malformed,
-it exits with `arinn-xfce-session: lock provider not responding: <bus
-name>`. In both cases it does not start the EWMH target. The existing shell
+it exits with `arinn-xfce-session: lock provider not responding`. In both
+cases it does not start the EWMH target. The existing shell
 requests Home (AC-01).
 
 The helper remains in the desktop autostart session, owning

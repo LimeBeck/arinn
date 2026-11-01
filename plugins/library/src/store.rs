@@ -8,6 +8,7 @@ use crate::{
     mounts::MountTables,
     parse::{self, Kind, Parsed},
     progress::{self, Progress},
+    recognition::Rules,
     uri,
 };
 use arinn_protocol::{
@@ -40,6 +41,11 @@ pub struct Settings {
     pub roots: Vec<PathBuf>,
     pub probe: bool,
     pub ffprobe: PathBuf,
+    /// Season and episode recognition rules (ADR-0128).
+    pub recognition: Rules,
+    /// Why the configured rules were rejected, if they were: the defaults
+    /// apply instead and the rest of the settings still load.
+    pub recognition_error: Option<String>,
 }
 
 impl Default for Settings {
@@ -49,6 +55,8 @@ impl Default for Settings {
             roots: Vec::new(),
             probe: true,
             ffprobe: PathBuf::from("ffprobe"),
+            recognition: Rules::default(),
+            recognition_error: None,
         }
     }
 }
@@ -64,6 +72,8 @@ struct SettingsJson {
     ffprobe: Option<String>,
     #[serde(default)]
     roots: Vec<String>,
+    #[serde(default)]
+    recognition: Option<serde_json::Value>,
 }
 
 fn yes() -> bool {
@@ -103,11 +113,22 @@ impl Settings {
             }
             Some(_) => return Err(ErrorCode::InvalidArgument),
         };
+        // Invalid rules fall back to the defaults (ADR-0128): the library
+        // stays usable, and the reason is reported once at start.
+        let (recognition, recognition_error) = match file.recognition.as_ref() {
+            None => (Rules::default(), None),
+            Some(value) => match Rules::from_value(value) {
+                Ok(rules) => (rules, None),
+                Err(error) => (Rules::default(), Some(error)),
+            },
+        };
         Ok(Self {
             autoscan: file.autoscan,
             roots,
             probe: file.probe,
             ffprobe,
+            recognition,
+            recognition_error,
         })
     }
 }
@@ -137,6 +158,9 @@ pub struct Store {
     /// Roots from the latest settings. Import uses this list, not every
     /// historical row in `roots`.
     configured_roots: Vec<PathBuf>,
+    /// Recognition rules from the latest settings (ADR-0128), for imports
+    /// between scans.
+    configured_rules: Rules,
     /// Mount tables for tests; `None` reads the system's at each scan and
     /// import (ADR-0115).
     mounts: Option<MountTables>,
@@ -272,8 +296,13 @@ impl Store {
         Ok(Self {
             conn,
             configured_roots: Vec::new(),
+            configured_rules: Rules::default(),
             mounts: None,
         })
+    }
+
+    pub(crate) fn set_configured_rules(&mut self, rules: &Rules) {
+        self.configured_rules = rules.clone();
     }
 
     pub(crate) fn set_configured_roots(&mut self, roots: &[PathBuf]) {
@@ -655,16 +684,12 @@ impl Store {
                 return Err(ErrorCode::InvalidArgument);
             }
             let root_id = self.root_id(&root)?;
-            let Some(id) = self.upsert_file(
-                &root_id,
-                &root,
-                &path,
-                &Settings {
-                    probe: false,
-                    ..Settings::default()
-                },
-            )?
-            else {
+            let settings = Settings {
+                probe: false,
+                recognition: self.configured_rules.clone(),
+                ..Settings::default()
+            };
+            let Some(id) = self.upsert_file(&root_id, &root, &path, &settings)? else {
                 continue;
             };
             if ids.iter().any(|seen| seen == &id) {
@@ -744,6 +769,7 @@ impl Store {
             .map_err(|_| ErrorCode::Internal)?;
         let result = (|| {
             self.configured_roots = settings.roots.clone();
+            self.configured_rules = settings.recognition.clone();
             let stored = self
                 .conn
                 .prepare("SELECT id, path FROM roots")
@@ -862,14 +888,16 @@ impl Store {
         path: &Path,
         settings: &Settings,
     ) -> Result<Option<String>, ErrorCode> {
-        if relative(root, path).is_none() || parse::parse_video(root, path).is_none() {
+        if relative(root, path).is_none()
+            || parse::parse_video_with(root, path, &settings.recognition).is_none()
+        {
             // Subtitles, NFO files and other extras of a download are not
             // catalogue items; the scan skips them too (#598).
             return Ok(None);
         }
         // A video that vanished or became unreadable after the caller's
         // checks stays retryable instead of passing for an extra.
-        let Some(file) = disk_file(root, path)? else {
+        let Some(file) = disk_file(root, path, &settings.recognition)? else {
             return Err(ErrorCode::Unavailable);
         };
         let existing = self.load_root(root_id)?;
@@ -1410,7 +1438,7 @@ fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
             );
             let files = paths
                 .iter()
-                .filter_map(|file| disk_file(path, file).ok().flatten())
+                .filter_map(|file| disk_file(path, file, &settings.recognition).ok().flatten())
                 .collect();
             RootScan {
                 path: path.clone(),
@@ -1606,11 +1634,11 @@ fn regular_file_inside(root: &Path, path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file()) && contained(root, path)
 }
 
-fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
+fn disk_file(root: &Path, path: &Path, rules: &Rules) -> Result<Option<DiskFile>, ErrorCode> {
     let Some(rel) = relative(root, path) else {
         return Ok(None);
     };
-    let Some(mut parsed) = parse::parse_video(root, path) else {
+    let Some(mut parsed) = parse::parse_video_with(root, path, rules) else {
         return Ok(None);
     };
     let nfo_path = path.with_extension("nfo");
@@ -2099,6 +2127,25 @@ mod tests {
         assert!(Settings::parse(r#"{"roots":["/"]}"#).is_err());
         assert!(Settings::parse(r#"{"roots":["films"]}"#).is_err());
         assert!(Settings::parse(r#"{"extra":true}"#).is_err());
+        // ADR-0128: valid rules load; invalid ones fall back to the defaults
+        // with a reason, and the roots still load.
+        let custom =
+            Settings::parse(r#"{"roots":["/srv/films"],"recognition":{"season":["Part {n}"]}}"#)
+                .unwrap();
+        assert!(custom.recognition_error.is_none());
+        assert_eq!(custom.recognition.season_rules()[0].template, "Part {n}");
+        let invalid =
+            Settings::parse(r#"{"roots":["/srv/films"],"recognition":{"season":["{n}"]}}"#)
+                .unwrap();
+        assert_eq!(invalid.roots, vec![PathBuf::from("/srv/films")]);
+        assert_eq!(invalid.recognition, Rules::default());
+        let reason = invalid.recognition_error.unwrap();
+        assert!(
+            reason.contains("season:1") && !reason.contains("/srv"),
+            "{reason}"
+        );
+        let shape = Settings::parse(r#"{"recognition":["not a table"]}"#).unwrap();
+        assert!(shape.recognition_error.is_some());
     }
 
     #[test]
@@ -2116,7 +2163,11 @@ mod tests {
         let gone = root.join("Gone (2001).mkv");
         fs::write(&gone, b"gone").unwrap();
         fs::remove_file(&gone).unwrap();
-        assert!(disk_file(&root, &gone).unwrap().is_none());
+        assert!(
+            disk_file(&root, &gone, &Rules::default())
+                .unwrap()
+                .is_none()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2139,6 +2190,7 @@ mod tests {
             roots: vec![root.clone()],
             probe: false,
             ffprobe: PathBuf::from("ffprobe"),
+            ..Settings::default()
         };
         // The import checked the path, then the video disappeared: it must
         // not be skipped like an extra (#598).
@@ -2177,6 +2229,7 @@ mod tests {
                 roots: vec![root],
                 probe: false,
                 ffprobe: PathBuf::from("ffprobe"),
+                ..Settings::default()
             })
             .unwrap();
         let id = store

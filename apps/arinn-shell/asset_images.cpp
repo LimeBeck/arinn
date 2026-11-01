@@ -6,6 +6,8 @@
 #include "icon_references.h"
 #include "web_icon_references.h"
 #include <algorithm>
+#include <atomic>
+#include <memory>
 #include <QBuffer>
 #include <QFile>
 #include <QIcon>
@@ -98,7 +100,35 @@ bool signatureMatches(const QString &mime, const QByteArray &bytes) {
   return false;
 }
 
-QImage decodeImage(const QString &mime, const QByteArray &bytes) {
+// Decoded pixels are bounded as well as bytes: a small compressed file can
+// still be a huge image (#611).
+constexpr int kMaxSide = 4096;
+
+// The decoded size for a source of `source` pixels: covers `requested` (an
+// item with PreserveAspectCrop fills it), never upscales, and stays within
+// kMaxSide. An invalid or empty requested size keeps the source size.
+QSize decodedSize(const QSize &source, const QSize &requested) {
+  if (source.isEmpty())
+    return source;
+  auto target = source;
+  QSize covering;
+  if (requested.width() > 0 && requested.height() > 0)
+    covering = source.scaled(requested, Qt::KeepAspectRatioByExpanding);
+  else if (requested.width() > 0)
+    covering = QSize(requested.width(),
+                     qRound(qreal(source.height()) * requested.width() / source.width()));
+  else if (requested.height() > 0)
+    covering = QSize(qRound(qreal(source.width()) * requested.height() / source.height()),
+                     requested.height());
+  if (covering.isValid() && covering.width() < source.width())
+    target = covering;
+  if (target.width() > kMaxSide || target.height() > kMaxSide)
+    target = target.scaled(kMaxSide, kMaxSide, Qt::KeepAspectRatio);
+  return target.expandedTo(QSize(1, 1));
+}
+
+QImage decodeImage(const QString &mime, const QByteArray &bytes,
+                   const QSize &requested) {
   if (bytes.isEmpty() || bytes.size() > kMaxBytes ||
       !signatureMatches(mime, bytes))
     return {};
@@ -111,9 +141,21 @@ QImage decodeImage(const QString &mime, const QByteArray &bytes) {
     format = "WEBP";
   else
     return {};
-  QImage image;
-  if (!image.loadFromData(bytes, format) || image.isNull())
+  QBuffer buffer;
+  buffer.setData(bytes);
+  if (!buffer.open(QIODevice::ReadOnly))
     return {};
+  QImageReader reader(&buffer, format);
+  const auto source = reader.size();
+  const auto target = decodedSize(source, requested);
+  if (target.isValid() && target != source)
+    reader.setScaledSize(target);
+  auto image = reader.read();
+  if (image.isNull())
+    return {};
+  // Not every format scales while decoding; scale what came back.
+  if (target.isValid() && image.size() != target)
+    image = image.scaled(target, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
   return image;
 }
 
@@ -151,10 +193,21 @@ QDBusConnection workerBus() {
 class AssetResponse : public QQuickImageResponse {
 public:
   AssetResponse(const QString &providerId, const QString &path,
-                const QString &generation, const QString &assetId) {
-    auto *job = QRunnable::create([this, providerId, path, generation, assetId] {
-      const auto result =
-          AssetImages::shared().fetch(providerId, path, generation, assetId);
+                const QString &generation, const QString &assetId,
+                const QSize &requestedSize) {
+    // A poster scrolled away is cancelled while it waits for a pool thread;
+    // it then finishes without a daemon call, so visible posters do not
+    // queue behind it (#611). The engine deletes the response only after
+    // finished(), so the job may use `this`.
+    auto *job = QRunnable::create([this, providerId, path, generation, assetId,
+                                   requestedSize, cancelled = m_cancelled] {
+      if (cancelled->load()) {
+        QMetaObject::invokeMethod(this, [this] { emit finished(); },
+                                  Qt::QueuedConnection);
+        return;
+      }
+      const auto result = AssetImages::shared().fetch(providerId, path, generation,
+                                                      assetId, requestedSize);
       const auto image = result.image;
       QMetaObject::invokeMethod(
           this,
@@ -166,6 +219,7 @@ public:
     });
     assetPool().start(job);
   }
+  void cancel() override { m_cancelled->store(true); }
   QQuickTextureFactory *textureFactory() const override {
     if (m_image.isNull())
       return nullptr;
@@ -179,18 +233,19 @@ public:
   }
 
 private:
+  std::shared_ptr<std::atomic_bool> m_cancelled = std::make_shared<std::atomic_bool>(false);
   QImage m_image;
 };
 
 class AssetProvider : public QQuickAsyncImageProvider {
 public:
   QQuickImageResponse *requestImageResponse(const QString &id,
-                                            const QSize &) override {
+                                            const QSize &requestedSize) override {
     QString providerId, path, generation, assetId;
     if (!AssetImages::parseImageId(id, &providerId, &path, &generation,
                                    &assetId))
-      return new AssetResponse({}, {}, {}, {});
-    return new AssetResponse(providerId, path, generation, assetId);
+      return new AssetResponse({}, {}, {}, {}, {});
+    return new AssetResponse(providerId, path, generation, assetId, requestedSize);
   }
 };
 } // namespace
@@ -270,7 +325,8 @@ bool AssetImages::parseImageId(const QString &id, QString *providerId,
 AssetImages::Result AssetImages::fetch(const QString &providerId,
                                        const QString &objectPath,
                                        const QString &generation,
-                                       const QString &assetId) {
+                                       const QString &assetId,
+                                       const QSize &requestedSize) {
   Result result;
   if (providerId.isEmpty() || generation.isEmpty() || assetId.isEmpty() ||
       !validProviderPath(objectPath)) {
@@ -296,7 +352,7 @@ AssetImages::Result AssetImages::fetch(const QString &providerId,
     }
   }
   if (cached) {
-    auto image = decodeImage(cachedMime, cachedBytes);
+    auto image = decodeImage(cachedMime, cachedBytes, requestedSize);
     if (!image.isNull()) {
       result.status = Status::Ready;
       result.cacheHit = true;
@@ -340,7 +396,7 @@ AssetImages::Result AssetImages::fetch(const QString &providerId,
     result.status = Status::Error;
     return result;
   }
-  auto image = decodeImage(mime, bytes);
+  auto image = decodeImage(mime, bytes, requestedSize);
   if (image.isNull()) {
     result.status = Status::Error;
     return result;
@@ -501,7 +557,11 @@ namespace {
 class IconResponse : public QQuickImageResponse {
 public:
   IconResponse(const QString &reference, const QStringList &roots, const QString &theme) {
-    assetPool().start(QRunnable::create([this, reference, roots, theme] {
+    assetPool().start(QRunnable::create([this, reference, roots, theme, cancelled = m_cancelled] {
+      if (cancelled->load()) {
+        QMetaObject::invokeMethod(this, [this] { emit finished(); }, Qt::QueuedConnection);
+        return;
+      }
       const auto image = loadLocalIcon(reference, roots, theme);
       QMetaObject::invokeMethod(this, [this, image] { m_image = image; emit finished(); }, Qt::QueuedConnection);
     }));
@@ -509,10 +569,12 @@ public:
   QQuickTextureFactory *textureFactory() const override {
     return m_image.isNull() ? nullptr : QQuickTextureFactory::textureFactoryForImage(m_image);
   }
+  void cancel() override { m_cancelled->store(true); }
   QString errorString() const override {
     return m_image.isNull() ? QStringLiteral("Icon is unavailable") : QString();
   }
 private:
+  std::shared_ptr<std::atomic_bool> m_cancelled = std::make_shared<std::atomic_bool>(false);
   QImage m_image;
 };
 class IconProvider : public QQuickAsyncImageProvider {

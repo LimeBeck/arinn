@@ -76,6 +76,10 @@ FocusScope {
     signal homeRequested()
     signal retryRequested()
 
+    readonly property bool hintRowLocked: {
+        const row = rowByKey(focusedRowKey);
+        return !!row && row.enabled === false;
+    }
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
     onActiveRowsChanged: queueRowFocusRestore()
@@ -1122,7 +1126,8 @@ FocusScope {
         visible: root.detailFocused && !root.sheetOpen && !root.screenBlocked
         Repeater {
             model: [
-                {key: qsTr("OK"), action: qsTr("Edit")},
+                // ED-2: OK does nothing on a row that cannot be changed now.
+                {key: qsTr("OK"), action: root.hintRowLocked ? qsTr("Unavailable") : qsTr("Edit")},
                 {key: qsTr("Back"), action: qsTr("To sections")}
             ]
             Row {

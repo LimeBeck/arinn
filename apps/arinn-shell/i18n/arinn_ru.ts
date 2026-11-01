@@ -1772,6 +1772,10 @@
         <translation>К разделам</translation>
     </message>
     <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
         <source>Arinn did not reply. Try again.</source>
         <translation>Arinn не ответил. Попробуйте снова.</translation>
     </message>

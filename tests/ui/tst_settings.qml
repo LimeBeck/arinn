@@ -200,6 +200,22 @@ TestCase {
         }, 5000, "the playback icon is not filled");
     }
 
+    // ED-2: on a row that cannot be changed now the hint says so.
+    function test_locked_row_hint() {
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-shell-locked");
+        tryCompare(child("settingsHints"), "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        keyClick(Qt.Key_Up);
+        focused("setting-shell-label");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+    }
+
     function test_long_rows_fade_at_the_edges() {
         const rows = [];
         for (let i = 0; i < 14; ++i)

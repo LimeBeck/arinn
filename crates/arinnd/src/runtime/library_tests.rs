@@ -6,7 +6,8 @@
 use super::*;
 use arinn_protocol::{
     library::{
-        Addition, Additions, FEATURE_ADDITIONS, FEATURE_ROOTS, LibraryApiProxy, RootState, Roots,
+        Addition, Additions, FEATURE_ADDITIONS, FEATURE_HIERARCHY, FEATURE_ROOTS, Folder,
+        FolderMember, HierarchyPage, LibraryApiProxy, RootState, Roots,
     },
     media::{PlaybackSource, Session, SessionPage},
     production::{EntityRef, ProductionDaemonProxy, ProductionOperationProxy},
@@ -50,6 +51,7 @@ struct FakeLibrary {
     /// `Some` serves `LibraryRoots1` with these roots (ADR-0071).
     roots: SharedRoots,
     additions: Arc<StdMutex<Option<Additions>>>,
+    hierarchy: Arc<StdMutex<Option<HierarchyPage>>>,
     library_delay: Arc<StdMutex<Duration>>,
     additions_delay: Arc<StdMutex<Duration>>,
 }
@@ -75,6 +77,9 @@ impl FakeLibrary {
     }
     fn features(&self) -> Vec<String> {
         let mut features = Vec::new();
+        if self.hierarchy.lock().unwrap().is_some() {
+            features.push(FEATURE_HIERARCHY.into());
+        }
         if self.additions.lock().unwrap().is_some() {
             features.push(FEATURE_ADDITIONS.into());
         }
@@ -102,6 +107,25 @@ impl FakeLibrary {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+#[derive(Clone)]
+struct FakeHierarchy(FakeLibrary);
+#[zbus::interface(name = "org.arinn.LibraryHierarchy1")]
+impl FakeHierarchy {
+    fn get_hierarchy(
+        &self,
+        _generation: &str,
+        _revision: u64,
+        _token: &str,
+    ) -> production::Result<(HierarchyPage,)> {
+        Ok((self
+            .0
+            .hierarchy
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(ErrorCode::Unsupported)?,))
+    }
 }
 #[derive(Clone)]
 struct FakeAdditions(FakeLibrary);
@@ -224,6 +248,7 @@ impl FakeOpen {
 
 struct Fixture {
     bus: Child,
+    address: String,
     folder: PathBuf,
     core: Core,
     client: Connection,
@@ -234,6 +259,7 @@ struct Fixture {
     path: OwnedObjectPath,
     roots: SharedRoots,
     additions: Arc<StdMutex<Option<Additions>>>,
+    hierarchy: Arc<StdMutex<Option<HierarchyPage>>>,
     library_delay: Arc<StdMutex<Duration>>,
     additions_delay: Arc<StdMutex<Duration>>,
 }
@@ -309,6 +335,7 @@ impl Fixture {
     async fn build(resume: bool, player_can_open: bool, roots: Option<Vec<RootState>>) -> Self {
         let roots = Arc::new(StdMutex::new(roots.map(|r| (1, r))));
         let additions = Arc::new(StdMutex::new(None));
+        let hierarchy = Arc::new(StdMutex::new(None));
         let library_delay = Arc::new(StdMutex::new(Duration::ZERO));
         let additions_delay = Arc::new(StdMutex::new(Duration::ZERO));
         let mut bus = Command::new("dbus-daemon")
@@ -347,6 +374,7 @@ impl Fixture {
             calls: calls.clone(),
             roots: roots.clone(),
             additions: additions.clone(),
+            hierarchy: hierarchy.clone(),
             library_delay: library_delay.clone(),
             additions_delay: additions_delay.clone(),
         };
@@ -359,7 +387,11 @@ impl Fixture {
             .await
             .unwrap();
         objects
-            .at(production::PROVIDER_PATH, FakeAdditions(fake))
+            .at(production::PROVIDER_PATH, FakeAdditions(fake.clone()))
+            .await
+            .unwrap();
+        objects
+            .at(production::PROVIDER_PATH, FakeHierarchy(fake))
             .await
             .unwrap();
         objects
@@ -446,6 +478,7 @@ impl Fixture {
         }
         let f = Self {
             bus,
+            address,
             folder,
             core,
             client,
@@ -456,6 +489,7 @@ impl Fixture {
             path,
             roots,
             additions,
+            hierarchy,
             library_delay,
             additions_delay,
         };
@@ -820,4 +854,140 @@ async fn additions_are_optional_fenced_and_cannot_poison_the_library() {
         .unavailable("library", f._providers[0].unique_name().unwrap().as_str())
         .await;
     assert!(api.get_additions(&f.generation, 1).await.is_err());
+}
+
+#[tokio::test]
+async fn hierarchy_is_optional_validated_fenced_and_recovers_without_poisoning_base() {
+    let f = Fixture::new(false, false).await;
+    let api = f.api().await;
+    assert!(error_name(api.get_hierarchy(&f.generation, 1, "").await).ends_with("Unsupported"));
+    let valid = HierarchyPage {
+        generation: f.generation.clone(),
+        revision: 1,
+        folders: vec![Folder {
+            id: "root".into(),
+            parent_id: String::new(),
+            title: "Media".into(),
+            available: true,
+        }],
+        members: vec![FolderMember {
+            folder_id: "root".into(),
+            item_id: "film-1".into(),
+        }],
+        next_token: String::new(),
+    };
+    *f.hierarchy.lock().unwrap() = Some(valid.clone());
+    for _ in 0..150 {
+        if api.get_hierarchy(&f.generation, 1, "").await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        api.get_hierarchy(&f.generation, 1, "").await.unwrap().0,
+        valid
+    );
+    assert!(error_name(api.get_hierarchy("stale", 1, "").await).ends_with("Conflict"));
+    assert!(error_name(api.get_hierarchy(&f.generation, 2, "").await).ends_with("Conflict"));
+    // Drop the feature so the next import is complete rather than a revision-only poll.
+    *f.hierarchy.lock().unwrap() = None;
+    for _ in 0..150 {
+        if error_name(api.get_hierarchy(&f.generation, 1, "").await).ends_with("Unsupported") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut invalid = valid.clone();
+    invalid.members[0].item_id = "missing".into();
+    *f.hierarchy.lock().unwrap() = Some(invalid);
+    for _ in 0..150 {
+        if error_name(api.get_hierarchy(&f.generation, 1, "").await).ends_with("Unavailable") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(error_name(api.get_hierarchy(&f.generation, 1, "").await).ends_with("Unavailable"));
+    assert!(!api.get_library("").await.unwrap().0.items.is_empty());
+    // The provider cannot rewrite a previously accepted revision.
+    let mut rewrite = valid.clone();
+    rewrite.folders[0].title = "Different".into();
+    *f.hierarchy.lock().unwrap() = Some(rewrite);
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+    assert!(api.get_hierarchy(&f.generation, 1, "").await.is_err());
+    *f.hierarchy.lock().unwrap() = Some(valid.clone());
+    for _ in 0..150 {
+        if api.get_hierarchy(&f.generation, 1, "").await.is_ok() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        api.get_hierarchy(&f.generation, 1, "").await.unwrap().0,
+        valid
+    );
+}
+
+#[tokio::test]
+async fn disconnected_hierarchy_readers_release_all_paging_leases() {
+    use arinn_plugin_sdk::snapshots::HierarchySnapshots;
+    let f = Fixture::new(false, false).await;
+    let (ready, listening) = tokio::sync::oneshot::channel();
+    let monitor_core = f.core.clone();
+    let monitor = tokio::spawn(async move { monitor_core.monitor(ready).await });
+    listening.await.unwrap();
+    let reader = connect(&f.address).await;
+    let owner = reader.unique_name().unwrap().to_string();
+    let mut cache = HierarchySnapshots::new(&f.generation).unwrap();
+    cache
+        .import(
+            1,
+            (0..450)
+                .map(|i| Folder {
+                    id: format!("folder-{i}"),
+                    parent_id: String::new(),
+                    title: "Folder".into(),
+                    available: true,
+                })
+                .collect(),
+            Vec::new(),
+        )
+        .unwrap();
+    for _ in 0..32 {
+        assert!(
+            !cache
+                .page(&owner, "", Instant::now())
+                .unwrap()
+                .next_token
+                .is_empty()
+        );
+    }
+    assert!(cache.page(":1.999", "", Instant::now()).is_err());
+    f.core
+        .state
+        .lock()
+        .await
+        .library_hierarchy
+        .insert("lease-test".into(), cache);
+    reader.close().await.unwrap();
+    let mut recovered = false;
+    for _ in 0..100 {
+        let mut state = f.core.state.lock().await;
+        if state
+            .library_hierarchy
+            .get_mut("lease-test")
+            .unwrap()
+            .page(":1.999", "", Instant::now())
+            .is_ok()
+        {
+            recovered = true;
+            break;
+        }
+        drop(state);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    monitor.abort();
+    assert!(
+        recovered,
+        "disconnected reader's leases must be freed before the 30s TTL"
+    );
 }

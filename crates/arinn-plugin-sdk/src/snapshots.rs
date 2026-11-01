@@ -5,7 +5,10 @@ use arinn_protocol::{
     application::{self, Application, ApplicationPage, RunningApplication},
     browser::{self, BrowserWindow, Tab, TabPage},
     download::{self, Job, JobPage},
-    library::{self, Collection, Item, LibraryPage, Resume, ResumePage},
+    library::{
+        self, Collection, Folder, FolderMember, HierarchyPage, Item, LibraryPage, Resume,
+        ResumePage,
+    },
     media::{self, Session, SessionPage},
     validation::{self, ErrorCode, MAX_BODY_BYTES, MAX_PAGE_ENTRIES},
 };
@@ -184,6 +187,50 @@ impl Catalog for LibraryCatalog {
     }
 }
 
+pub struct HierarchyCatalog;
+impl Catalog for HierarchyCatalog {
+    type First = Folder;
+    type Second = FolderMember;
+    type Page = HierarchyPage;
+    fn validate(first: &[Folder], second: &[FolderMember]) -> Result<(), ErrorCode> {
+        library::validate_hierarchy(first, second)
+    }
+    fn text_bytes(first: &[Folder], second: &[FolderMember]) -> usize {
+        first
+            .iter()
+            .map(|f| f.id.len() + f.parent_id.len() + f.title.len())
+            .sum::<usize>()
+            + second
+                .iter()
+                .map(|m| m.folder_id.len() + m.item_id.len())
+                .sum::<usize>()
+    }
+    fn empty_page(generation: &str, revision: u64) -> HierarchyPage {
+        HierarchyPage {
+            generation: generation.into(),
+            revision,
+            folders: Vec::new(),
+            members: Vec::new(),
+            next_token: String::new(),
+        }
+    }
+    fn lists(page: &HierarchyPage) -> (&[Folder], &[FolderMember]) {
+        (&page.folders, &page.members)
+    }
+    fn lists_mut(page: &mut HierarchyPage) -> (&mut Vec<Folder>, &mut Vec<FolderMember>) {
+        (&mut page.folders, &mut page.members)
+    }
+    fn set_revision(page: &mut HierarchyPage, revision: u64) {
+        page.revision = revision;
+    }
+    fn next_token(page: &mut HierarchyPage) -> &mut String {
+        &mut page.next_token
+    }
+    fn encoded_len(page: &HierarchyPage) -> Result<usize, ErrorCode> {
+        page.encoded_len()
+    }
+}
+
 /// A paged snapshot with one entry list, for media sessions and resumes.
 pub trait Row: Send + Sync + 'static {
     type Entry: Clone + PartialEq + Send + Sync;
@@ -331,6 +378,7 @@ impl Row for JobRows {
     }
 }
 
+pub type HierarchySnapshots = Store<HierarchyCatalog>;
 pub type LibrarySnapshots = Store<LibraryCatalog>;
 pub type JobSnapshots = RowStore<JobRows>;
 pub type SessionSnapshots = RowStore<SessionRows>;
@@ -1041,5 +1089,50 @@ mod tests {
         let page = library.page(":1.1", "", now).unwrap();
         page.validate().unwrap();
         assert_eq!(page.items, vec![item]);
+    }
+}
+
+#[cfg(test)]
+mod hierarchy_tests {
+    use super::*;
+    #[test]
+    fn hierarchy_pages_are_bounded_caller_bound_and_immutable_per_revision() {
+        let generation = Uuid::new_v4().to_string();
+        let mut store = HierarchySnapshots::new(&generation).unwrap();
+        let folders = vec![Folder {
+            id: "root".into(),
+            parent_id: String::new(),
+            title: "Media".into(),
+            available: true,
+        }];
+        let members: Vec<_> = (0..450)
+            .map(|i| FolderMember {
+                folder_id: "root".into(),
+                item_id: format!("item-{i}"),
+            })
+            .collect();
+        store.import(10, folders.clone(), members.clone()).unwrap();
+        let first = store.page(":1.1", "", Instant::now()).unwrap();
+        first.validate().unwrap();
+        assert!(!first.next_token.is_empty());
+        assert!(
+            store
+                .page(":1.2", &first.next_token, Instant::now())
+                .is_err()
+        );
+        let next = store
+            .page(":1.1", &first.next_token, Instant::now())
+            .unwrap();
+        assert_eq!(next.revision, 10);
+        assert!(store.import(10, folders.clone(), Vec::new()).is_err());
+        store.import(11, folders, Vec::new()).unwrap();
+        assert_eq!(store.page(":1.1", "", Instant::now()).unwrap().revision, 11);
+        assert_eq!(
+            store
+                .page(":1.1", &first.next_token, Instant::now())
+                .unwrap()
+                .revision,
+            10
+        );
     }
 }

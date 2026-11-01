@@ -502,3 +502,15 @@ not invalidate the base library. `Unsupported` means no extension, `Conflict`
 means the requested generation/revision is stale, and `Unavailable` means no
 validated metadata is cached. Consumers do not infer discovery from list order,
 file paths, release years or playback state.
+
+### Library folder hierarchy (optional)
+
+`LibraryHierarchy1` adds provider-owned folder topology without changing Item.
+See [ADR-0123](../adr/0123-library-folder-hierarchy.md) and
+[library-hierarchy1.xml](library-hierarchy1.xml). Both provider GetHierarchy and
+Library1.GetHierarchy take the current catalogue generation, revision and paging
+token. The SDK's `.hierarchy()` enables the interface;
+`replace_with_hierarchy` publishes catalogue, additions and hierarchy together.
+Legacy replacement clears hierarchy. Folder IDs and item memberships are opaque;
+no paths or file URIs reach the shell. Missing or invalid optional hierarchy does
+not make the base catalogue unavailable. Paging and error rules are in ADR-0123.

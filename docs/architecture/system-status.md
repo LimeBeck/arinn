@@ -91,9 +91,11 @@ at most the enum values.
 - `unknown` shows nothing. The mute icon appears only while `audio` is `muted`.
   The Wi-Fi icon appears only while `network` is `connected` and `link` is
   `wifi`; its dot and three arcs light up to `signal`, all of them when the
-  level is 0. A wired, other or disconnected network shows no icon, as handoff
-  01 defines none. `SystemStatus` (`apps/arinn-shell/system_status.cpp`) is
-  the shell's reader.
+  level is 0. A wired link shows a cable icon (Material `lan`) and a
+  disconnected network a crossed-out Wi-Fi icon (`wifi_off`); another link
+  shows no icon (owner decision on
+  [#408](https://github.com/LimeBeck/arinn/issues/408), 2026-11-01).
+  `SystemStatus` (`apps/arinn-shell/system_status.cpp`) is the shell's reader.
 - `Changed` never requests Home presentation and never moves focus.
 
 ## Verification

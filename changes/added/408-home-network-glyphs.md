@@ -1,0 +1,1 @@
+- Home's status area shows a cable icon on a wired network and a crossed-out Wi-Fi icon while there is no network ([#408](https://github.com/LimeBeck/arinn/issues/408)).

@@ -182,7 +182,9 @@ left over. The hero describes the focused item
 ([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
 `downloadProgress` drive the status-area download chip. `muted`, `wifi` and
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
-chip and the clock, only while known; `ambientSuppressed` turns
+chip and the clock, only while known; `network` (`wired` or `disconnected`)
+shows the cable or the crossed-out Wi-Fi icon in the Wi-Fi icon's place
+([#408](https://github.com/LimeBeck/arinn/issues/408)); `ambientSuppressed` turns
 the light field off while an Activity background is shown. A media entry whose
 `serviceId` names an open service is that service's card
 ([ADR-0096](../adr/0096-browser-media-session-association.md)): it merges into the
@@ -196,8 +198,8 @@ In production, `Main.qml` passes the browser catalog's tabs as `openServices` an
 `DownloadCatalog.downloading`/`downloadProgress` (bytes when every active download
 knows its size, else the mean of the known fractions, else unknown). Continue media
 without session artwork take the backdrop of the library item the session plays
-through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute and
-Wi-Fi come from `SystemStatus`, the shell's reader of the daemon's
+through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute,
+Wi-Fi and connectivity come from `SystemStatus`, the shell's reader of the daemon's
 `SystemStatus1` ([ADR-0100](../adr/0100-system-status.md),
 [#387](https://github.com/LimeBeck/arinn/issues/387)).
 

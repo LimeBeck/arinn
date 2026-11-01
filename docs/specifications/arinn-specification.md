@@ -160,6 +160,8 @@ Home answers "What do I want to do right now?", not "Which application do I need
 
 **New.** Home shows up to 12 most recently added available films and series across library providers that support `LibraryAdditions1` ([ADR-0118](../adr/0118-library-additions-contract.md), [ADR-0120](../adr/0120-home-recent-library-additions.md)). A film uses its persisted first-discovery time; a series uses its newest episode's first-discovery time and occupies one card. Rescans, metadata edits, playback and temporary unavailability do not reset discovery dates. Unknown dates are omitted, including legacy catalogue entries whose date was never stored. Hide the row when there are no dated entries. Selecting a card opens its existing library detail; Back restores the Home card or the usual neighbouring-row fallback if it disappeared. Playback remains an explicit action in library detail. The owner requested this projection on 2026-10-29, superseding the 2026-09-28 OQ-05 exclusion. Arinn has no recommendation engine.
 
+**Status area.** Home's status area shows network connectivity from the daemon's `SystemStatus1` snapshot ([ADR-0100](../adr/0100-system-status.md)): the Wi-Fi icon with its signal level while connected over Wi-Fi, a cable icon while connected by cable, and a "no network" icon (a crossed-out Wi-Fi icon) while disconnected. Another link type or an unknown state shows no network icon. Owner decision on 2026-11-01 ([#408](https://github.com/LimeBeck/arinn/issues/408)).
+
 ### 5.2. Global Home overlay
 
 Home MUST be available whatever application is active — Chrome, Steam, a game, ES-DE or a media player:

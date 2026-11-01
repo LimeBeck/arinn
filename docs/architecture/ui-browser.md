@@ -168,6 +168,15 @@ shortcut ids whose origin matches an **active** tab. A favorites tile with
 focusable, and OK opens this screen instead of `WebShortcuts1.Open`. A status
 chip on Home reads "Browser unavailable".
 
+After a shell restart a surviving tab can be known without a verified Return
+association or a media session. When only one tab is open and it has no other
+Continue card, Home projects it as an ordinary tab card. Selecting it calls
+`BrowserCatalog.activateTab` with its exact opaque ID, never daemon Back. The
+card occupies one of the four further entries; verified Return and linked media
+cards keep their existing identity and deduplication. The tab disappears when
+the browser no longer reports it. Multiple unrepresented tabs retain the
+existing summary. No tab titles, URLs or watched-video history are persisted.
+
 Global navigation lists **Open services** directly under the five sections, with
 no divider. The item stays when the list is empty; the count badge is hidden
 then. A subline "On screen: {title}" is shown only when a service is current.

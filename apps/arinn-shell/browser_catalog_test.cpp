@@ -1329,6 +1329,48 @@ private slots:
     QTRY_VERIFY(focusInside(home));
     QCOMPARE(backend.backs, 0);
   }
+  void productionOpenTabSurvivesShellRestartWithoutReturn() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.scripted = daemon.homeVisible = true;
+    daemon.scriptedWindows = {{"window", {}, false}};
+    daemon.scriptedTabs = {{"tab", "window", "Page", "https://test.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    // No Return association, foreground browser window or media session.
+    // Each engine constructs fresh catalogs; the browser tab remains alive.
+    const auto findVisual = [](QQuickItem *root, auto &&self) -> QQuickItem * {
+      if (root->objectName() == QStringLiteral("entry-open-service")) return root;
+      for (auto *child : root->childItems())
+        if (auto *found = self(child, self)) return found;
+      return nullptr;
+    };
+    for (int start = 0; start < 2; ++start) {
+      ExternalHomeBackend backend;
+      backend.openOverlay({});
+      SessionGuardStandIn guard;
+      QQmlApplicationEngine engine;
+      engine.rootContext()->setContextProperty("backend", &backend);
+      engine.rootContext()->setContextProperty("sessionGuard", &guard);
+      installAssetImageProvider(&engine);
+      engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+      QVERIFY(!engine.rootObjects().isEmpty());
+      auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+      QVERIFY(window);
+      auto home = window->findChild<QQuickItem *>("productionHome");
+      QVERIFY(home);
+      QTRY_COMPARE(home->property("openServiceCount").toInt(), 1);
+      QVERIFY(!home->property("returnIsWebService").toBool());
+      QVERIFY(home->property("currentServiceTitle").toString().isEmpty());
+      QQuickItem *card = nullptr;
+      QTRY_VERIFY(card = findVisual(window->contentItem(), findVisual));
+      QCOMPARE(card->property("text").toString(), QString("Page"));
+      QVERIFY(QMetaObject::invokeMethod(home, "activate", Q_ARG(QVariant, QVariant("open-service"))));
+      QTRY_COMPARE(daemon.activates, start + 1);
+      QCOMPARE(daemon.activatedId, QString("tab"));
+      QCOMPARE(backend.backs, 0);
+    }
+  }
   void productionReturnAssociationWiring() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
     BrowserDaemon daemon;

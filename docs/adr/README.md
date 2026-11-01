@@ -145,4 +145,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0125](0125-library-descriptions.md) | Optional lazy library descriptions | Accepted | — |
 | [0126](0126-delegated-media-process.md) | Verified application identity behind a media proxy | Accepted | — |
 | [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Accepted | — |
+| [0128](0128-configurable-library-recognition.md) | Configurable season and episode recognition rules in the library | Accepted | — |
 <!-- register:end -->

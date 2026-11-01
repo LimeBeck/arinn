@@ -1756,6 +1756,22 @@
 <context>
     <name>SettingsView</name>
     <message>
+        <source>OK</source>
+        <translation>OK</translation>
+    </message>
+    <message>
+        <source>Edit</source>
+        <translation>Изменить</translation>
+    </message>
+    <message>
+        <source>Back</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>To sections</source>
+        <translation>К разделам</translation>
+    </message>
+    <message>
         <source>Arinn did not reply. Try again.</source>
         <translation>Arinn не ответил. Попробуйте снова.</translation>
     </message>

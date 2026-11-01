@@ -159,6 +159,78 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    function texts(item) {
+        let found = [];
+        if (!item) return found;
+        if (item.text !== undefined && item.visible) found.push(String(item.text));
+        for (let i = 0; i < item.children.length; ++i)
+            found = found.concat(texts(item.children[i]));
+        return found;
+    }
+
+    // #566: handoff 14 / se-lf-1.
+    function test_rows_hints_and_icons_follow_the_handoff() {
+        // At rest a row is title and description; the provider shows on focus.
+        const provider = child("provider-library-scan");
+        compare(provider.visible, false);
+        compare(child("settingsHints").visible, false);
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        tryCompare(provider, "visible", true);
+        compare(provider.text, "Library");
+        // The key hints show while a row has focus.
+        const hints = child("settingsHints");
+        tryCompare(hints, "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        compare(texts(child("settingsHint-1")), ["Back", "To sections"]);
+        compare(Math.round(hints.mapToItem(view, 0, 0).x), 120);
+        keyClick(Qt.Key_Left);
+        focused("category-media");
+        tryCompare(provider, "visible", false);
+        tryCompare(hints, "visible", false);
+        // Category icons are filled: inside play_circle, left of its cut-out
+        // triangle, the icon is ink, where the old outline was hollow.
+        const icon = child("categoryIcon-playback");
+        compare(icon.width, 38);
+        verify(waitForRendering(icon));
+        tryVerify(() => {
+            const at = icon.mapToItem(suite, 12, 19);
+            const pixels = grabImage(suite);
+            return pixels.red(Math.round(at.x), Math.round(at.y)) > 120;
+        }, 5000, "the playback icon is not filled");
+    }
+
+    function test_long_rows_fade_at_the_edges() {
+        const rows = [];
+        for (let i = 0; i < 14; ++i)
+            rows.push({providerId: "library", providerName: "Library", id: "r" + i, categoryId: "media",
+                       title: "Setting " + i, description: "Row " + i, type: "boolean",
+                       currentValue: false, constraints: {}, enabled: true});
+        view.rows = rows;
+        const top = child("rowFadeTop");
+        const bottom = child("rowFadeBottom");
+        keyClick(Qt.Key_Right);
+        focused("setting-library-r0");
+        compare(top.visible, false);
+        tryCompare(bottom, "visible", true);
+        compare(bottom.height, 72);
+        // Moving down keeps the focused row clear of a visible mask.
+        for (let i = 1; i < rows.length; ++i) {
+            keyClick(Qt.Key_Down);
+            focused("setting-library-r" + i);
+            const row = child("setting-library-r" + i);
+            const rowTop = row.mapToItem(bottom.parent, 0, 0).y;
+            const rowBottom = row.mapToItem(bottom.parent, 0, row.height).y;
+            if (bottom.visible)
+                verify(rowBottom <= bottom.y + 3, "row " + i + " under the bottom fade");
+            if (top.visible)
+                verify(rowTop >= top.y + top.height - 3, "row " + i + " under the top fade");
+        }
+        // At the end of the list only the top mask remains.
+        tryCompare(bottom, "visible", false);
+        compare(top.visible, true);
+    }
+
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

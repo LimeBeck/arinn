@@ -696,6 +696,101 @@ fn import_is_idempotent_per_completion_id() {
 }
 
 #[test]
+fn imports_with_the_same_output_id_from_other_jobs_stay_distinct() {
+    // Transmission output ids are "{index}-{path hash}", so two torrents
+    // with the same relative path share one; the ledger keys on the
+    // provider and job as well (#599, ADR-0067).
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    for name in ["First Show", "Second Show", "Third Show"] {
+        fs::create_dir_all(root.join(name).join("Season 1")).unwrap();
+        fs::write(root.join(name).join("Season 1/Episode 01.mkv"), name).unwrap();
+    }
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let candidate = |provider: &str, job: &str, show: &str| ImportCandidate {
+        source: EntityRef {
+            provider_id: provider.into(),
+            capability: "download".into(),
+            local_id: job.into(),
+        },
+        file_uri: file_uri(&root.join(show).join("Season 1/Episode 01.mkv")),
+        completion_id: "0-5f2b9c1d7e3a4b6c".into(),
+    };
+    let first = store
+        .import(&[candidate("downloads", "job-a", "First Show")])
+        .unwrap();
+    let second = store
+        .import(&[candidate("downloads", "job-b", "Second Show")])
+        .unwrap();
+    let third = store
+        .import(&[candidate("other-downloads", "job-a", "Third Show")])
+        .unwrap();
+    assert_eq!(first.len(), 1);
+    assert_ne!(first, second);
+    assert_ne!(first, third);
+    assert_ne!(second, third);
+    // A repeated completion of the same job still returns its item.
+    assert_eq!(
+        store
+            .import(&[candidate("downloads", "job-b", "Second Show")])
+            .unwrap(),
+        second
+    );
+}
+
+#[test]
+fn a_ledger_keyed_on_the_output_id_alone_is_migrated() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let video = root.join("Migrated (2015).mkv");
+    fs::write(&video, b"migrated").unwrap();
+    let candidate = ImportCandidate {
+        source: EntityRef {
+            provider_id: "downloads".into(),
+            capability: "download".into(),
+            local_id: "job-new".into(),
+        },
+        file_uri: file_uri(&video),
+        completion_id: "0-5f2b9c1d7e3a4b6c".into(),
+    };
+    let configured = settings(&root, false, PathBuf::from("ffprobe"));
+    let mut first = open(&scratch);
+    first.scan(&configured).unwrap();
+    let imported = first.import(std::slice::from_ref(&candidate)).unwrap();
+    drop(first);
+    {
+        // The pre-#599 ledger, holding the same output id for another job's
+        // item.
+        let conn = rusqlite::Connection::open(scratch.path().join("library.sqlite3")).unwrap();
+        conn.execute_batch(
+            "DROP TABLE import_ledger;
+             CREATE TABLE imports (completion_id TEXT PRIMARY KEY, item_id TEXT NOT NULL);
+             INSERT INTO imports VALUES ('0-5f2b9c1d7e3a4b6c', '00000000-0000-4000-8000-000000000000');",
+        )
+        .unwrap();
+    }
+    let mut store = open(&scratch);
+    store.scan(&configured).unwrap();
+    assert_eq!(
+        store.import(std::slice::from_ref(&candidate)).unwrap(),
+        imported
+    );
+    let conn = rusqlite::Connection::open(scratch.path().join("library.sqlite3")).unwrap();
+    let legacy: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name = 'imports'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(legacy, 0);
+}
+
+#[test]
 fn import_skips_non_media_outputs_of_a_completed_download() {
     let scratch = Scratch::new();
     let root = scratch.path().join("root");
@@ -829,7 +924,10 @@ fn ffprobe_output_larger_than_the_pipe_buffer_is_read() {
     // pipe and never fill it.
     fs::write(
         &probe,
-        format!("#!/bin/sh\ndd if='{}' bs=4096 status=none\n", output.display()),
+        format!(
+            "#!/bin/sh\ndd if='{}' bs=4096 status=none\n",
+            output.display()
+        ),
     )
     .unwrap();
     fs::set_permissions(&probe, fs::Permissions::from_mode(0o755)).unwrap();

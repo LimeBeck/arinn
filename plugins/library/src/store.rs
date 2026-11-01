@@ -264,10 +264,18 @@ impl Store {
                completed INTEGER NOT NULL,
                observed_at_us INTEGER NOT NULL
              );
-             CREATE TABLE IF NOT EXISTS imports (
-               completion_id TEXT PRIMARY KEY,
-               item_id TEXT NOT NULL
-             );",
+             CREATE TABLE IF NOT EXISTS import_ledger (
+               provider_id TEXT NOT NULL,
+               job_id TEXT NOT NULL,
+               completion_id TEXT NOT NULL,
+               item_id TEXT NOT NULL,
+               PRIMARY KEY (provider_id, job_id, completion_id)
+             );
+             -- The old ledger keyed on the output id alone, so two jobs with
+             -- the same output id shared an item (#599). Its rows carry no
+             -- provider or job and are dropped; a repeated import still
+             -- finds the item by its path.
+             DROP TABLE IF EXISTS imports;",
         )
         .map_err(|_| ErrorCode::Internal)?;
         seed_collections(&conn)?;
@@ -641,7 +649,7 @@ impl Store {
     fn import_inner(&mut self, candidates: &[ImportCandidate]) -> Result<Vec<String>, ErrorCode> {
         let mut ids = Vec::with_capacity(candidates.len());
         for candidate in candidates {
-            if let Some(existing) = self.completion(&candidate.completion_id)? {
+            if let Some(existing) = self.completion(candidate)? {
                 if ids.iter().any(|id| id == &existing) {
                     return Err(ErrorCode::InvalidArgument);
                 }
@@ -674,8 +682,14 @@ impl Store {
             }
             self.conn
                 .execute(
-                    "INSERT INTO imports (completion_id, item_id) VALUES (?1, ?2)",
-                    params![candidate.completion_id, id],
+                    "INSERT INTO import_ledger (provider_id, job_id, completion_id, item_id)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        candidate.source.provider_id,
+                        candidate.source.local_id,
+                        candidate.completion_id,
+                        id
+                    ],
                 )
                 .map_err(|_| ErrorCode::Internal)?;
             ids.push(id);
@@ -1040,11 +1054,18 @@ impl Store {
         Ok(root.clone())
     }
 
-    fn completion(&self, id: &str) -> Result<Option<String>, ErrorCode> {
+    /// The item a completed download output was imported as. ADR-0067 keys
+    /// the ledger on (download provider, job id, output id).
+    fn completion(&self, candidate: &ImportCandidate) -> Result<Option<String>, ErrorCode> {
         self.conn
             .query_row(
-                "SELECT item_id FROM imports WHERE completion_id = ?1",
-                [id],
+                "SELECT item_id FROM import_ledger
+                 WHERE provider_id = ?1 AND job_id = ?2 AND completion_id = ?3",
+                params![
+                    candidate.source.provider_id,
+                    candidate.source.local_id,
+                    candidate.completion_id
+                ],
                 |row| row.get(0),
             )
             .optional()

@@ -22,7 +22,10 @@ use std::{
     collections::HashSet,
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -162,6 +165,7 @@ struct Stored {
 }
 
 struct Core {
+    hardware_decoding: Arc<AtomicBool>,
     socket: PathBuf,
     state_path: PathBuf,
     launch: Launch,
@@ -208,6 +212,7 @@ impl Drop for Task {
 
 #[derive(Clone)]
 pub struct Player {
+    hardware_decoding: Arc<AtomicBool>,
     tx: mpsc::Sender<Ask>,
     notes: watch::Sender<View>,
     ffmpeg: Option<PathBuf>,
@@ -231,14 +236,17 @@ impl Player {
         };
         let (notes, _) = watch::channel(view);
         let poster_extractor = Arc::new(Extractor::default());
+        let hardware_decoding = Arc::new(AtomicBool::new(false));
         let core = Core::new(
             &settings,
             incoming_tx,
             notes.clone(),
             poster_extractor.clone(),
+            hardware_decoding.clone(),
         );
         let join = tokio::spawn(core.run(rx, incoming_rx));
         Ok(Self {
+            hardware_decoding,
             tx,
             notes,
             ffmpeg: settings.ffmpeg,
@@ -249,6 +257,11 @@ impl Player {
                 join: Mutex::new(Some(join)),
             }),
         })
+    }
+
+    /// Select decoding for future Open calls without touching current playback.
+    pub fn set_hardware_decoding(&self, enabled: bool) {
+        self.hardware_decoding.store(enabled, Ordering::Relaxed);
     }
 
     pub fn subscribe(&self) -> watch::Receiver<View> {
@@ -372,8 +385,10 @@ impl Core {
         incoming_tx: mpsc::UnboundedSender<Incoming>,
         notes: watch::Sender<View>,
         poster_extractor: Arc<Extractor>,
+        hardware_decoding: Arc<AtomicBool>,
     ) -> Self {
         Self {
+            hardware_decoding,
             socket: settings.socket.clone(),
             state_path: settings.state_path.clone(),
             owns_unit: false,
@@ -582,10 +597,20 @@ impl Core {
         source: &MediaSource,
         incoming: &mut mpsc::UnboundedReceiver<Incoming>,
     ) -> Result<(), ErrorCode> {
-        let options = parse::options_for(
+        let mut options = parse::options_for(
             source.start_position_us,
             &source.audio_language,
             &source.subtitle_language,
+        );
+        // Per-file options apply before decoding on both fresh and reused
+        // players. Freeze one selection for modern/legacy fallback alike.
+        options.insert(
+            "hwdec".into(),
+            json!(if self.hardware_decoding.load(Ordering::Relaxed) {
+                "auto"
+            } else {
+                "no"
+            }),
         );
         self.load_fault = None;
         let modern = self
@@ -1482,6 +1507,7 @@ mod tests {
             incoming_tx,
             notes,
             Arc::new(Extractor::default()),
+            Arc::new(AtomicBool::new(false)),
         );
         core.live = Some(Live::anonymous());
         core.live.as_mut().unwrap().pause = true;

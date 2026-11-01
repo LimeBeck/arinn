@@ -46,6 +46,8 @@ The handoff declares colours, typography, sizes, radii, focus and motion timings
 
 ## Working prototypes
 
+- [Music](prototypes/music/README.md) ([#698](https://github.com/LimeBeck/arinn/issues/698), parent [#677](https://github.com/LimeBeck/arinn/issues/677)): standalone offline prototype of catalogue/search, player/queue, source selection and unavailable states with 1080p/4K captures. Proposed for visual review; no production provider integration.
+
 - [Library navigation](prototypes/library-navigation/README.md) (#629 / #630): editable derivative of the interactive HTML/JS prototype for Catalogue/Folders, physical directory navigation and season groups. Prepared at the owner's request on 2026-11-01; review the prototype before further shell presentation changes. The historical handoff remains unchanged.
 
 ## Design briefs

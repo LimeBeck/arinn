@@ -1,0 +1,1 @@
+- Add an offline music design prototype with synthetic catalogue, search, player, queue, source selection and degraded states, plus 1080p/4K review captures. Production music integration remains unimplemented and visual acceptance is pending.

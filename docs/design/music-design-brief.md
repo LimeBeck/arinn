@@ -1,6 +1,6 @@
 # Music design brief
 
-Status: proposed for owner review, 2026-11-01. Parent
+Status: brief merged in [#695](https://github.com/LimeBeck/arinn/pull/695), 2026-11-01; [visual prototype](prototypes/music/README.md) prepared in [#698](https://github.com/LimeBeck/arinn/issues/698) for owner review. This does not establish visual acceptance or service feasibility. Parent
 [#677](https://github.com/LimeBeck/arinn/issues/677), discovery task
 [#694](https://github.com/LimeBeck/arinn/issues/694).
 This is the input to visual design, not a finished design or permission to

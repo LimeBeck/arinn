@@ -260,7 +260,7 @@ Candidates: Steam provider (library, artwork, recent games), ES-DE provider, Jel
 
 ### Music
 
-**Status:** Discovery in progress (2026-11-01), [#694](https://github.com/LimeBeck/arinn/issues/694); [provider research and proposed requirements](docs/architecture/music-discovery.md) and [design brief](docs/design/music-design-brief.md) prepared for owner review. Owner request on 2026-11-01; tracking: [#677](https://github.com/LimeBeck/arinn/issues/677). Visual design, API contracts and implementation have not started; no provider is qualified. This entry does not change MVP acceptance criteria, phase status or the stable-Plugin-API gate for Phase 6 implementation.
+**Status:** Design in progress (2026-11-01). [Provider research and proposed requirements](docs/architecture/music-discovery.md) and [design brief](docs/design/music-design-brief.md) merged in [#695](https://github.com/LimeBeck/arinn/pull/695); [offline visual prototype and 1080p/4K captures](docs/design/prototypes/music/README.md) prepared in [#698](https://github.com/LimeBeck/arinn/issues/698) for owner review. Owner request on 2026-11-01; tracking: [#677](https://github.com/LimeBeck/arinn/issues/677). Visual acceptance, API contracts and production implementation remain pending; no provider is qualified. This entry does not change MVP acceptance criteria, phase status or the stable-Plugin-API gate for Phase 6 implementation.
 
 Goal: browse and play music through one native Arinn interface, with tracks, albums, playlists and search supplied by separate providers. Opening service websites is not the intended music experience.
 

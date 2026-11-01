@@ -1,0 +1,124 @@
+# Music visual prototype
+
+Proposed visual design for [#677](https://github.com/LimeBeck/arinn/issues/677),
+scoped task [#698](https://github.com/LimeBeck/arinn/issues/698). Based on the
+[music design brief](../../music-design-brief.md) and
+[provider research](../../../architecture/music-discovery.md). Owner visual
+acceptance is pending. This is a standalone HTML/CSS/JS design artifact; it
+changes no production shell, provider, wire contract or historical handoff.
+
+## Open and edit
+
+Serve the repository root locally:
+
+```sh
+python -m http.server 8765 --bind 127.0.0.1
+```
+
+[Open the prototype](http://127.0.0.1:8765/docs/design/prototypes/music/index.html).
+Click inside to take focus. Use arrow keys and Enter, Escape/Backspace for Back,
+and H for Home. Tab also works; sheets/dialogs trap it. Text search accepts a
+physical keyboard or the prototype's simple letter keyboard. Source selection,
+artists/albums/playlists/tracks, detail, player and queue are interactive.
+
+The page loads the repository's Onest font and local assets only. No CDN,
+external artwork, audio, network account requests, file scans or browser storage
+are used. Everything is synthetic. The review toolbar labels this explicitly;
+`?controls=0` hides that toolbar for captures. Demo playback is state only,
+not actual media support. Blocked online sources do not become playable demos.
+
+Edit `music.css` for presentation and `music.js` for fixtures/interactions. The
+1920×1080 stage scales uniformly to the viewport, including 3840×2160, preserving
+the existing shell palette, typography, safe margins, radii and focus treatment.
+Abstract CSS artwork is original placeholder material, not provider branding.
+Service attribution/branding still needs provider-specific review before release.
+
+## Screen and state map
+
+```mermaid
+flowchart LR
+  Home --> Catalogue
+  Catalogue --> Sources
+  Sources --> Catalogue
+  Catalogue --> Search
+  Catalogue --> Artist
+  Artist --> Detail
+  Catalogue --> Detail
+  Search --> DetailOrTrack[Track playback]
+  Detail --> Player
+  Player --> Queue
+  Queue --> Actions[Queue action sheet]
+  Sources --> Setup[Account / availability]
+```
+
+Detail selection does not play. Play starts a synthetic local session. Opening
+Home or browsing another source preserves it; the compact player always names
+its own source. Replacing a playing album asks for confirmation with Cancel
+focused first. Back restores the opener when returning from detail or a sheet.
+Search results retain original track identity rather than their filtered index.
+Queue selection offers play, move earlier and remove in the local fixture.
+Queue entries retain album identity and unique occurrence keys, including when
+tracks from another local album are added. Next/Previous follow the edited queue.
+
+The review scene selector and `?scene=NAME` deep links cover:
+
+| Scenes | Review purpose |
+| --- | --- |
+| `catalogue`, `sources`, `detail`, `search` | Normal browse and source selection |
+| `player`, `queue`, `home`, `replace` | Live demo session, queue, Home and replacement confirmation |
+| `account`, `pending`, `cancelled`, `expired`, `subscription` | Account and access states; no real login is attempted |
+| `loading`, `empty`, `no-results`, `scanning` | Initial and incomplete catalogue states |
+| `missing-art`, `metadata` | Absent artwork and unknown tags |
+| `offline`, `unreadable`, `codec` | Local availability failures |
+| `restricted`, `preview`, `no-device`, `rate`, `unavailable`, `restart`, `stale` | Capability, session and service failures |
+
+These are review scenes, not a model of every actual service. Recovery buttons
+reset the synthetic scene or open an explanation; they cannot repair accounts,
+files or service permission. Seek is illustrated, not a real transport command.
+Queue persistence, playlist editing/import, device selection and genuine OAuth
+flows remain design/contract questions. No mixed-source playback is promised.
+
+## Captures
+
+| Screen | 1080p | 4K |
+| --- | --- | --- |
+| Catalogue | [Preview](screenshots/catalogue-1080.png) | [Preview](screenshots/catalogue-2160.png) |
+| Sources | [Preview](screenshots/sources-1080.png) | — |
+| Album | [Preview](screenshots/detail-1080.png) | — |
+| Player | [Preview](screenshots/player-1080.png) | [Preview](screenshots/player-2160.png) |
+| Queue | [Preview](screenshots/queue-1080.png) | — |
+| Missing root | [Preview](screenshots/offline-1080.png) | — |
+| Replace queue | [Preview](screenshots/replace-1080.png) | — |
+
+Captures are Chromium renders of this prototype, not production QML screenshots.
+Visual review inspected catalogue and player at 1080p. Uniform 4K rendering is
+captured, but target-TV readability and real-remote acceptance are not tested.
+
+## Verification
+
+Requires Python Playwright and Chromium; no desktop session or service account:
+
+```sh
+python docs/design/prototypes/music/verify.py --capture
+node --check docs/design/prototypes/music/music.js
+```
+
+The verifier starts a loopback-only server, checks detail without autoplay,
+filtered-track identity, source/session isolation, queue edits, keyboard/sheet
+focus, safe Cancel, Home return, all 29 direct scenes and absence of external
+asset requests. `--capture` regenerates the captures. Override `--chromium` if
+the Chromium executable is elsewhere. This is not an operator test.
+
+Initial verification: local HTTP binding was denied by the sandbox; the verifier
+ran with loopback/network permission. The first run then failed because its
+assertion incorrectly required a single h1 across both screen and detail titles;
+the assertion now checks the screen header specifically. A later cross-album
+test initially timed out because it tried to Back from a deep-link detail to a
+catalogue it had never opened; it now enters through the catalogue. Independent
+review found blocked-source search, edited-queue transport, input-blur click,
+playlist-title and cross-album identity bugs; each was fixed and covered by a
+browser regression case. The full rerun passed.
+This history does not imply a clean initial run or production acceptance.
+
+Owner review of these screens and scenarios is required before production UI
+work. #677 remains open, and provider feasibility blockers remain unchanged.

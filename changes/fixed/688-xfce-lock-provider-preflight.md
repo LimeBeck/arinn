@@ -1,0 +1,1 @@
+- The XFCE session helper (`arinn-xfce-session`) now refuses to start the EWMH target when no ScreenSaver service on the session bus answers `GetActive`, and prints `arinn-xfce-session: no lock provider: start xfce4-screensaver or light-locker` ([#688](https://github.com/LimeBeck/arinn/issues/688)).

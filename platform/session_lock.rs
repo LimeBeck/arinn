@@ -10,29 +10,17 @@
 //!
 //! The daemon uses it to refuse and invalidate Activity background frames
 //! (ADR-0087). The shell keeps its own guard and never waits for this one.
+#[path = "lock_endpoints.rs"]
+mod lock_endpoints;
+#[path = "lock_provider.rs"]
+mod lock_provider;
 use futures_util::StreamExt;
+use lock_endpoints::LOCK_ENDPOINTS;
+use lock_provider::{Endpoint, probe};
 use std::time::Duration;
 use tokio::sync::watch;
-use zbus::{Connection, MatchRule, MessageStream, message::Message, proxy::Proxy};
+use zbus::{Connection, MatchRule, MessageStream, message::Message};
 
-/// Probe order, identical to the shell's guard.
-pub const LOCK_ENDPOINTS: [(&str, &str, &str); 3] = [
-    (
-        "org.freedesktop.ScreenSaver",
-        "/org/freedesktop/ScreenSaver",
-        "org.freedesktop.ScreenSaver",
-    ),
-    (
-        "org.freedesktop.ScreenSaver",
-        "/ScreenSaver",
-        "org.freedesktop.ScreenSaver",
-    ),
-    (
-        "org.xfce.ScreenSaver",
-        "/org/xfce/ScreenSaver",
-        "org.xfce.ScreenSaver",
-    ),
-];
 const CALL_TIMEOUT: Duration = Duration::from_millis(1500);
 /// Delay before a failed or ended subscription is renewed; blocked meanwhile.
 const RESUBSCRIBE: Duration = Duration::from_secs(1);
@@ -40,12 +28,9 @@ const LOGIND: &str = "org.freedesktop.login1";
 /// Without a lock endpoint the state stays blocked and is probed again.
 const REPROBE: Duration = Duration::from_secs(5);
 
-/// The endpoint that answered, pinned to its unique owner.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct Endpoint {
-    index: usize,
-    owner: String,
-}
+/// Re-export for callers that share the daemon's probe list.
+pub use lock_endpoints::LOCK_ENDPOINTS;
+pub use lock_provider::provider_present;
 
 /// Starts the watcher. The receiver reads `true` (blocked) until the first
 /// probe proves the session unlocked. Without a system bus, sleep is only
@@ -284,55 +269,6 @@ async fn next_sleep(
 
 fn active_changed(message: &Message) -> Option<bool> {
     message.body().deserialize::<bool>().ok()
-}
-
-/// The first answering endpoint and its lock state; `(None, true)` when no
-/// endpoint answers. A call that fails other than with a missing name,
-/// object, interface or method cannot be bypassed with a weaker answer.
-async fn probe(session: &Connection) -> (Option<Endpoint>, bool) {
-    let Ok(bus) = zbus::fdo::DBusProxy::new(session).await else {
-        return (None, true);
-    };
-    for (index, (service, path, interface)) in LOCK_ENDPOINTS.iter().enumerate() {
-        let Ok(name) = zbus::names::BusName::try_from(*service) else {
-            continue;
-        };
-        // Pin calls to an existing owner: never auto-start a screensaver.
-        // Only a missing name falls through to a weaker endpoint; a timeout
-        // or another bus error is an unknown state, hence locked.
-        let owner = match tokio::time::timeout(CALL_TIMEOUT, bus.get_name_owner(name)).await {
-            Ok(Ok(owner)) => owner,
-            Ok(Err(zbus::fdo::Error::NameHasNoOwner(_) | zbus::fdo::Error::ServiceUnknown(_))) => {
-                continue;
-            }
-            _ => return (None, true),
-        };
-        let Ok(proxy) = Proxy::new(session, owner.to_string(), *path, *interface).await else {
-            return (None, true);
-        };
-        match tokio::time::timeout(CALL_TIMEOUT, proxy.call::<_, _, bool>("GetActive", &())).await {
-            Ok(Ok(active)) => {
-                return (
-                    Some(Endpoint {
-                        index,
-                        owner: owner.to_string(),
-                    }),
-                    active,
-                );
-            }
-            Ok(Err(zbus::Error::MethodError(name, _, _)))
-                if [
-                    "org.freedesktop.DBus.Error.UnknownObject",
-                    "org.freedesktop.DBus.Error.UnknownMethod",
-                    "org.freedesktop.DBus.Error.UnknownInterface",
-                    "org.freedesktop.DBus.Error.ServiceUnknown",
-                    "org.freedesktop.DBus.Error.NameHasNoOwner",
-                ]
-                .contains(&name.as_str()) => {}
-            _ => return (None, true),
-        }
-    }
-    (None, true)
 }
 
 #[cfg(test)]

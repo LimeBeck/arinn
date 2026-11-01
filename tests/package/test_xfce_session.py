@@ -16,6 +16,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = Path(os.environ.get("ARINN_XFCE_SESSION", ROOT / "target/debug/arinn-xfce-session"))
+SCREENSAVER_STUB = Path(
+    os.environ.get(
+        "ARINN_XFCE_SCREENSAVER_STUB",
+        ROOT / "target/debug/arinn-xfce-test-screensaver",
+    )
+)
+LOCK_PROVIDER_MISSING = (
+    "arinn-xfce-session: no lock provider: start xfce4-screensaver or light-locker"
+)
 
 
 class XfceSession(unittest.TestCase):
@@ -62,6 +71,28 @@ exit 0
         for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_SESSION_ID"):
             self.env.pop(name, None)
         self.env["HOME"] = str(self.root / "home")
+        self.screensaver = None
+        if os.environ.get("ARINN_XFCE_NO_SCREENSAVER_STUB") != "1":
+            self.assertTrue(
+                SCREENSAVER_STUB.exists(),
+                f"build {SCREENSAVER_STUB} with cargo build -p arinn-platform-x11",
+            )
+            self.screensaver = subprocess.Popen(
+                [str(SCREENSAVER_STUB)],
+                env={**os.environ, "DBUS_SESSION_BUS_ADDRESS": address},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.addCleanup(self.stop_process, self.screensaver)
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if self.dbus.dbus_bus_name_has_owner(
+                    self.owner, b"org.xfce.ScreenSaver", None
+                ):
+                    break
+                time.sleep(0.02)
+            else:
+                self.fail("screensaver stub did not claim org.xfce.ScreenSaver")
 
     @staticmethod
     def stop_process(child):
@@ -101,6 +132,24 @@ exit 0
         self.assertTrue(calls[-1].endswith("unset-environment DISPLAY XAUTHORITY XDG_SESSION_TYPE ARINN_PLATFORM_BACKEND ARINN_SESSION_BACKEND ARINN_LOGIN_STATE_HOME ARINN_LOGIN_CONFIG_HOME ARINN_LOGIN_SESSION_ID"))
         self.assertFalse(any(" enable " in call for call in calls))
 
+
+class XfceSessionWithoutLockProvider(XfceSession):
+    """Runs without a ScreenSaver stub on the private bus."""
+
+    def setUp(self):
+        os.environ["ARINN_XFCE_NO_SCREENSAVER_STUB"] = "1"
+        super().setUp()
+        self.addCleanup(os.environ.pop, "ARINN_XFCE_NO_SCREENSAVER_STUB", None)
+
+    def test_missing_lock_provider_never_starts_target(self):
+        child = self.launch()
+        _, stderr = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 1)
+        self.assertEqual(stderr.strip(), LOCK_PROVIDER_MISSING)
+        self.assertNotIn("start arinn-ewmh-session.target", self.log.read_text())
+
+
+class XfceSessionWithLockProvider(XfceSession):
     def test_login_imports_environment_before_start_and_logout_stops(self):
         child = self.launch(XDG_SESSION_TYPE=None)
         self.wait_for_start(child)

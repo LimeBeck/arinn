@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Opt-in XDG autostart bridge; the XFCE session manager owns its lifetime.
+#[path = "../../../lock_provider.rs"]
+mod lock_provider;
 use anyhow::{Result, bail, ensure};
 use std::{
     env,
@@ -36,6 +38,16 @@ const SYSTEMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 /// start Arinn then anyway, and the session entry logs its fixed line.
 const HANDOVER: Duration = Duration::from_secs(65);
 const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
+const LOCK_PROVIDER_MISSING: &str = "no lock provider: start xfce4-screensaver or light-locker";
+
+#[derive(Debug)]
+struct LockProviderMissing;
+impl std::fmt::Display for LockProviderMissing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(LOCK_PROVIDER_MISSING)
+    }
+}
+impl std::error::Error for LockProviderMissing {}
 
 struct Child(std::process::Child);
 impl Drop for Child {
@@ -255,6 +267,9 @@ async fn run() -> Result<()> {
             "an Arinn session is already running"
         );
     }
+    if !lock_provider::provider_present(&connection).await {
+        return Err(anyhow::Error::new(LockProviderMissing));
+    }
     let mut startup = Box::pin(start());
     let outcome = tokio::select! {
         result = &mut startup => {
@@ -298,10 +313,17 @@ async fn run() -> Result<()> {
 
 #[tokio::main]
 async fn main() {
-    if run().await.is_err() {
-        // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
-        eprintln!("arinn-xfce-session: session integration failed");
-        std::process::exit(1);
+    match run().await {
+        Ok(()) => {}
+        Err(error) if error.downcast_ref::<LockProviderMissing>().is_some() => {
+            eprintln!("arinn-xfce-session: {LOCK_PROVIDER_MISSING}");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
+            eprintln!("arinn-xfce-session: session integration failed");
+            std::process::exit(1);
+        }
     }
 }
 

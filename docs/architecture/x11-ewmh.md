@@ -363,7 +363,16 @@ explicit non-X11 session type. LightDM's missing session type is supplied as
 `x11`. Before starting the target it imports `DISPLAY` and, when present,
 `XAUTHORITY`; absent authority clears a stale manager value so Xlib can use its
 default. It sets the two Arinn backend selectors before starting the shared
-daemon. The existing shell startup path requests Home (AC-01).
+daemon. A real session lock provider must own one of the ScreenSaver
+endpoints the adapter probes (`org.freedesktop.ScreenSaver` at
+`/org/freedesktop/ScreenSaver`, the same service at `/ScreenSaver`, then
+`org.xfce.ScreenSaver` at `/org/xfce/ScreenSaver`); install and run
+`xfce4-screensaver` or `light-locker` before opt-in. Stubs that answer
+`GetActive=false` are for automated frame capture only, not for daily
+sessions. Without a working provider the helper exits before it starts
+the EWMH target with `arinn-xfce-session: no lock provider: start
+xfce4-screensaver or light-locker`. The existing shell startup path
+requests Home (AC-01).
 
 The helper remains in the desktop autostart session, owning
 `org.arinn.XfceSession`. Only that name's owner starts and stops the EWMH

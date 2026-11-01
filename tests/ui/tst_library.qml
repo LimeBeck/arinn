@@ -508,6 +508,150 @@ TestCase {
         focused("detailPlay");
     }
 
+    function test_long_series_episode_navigation_data() {
+        return [{tag: "season", withSeason: true}, {tag: "no-season", withSeason: false}];
+    }
+
+    function test_long_series_episode_navigation(data) {
+        const list = [];
+        for (let i = 0; i < 12; ++i)
+            list.push({id: "ep" + i, title: "Episode " + (i + 1), seasonId: data.withSeason ? "s1" : "",
+                duration: "42 min", number: i + 1});
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series",
+            title: "A very long synthetic series title that wraps across two lines on the detail screen",
+            description: "A synthetic description that adds height above the episodes. ".repeat(12),
+            kind: "series", year: 2026, progress: 0.4,
+            seasons: data.withSeason ? [{id: "s1", title: "Season 1"}] : [], episodes: list}]});
+        library.openEntry("show");
+        focused("detailPlay");
+        keyClick(Qt.Key_Down);
+        if (data.withSeason) {
+            focused("season-s1");
+            keyClick(Qt.Key_Down);
+        }
+        function visibleEpisode(index) {
+            focused("episode-ep" + index);
+            const cell = child("episode-ep" + index).parent;
+            const caption = child("episodeDuration-ep" + index);
+            tryVerify(() => {
+                // Check layout bounds; the Surface's decorative focus scale
+                // may extend beyond its cell without changing rail position.
+                const top = cell.mapToItem(library, 0, 0);
+                const right = cell.mapToItem(library, cell.width, 0);
+                const bottom = caption.mapToItem(library, caption.width, caption.height);
+                return top.x >= 0 && top.y >= 0 && right.x <= library.width
+                        && bottom.y <= library.height;
+            }, 1500, "Episode " + index + " and caption must be inside the viewport");
+        }
+        for (let i = 0; i < list.length; ++i) {
+            visibleEpisode(i);
+            if (i + 1 < list.length)
+                keyClick(Qt.Key_Right);
+        }
+        keyClick(Qt.Key_Return);
+        compare(episodes.count, 1);
+        compare(episodes.signalArguments[0][1], "ep11");
+        for (let i = list.length - 2; i >= 0; --i) {
+            keyClick(Qt.Key_Left);
+            visibleEpisode(i);
+        }
+        keyClick(Qt.Key_Up);
+        if (data.withSeason) {
+            focused("season-s1");
+            keyClick(Qt.Key_Up);
+        }
+        focused("detailPlay");
+        tryVerify(() => child("detailPlay").mapToItem(library, 0, 0).y >= 0);
+        keyClick(Qt.Key_Escape);
+        focused("poster-show");
+    }
+
+    function createAnimatedEpisodeRail() {
+        const list = [];
+        for (let season = 1; season <= 2; ++season)
+            for (let i = 0; i < 12; ++i)
+                list.push({id: "s" + season + "e" + i, title: "Episode " + i, seasonId: "s" + season});
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [
+            {id: "show", tabId: "series", title: "Show", kind: "series",
+                seasons: [{id: "s1", title: "Season 1"}, {id: "s2", title: "Season 2"}], episodes: list},
+            {id: "other", tabId: "series", title: "Other", kind: "series", episodes: [{id: "only", title: "Only"}]}]});
+        library.openEntry("show"); focused("detailPlay");
+        keyClick(Qt.Key_Down); focused("season-s1");
+        keyClick(Qt.Key_Down); focused("episode-s1e0");
+    }
+
+    function test_episode_scroll_has_intermediate_positions_and_settles() {
+        createAnimatedEpisodeRail();
+        const rail = child("episodeScroller");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        focused("episode-s1e4");
+        const cell = child("episode-s1e4").parent;
+        const target = cell.x + cell.width - rail.width;
+        verify(target > 0);
+        tryVerify(() => rail.contentX > 1 && rail.contentX < target - 1, 250,
+                  "The row must visibly move through intermediate positions, not jump");
+        const first = rail.contentX;
+        wait(30);
+        verify(rail.contentX > first, "The row must keep moving towards the selected episode");
+        tryVerify(() => Math.abs(rail.contentX - target) < 0.5, 1000);
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Left);
+        focused("episode-s1e0");
+        tryVerify(() => rail.contentX > 1 && rail.contentX < target - 1, 250,
+                  "Reverse scrolling must also have intermediate positions");
+        tryVerify(() => Math.abs(rail.contentX) < 0.5, 1000);
+        for (let i = 0; i < 20; ++i) keyClick(Qt.Key_Right);
+        focused("episode-s1e11");
+        tryVerify(() => Math.abs(rail.contentX - (rail.contentWidth - rail.width)) < 0.5, 1000);
+        keyClick(Qt.Key_Return);
+        compare(episodes.count, 1);
+        compare(episodes.signalArguments[0][1], "s1e11");
+    }
+
+    function test_episode_scroll_retargets_and_resets_for_new_content() {
+        createAnimatedEpisodeRail();
+        const rail = child("episodeScroller");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        tryVerify(() => rail.contentX > 1, 250);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Left); keyClick(Qt.Key_Left);
+        focused("episode-s1e3");
+        const stopped = rail.contentX;
+        wait(550);
+        fuzzyCompare(rail.contentX, stopped, 0.5);
+        keyClick(Qt.Key_Right);
+        tryVerify(() => rail.contentX > stopped + 1, 250);
+        keyClick(Qt.Key_Up); focused("season-s1");
+        keyClick(Qt.Key_Right); focused("season-s2");
+        compare(rail.contentX, 0);
+        wait(550); compare(rail.contentX, 0);
+        keyClick(Qt.Key_Down); focused("episode-s2e0");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        tryVerify(() => rail.contentX > 1, 250);
+        library.openEntry("other"); focused("detailPlay");
+        compare(rail.contentX, 0);
+        wait(550); compare(rail.contentX, 0);
+        library.openEntry("show");
+        verify(waitForRendering(library));
+        focused("detailPlay");
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Down);
+        focused("episode-s1e0");
+        compare(rail.contentX, 0);
+    }
+
+    function test_pointer_flick_interrupts_episode_focus_animation() {
+        createAnimatedEpisodeRail();
+        const rail = child("episodeScroller");
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        tryVerify(() => rail.contentX > 1, 250);
+        rail.flick(-1200, 0);
+        tryCompare(rail, "flicking", true);
+        wait(40);
+        rail.cancelFlick();
+        const stopped = rail.contentX;
+        wait(550);
+        fuzzyCompare(rail.contentX, stopped, 0.5);
+    }
+
     function test_back_from_season_rail_returns_to_primary_action_before_grid() {
         createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
             seasons: [{id: "s1", title: "Season 1"}], episodes: [{id: "ep", title: "One", seasonId: "s1"}]}]});

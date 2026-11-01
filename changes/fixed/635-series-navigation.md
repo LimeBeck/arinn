@@ -1,0 +1,1 @@
+- Animate scrolling between series episodes instead of jumping between row positions. Keep remote navigation and captions visible, handle rapid direction changes and pointer scrolling, and reset motion when changing seasons or titles.

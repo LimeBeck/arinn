@@ -75,7 +75,7 @@ async fn null_output_plays_a_generated_file() {
     let mut command = Command::new("/usr/bin/mpv");
     command
         .args(arguments(&socket))
-        .args(["--vo=null", "--ao=null"])
+        .args(["--vo=null", "--ao=null", "--hwdec-codecs="])
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let first_launch = uuid::Uuid::new_v4().to_string();
@@ -197,6 +197,9 @@ async fn null_output_plays_a_generated_file() {
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+    // No real GPU test: the empty codec allowlist keeps decoding in software.
+    // Auto must still permit playback after a process restart.
+    player.set_hardware_decoding(true);
     let next_id = player
         .open(MediaSource {
             content: EntityRef {
@@ -217,6 +220,35 @@ async fn null_output_plays_a_generated_file() {
         next_launch
     );
     assert_ne!(first_launch, next_launch);
+    {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let stream = tokio::net::UnixStream::connect(folder.join("ipc"))
+            .await
+            .unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut lines = BufReader::new(read).lines();
+        for (request, property) in [(1, "hwdec"), (2, "hwdec-current")] {
+            write.write_all(format!("{{\"command\":[\"get_property\",\"{property}\"],\"request_id\":{request}}}\n").as_bytes()).await.unwrap();
+            let reply = tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let line = lines.next_line().await.unwrap().unwrap();
+                    let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    // mpv broadcasts lifecycle events on new IPC connections.
+                    if reply["request_id"].as_i64() == Some(request) {
+                        break reply;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(reply["error"], "success");
+            if property == "hwdec" {
+                assert!(reply["data"] == "auto" || reply["data"] == serde_json::json!(["auto"]));
+            } else {
+                assert_eq!(reply["data"], "no");
+            }
+        }
+    }
     player.control(MediaAction::Stop, next_id, 0).await.unwrap();
     next_child.wait_for_exit().await;
     assert_eq!(player.view().await.unwrap().sessions[0].state, "stopped");

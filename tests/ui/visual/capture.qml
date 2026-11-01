@@ -675,7 +675,9 @@ TestCase {
                 tab.saved = tab.id === "t2";
                 return tab;
             })}, tune: item => {
+                // settleFocus() focuses the row at listIndex.
                 item.focusedEntryId = "t2";
+                item.listIndex = item.orderedTabs.findIndex(tab => tab.id === "t2");
                 item.listSide = "bookmark";
                 item.settleFocus();
             }};

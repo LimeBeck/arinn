@@ -214,7 +214,10 @@ FocusScope {
     component RoundedArtwork: Item {
         id: artworkSlot
         property alias source: picture.source
-        readonly property int status: picture.status
+        // Preserve the Image-like contract used by native image consumers.
+        // Ready means the rounded canvas has drawn the current source.
+        readonly property int status: picture.status === Image.Ready && !ready ? Image.Loading : picture.status
+        visible: picture.status === Image.Ready
         property real cornerRadius: 0
         readonly property bool ready: picture.status === Image.Ready && artworkCanvas.showsArtwork
                 && artworkCanvas.loadedSource === picture.source.toString()

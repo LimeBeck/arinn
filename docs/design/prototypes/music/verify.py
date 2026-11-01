@@ -111,6 +111,7 @@ def main():
             page.locator("#pin-wave").click()
             page.locator("#station-wave").click()
             assert "My Wave" in page.locator(".radio-label").inner_text()
+            assert page.locator(".now .layout-balanced").count() == 1, "Owner-selected layout B must be the default"
             assert "no service connected" in page.locator(".now .eyebrow").inner_text().lower()
             for control in ["previous", "pause", "next", "queue", "seek", "rating-like", "rating-dislike", "track-radio"]:
                 assert page.locator("#" + control + " svg").count() == 1

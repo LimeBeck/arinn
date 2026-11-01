@@ -3,8 +3,9 @@
 Owner-requested alternatives for [#677](https://github.com/LimeBeck/arinn/issues/677),
 design task [#698](https://github.com/LimeBeck/arinn/issues/698),
 [PR #700](https://github.com/LimeBeck/arinn/pull/700). Proposed on 2026-11-01.
-This is a design evaluation, not a user study, owner selection or a change to
-the production shell. All alternatives retain one horizontal primary-action row.
+This is a design evaluation, not a user study or a change to the production
+shell. The owner selected B on 2026-11-01. All alternatives retain one horizontal
+primary-action row.
 
 ## Comparable variants
 
@@ -18,7 +19,7 @@ navigation, feedback, queue and the overflow sheet remain interactive.
 ![Linear control row](screenshots/controls-inline-strip.png)
 
 Previous, Play/Pause, Next, Queue, Seek, Like, Dislike and Track radio are visible,
-with thin separators. This is the current prototype default.
+with thin separators. This is retained as a comparison scene.
 
 It is direct and familiar, with no hidden actions. However, Pause sits near the
 left edge and the row reads as a chain of eight actions. Feedback is far from
@@ -90,8 +91,8 @@ future reviewed scope prioritizes a minimal album player over immediate feedback
 A remains a valid conservative fallback. Do not expose three permanent layout
 settings merely because alternatives are available for review.
 
-No alternative is selected by this document. The default remains A until the
-owner reviews the screens. A production implementation would also choose a
+The owner selected **B**, which is now the prototype default. A and C remain
+review references rather than user settings. A production implementation would also choose a
 single active transport surface rather than duplicate full-player and compact
 transport; that existing prototype simplification is held constant here so it
 does not bias this comparison.

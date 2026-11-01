@@ -124,7 +124,8 @@ flows remain design/contract questions. No mixed-source playback is promised.
 [Three player-control layouts and evaluation](control-layouts.md) compare the
 linear row, centered transport with balanced side groups, and a minimal row with
 More. The scenes are `controls-inline`, `controls-balanced` and
-`controls-minimal`. The current default remains the linear row pending selection.
+`controls-minimal`. The owner selected balanced groups (B) on 2026-11-01;
+this is now the default player layout. A and C remain comparison scenes only.
 
 | Screen | 1080p | 4K |
 | --- | --- | --- |

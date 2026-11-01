@@ -120,7 +120,7 @@
     pending:['Connecting…','Complete connection in the approved service flow. This preview never opens an account.'],
     cancelled:['Connection cancelled','Nothing was connected. You can try again when you are ready.']
   };
-  let s = {screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene:'catalogue'};
+  let s = {screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene:'catalogue',variant:'balanced'};
   let session = null;
   let serial = 0;
   const queueFor = album => tracks.slice(0,6).map((_,track) => ({track,album,key:++serial}));
@@ -244,7 +244,7 @@
   function start(track) {if(s.source!=='local'){openModal('settings');return;}radio=null;session={source:s.source,album:s.album,track:Number(track),paused:false};queue=queueFor(s.album);selectEntry(queue[Number(track)]);modal=null;drawModal();drawPlayer();render(document.activeElement.id);}
   function play(track) {if(s.source!=='local'){openModal('settings');return;}if(session && (session.source!==s.source || session.album!==s.album)){openModal('replace',track);}else start(track);}
   function applyScene(scene) {
-    s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene,designRadio:false};history=[];modal=null;session=null;radio=null;tracks.length=6;queue=queueFor(0);
+    s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene,designRadio:false,variant:'balanced'};history=[];modal=null;session=null;radio=null;tracks.length=6;queue=queueFor(0);
     if(['player','queue','home'].includes(scene)){session={source:'local',album:0,track:1,paused:false};s.screen=scene;selectEntry(queue[1]);}
     if(scene.startsWith('controls-')) {
       s.source='yandex';s.designRadio=true;s.variant=scene.slice(9);beginStation('wave',true);history=[];s.screen='player';render('pause');return;

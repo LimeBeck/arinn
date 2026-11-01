@@ -287,6 +287,8 @@ and covers refill/loading/retry, exhausted-buffer and feedback failure states;
 see [MU-11–MU-15](docs/architecture/music-discovery.md#proposed-common-requirements).
 Recommendations remain provider-owned; this is not an Arinn recommendation engine
 or evidence of a qualified streaming integration.
+The owner selected player layout B (balanced groups with centered transport) on
+2026-11-01; it is the [prototype](docs/design/prototypes/music/README.md) default.
 
 ## Backlog
 

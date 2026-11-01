@@ -560,4 +560,73 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(episodes.count, 0);
     }
+    function foldersFixture() {
+        return {
+            tabs: [{id: "films", title: "Films"}, {id: "series", title: "Series"}, {id: "@folders", title: "Folders"}],
+            currentTabId: "@folders",
+            entries: [{id: "film", tabId: "films", title: "North", kind: "film", progress: 0.25}],
+            folderEntries: [
+                {id: "root", folderId: "", title: "Media", kind: "folder"},
+                {id: "offline", folderId: "", title: "Archive", kind: "folder", missing: true},
+                {id: "nested", folderId: "root", title: "Nested", kind: "folder"},
+                {id: "empty", folderId: "root", title: "Empty", kind: "folder"},
+                {id: "film", folderId: "nested", title: "North", kind: "film", progress: 0.25}
+            ]
+        };
+    }
+    function test_folder_view_is_separate_and_back_restores_each_opener() {
+        createLibrary(foldersFixture());
+        focused("libraryMode-folders");
+        compare(findChild(library, "tab-@folders"), null);
+        compare(child("tab-films").visible, false);
+        keyClick(Qt.Key_Down); focused("poster-root");
+        verify(child("folderGlyph-root").visible);
+        keyClick(Qt.Key_Return);
+        tryCompare(library, "currentFolderId", "root"); focused("poster-nested");
+        compare(child("libraryFolderBreadcrumb").text, "Folders  /  Media");
+        keyClick(Qt.Key_Return);
+        tryCompare(library, "currentFolderId", "nested"); focused("poster-film");
+        keyClick(Qt.Key_Return); tryCompare(library, "detailEntryId", "film"); focused("detailPlay");
+        keyClick(Qt.Key_Escape); focused("poster-film");
+        keyClick(Qt.Key_Escape); tryCompare(library, "currentFolderId", "root"); focused("poster-nested");
+        keyClick(Qt.Key_Escape); tryCompare(library, "currentFolderId", ""); focused("poster-root");
+        compare(backs.count, 0);
+        keyClick(Qt.Key_Escape); compare(backs.count, 1);
+        library.chooseView(false); focused("libraryMode-catalogue");
+        compare(library.folderMode, false);
+        keyClick(Qt.Key_Down); focused("tab-films");
+        keyClick(Qt.Key_Down); focused("poster-film");
+    }
+    function test_empty_and_unavailable_folders_remain_navigable() {
+        createLibrary(foldersFixture());
+        focused("libraryMode-folders");
+        keyClick(Qt.Key_Down); focused("poster-root");
+        keyClick(Qt.Key_Right); focused("poster-offline");
+        compare(child("missingLabel-offline").text, "Unavailable");
+        keyClick(Qt.Key_Return); tryCompare(library, "currentFolderId", "offline");
+        focused("libraryStatus");
+        keyClick(Qt.Key_Escape); focused("poster-offline");
+        library.openEntry("root"); focused("poster-nested");
+        keyClick(Qt.Key_Right); focused("poster-empty");
+        keyClick(Qt.Key_Return); tryCompare(library, "currentFolderId", "empty");
+        focused("libraryStatus");
+        keyClick(Qt.Key_Escape); focused("poster-empty");
+        // Catalogue refresh under the global menu must not take focus.
+        library.ownsFocus = false;
+        const updated = library.folderEntries.slice(); updated[2] = Object.assign({}, updated[2], {title: "Changed"});
+        library.folderEntries = updated;
+        wait(50); compare(library.currentFolderId, "root");
+    }
+    function test_unknown_season_does_not_leak_into_known_seasons() {
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "show", tabId: "series", title: "Show", kind: "series",
+            seasons: [{id: "s1", title: "Season 1"}, {id: "unknown", title: "Without season"}],
+            episodes: [{id: "known", title: "One", seasonId: "s1"}, {id: "extra", title: "Extra", seasonId: "unknown"}]}]});
+        library.openEntry("show"); focused("detailPlay");
+        compare(library.detailEpisodes.length, 1); compare(library.detailEpisodes[0].id, "known");
+        keyClick(Qt.Key_Down); focused("season-s1");
+        keyClick(Qt.Key_Right); focused("season-unknown");
+        compare(library.detailEpisodes.length, 1); compare(library.detailEpisodes[0].id, "extra");
+        keyClick(Qt.Key_Down); focused("episode-extra");
+    }
+
 }

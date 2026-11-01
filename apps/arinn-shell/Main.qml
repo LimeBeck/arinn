@@ -1040,6 +1040,7 @@ Window {
             libraryState: libraryCatalog.libraryState
             tabs: libraryCatalog.tabs
             entries: libraryCatalog.entries
+            folderEntries: libraryCatalog.folderEntries
             operationState: libraryCatalog.operationState
             launchingId: libraryCatalog.launchingId
             onDetailOpenChanged: {

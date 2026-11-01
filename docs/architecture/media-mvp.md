@@ -125,3 +125,28 @@ During owned-player shutdown recovery, a retained Stop-only session does not
 keep the MPRIS bus name. Media-key routing requires a playing or paused session
 with Play, Pause or PlayPause available, so an IPC-disconnected retry cannot
 intercept keys intended for another player.
+
+## Offline folder hierarchy (#629)
+
+The local provider enables LibraryHierarchy1 (ADR-0123). `library_folders`
+persists opaque UUIDs by root UUID and relative directory path. The scan records
+readable directories including empty ones; hidden directories and directory
+symlinks retain the existing exclusion. A directory count bound accompanies the
+existing depth/file bounds, and truncated scans retain prior availability.
+Unavailable roots keep known descendants and memberships. Legacy item ancestry
+is reconstructed from stored rows even if the first upgraded scan is offline.
+Import ensures ancestry without changing the content UUID or resume.
+
+Hierarchy memberships refer to existing file items. Folder mode reflects the
+physical tree, while Catalogue aggregates logical series and seasons. The SDK
+publishes hierarchy, additions and catalogue together under one revision. Local
+artwork fallback and provider-owned state remain as before; no online enrichment
+or additional filesystem access is added to the shell.
+
+Folder metadata is preflighted against the SDK assembled-snapshot budget before
+publication. A malformed or oversized optional graph publishes empty hierarchy
+instead of preventing base catalogue/additions/resume publication; the shell
+then offers Catalogue only. A bounded diagnostic includes no paths or titles.
+Scan catalogue and folder writes share a SQLite savepoint, including offline
+ancestry reconstruction, so directory updates do not create a transaction per
+file. Content and resume persistence remain provider-owned.

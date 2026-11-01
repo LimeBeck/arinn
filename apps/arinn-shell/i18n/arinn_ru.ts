@@ -875,6 +875,14 @@
         <source>Season %1</source>
         <translation>Сезон %1</translation>
     </message>
+    <message>
+        <source>Without season</source>
+        <translation>Без сезона</translation>
+    </message>
+    <message>
+        <source>Folders</source>
+        <translation>Папки</translation>
+    </message>
 </context>
 <context>
     <name>LibraryView</name>
@@ -969,6 +977,30 @@
     <message>
         <source>Waiting…</source>
         <translation>Ожидание…</translation>
+    </message>
+    <message>
+        <source>Folders</source>
+        <translation>Папки</translation>
+    </message>
+    <message>
+        <source>This folder is empty</source>
+        <translation>Папка пуста</translation>
+    </message>
+    <message>
+        <source>Go back to choose another folder.</source>
+        <translation>Вернитесь назад, чтобы выбрать другую папку.</translation>
+    </message>
+    <message>
+        <source>Catalogue</source>
+        <translation>Каталог</translation>
+    </message>
+    <message>
+        <source>Back · Up one level</source>
+        <translation>Назад · На уровень выше</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
     </message>
 </context>
 <context>

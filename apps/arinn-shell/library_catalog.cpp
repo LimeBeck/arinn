@@ -28,6 +28,11 @@ QString presentationId(const QString &provider, const QString &local) {
   return QUuid::createUuidV5(QUuid(), provider + QLatin1Char('\n') + local)
       .toString(QUuid::WithoutBraces);
 }
+QString folderPresentationId(const QString &provider, const QString &local) {
+  // Catalogue identities are UUID strings; this disjoint namespace cannot
+  // collide with any valid provider-controlled content ID.
+  return QStringLiteral("folder:") + presentationId(provider, local);
+}
 QString displayKind(const QString &kind, bool episode) {
   if (kind == QLatin1String("film") || kind == QLatin1String("series") ||
       kind == QLatin1String("other"))
@@ -96,6 +101,10 @@ struct LibraryCatalog::Catalog {
   bool resumeFeature = false;
   quint64 libraryRevision = 0;
   int additionsIndex = -1;
+  int hierarchyIndex = -1;
+  QVariantList hierarchies, hierarchyFolders, hierarchyMembers;
+  QDeadlineTimer hierarchyDeadline;
+  QSet<QString> hierarchyTokens;
 };
 
 LibraryCatalog::LibraryCatalog(QObject *parent) : QObject(parent) {
@@ -114,6 +123,7 @@ LibraryCatalog::LibraryCatalog(QObject *parent) : QObject(parent) {
             m_error = false;
             m_unreachable = false;
             m_items.clear();
+    m_hierarchies.clear();
             m_collections.clear();
             setOperation(QString());
             publish();
@@ -132,7 +142,7 @@ QString LibraryCatalog::libraryState() const {
     return QStringLiteral("unavailable");
   if (m_error)
     return QStringLiteral("error");
-  if (m_entries.isEmpty())
+  if (m_entries.isEmpty() && m_folderEntries.isEmpty())
     return QStringLiteral("empty");
   return QStringLiteral("ready");
 }
@@ -181,16 +191,25 @@ void LibraryCatalog::publish() {
       children[item.providerId + QLatin1Char('\n') + item.parentLocal].append(i);
   }
   QVariantList entries;
+  QHash<QString, QVariantMap> allEntries;
   for (const auto &item : m_items) {
-    if (!item.parentLocal.isEmpty())
-      continue;
-    const auto kids =
-        children.value(item.providerId + QLatin1Char('\n') + item.localId);
+    auto kids = children.value(item.providerId + QLatin1Char('\n') + item.localId);
+    std::sort(kids.begin(), kids.end(), [this](int a, int b) {
+      const auto &x = m_items.at(a); const auto &y = m_items.at(b);
+      const auto unknown = std::numeric_limits<quint32>::max();
+      if ((x.hasSeason ? x.season : unknown) != (y.hasSeason ? y.season : unknown))
+        return (x.hasSeason ? x.season : unknown) < (y.hasSeason ? y.season : unknown);
+      if ((x.hasEpisode ? x.episode : unknown) != (y.hasEpisode ? y.episode : unknown))
+        return (x.hasEpisode ? x.episode : unknown) < (y.hasEpisode ? y.episode : unknown);
+      return x.id < y.id;
+    });
     QList<quint32> seasonOrder;
     QSet<quint32> seenSeasons;
     QVariantList episodes;
+    bool unknownSeason = false;
     for (const auto index : kids) {
       const auto &kid = m_items.at(index);
+      unknownSeason |= !kid.hasSeason;
       if (kid.hasSeason && !seenSeasons.contains(kid.season)) {
         seenSeasons.insert(kid.season);
         seasonOrder.append(kid.season);
@@ -210,7 +229,7 @@ void LibraryCatalog::publish() {
         episode.insert(QStringLiteral("artwork"), still);
       episode.insert(QStringLiteral("seasonId"),
                      kid.hasSeason ? QStringLiteral("s") + QString::number(kid.season)
-                                   : QString());
+                                   : QStringLiteral("unknown"));
       if (kid.hasEpisode)
         episode.insert(QStringLiteral("number"), kid.episode);
       episodes.append(episode);
@@ -222,6 +241,9 @@ void LibraryCatalog::publish() {
           {QStringLiteral("id"), QStringLiteral("s") + QString::number(season)},
           {QStringLiteral("title"), tr("Season %1").arg(season)}});
     }
+    if (unknownSeason && !seasonOrder.isEmpty())
+      seasons.append(QVariantMap{{QStringLiteral("id"), QStringLiteral("unknown")},
+                                 {QStringLiteral("title"), tr("Without season")}});
     auto progress = resumeFraction(item.resumePosition, item.resumeDuration,
                                    item.durationUs, item.resumeCompleted,
                                    item.hasResume);
@@ -255,8 +277,46 @@ void LibraryCatalog::publish() {
       entry.insert(QStringLiteral("seasons"), seasons);
     if (!episodes.isEmpty())
       entry.insert(QStringLiteral("episodes"), episodes);
-    entries.append(entry);
+    allEntries.insert(item.id, entry);
+    if (item.parentLocal.isEmpty()) entries.append(entry);
   }
+  QVariantList folderEntries;
+  for (const auto &raw : std::as_const(m_hierarchies)) {
+    const auto hierarchy = raw.toMap();
+    const auto provider = hierarchy.value(QStringLiteral("providerId")).toString();
+    const auto folders = hierarchy.value(QStringLiteral("folders")).toList();
+    for (const auto &value : folders) {
+      const auto f = value.toMap();
+      const auto local = f.value(QStringLiteral("id")).toString();
+      const auto parent = f.value(QStringLiteral("parentId")).toString();
+      folderEntries.append(QVariantMap{
+        {QStringLiteral("id"), folderPresentationId(provider, local)},
+        {QStringLiteral("folderId"), parent.isEmpty() ? QString() : folderPresentationId(provider, parent)},
+        {QStringLiteral("title"), f.value(QStringLiteral("title"))},
+        {QStringLiteral("kind"), QStringLiteral("folder")},
+        {QStringLiteral("missing"), !f.value(QStringLiteral("available")).toBool()},
+        {QStringLiteral("enabled"), true}, {QStringLiteral("noArt"), true}});
+    }
+    const auto members = hierarchy.value(QStringLiteral("members")).toList();
+    for (const auto &value : members) {
+      const auto m = value.toMap();
+      const auto itemId = presentationId(provider, m.value(QStringLiteral("itemId")).toString());
+      if (!allEntries.contains(itemId)) continue;
+      auto entry = allEntries.value(itemId);
+      entry.insert(QStringLiteral("folderId"), folderPresentationId(provider, m.value(QStringLiteral("folderId")).toString()));
+      folderEntries.append(entry);
+    }
+  }
+  std::stable_sort(folderEntries.begin(), folderEntries.end(), [](const QVariant &a, const QVariant &b) {
+    const auto x = a.toMap(), y = b.toMap();
+    const bool xf = x.value(QStringLiteral("kind")) == QStringLiteral("folder");
+    const bool yf = y.value(QStringLiteral("kind")) == QStringLiteral("folder");
+    if (xf != yf) return xf;
+    const auto title = QString::localeAwareCompare(x.value(QStringLiteral("title")).toString(), y.value(QStringLiteral("title")).toString());
+    return title == 0 ? x.value(QStringLiteral("id")).toString() < y.value(QStringLiteral("id")).toString() : title < 0;
+  });
+  if (!folderEntries.isEmpty())
+    tabs.append(QVariantMap{{QStringLiteral("id"), QStringLiteral("@folders")}, {QStringLiteral("title"), tr("Folders")}});
   // A reload follows every ProvidersChanged. Announcing an unchanged catalog
   // makes every view bound to it rebuild its cards (#441).
   QList<const ItemRow *> recent;
@@ -282,9 +342,10 @@ void LibraryCatalog::publish() {
       }
     }
   }
-  const auto changed = tabs != m_tabs || entries != m_entries || newEntries != m_newEntries ||
+  const auto changed = tabs != m_tabs || entries != m_entries || folderEntries != m_folderEntries || newEntries != m_newEntries ||
                        m_items != m_publishedItems;
   m_tabs = tabs;
+  m_folderEntries = folderEntries;
   m_entries = entries;
   m_newEntries = newEntries;
   if (!changed && libraryState() == m_publishedState)
@@ -326,6 +387,7 @@ void LibraryCatalog::refresh() {
               m_error = false;
               m_unreachable = false;
               m_items.clear();
+    m_hierarchies.clear();
               m_collections.clear();
               publish();
               if (m_dirty)
@@ -424,6 +486,13 @@ void LibraryCatalog::nextProvider(const std::shared_ptr<Catalog> &catalog,
   if (catalog->additionsIndex == index) {
     catalog->additionsIndex = -1;
     readAdditions(catalog, index);
+    return;
+  }
+  if (catalog->hierarchyIndex == index) {
+    catalog->hierarchyIndex = -1;
+    catalog->hierarchyFolders.clear(); catalog->hierarchyMembers.clear();
+    catalog->hierarchyTokens.clear(); catalog->hierarchyDeadline = QDeadlineTimer(5000);
+    readHierarchy(catalog, index);
     return;
   }
   catalog->tokens.clear();
@@ -624,6 +693,69 @@ void LibraryCatalog::readLibrary(const std::shared_ptr<Catalog> &catalog,
         }
       });
 }
+void LibraryCatalog::readHierarchy(const std::shared_ptr<Catalog> &catalog, int index, const QString &token) {
+  if (catalog->epoch != m_epoch) { finishCatalog(catalog, false); return; }
+  if (catalog->hierarchyDeadline.hasExpired() || catalog->hierarchyTokens.size() >= 1024 || catalog->hierarchyTokens.contains(token)) {
+    nextProvider(catalog, index); return;
+  }
+  catalog->hierarchyTokens.insert(token);
+  const auto provider = catalog->providers.at(index).toMap();
+  const auto generation = provider.value(QStringLiteral("generation")).toString();
+  const auto providerId = provider.value(QStringLiteral("id")).toString();
+  auto msg = QDBusMessage::createMethodCall(service, provider.value(QStringLiteral("path")).toString(), "org.arinn.Library1", "GetHierarchy");
+  msg << generation << qulonglong(catalog->libraryRevision) << token;
+  auto pending = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, int(std::min<qint64>(3000, catalog->hierarchyDeadline.remainingTime()))), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this, [this, catalog, index, generation, providerId](auto *call) {
+    const auto reply = call->reply(); call->deleteLater();
+    if (catalog->epoch != m_epoch) { finishCatalog(catalog, false); return; }
+    if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(sta(sssb)a(ss)s)" || reply.arguments().isEmpty()) { nextProvider(catalog, index); return; }
+    const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+    QString gen, next; qulonglong revision = 0; int count = 0;
+    arg.beginStructure(); arg >> gen >> revision;
+    bool valid = gen == generation && revision == catalog->libraryRevision;
+    auto text = [](const QString &s, bool empty = false) { return (empty || !s.isEmpty()) && s.toUtf8().size() <= 8192 && !s.contains(QChar(0)); };
+    arg.beginArray();
+    while (!arg.atEnd()) {
+      QString id, parent, title; bool available;
+      arg.beginStructure(); arg >> id >> parent >> title >> available; arg.endStructure();
+      valid &= text(id) && text(parent, true) && text(title, true);
+      catalog->hierarchyFolders.append(QVariantMap{{QStringLiteral("id"), id}, {QStringLiteral("parentId"), parent}, {QStringLiteral("title"), title}, {QStringLiteral("available"), available}}); ++count;
+    }
+    arg.endArray(); arg.beginArray();
+    while (!arg.atEnd()) {
+      QString folder, item; arg.beginStructure(); arg >> folder >> item; arg.endStructure();
+      valid &= text(folder) && text(item);
+      catalog->hierarchyMembers.append(QVariantMap{{QStringLiteral("folderId"), folder}, {QStringLiteral("itemId"), item}}); ++count;
+    }
+    arg.endArray(); arg >> next; arg.endStructure();
+    valid &= count <= 200 && catalog->hierarchyFolders.size() + catalog->hierarchyMembers.size() <= 100000 && text(next, true);
+    if (!valid) { nextProvider(catalog, index); return; }
+    if (!next.isEmpty()) { readHierarchy(catalog, index, next); return; }
+    QHash<QString, QString> parents;
+    for (const auto &value : std::as_const(catalog->hierarchyFolders)) {
+      const auto row = value.toMap(); const auto id = row.value(QStringLiteral("id")).toString();
+      if (parents.contains(id)) { nextProvider(catalog, index); return; }
+      parents.insert(id, row.value(QStringLiteral("parentId")).toString());
+    }
+    for (auto it = parents.cbegin(); it != parents.cend(); ++it) {
+      auto parent = it.value(); int depth = 0;
+      while (!parent.isEmpty()) {
+        if (++depth > 64 || !parents.contains(parent) || parent == it.key()) { nextProvider(catalog, index); return; }
+        parent = parents.value(parent);
+      }
+    }
+    QSet<QString> items, pairs;
+    for (qsizetype i = catalog->providerStartItems; i < catalog->items.size(); ++i) items.insert(catalog->items.at(i).localId);
+    for (const auto &value : std::as_const(catalog->hierarchyMembers)) {
+      const auto row = value.toMap(); const auto folder = row.value(QStringLiteral("folderId")).toString(), item = row.value(QStringLiteral("itemId")).toString();
+      const auto pair = folder + QChar(0) + item;
+      if (!parents.contains(folder) || !items.contains(item) || pairs.contains(pair)) { nextProvider(catalog, index); return; }
+      pairs.insert(pair);
+    }
+    catalog->hierarchies.append(QVariantMap{{QStringLiteral("providerId"), providerId}, {QStringLiteral("folders"), catalog->hierarchyFolders}, {QStringLiteral("members"), catalog->hierarchyMembers}});
+    nextProvider(catalog, index);
+  });
+}
 void LibraryCatalog::readAdditions(const std::shared_ptr<Catalog> &catalog,
                                    int index) {
   if (catalog->epoch != m_epoch) {
@@ -724,6 +856,8 @@ void LibraryCatalog::readFeatures(const std::shared_ptr<Catalog> &catalog,
               if (reply.arguments().at(0).toStringList().contains(
                       QLatin1String("LibraryAdditions1")))
                 catalog->additionsIndex = index;
+              if (reply.arguments().at(0).toStringList().contains(QLatin1String("LibraryHierarchy1")))
+                catalog->hierarchyIndex = index;
               catalog->resumeFeature =
                   reply.arguments().at(0).toStringList().contains(
                       QLatin1String("LibraryResume1"));
@@ -842,17 +976,20 @@ void LibraryCatalog::finishCatalog(const std::shared_ptr<Catalog> &catalog,
     m_error = true;
     m_unreachable = false;
     m_items.clear();
+    m_hierarchies.clear();
     m_collections.clear();
   } else if (catalog->providers.isEmpty() && catalog->sawLibrary) {
     m_error = false;
     m_unreachable = true;
     m_items.clear();
+    m_hierarchies.clear();
     m_collections.clear();
   } else {
     m_error = false;
     m_unreachable = false;
     m_items = catalog->items;
     m_collections = catalog->collections;
+    m_hierarchies = catalog->hierarchies;
   }
   publish();
   if (!m_pendingLocal.isEmpty()) {

@@ -12,6 +12,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 RU = {
+    # Offline library navigation (#629)
+    "Catalogue": "Каталог",
+    "Folders": "Папки",
+    "Without season": "Без сезона",
+    "This folder is empty": "Папка пуста",
+    "Go back to choose another folder.": "Вернитесь назад, чтобы выбрать другую папку.",
+    "Back · Up one level": "Назад · На уровень выше",
     # Shared controls and states
     "Loading…": "Загрузка…",
     "Loading": "Загрузка",

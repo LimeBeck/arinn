@@ -1,0 +1,1 @@
+- Add offline library folder browsing through a Catalogue/Folders view switch, with nested and unavailable folders, Back/focus restoration and shared content/progress identities. Sort series numerically and separate unknown-season episodes when seasons are known. Local metadata and artwork remain the only sources.

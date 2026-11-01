@@ -11,7 +11,9 @@ use arinn_plugin_sdk::runtime::{
     SettingsHandler, run_library_on, serve_settings,
 };
 use arinn_protocol::{
-    library::{Addition, Collection, ImportCandidate, Item, Resume, RootState},
+    library::{
+        Addition, Collection, Folder, FolderMember, ImportCandidate, Item, Resume, RootState,
+    },
     media::PlaybackSource,
     settings::Setting,
     validation::ErrorCode,
@@ -49,6 +51,7 @@ struct Publication {
     items: Vec<Item>,
     resumes: Vec<Resume>,
     additions: Vec<Addition>,
+    hierarchy: (Vec<Folder>, Vec<FolderMember>),
 }
 
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
@@ -78,10 +81,16 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         settings: Arc::new(std::sync::Mutex::new(settings)),
         written: Arc::new(written),
     };
-    let (collections, items, resumes, additions) = {
+    let (collections, items, resumes, additions, hierarchy) = {
         let store = bridge.store.lock().map_err(|_| ErrorCode::Internal)?;
         let (collections, items) = store.snapshot()?;
-        (collections, items, store.resumes()?, store.additions()?)
+        (
+            collections,
+            items,
+            store.resumes()?,
+            store.additions()?,
+            bounded_hierarchy(store.hierarchy()),
+        )
     };
     let service = LibraryService::with_extensions(
         bridge.clone(),
@@ -96,10 +105,11 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             .resume(bridge.clone())
             .import(bridge.clone())
             .roots()
-            .additions(),
+            .additions()
+            .hierarchy(),
     )?;
     service
-        .replace_with_additions(
+        .replace_with_hierarchy(
             collections,
             items,
             if backend_ok {
@@ -108,6 +118,8 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
                 "unavailable"
             },
             additions,
+            hierarchy.0,
+            hierarchy.1,
         )
         .await?;
     *bridge.service.lock().await = Some(service.clone());
@@ -139,19 +151,27 @@ impl Bridge {
     async fn read_publication(&self) -> Result<Publication, ErrorCode> {
         let permit = self.publication.clone().lock_owned().await;
         let store = self.store.clone();
-        let (collections, items, resumes, additions) = tokio::task::spawn_blocking(move || {
-            let store = store.lock().map_err(|_| ErrorCode::Internal)?;
-            let (collections, items) = store.snapshot()?;
-            Ok::<_, ErrorCode>((collections, items, store.resumes()?, store.additions()?))
-        })
-        .await
-        .map_err(|_| ErrorCode::Internal)??;
+        let (collections, items, resumes, additions, hierarchy) =
+            tokio::task::spawn_blocking(move || {
+                let store = store.lock().map_err(|_| ErrorCode::Internal)?;
+                let (collections, items) = store.snapshot()?;
+                Ok::<_, ErrorCode>((
+                    collections,
+                    items,
+                    store.resumes()?,
+                    store.additions()?,
+                    bounded_hierarchy(store.hierarchy()),
+                ))
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
         Ok(Publication {
             _permit: permit,
             collections,
             items,
             resumes,
             additions,
+            hierarchy,
         })
     }
 
@@ -162,6 +182,7 @@ impl Bridge {
             items,
             resumes,
             additions,
+            hierarchy,
         } = self.read_publication().await?;
         let service = self
             .service
@@ -170,7 +191,14 @@ impl Bridge {
             .clone()
             .ok_or(ErrorCode::Unavailable)?;
         service
-            .replace_with_additions(collections, items, "available", additions)
+            .replace_with_hierarchy(
+                collections,
+                items,
+                "available",
+                additions,
+                hierarchy.0,
+                hierarchy.1,
+            )
             .await?;
         service.replace_resumes(resumes).await?;
         Ok(service)
@@ -236,6 +264,27 @@ impl Bridge {
                     let _ = self.scan_and_publish().await;
                 }
             }
+        }
+    }
+}
+
+// Optional folder metadata must not prevent a usable catalogue from starting
+// or updating when its graph exceeds the SDK's assembled-snapshot budget.
+fn bounded_hierarchy(
+    result: Result<(Vec<Folder>, Vec<FolderMember>), ErrorCode>,
+) -> (Vec<Folder>, Vec<FolderMember>) {
+    let checked = result.and_then(|(folders, members)| {
+        let mut snapshot = arinn_plugin_sdk::snapshots::HierarchySnapshots::new(
+            "00000000-0000-0000-0000-000000000001",
+        )?;
+        snapshot.publish(folders.clone(), members.clone())?;
+        Ok((folders, members))
+    });
+    match checked {
+        Ok(hierarchy) => hierarchy,
+        Err(error) => {
+            log_error("hierarchy", error);
+            (Vec::new(), Vec::new())
         }
     }
 }
@@ -535,6 +584,81 @@ fn add_tree(fd: i32, dir: &std::path::Path, left: &mut usize, seen: &mut HashSet
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicBool, Ordering};
+
+    #[tokio::test]
+    async fn oversized_optional_hierarchy_keeps_catalogue_and_resume_publishable() {
+        let scratch =
+            std::env::temp_dir().join(format!("arinn-hierarchy-budget-{}", uuid::Uuid::new_v4()));
+        let root = scratch.join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("Film.mkv"), b"film").unwrap();
+        let settings = Settings {
+            roots: vec![root],
+            probe: false,
+            ..Settings::default()
+        };
+        let mut store = Store::open(&scratch.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(crate::MountTables::default());
+        store.scan(&settings).unwrap();
+        let (collections, items) = store.snapshot().unwrap();
+        let id = items[0].id.clone();
+        store
+            .set_progress(&id, 10_000_000, 120_000_000, false)
+            .unwrap();
+        let resumes = store.resumes().unwrap();
+        let folders: Vec<_> = (0..50001)
+            .map(|n| Folder {
+                id: format!("folder-{n}"),
+                parent_id: String::new(),
+                title: "Folder".into(),
+                available: true,
+            })
+            .collect();
+        let members = folders
+            .iter()
+            .map(|f| FolderMember {
+                folder_id: f.id.clone(),
+                item_id: id.clone(),
+            })
+            .collect();
+        let hierarchy = bounded_hierarchy(Ok((folders, members)));
+        assert!(hierarchy.0.is_empty() && hierarchy.1.is_empty());
+        let bridge = Bridge {
+            store: Arc::new(std::sync::Mutex::new(store)),
+            service: Arc::new(Mutex::new(None)),
+            publication: Arc::new(Mutex::new(())),
+            settings: Arc::new(std::sync::Mutex::new(settings)),
+            written: Arc::new(Vec::new()),
+        };
+        let service = LibraryService::with_extensions(
+            bridge.clone(),
+            collections.clone(),
+            items.clone(),
+            "available",
+            LibraryExtensions::default()
+                .resume(bridge.clone())
+                .hierarchy(),
+        )
+        .unwrap();
+        service
+            .replace_with_hierarchy(
+                collections,
+                items,
+                "available",
+                Vec::new(),
+                hierarchy.0,
+                hierarchy.1,
+            )
+            .await
+            .unwrap();
+        service.replace_resumes(resumes.clone()).await.unwrap();
+        let store = bridge.store.lock().unwrap();
+        assert_eq!(store.snapshot().unwrap().1.len(), 1);
+        assert_eq!(store.resumes().unwrap(), resumes);
+        assert_eq!(store.launch(&id).unwrap().start_position_us, 10_000_000);
+        drop(store);
+        let _ = std::fs::remove_dir_all(scratch);
+    }
 
     #[tokio::test]
     async fn queued_publication_reads_commits_made_while_waiting() {

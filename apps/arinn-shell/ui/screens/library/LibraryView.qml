@@ -20,6 +20,21 @@ FocusScope {
     property var tabs: []
     property string currentTabId: ""
     property var entries: []
+    property var folderEntries: []
+    readonly property bool folderMode: currentTabId === "@folders"
+    readonly property var catalogueTabs: (tabs || []).filter(t => t.id !== "@folders")
+    readonly property bool hasFolderView: (tabs || []).some(t => t.id === "@folders")
+    property string lastCatalogueTab: ""
+    property var folderTrail: []
+    readonly property string currentFolderId: folderTrail.length ? folderTrail[folderTrail.length - 1].id : ""
+    readonly property string folderBreadcrumb: {
+        let labels = [qsTr("Folders")];
+        for (const step of folderTrail) {
+            const row = (folderEntries || []).find(e => e.kind === "folder" && e.id === step.id);
+            labels.push(row ? row.title : step.title);
+        }
+        return labels.join("  /  ");
+    }
     property int columns: 0
     property string detailEntryId: ""
     property string operationState: ""
@@ -61,18 +76,19 @@ FocusScope {
     readonly property int columnCount: columns > 0 ? columns : 7
     readonly property var visibleEntries: {
         const tab = currentTabId;
-        const source = entries || [];
+        const source = folderMode ? (folderEntries || []) : (entries || []);
+        const folder = currentFolderId;
         const out = [];
         for (let i = 0; i < source.length; ++i) {
             const entry = source[i];
-            if (!tab.length || !entry.tabId || entry.tabId === tab)
+            if (folderMode ? (entry.folderId || "") === folder : (!tab.length || !entry.tabId || entry.tabId === tab))
                 out.push(entry);
         }
         return out;
     }
     readonly property var detailEntry: {
         const id = detailEntryId;
-        const source = entries || [];
+        const source = (entries || []).concat(folderEntries || []);
         for (let i = 0; i < source.length; ++i)
             if (source[i].id === id)
                 return source[i];
@@ -97,7 +113,7 @@ FocusScope {
         if (statusTitle.length)
             return statusTitle;
         if (statusKind === "empty")
-            return qsTr("Nothing in the library yet");
+            return folderMode ? qsTr("This folder is empty") : qsTr("Nothing in the library yet");
         if (statusKind === "error")
             return qsTr("The library could not be loaded");
         if (statusKind === "unavailable")
@@ -108,7 +124,7 @@ FocusScope {
         if (statusDescription.length)
             return statusDescription;
         if (statusKind === "empty")
-            return qsTr("Films and series appear here when a folder has been scanned.");
+            return folderMode ? qsTr("Go back to choose another folder.") : qsTr("Films and series appear here when a folder has been scanned.");
         if (statusKind === "error")
             return qsTr("Try again when you are ready.");
         if (statusKind === "unavailable")
@@ -141,7 +157,7 @@ FocusScope {
         const out = [];
         for (let i = 0; i < entry.episodes.length; ++i) {
             const episode = entry.episodes[i];
-            if (!episode.seasonId || episode.seasonId === season)
+            if ((episode.seasonId || "unknown") === season)
                 out.push(episode);
         }
         return out;
@@ -215,8 +231,46 @@ FocusScope {
             border.color: Ui.Theme.textHint
         }
     }
+    component FolderGlyph: Item {
+        width: 64; height: 52
+        Rectangle { x: 0; y: 0; width: 28; height: 16; radius: 5; color: Ui.Theme.textHint }
+        Rectangle { x: 0; y: 10; width: 64; height: 42; radius: 7; color: Ui.Theme.background; border.width: 3; border.color: Ui.Theme.textHint }
+    }
+    function chooseView(folders) {
+        if (folders && !hasFolderView) return;
+        const remembered = catalogueTabs.some(t => t.id === lastCatalogueTab) ? lastCatalogueTab : "";
+        currentTabId = folders ? "@folders" : (remembered || (catalogueTabs.length ? catalogueTabs[0].id : ""));
+        focusPlace = "mode";
+        Ui.Focus.take(folders ? folderModeButton : catalogueModeButton);
+    }
+    function openFolder(entry) {
+        folderTrail = folderTrail.concat([{id: entry.id, title: entry.title, openerId: entry.id, scrollY: scroller.contentY}]);
+        scroller.contentY = 0;
+        focusedPosterId = "";
+        Qt.callLater(() => { if (ownsFocus && visible && enabled && !focusPosterIndex(0)) focusStatus(); });
+    }
+    function upFolder() {
+        if (!folderTrail.length) return false;
+        const step = folderTrail[folderTrail.length - 1];
+        folderTrail = folderTrail.slice(0, -1);
+        Qt.callLater(() => {
+            scroller.contentY = step.scrollY;
+            if (ownsFocus && visible && enabled) focusPosterById(step.openerId);
+        });
+        return true;
+    }
+    function reconcileFolder() {
+        const source = folderEntries || [];
+        let keep = 0;
+        for (const step of folderTrail) {
+            if (!source.some(e => e.kind === "folder" && e.id === step.id)) break;
+            ++keep;
+        }
+        if (keep !== folderTrail.length) folderTrail = folderTrail.slice(0, keep);
+        reconcilePoster();
+    }
     function entryById(id) {
-        const source = entries || [];
+        const source = (entries || []).concat(folderEntries || []);
         for (let i = 0; i < source.length; ++i)
             if (source[i].id === id)
                 return source[i];
@@ -227,14 +281,14 @@ FocusScope {
         return !!entry && entry.enabled !== false;
     }
     function focusTab(index) {
-        if (!tabs || index < 0 || index >= tabs.length)
+        if (!catalogueTabs || index < 0 || index >= catalogueTabs.length)
             return false;
         const item = tabRepeater.itemAt(index);
         if (!item)
             return false;
         focusPlace = "tab";
         Ui.Focus.take(item);
-        const id = tabs[index].id;
+        const id = catalogueTabs[index].id;
         if (currentTabId !== id) {
             currentTabId = id;
             tabRequested(id);
@@ -242,11 +296,12 @@ FocusScope {
         return true;
     }
     function focusCurrentTab() {
-        if (!tabs)
+        if (folderMode) { focusPlace = "mode"; Ui.Focus.take(folderModeButton); return true; }
+        if (!catalogueTabs)
             return false;
         let index = 0;
-        for (let i = 0; i < tabs.length; ++i)
-            if (tabs[i].id === currentTabId)
+        for (let i = 0; i < catalogueTabs.length; ++i)
+            if (catalogueTabs[i].id === currentTabId)
                 index = i;
         const item = tabRepeater.itemAt(index);
         if (!item)
@@ -352,6 +407,7 @@ FocusScope {
         const entry = entryById(id);
         if (!entry || entry.enabled === false || entry.busy)
             return;
+        if (entry.kind === "folder") { openFolder(entry); return; }
         focusedPosterId = id;
         detailEntryId = id;
         episodeIndex = 0;
@@ -447,6 +503,7 @@ FocusScope {
             closeDetail();
             return;
         }
+        if (folderMode && upFolder()) return;
         backRequested();
     }
     function reconcilePoster() {
@@ -492,8 +549,10 @@ FocusScope {
     // forget the grid position.
     onOwnsFocusChanged: if (ownsFocus) Qt.callLater(() => { reconcilePoster(); refocusAfterState(); })
     onEntriesChanged: Qt.callLater(reconcilePoster)
+    onFolderEntriesChanged: Qt.callLater(reconcileFolder)
     onVisibleEntriesChanged: Qt.callLater(reconcilePoster)
     onTabsChanged: adoptTab()
+    onCurrentTabIdChanged: if (currentTabId !== "@folders") lastCatalogueTab = currentTabId
     Component.onCompleted: {
         adoptTab();
         if (visible && enabled)
@@ -555,16 +614,28 @@ FocusScope {
         const focused = Window.activeFocusItem;
         const onTab = focused && String(focused.objectName).indexOf("tab-") === 0;
         const onPoster = focused && String(focused.objectName).indexOf("poster-") === 0;
+        const onMode = focused && String(focused.objectName).indexOf("libraryMode-") === 0;
+        if (onMode) {
+            if (event.key === Qt.Key_Left) chooseView(false);
+            else if (event.key === Qt.Key_Right) chooseView(true);
+            else if (event.key === Qt.Key_Down) {
+                if (folderMode) { if (!focusPosterIndex(0)) focusStatus(); }
+                else focusCurrentTab();
+            }
+            return;
+        }
         if (onTab) {
             let index = 0;
-            for (let i = 0; i < tabs.length; ++i)
-                if (tabs[i].id === currentTabId)
+            for (let i = 0; i < catalogueTabs.length; ++i)
+                if (catalogueTabs[i].id === currentTabId)
                     index = i;
             if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
                 const step = event.key === Qt.Key_Left ? -1 : 1;
                 const next = index + step;
-                if (next >= 0 && next < tabs.length)
+                if (next >= 0 && next < catalogueTabs.length)
                     focusTab(next);
+            } else if (event.key === Qt.Key_Up && hasFolderView) {
+                focusPlace = "mode"; Ui.Focus.take(catalogueModeButton);
             } else if (event.key === Qt.Key_Down) {
                 if (!focusPosterIndex(0))
                     focusStatus();
@@ -596,10 +667,10 @@ FocusScope {
         x: root.marginLeft
         y: 190
         spacing: 12
-        visible: root.tabs && root.tabs.length > 0
+        visible: !root.folderMode && root.catalogueTabs.length > 0
         Repeater {
             id: tabRepeater
-            model: root.tabs
+            model: root.catalogueTabs
             delegate: Ui.Surface {
                 id: tabButton
                 required property var modelData
@@ -642,12 +713,60 @@ FocusScope {
         }
     }
 
+    Row {
+        objectName: "libraryViewModes"
+        anchors.right: parent.right
+        anchors.rightMargin: root.marginRight
+        y: 100
+        spacing: 12
+        visible: root.hasFolderView && !root.detailOpen
+        Ui.ActionButton {
+            id: catalogueModeButton
+            objectName: "libraryMode-catalogue"
+            text: qsTr("Catalogue")
+            implicitHeight: 64
+            onActivated: root.chooseView(false)
+            onDpadRequested: Ui.InputMode.keyPressed()
+            Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 7; width: 70; height: 4; radius: 2; color: Ui.Theme.ember; visible: !root.folderMode }
+        }
+        Ui.ActionButton {
+            id: folderModeButton
+            objectName: "libraryMode-folders"
+            text: qsTr("Folders")
+            implicitHeight: 64
+            onActivated: root.chooseView(true)
+            onDpadRequested: Ui.InputMode.keyPressed()
+            Rectangle { anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter; anchors.bottomMargin: 7; width: 70; height: 4; radius: 2; color: Ui.Theme.ember; visible: root.folderMode }
+        }
+    }
+    Ui.UiText {
+        objectName: "libraryFolderBreadcrumb"
+        x: root.marginLeft; y: 210
+        width: root.width - root.marginLeft - root.marginRight
+        visible: root.folderMode && !root.detailOpen
+        text: root.folderBreadcrumb
+        font.pixelSize: 24
+        color: Ui.Theme.textHint
+        maximumLineCount: 1
+        elide: Text.ElideLeft
+    }
+    Ui.ActionButton {
+        id: folderBackButton
+        objectName: "libraryFolderBack"
+        x: root.marginLeft; y: root.height - height - 24
+        z: 4
+        visible: root.folderMode && root.folderTrail.length > 0 && !root.detailOpen
+        text: qsTr("Back · Up one level")
+        onActivated: root.upFolder()
+        onDpadRequested: Ui.InputMode.keyPressed()
+        Keys.onUpPressed: { if (!root.focusPosterIndex(root.focusedPosterIndex)) root.focusCurrentTab(); }
+    }
     Item {
         id: libraryStage
         objectName: "libraryStage"
         y: 282
         width: parent.width
-        height: parent.height - y
+        height: parent.height - y - (root.folderMode && root.folderTrail.length ? folderBackButton.height + 48 : 0)
         clip: true
 
         Ui.StatusPane {
@@ -794,6 +913,12 @@ FocusScope {
                                     visible: posterImage.status !== Image.Ready
                                     FilmGlyph {
                                         objectName: "posterGlyph-" + modelData.id
+                                        visible: modelData.kind !== "folder"
+                                    }
+                                    FolderGlyph {
+                                        objectName: "folderGlyph-" + modelData.id
+                                        visible: modelData.kind === "folder"
+                                        anchors.centerIn: parent
                                     }
                                     Ui.UiText {
                                         objectName: "posterArtTitle-" + modelData.id
@@ -851,7 +976,7 @@ FocusScope {
                                     Ui.UiText {
                                         id: missingLabel
                                         objectName: "missingLabel-" + modelData.id
-                                        text: qsTr("No file")
+                                        text: modelData.kind === "folder" ? qsTr("Unavailable") : qsTr("No file")
                                         font.pixelSize: 20
                                         font.weight: 600
                                         color: Ui.Theme.error
@@ -862,6 +987,7 @@ FocusScope {
                         Item {
                             id: caption
                             objectName: "posterCaption-" + modelData.id
+                            visible: modelData.kind !== "folder"
                             property real lift: poster.activeFocus ? (root.pointerMode ? -4 : -10) : 0
                             x: 4
                             y: root.posterHeight + 16

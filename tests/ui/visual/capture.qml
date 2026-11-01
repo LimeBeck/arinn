@@ -397,6 +397,23 @@ TestCase {
                 ],
                 runningEntries: [{id: "r", title: "Cinder Rally", monogram: "C", running: true}]
             })};
+        if (id === "library-folder-roots" || id === "library-folder-nested") {
+            const nested = id === "library-folder-nested";
+            return {factory: libraryFactory, props: {
+                width: 1920, height: 1080, currentTabId: "@folders",
+                tabs: [{id: "films", title: "Films"}, {id: "series", title: "Series"}, {id: "@folders", title: "Folders"}],
+                folderTrail: nested ? [{id: "media", title: "Media", openerId: "media", scrollY: 0}] : [],
+                folderEntries: [
+                    {id: "media", folderId: "", title: "Media", kind: "folder"},
+                    {id: "family", folderId: "", title: "Family", kind: "folder"},
+                    {id: "archive", folderId: "", title: "Archive", kind: "folder", missing: true},
+                    {id: "classics", folderId: "media", title: "Classics", kind: "folder"},
+                    {id: "new", folderId: "media", title: "New", kind: "folder"},
+                    {id: "film", folderId: "media", title: "The Quiet Harbor", kind: "film", year: 2024, progress: 0.25},
+                    {id: "second", folderId: "media", title: "Paper Moons", kind: "film", year: 2023}
+                ]
+            }, expect: ["libraryViewModes", "libraryFolderBreadcrumb", nested ? "folderGlyph-classics" : "folderGlyph-media"]};
+        }
         if (id === "library-grid")
             return {factory: libraryFactory, props: {
                 width: 1920, height: 1080,

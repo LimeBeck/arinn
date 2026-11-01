@@ -141,4 +141,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0121](0121-red-master-and-nightly-alerts.md) | A red master or nightly opens an issue and blocks merges and releases | Proposed | — |
 | [0122](0122-revision-aware-provider-polling.md) | Revision-aware provider polling | Accepted | — |
 | [0123](0123-library-folder-hierarchy.md) | Optional paged library folder hierarchy | Accepted | — |
+| [0124](0124-offline-folder-and-season-navigation.md) | Offline folder and season navigation | Proposed | — |
 <!-- register:end -->

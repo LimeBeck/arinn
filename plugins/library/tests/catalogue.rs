@@ -1211,3 +1211,91 @@ fn a_new_episode_promotes_one_series_and_imports_keep_their_first_date() {
     store.scan(&settings).unwrap();
     assert_eq!(store.additions().unwrap(), recent);
 }
+
+#[test]
+fn folder_hierarchy_preserves_identity_progress_and_unavailable_roots() {
+    let scratch = Scratch::new();
+    let a = scratch.path().join("a/Media");
+    let b = scratch.path().join("b/Media");
+    fs::create_dir_all(a.join("Nested/Empty")).unwrap();
+    fs::create_dir_all(b.join("Nested")).unwrap();
+    fs::write(a.join("Nested/Film.mkv"), b"video-a").unwrap();
+    fs::write(b.join("Nested/Film.mkv"), b"video-b").unwrap();
+    let mut config = settings(&a, false, PathBuf::from("ffprobe"));
+    config.roots.push(b.clone());
+    let database = scratch.path().join("library.sqlite3");
+    let mut store = open(&scratch);
+    store.scan(&config).unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let (folders, members) = store.hierarchy().unwrap();
+    arinn_protocol::library::validate_hierarchy_items(&folders, &members, &items).unwrap();
+    let roots: Vec<_> = folders.iter().filter(|f| f.parent_id.is_empty()).collect();
+    assert_eq!(roots.len(), 2);
+    assert!(roots.iter().all(|f| f.title == "Media"));
+    assert_ne!(roots[0].id, roots[1].id);
+    assert_eq!(folders.iter().filter(|f| f.title == "Nested").count(), 2);
+    assert!(folders.iter().any(|f| f.title == "Empty" && f.available));
+    assert_eq!(members.len(), 2);
+    assert_ne!(members[0].folder_id, members[1].folder_id);
+    let item = items.iter().find(|i| i.available).unwrap();
+    store
+        .set_progress(&item.id, 15_000_000, 120_000_000, false)
+        .unwrap();
+    let before = store.resumes().unwrap();
+    store.scan(&config).unwrap();
+    assert_eq!(
+        store.hierarchy().unwrap(),
+        (folders.clone(), members.clone())
+    );
+    drop(store);
+    let mut store = Store::open(&database).unwrap();
+    store.use_mount_tables(MountTables::default());
+    assert_eq!(
+        store.hierarchy().unwrap(),
+        (folders.clone(), members.clone())
+    );
+    assert_eq!(store.resumes().unwrap(), before);
+    fs::rename(&a, scratch.path().join("offline-a")).unwrap();
+    store.scan(&config).unwrap();
+    let (offline, links) = store.hierarchy().unwrap();
+    assert_eq!(links, members);
+    assert_eq!(
+        offline.iter().map(|f| &f.id).collect::<Vec<_>>(),
+        folders.iter().map(|f| &f.id).collect::<Vec<_>>()
+    );
+    assert!(offline.iter().any(|f| !f.available));
+    assert_eq!(store.resumes().unwrap(), before);
+    fs::rename(scratch.path().join("offline-a"), &a).unwrap();
+    store.scan(&config).unwrap();
+    assert_eq!(store.hierarchy().unwrap(), (folders, members));
+}
+
+#[test]
+fn legacy_catalogue_keeps_nested_folder_membership_when_first_reopened_offline() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("media");
+    fs::create_dir_all(root.join("Nested/Deep")).unwrap();
+    fs::write(root.join("Nested/Deep/Film.mkv"), b"film").unwrap();
+    let config = settings(&root, false, PathBuf::from("ffprobe"));
+    let mut store = open(&scratch);
+    store.scan(&config).unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let id = items[0].id.clone();
+    store
+        .set_progress(&id, 10_000_000, 120_000_000, false)
+        .unwrap();
+    let resumes = store.resumes().unwrap();
+    drop(store);
+    let conn = rusqlite::Connection::open(scratch.path().join("library.sqlite3")).unwrap();
+    conn.execute_batch("DROP TABLE library_folders").unwrap();
+    drop(conn);
+    fs::rename(&root, scratch.path().join("offline")).unwrap();
+    let mut store = open(&scratch);
+    store.scan(&config).unwrap();
+    let (folders, members) = store.hierarchy().unwrap();
+    assert_eq!(folders.len(), 3);
+    assert!(folders.iter().all(|f| !f.available));
+    assert_eq!(members.len(), 1);
+    assert_eq!(members[0].item_id, id);
+    assert_eq!(store.resumes().unwrap(), resumes);
+}

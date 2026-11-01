@@ -63,8 +63,9 @@ position with no duration is a small fraction so Continue still appears.
 open, so Continue appears on the series when that episode has progress.
 
 Collections are the tabs. The shell names the `film`, `series` and `other` kinds itself, in the user's language; a provider's collection title is shown only for any other kind ([#431](https://github.com/LimeBeck/arinn/issues/431)). Items with an empty `parent_id` are the posters.
-Children are that parent's episodes, grouped into season pills when they
-carry a season. The shell does not invent a plot.
+Children are that parent's episodes, sorted numerically by known season and episode. Season pills
+include a separate Without season group when known and unknown seasons coexist.
+A series with no known season keeps the direct episode list. The shell does not invent a plot.
 
 The catalog subscribes to `Changed`, `ProvidersChanged` and `StateChanged`
 before the first read, and those signals reload the snapshot. A 30 s timer
@@ -118,7 +119,7 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | `tabs` | `{id, title}` catalogue tabs |
 | `entries` | `{id, tabId, title, subtitle, year, description, artwork, fanart, kind, noArt, missing, enabled, busy, progress, seasons, episodes}` |
 | `seasons` | `{id, title}` on an entry. Season pills are shown only when this list is non-empty |
-| `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress, artwork}` on an entry. `seasonId` filters the stills; an episode without one stays visible for every season. `artwork` is optional |
+| `episodes` | `{id, seasonId, number, title, duration, missing, enabled, progress, artwork}` on an entry. `seasonId` filters the stills exactly; missing values belong only to the `unknown` group. `artwork` is optional |
 | `operationState` | Empty, `pending`, `succeeded`, or an error code |
 | `launchingId` | Presentation id of the item whose launch is in progress |
 | `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
@@ -206,3 +207,25 @@ dbus-run-session -- ./build/apps/arinn-shell/arinn-library-catalog-test
 
 Operator tests, television readability and the 22-screen design gate are not
 part of this increment.
+
+## Offline folder mode (#629)
+
+The Catalogue/Folders switch separates collection categories from physical
+storage. The model exposes `folderEntries`, flattened presentation cards with a
+`folderId` parent. Folder cards use `kind: folder` and a disjoint `folder:UUID`
+identity namespace; media cards keep their existing content UUID. No filesystem
+path reaches the view. All folder metadata comes through Library1.GetHierarchy
+at the current catalogue generation/revision; the five-second assembled read is
+optional and rejects stale pages, repeated tokens, invalid trees and unknown
+memberships. Unsupported or invalid metadata leaves Catalogue available.
+
+Only current-level folder members are visible. `folderTrail` retains openers and
+scroll positions; Back from detail preserves the current folder, and another
+Back restores its parent opener. Empty and unavailable folders stay navigable.
+The mode controls are reachable from categories with Up; Down returns to the
+category or current folder grid. A pointer Back button provides the same level
+transition. Refreshes respect `ownsFocus`, including while the global menu is up.
+
+Validation fixtures are in `library_catalog_test.cpp` and `tst_library.qml`;
+provider persistence is described in [media-mvp.md](media-mvp.md). This change
+adds no online metadata or artwork fetches and closes no operator gate.

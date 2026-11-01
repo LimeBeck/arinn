@@ -6,7 +6,8 @@ import QtQuick
 // Line icons drawn after the Material Symbols the handoff names. The shell
 // ships no icon font, so they are painted here. On-screen keyboard: keyboard,
 // keyboard_hide, shift, backspace, language, chevron_left, chevron_right,
-// history and public. Open services: bookmark_add and bookmark_added.
+// history and public. Open services: bookmark_add, bookmark_added, close
+// and add.
 Canvas {
     id: root
     property string name: ""
@@ -90,6 +91,16 @@ Canvas {
             } else {
                 ctx.moveTo(15.5, 5.5); ctx.lineTo(18, 8); ctx.lineTo(22.5, 3.5);
             }
+            ctx.stroke();
+            break;
+        case "close":
+            ctx.moveTo(5, 5); ctx.lineTo(19, 19);
+            ctx.moveTo(19, 5); ctx.lineTo(5, 19);
+            ctx.stroke();
+            break;
+        case "add":
+            ctx.moveTo(12, 5); ctx.lineTo(12, 19);
+            ctx.moveTo(5, 12); ctx.lineTo(19, 12);
             ctx.stroke();
             break;
         case "history":

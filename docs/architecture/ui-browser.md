@@ -95,7 +95,10 @@ The list contains every tab. The active tab of the focused window is marked
 "On screen" and is placed first. The remaining windows follow last use: the
 catalog records a monotonic stamp when a window becomes the focused window.
 The stamp is in memory only and is cleared when the daemon generation changes
-or the daemon disappears. An audible tab is marked "Sound". The chip is the
+or the daemon disappears. An audible tab is marked "Sound". The marks follow
+the domain on the subline, as in handoff OS-1 ("domain · On screen · Sound");
+a long domain is elided before them (owner decision on #565, 2026-11-01). The
+close control draws the thin 40 px `close` icon of `ui/LineIcon.qml`. The chip is the
 matched shortcut icon when the catalog supplies a loadable reference, otherwise
 the letter described above. An empty title uses the host as the title and the
 full address as the subline. There is no favicon and no per-product artwork.
@@ -227,7 +230,8 @@ KWin script.
 ## Site or search (#178)
 
 Home adds a generic **Site or search** entry; Open services exposes the same
-screen at its header. Up from the first service row (or the status action)
+screen at its header, as the OS-8 pill: h80 with an `add` icon before the label,
+its right edge at x1800. Up from the first service row (or the status action)
 reaches that header button. Back from the entry screen restores its originating
 screen. Escape exits; Backspace edits while the standard text field holds focus.
 Main owns the screen focus route, following ADR-0076.

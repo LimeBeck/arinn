@@ -664,6 +664,21 @@ TestCase {
                 {id: "t0", windowId: "w1", title: "Quill News · Coastal towns vote on the new ferry timetable after a long winter of cancelled crossings", url: "https://news.quill.example/2026/10/ferry-timetable-vote", letter: "Q", active: true, audible: false},
                 {id: "t1", windowId: "w1", title: "", url: "https://harbor-radio.example/archive", letter: "H", active: false, audible: false}
             ]}};
+        if (id === "address-search-row")
+            // OS-8: a search results page is an ordinary row, on screen.
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: [
+                {id: "t0", windowId: "w1", title: "northern lights — Example Search: 2 million results", url: "https://search.example/?q=northern+lights", letter: "E", active: true, audible: false}
+            ].concat(tabs(3).slice(1))}};
+        if (id === "address-v3b")
+            // V-3b: the third service is saved and its bookmark has focus.
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3).map(tab => {
+                tab.saved = tab.id === "t2";
+                return tab;
+            })}, tune: item => {
+                item.focusedEntryId = "t2";
+                item.listSide = "bookmark";
+                item.settleFocus();
+            }};
         if (id === "browser-empty")
             return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "empty", tabs: []}};
         if (id === "browser-unavailable")

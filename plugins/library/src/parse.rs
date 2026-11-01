@@ -40,6 +40,7 @@ pub struct Parsed {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Nfo {
+    pub description: Option<String>,
     pub title: Option<String>,
     pub year: Option<i32>,
     pub season: Option<u32>,
@@ -262,6 +263,7 @@ pub fn parse_nfo(text: &str) -> Option<Nfo> {
                 .and_then(|value| year_token(&value))
         });
     Some(Nfo {
+        description: element_text(&stripped, "plot").filter(|text| !text.is_empty()),
         title,
         year,
         season: element_text(&stripped, "season").and_then(|value| index_token(value.trim())),
@@ -803,12 +805,33 @@ fn element_text(xml: &str, name: &str) -> Option<String> {
             let body = &tail[close_at + 1..];
             let end_tag = format!("</{name}>");
             let end = body.to_ascii_lowercase().find(&end_tag)?;
-            return Some(decode_entities(&strip_tags(&body[..end])));
+            return Some(xml_text(&body[..end]));
         }
         offset = after;
         search = &lower[offset..];
     }
     None
+}
+
+fn xml_text(input: &str) -> String {
+    let mut escaped = String::new();
+    let mut rest = input;
+    while let Some(start) = rest.find("<![CDATA[") {
+        escaped.push_str(&rest[..start]);
+        let body = &rest[start + 9..];
+        let Some(end) = body.find("]]>") else {
+            return String::new();
+        };
+        escaped.push_str(
+            &body[..end]
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;"),
+        );
+        rest = &body[end + 3..];
+    }
+    escaped.push_str(rest);
+    decode_entities(&strip_tags(&escaped))
 }
 
 fn strip_tags(input: &str) -> String {
@@ -832,6 +855,7 @@ fn decode_entities(input: &str) -> String {
         out.push_str(&rest[..start]);
         rest = &rest[start + 1..];
         let Some(end) = rest.find(';') else {
+            out.push('&');
             break;
         };
         let token = &rest[..end];
@@ -842,7 +866,20 @@ fn decode_entities(input: &str) -> String {
             "gt" => out.push('>'),
             "quot" => out.push('"'),
             "apos" => out.push('\''),
-            _ => {}
+            _ => {
+                let number = token
+                    .strip_prefix("#x")
+                    .or_else(|| token.strip_prefix("#X"))
+                    .and_then(|n| u32::from_str_radix(n, 16).ok())
+                    .or_else(|| token.strip_prefix('#').and_then(|n| n.parse::<u32>().ok()));
+                if let Some(ch) = number.and_then(char::from_u32).filter(|c| *c != '\0') {
+                    out.push(ch);
+                } else {
+                    out.push('&');
+                    out.push_str(token);
+                    out.push(';');
+                }
+            }
         }
     }
     out.push_str(rest);
@@ -893,7 +930,8 @@ mod tests {
         );
         assert!(parse_nfo(&hostile).is_none());
         let unresolved = parse_nfo("<movie><title>&xxe;</title></movie>").unwrap();
-        assert_eq!(unresolved.title, None);
+        // Undefined references remain literal; they never resolve to a file.
+        assert_eq!(unresolved.title.as_deref(), Some("&xxe;"));
     }
 
     fn episode(path: &str) -> Parsed {
@@ -1077,5 +1115,30 @@ mod tests {
             parse_video(Path::new("/library"), Path::new("/library/Movie.1080p.mkv")).unwrap();
         assert!(!film.has_year);
         assert_eq!(film.title, "Movie 1080p");
+    }
+}
+
+#[cfg(test)]
+mod description_tests {
+    use super::*;
+    #[test]
+    fn plot_is_plain_bounded_text_and_cdata_is_literal() {
+        let nfo = parse_nfo("<movie><plot>Before <![CDATA[<b>Русский &amp; текст</b>]]> after &#x1F31F;.</plot></movie>").unwrap();
+        assert_eq!(
+            nfo.description.as_deref(),
+            Some("Before <b>Русский &amp; текст</b> after 🌟.")
+        );
+        assert!(parse_nfo("<movie/>").unwrap().description.is_none());
+        let long = format!("<movie><plot>{}</plot></movie>", "я".repeat(10000));
+        let plot = parse_nfo(&long).unwrap().description.unwrap();
+        assert_eq!(plot.len(), validation::MAX_TEXT_BYTES);
+        assert!(!plot.contains('\0'));
+        assert!(parse_nfo("<!DOCTYPE movie [<!ENTITY x SYSTEM 'file:///never-read'>]><movie><plot>&x;</plot></movie>").is_none());
+    }
+    #[test]
+    fn nfo_entities_keep_numeric_unknown_and_bare_ampersands() {
+        let nfo =
+            parse_nfo("<movie><title>A &#38; &#x1F31F; &unknown; B & C</title></movie>").unwrap();
+        assert_eq!(nfo.title.as_deref(), Some("A & 🌟 &unknown; B & C"));
     }
 }

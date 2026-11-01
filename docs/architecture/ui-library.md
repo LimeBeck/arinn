@@ -283,3 +283,16 @@ opening a new Home card cannot reuse the previous detail's return target.
 Validation fixtures are in `library_catalog_test.cpp` and `tst_library.qml`;
 provider persistence is described in [media-mvp.md](media-mvp.md). This change
 adds no online metadata or artwork fetches and closes no operator gate.
+
+## Local NFO description binding
+
+`LibraryDescriptions1` ([ADR-0125](../adr/0125-library-descriptions.md)) is optional.
+Opening a detail emits the existing `entryRequested` intent; Main binds it to
+`LibraryCatalog.requestDescription`. The model requests one item asynchronously
+and exposes `descriptionEntryId`/`descriptionText`. The screen uses it only for
+the same open entry and renders `Text.PlainText` within the existing three-line
+elision. Fixtures may still supply an entry description. The selected result is
+cached at the item generation/revision; navigation, provider loss or changed
+catalogue metadata clears/reloads it. Tickets and daemon epochs fence late
+replies. Missing support and lookup failures leave descriptions empty and never
+change Library readiness or playback actions. No full-catalogue plot reads occur.

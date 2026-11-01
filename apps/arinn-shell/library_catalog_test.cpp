@@ -237,6 +237,9 @@ public:
   QList<FolderWire> folders;
   QList<FolderMemberWire> folderMembers;
   bool pagedHierarchy = false, staleHierarchy = false, rejectHierarchy = false;
+  int descriptionReads = 0, descriptionDelayMs = 0;
+  bool staleDescription = false, rejectDescription = false;
+  QString descriptionText = QStringLiteral("Русский <b>plot</b>");
   int hierarchyReads = 0;
   qulonglong hierarchyRequestRevision = 0;
   QString additionGeneration = QStringLiteral("g-library");
@@ -359,6 +362,22 @@ public:
     } else if (message.member() == QLatin1String("Features")) {
       ++featureReads;
       bus.send(message.createReply(QVariant::fromValue(features)));
+      return true;
+    } else if (message.member() == QLatin1String("GetDescription")) {
+      ++descriptionReads;
+      if (rejectDescription) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("Unavailable")));
+        return true;
+      }
+      const auto generation = message.arguments().value(0).toString();
+      const auto revision = message.arguments().value(1).toULongLong() + (staleDescription ? 1 : 0);
+      const auto id = message.arguments().value(2).toString();
+      const auto text = descriptionText + id;
+      message.setDelayedReply(true);
+      QTimer::singleShot(descriptionDelayMs, this, [bus, message, generation, revision, id, text] {
+        QDBusArgument result; result.beginStructure(); result << generation << revision << id << text; result.endStructure();
+        bus.send(message.createReply(QVariant::fromValue(result)));
+      });
       return true;
     } else if (message.member() == QLatin1String("GetHierarchy")) {
       ++hierarchyReads;
@@ -544,6 +563,20 @@ bool registerBus(LibraryDaemon &daemon) {
          bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
                                    QDBusConnection::SubPath);
 }
+// A distinct connection exercises real asynchronous bus replies instead of
+// Qt's synchronous same-connection virtual-object shortcut.
+struct DescriptionFixtureBus {
+  QDBusConnection bus = QDBusConnection::connectToBus(QDBusConnection::SessionBus, QStringLiteral("description-fixture"));
+  bool install(LibraryDaemon &daemon) {
+    return bus.registerService(QStringLiteral("org.arinn.Daemon1"))
+        && bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon, QDBusConnection::SubPath);
+  }
+  ~DescriptionFixtureBus() {
+    bus.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    QDBusConnection::disconnectFromBus(QStringLiteral("description-fixture"));
+  }
+};
 } // namespace
 
 class LibraryCatalogTest : public QObject {
@@ -569,6 +602,49 @@ private slots:
     bus.unregisterObject(QStringLiteral("/org/arinn"),
                          QDBusConnection::UnregisterTree);
     bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+  }
+  void localDescriptionsAreLazyAndIgnoreLateOrStaleReplies() {
+    LibraryDaemon daemon;
+    daemon.features = {QStringLiteral("LibraryDescriptions1")};
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("a"), QStringLiteral("First")), film(QStringLiteral("b"), QStringLiteral("Second"))};
+    DescriptionFixtureBus fixture;
+    QVERIFY(fixture.install(daemon)); LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.entries().size(), 2);
+    QCOMPARE(daemon.descriptionReads, 0);
+    const auto first = catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString();
+    const auto second = catalog.entries().at(1).toMap().value(QStringLiteral("id")).toString();
+    catalog.requestDescription(first);
+    QTRY_COMPARE(catalog.descriptionText(), daemon.descriptionText + QStringLiteral("a"));
+    QCOMPARE(catalog.descriptionEntryId(), first);
+    catalog.requestDescription(first); QCOMPARE(daemon.descriptionReads, 1);
+    daemon.descriptionDelayMs = 200;
+    catalog.requestDescription(second);
+    QTRY_COMPARE(daemon.descriptionReads, 2);
+    daemon.descriptionDelayMs = 0; catalog.requestDescription(first);
+    QTRY_COMPARE(catalog.descriptionText(), daemon.descriptionText + QStringLiteral("a"));
+    QTest::qWait(250);
+    QCOMPARE(catalog.descriptionText(), daemon.descriptionText + QStringLiteral("a"));
+    daemon.page1Revision = 2; daemon.descriptionText = QStringLiteral("Updated "); catalog.refresh();
+    QTRY_COMPARE(catalog.descriptionText(), QStringLiteral("Updated a"));
+    daemon.staleDescription = true; catalog.requestDescription(second);
+    QTRY_COMPARE(daemon.descriptionReads, 5);
+    QTest::qWait(50); QVERIFY(catalog.descriptionText().isEmpty());
+    QCOMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    daemon.staleDescription = false; daemon.rejectDescription = true;
+    catalog.requestDescription(first); QTRY_COMPARE(daemon.descriptionReads, 6);
+    QTest::qWait(50); QVERIFY(catalog.descriptionText().isEmpty());
+    QCOMPARE(catalog.entries().size(), 2);
+    catalog.requestDescription(QString()); QVERIFY(catalog.descriptionEntryId().isEmpty());
+  }
+  void oldLibraryDoesNotFetchUnsupportedDescriptions() {
+    LibraryDaemon daemon; daemon.features.clear();
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("a"), QStringLiteral("First"))};
+    QVERIFY(registerBus(daemon)); LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.entries().size(), 1);
+    catalog.requestDescription(catalog.entries().at(0).toMap().value(QStringLiteral("id")).toString());
+    QVERIFY(catalog.descriptionText().isEmpty()); QCOMPARE(daemon.descriptionReads, 0);
   }
   void folderHierarchyIsPagedOptionalAndReusesContentIdentity() {
     LibraryDaemon daemon;

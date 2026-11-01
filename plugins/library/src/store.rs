@@ -244,6 +244,10 @@ impl Store {
                mtime_nsec INTEGER,
                probed INTEGER NOT NULL DEFAULT 0
              );
+             CREATE TABLE IF NOT EXISTS item_descriptions (
+               item_id TEXT PRIMARY KEY,
+               description TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS item_additions (
                item_id TEXT PRIMARY KEY,
                added_at_us INTEGER NOT NULL CHECK (added_at_us >= 0)
@@ -330,6 +334,32 @@ impl Store {
             series: source.2 == "series",
             poster: source.3 == id,
         })
+    }
+
+    /// Descriptions are optional and bounded separately from catalogue rows.
+    pub fn descriptions(&self) -> Result<HashMap<String, String>, ErrorCode> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT d.item_id, d.description FROM item_descriptions d
+            JOIN items i ON i.id = d.item_id ORDER BY d.item_id",
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|_| ErrorCode::Internal)?;
+        let mut descriptions = HashMap::new();
+        let mut bytes = 0;
+        for row in rows {
+            let (id, text) = row.map_err(|_| ErrorCode::Internal)?;
+            let text = parse::limit_text(&text);
+            bytes += id.len() + text.len();
+            if bytes > library::MAX_DESCRIPTION_SNAPSHOT_BYTES {
+                break;
+            }
+            descriptions.insert(id, text);
+        }
+        Ok(descriptions)
     }
 
     pub fn snapshot(&self) -> Result<(Vec<Collection>, Vec<Item>), ErrorCode> {
@@ -914,7 +944,45 @@ impl Store {
             .unwrap_or_default()
             .as_micros()
             .clamp(1, i64::MAX as u128) as i64;
+        let root: String = self
+            .conn
+            .query_row("SELECT path FROM roots WHERE id = ?1", [root_id], |r| {
+                r.get(0)
+            })
+            .map_err(|_| ErrorCode::Internal)?;
+        let root = Path::new(&root);
         for row in rows {
+            if row.available {
+                let nfo = if row.kind == "series" {
+                    row.series_key
+                        .strip_prefix("dir:")
+                        .filter(|p| !p.is_empty())
+                        .map(|dir| root.join(dir).join("tvshow.nfo"))
+                } else {
+                    Some(root.join(&row.rel_path).with_extension("nfo"))
+                };
+                let description = nfo
+                    .and_then(|p| parse::read_nfo(&p, root))
+                    .and_then(|nfo| nfo.description)
+                    .unwrap_or_default();
+                if description.is_empty() {
+                    self.conn
+                        .execute(
+                            "DELETE FROM item_descriptions WHERE item_id = ?1",
+                            [&row.id],
+                        )
+                        .map_err(|_| ErrorCode::Internal)?;
+                } else {
+                    self.conn
+                        .execute(
+                            "INSERT INTO item_descriptions (item_id, description) VALUES (?1, ?2)
+                        ON CONFLICT(item_id) DO UPDATE SET description=excluded.description
+                        WHERE description != excluded.description",
+                            params![row.id, description],
+                        )
+                        .map_err(|_| ErrorCode::Internal)?;
+                }
+            }
             if row.available && matches!(row.kind.as_str(), "film" | "episode") {
                 self.conn.execute(
                     "INSERT OR IGNORE INTO item_additions (item_id, added_at_us) VALUES (?1, ?2)",

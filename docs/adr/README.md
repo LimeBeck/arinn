@@ -142,4 +142,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0122](0122-revision-aware-provider-polling.md) | Revision-aware provider polling | Accepted | — |
 | [0123](0123-library-folder-hierarchy.md) | Optional paged library folder hierarchy | Accepted | — |
 | [0124](0124-offline-folder-and-season-navigation.md) | Offline folder and season navigation | Proposed | — |
+| [0125](0125-library-descriptions.md) | Optional lazy library descriptions | Accepted | — |
 <!-- register:end -->

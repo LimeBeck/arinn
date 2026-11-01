@@ -514,3 +514,14 @@ token. The SDK's `.hierarchy()` enables the interface;
 Legacy replacement clears hierarchy. Folder IDs and item memberships are opaque;
 no paths or file URIs reach the shell. Missing or invalid optional hierarchy does
 not make the base catalogue unavailable. Paging and error rules are in ADR-0123.
+
+### Optional library descriptions
+
+`LibraryDescriptions1` is the provider feature/interface for lazy plain-text
+item descriptions. See [library-descriptions1.xml](library-descriptions1.xml)
+and [ADR-0125](../adr/0125-library-descriptions.md). Daemon `Library1` exposes the
+same `GetDescription(generation, revision, id)` returning `(stss)`. The text
+limit is 8192 UTF-8 bytes without NUL; empty is valid. Unknown item: NotFound;
+stale pair: Conflict; missing feature: Unsupported. An invalid/failed optional
+lookup does not invalidate the base catalogue. SDK `LibraryMetadata` publishes
+descriptions atomically and never changes existing Item/LibraryPage signatures.

@@ -44,6 +44,10 @@ To view the prototype, open `handoff/design/arinn.dc.html` in a browser and clic
 
 The handoff declares colours, typography, sizes, radii, focus and motion timings final. Artwork is placeholder.
 
+## Working prototypes
+
+- [Library navigation](prototypes/library-navigation/README.md) (#629 / #630): editable derivative of the interactive HTML/JS prototype for Catalogue/Folders, physical directory navigation and season groups. Prepared at the owner's request on 2026-11-01; review the prototype before further shell presentation changes. The historical handoff remains unchanged.
+
 ## Design briefs
 
 Briefs prepared for the designer live in [`briefs/`](briefs/). They are not part of the handoff and decide nothing on their own; the designer's answer comes back as a new handoff package.

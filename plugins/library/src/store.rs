@@ -11,7 +11,7 @@ use crate::{
     uri,
 };
 use arinn_protocol::{
-    library::{self, Addition, Collection, ImportCandidate, Item, Resume},
+    library::{self, Addition, Collection, Folder, FolderMember, ImportCandidate, Item, Resume},
     media::{self, PlaybackSource},
     validation::ErrorCode,
 };
@@ -211,6 +211,13 @@ impl Store {
                id TEXT PRIMARY KEY,
                path TEXT NOT NULL UNIQUE
              );
+             CREATE TABLE IF NOT EXISTS library_folders (
+               id TEXT PRIMARY KEY,
+               root_id TEXT NOT NULL,
+               rel_path TEXT NOT NULL,
+               available INTEGER NOT NULL DEFAULT 0,
+               UNIQUE(root_id, rel_path)
+             );
              CREATE TABLE IF NOT EXISTS items (
                id TEXT PRIMARY KEY,
                root_id TEXT NOT NULL,
@@ -340,6 +347,128 @@ impl Store {
         }
         library::validate_entries(&collections, &items)?;
         Ok((collections, items))
+    }
+
+    /// Provider-owned physical folders, with memberships using existing item IDs.
+    pub fn hierarchy(&self) -> Result<(Vec<Folder>, Vec<FolderMember>), ErrorCode> {
+        let mut stmt = self.conn.prepare("SELECT f.id, f.root_id, f.rel_path, f.available, r.path FROM library_folders f JOIN roots r ON r.id=f.root_id ORDER BY f.root_id, f.rel_path LIMIT 100001")
+            .map_err(|_| ErrorCode::Internal)?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, bool>(3)?,
+                    r.get::<_, String>(4)?,
+                ))
+            })
+            .map_err(|_| ErrorCode::Internal)?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| ErrorCode::Internal)?;
+        if rows.len() > 100_000 {
+            return Err(ErrorCode::Unavailable);
+        }
+        let ids: HashMap<_, _> = rows
+            .iter()
+            .map(|(id, root, rel, _, _)| ((root.clone(), rel.clone()), id.clone()))
+            .collect();
+        let mut folders = Vec::new();
+        for (id, root, rel, available, path) in rows {
+            let parent = if rel.is_empty() {
+                String::new()
+            } else {
+                let parent = Path::new(&rel)
+                    .parent()
+                    .and_then(Path::to_str)
+                    .unwrap_or("");
+                ids.get(&(root, parent.to_string()))
+                    .cloned()
+                    .ok_or(ErrorCode::Internal)?
+            };
+            let title = Path::new(if rel.is_empty() { &path } else { &rel })
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("Library")
+                .to_string();
+            folders.push(Folder {
+                id,
+                parent_id: parent,
+                title,
+                available,
+            });
+        }
+        let mut members = Vec::new();
+        for row in self.load_all()?.into_iter().filter(|r| r.kind != "series") {
+            let parent = Path::new(&row.rel_path)
+                .parent()
+                .and_then(Path::to_str)
+                .unwrap_or("");
+            if let Some(folder_id) = ids.get(&(row.root_id, parent.to_string())) {
+                members.push(FolderMember {
+                    folder_id: folder_id.clone(),
+                    item_id: row.id,
+                });
+            }
+        }
+        members.sort_by(|a, b| (&a.folder_id, &a.item_id).cmp(&(&b.folder_id, &b.item_id)));
+        library::validate_hierarchy(&folders, &members)?;
+        Ok((folders, members))
+    }
+
+    fn ensure_folder(&self, root_id: &str, rel: &str, available: bool) -> Result<(), ErrorCode> {
+        if !rel.is_empty() {
+            let parent = Path::new(rel).parent().and_then(Path::to_str).unwrap_or("");
+            self.ensure_folder(root_id, parent, available)?;
+        }
+        let exists: Option<bool> = self
+            .conn
+            .query_row(
+                "SELECT available FROM library_folders WHERE root_id=?1 AND rel_path=?2",
+                params![root_id, rel],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|_| ErrorCode::Internal)?;
+        if exists.is_some_and(|current| current || !available) {
+            return Ok(());
+        }
+        self.conn.execute("INSERT INTO library_folders(id, root_id, rel_path, available) VALUES (?1,?2,?3,?4) ON CONFLICT(root_id,rel_path) DO UPDATE SET available=MAX(available,excluded.available)", params![Uuid::new_v4().to_string(), root_id, rel, available])
+            .map_err(|_| ErrorCode::Internal)?;
+        Ok(())
+    }
+
+    fn sync_folders(
+        &self,
+        root_id: &str,
+        dirs: &[String],
+        truncated: bool,
+    ) -> Result<(), ErrorCode> {
+        if !truncated {
+            self.conn
+                .execute(
+                    "UPDATE library_folders SET available=0 WHERE root_id=?1",
+                    [root_id],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
+        }
+        self.ensure_folder(root_id, "", true)?;
+        for rel in dirs {
+            self.ensure_folder(root_id, rel, true)?;
+        }
+        // Missing content retains its last folder, even after a mount or directory disappears.
+        for row in self
+            .load_root(root_id)?
+            .into_iter()
+            .filter(|r| r.kind != "series")
+        {
+            let parent = Path::new(&row.rel_path)
+                .parent()
+                .and_then(Path::to_str)
+                .unwrap_or("");
+            self.ensure_folder(root_id, parent, row.available)?;
+        }
+        Ok(())
     }
 
     /// Latest known discovery times; zero denotes legacy rows with unknown dates.
@@ -544,12 +673,32 @@ impl Store {
     }
 
     fn mark_root_unavailable(&self, root_id: &str) -> Result<(), ErrorCode> {
+        self.ensure_folder(root_id, "", false)?;
+        self.conn
+            .execute(
+                "UPDATE library_folders SET available=0 WHERE root_id=?1",
+                [root_id],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
         self.conn
             .execute(
                 "UPDATE items SET available = 0 WHERE root_id = ?1",
                 [root_id],
             )
             .map_err(|_| ErrorCode::Internal)?;
+        // A pre-hierarchy catalogue may first reopen while its mount is offline.
+        // Reconstruct its stored ancestry without consulting the filesystem.
+        for row in self
+            .load_root(root_id)?
+            .into_iter()
+            .filter(|r| r.kind != "series")
+        {
+            let parent = Path::new(&row.rel_path)
+                .parent()
+                .and_then(Path::to_str)
+                .unwrap_or("");
+            self.ensure_folder(root_id, parent, false)?;
+        }
         Ok(())
     }
 
@@ -559,31 +708,60 @@ impl Store {
         discovered: Vec<RootScan>,
         baseline: &HashSet<String>,
     ) -> Result<(), ErrorCode> {
-        self.configured_roots = settings.roots.clone();
-        let stored = self
-            .conn
-            .prepare("SELECT id, path FROM roots")
-            .map_err(|_| ErrorCode::Internal)?
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|_| ErrorCode::Internal)?
-            .collect::<Result<Vec<_>, _>>()
+        self.conn
+            .execute_batch("SAVEPOINT arinn_scan")
             .map_err(|_| ErrorCode::Internal)?;
-        for (id, path) in &stored {
-            if !settings.roots.iter().any(|root| root == Path::new(path)) {
-                self.mark_root_unavailable(id)?;
+        let result = (|| {
+            self.configured_roots = settings.roots.clone();
+            let stored = self
+                .conn
+                .prepare("SELECT id, path FROM roots")
+                .map_err(|_| ErrorCode::Internal)?
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|_| ErrorCode::Internal)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| ErrorCode::Internal)?;
+            for (id, path) in &stored {
+                if !settings.roots.iter().any(|root| root == Path::new(path)) {
+                    self.mark_root_unavailable(id)?;
+                }
             }
-        }
-        for root in discovered {
-            let id = self.root_id(&root.path)?;
-            if root.readable {
-                self.integrate_root(&id, &root.path, root.truncated, root.files, baseline)?;
-            } else {
-                self.mark_root_unavailable(&id)?;
+            for root in discovered {
+                let id = self.root_id(&root.path)?;
+                if root.readable {
+                    self.integrate_root(&id, &root.path, root.truncated, root.files, baseline)?;
+                    self.conn
+                        .execute_batch("SAVEPOINT arinn_folders")
+                        .map_err(|_| ErrorCode::Internal)?;
+                    let result = self.sync_folders(&id, &root.dirs, root.truncated);
+                    if result.is_ok() {
+                        self.conn
+                            .execute_batch("RELEASE SAVEPOINT arinn_folders")
+                            .map_err(|_| ErrorCode::Internal)?;
+                    } else {
+                        let _ = self.conn.execute_batch(
+                            "ROLLBACK TO SAVEPOINT arinn_folders; RELEASE SAVEPOINT arinn_folders",
+                        );
+                    }
+                    result?;
+                } else {
+                    self.mark_root_unavailable(&id)?;
+                }
             }
+            Ok(())
+        })();
+        if result.is_ok() {
+            self.conn
+                .execute_batch("RELEASE SAVEPOINT arinn_scan")
+                .map_err(|_| ErrorCode::Internal)?;
+        } else {
+            let _ = self
+                .conn
+                .execute_batch("ROLLBACK TO SAVEPOINT arinn_scan; RELEASE SAVEPOINT arinn_scan");
         }
-        Ok(())
+        result
     }
 
     fn integrate_root(
@@ -698,6 +876,12 @@ impl Store {
         rows.push(row);
         link_series(root, &mut rows, series_existing, &metas);
         self.replace_root(root_id, &rows)?;
+        let parent = path
+            .parent()
+            .and_then(|p| p.strip_prefix(root).ok())
+            .and_then(Path::to_str)
+            .unwrap_or("");
+        self.ensure_folder(root_id, parent, true)?;
         Ok(Some(id))
     }
 
@@ -1138,6 +1322,7 @@ struct RootScan {
     readable: bool,
     truncated: bool,
     files: Vec<DiskFile>,
+    dirs: Vec<String>,
 }
 
 fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
@@ -1151,11 +1336,21 @@ fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
                     readable: false,
                     truncated: false,
                     files: Vec::new(),
+                    dirs: Vec::new(),
                 };
             }
             let mut truncated = false;
             let mut paths = Vec::new();
-            walk(path, path, 0, &settings.roots, &mut paths, &mut truncated);
+            let mut dirs = Vec::new();
+            walk(
+                path,
+                path,
+                0,
+                &settings.roots,
+                &mut paths,
+                &mut dirs,
+                &mut truncated,
+            );
             let files = paths
                 .iter()
                 .filter_map(|file| disk_file(path, file).ok().flatten())
@@ -1165,6 +1360,7 @@ fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
                 readable: true,
                 truncated,
                 files,
+                dirs,
             }
         })
         .collect()
@@ -1303,6 +1499,7 @@ fn walk(
     depth: usize,
     configured: &[PathBuf],
     out: &mut Vec<PathBuf>,
+    dirs: &mut Vec<String>,
     truncated: &mut bool,
 ) {
     if *truncated || depth > MAX_DEPTH {
@@ -1312,8 +1509,11 @@ fn walk(
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
+    if let Some(rel) = relative(root, dir) {
+        dirs.push(rel);
+    }
     for entry in entries.flatten() {
-        if out.len() >= MAX_FILES {
+        if out.len() >= MAX_FILES || dirs.len() >= MAX_FILES {
             *truncated = true;
             return;
         }
@@ -1338,7 +1538,7 @@ fn walk(
             if configured.iter().any(|other| other == &path) && path != root {
                 continue;
             }
-            walk(root, &path, depth + 1, configured, out, truncated);
+            walk(root, &path, depth + 1, configured, out, dirs, truncated);
         } else if meta.is_file() && parse::is_video(&path) {
             out.push(path);
         }

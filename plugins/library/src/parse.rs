@@ -834,13 +834,20 @@ fn strip_release_tags(text: &str) -> String {
     while start > 0 && service_release_tag(&tokens[start - 1]) {
         start -= 1;
     }
-    // A year inside the suffix (`Movie 1080p 2020`, `2020-GROUP`) stays, so
-    // `take_year` still finds it.
+    // A year inside the suffix (`Movie 1080p 2020`, `2020-GROUP`, `(2020)`)
+    // stays, in any form `take_year` reads, so it still finds it.
     let mut kept: Vec<&str> = tokens[..start].iter().map(String::as_str).collect();
     kept.extend(
         tokens[start..]
             .iter()
-            .filter(|token| year_token(token).is_some())
+            .filter(|token| {
+                year_token(token).is_some()
+                    || token
+                        .strip_prefix('(')
+                        .and_then(|rest| rest.strip_suffix(')'))
+                        .and_then(year_token)
+                        .is_some_and(|_| token.len() == 6)
+            })
             .map(String::as_str),
     );
     trim_seps(&kept.join(" "))
@@ -1060,6 +1067,7 @@ mod tests {
             ("Movie 2160p UHD BluRay TrueHD 7 1 Atmos IMAX ESub", "Movie"),
             ("Movie 1080p 2020", "Movie 2020"),
             ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
+            ("Movie 1080p (2020)", "Movie (2020)"),
             ("Show S02 WEB-DLRip-GROUP", "Show S02"),
             ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
             ("", ""),
@@ -1156,6 +1164,21 @@ mod tests {
             Path::new("/library/Example.Film.1080p.2020-GROUP.mkv"),
         )
         .unwrap();
+        assert_eq!(film.title, "Example Film");
+        assert!(film.has_year);
+        assert_eq!(film.year, 2020);
+
+        // A parenthesized year after the tags is kept as well.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show S04 1080p (2021)/Example Show - 01.mkv"),
+        )
+        .unwrap();
+        assert_eq!(episode.series_title, "Example Show");
+        assert_eq!(episode.season, 4);
+        assert!(episode.series_has_year);
+        assert_eq!(episode.series_year, 2021);
+        let film = parse_video(root, Path::new("/library/Example.Film.1080p.(2020).mkv")).unwrap();
         assert_eq!(film.title, "Example Film");
         assert!(film.has_year);
         assert_eq!(film.year, 2020);

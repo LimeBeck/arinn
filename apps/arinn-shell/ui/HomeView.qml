@@ -612,7 +612,7 @@ FocusScope {
         BrandButton {
             id: menuButton
             objectName: "menuButton"
-            x: 120; y: 44; height: 64; text: "Arinn"
+            x: Theme.safeLeft - lockupInset; y: 44; height: 64; text: "Arinn"
             pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.openNavigation()
             onDpadRequested: InputMode.keyPressed()

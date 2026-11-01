@@ -160,6 +160,15 @@ from them. An entry that stands for an open web service carries its `serviceId`.
 A `HomeRow` takes over a new `entries` array only when its content differs, and
 keeps its cards by position, updating them in place; a changed entry, such as
 a playing session's position, does not recreate the row's cards (#441).
+A row paints only between its own edges, which are Home's safe edges (x120 to
+x1824, handoff 01). The viewport keeps a 48 px margin on each side for the
+focus glow, lift and scale, and each card is clipped at the safe edges. Only
+the focused card, while its body is inside the safe area, paints into that
+margin, and only its focus treatment (glow and focus scale) ends up there. A neighbour, or a focused card flicked
+across an edge, is cut at the edge. A card wholly outside the safe area is not
+painted and takes no pointer focus or clicks, though D-pad focus still reaches
+it. Scrolling to a focused card keeps its body inside the safe right edge. So
+no card peeks past x1824, and the focus glow is not cut (#564).
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional
 `currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on
@@ -314,8 +323,10 @@ implied by these isolated checks.
 ### Brand mark
 
 `BrandLockup` combines the existing approved Arinn SVG mark with the Onest
-wordmark. `BrandButton` keeps a dark focus plate and the shared focus ring so the
-white mark remains visible. Home and the navigation panel use this lockup.
+wordmark. Home and the navigation panel use this lockup. `BrandButton`, Home's
+menu button, shows the bare lockup at rest, with a 36 px mark at x120 as in
+handoff 01. Focus adds a translucent plate, its border and the shared focus
+ring around it (owner decision on #564, 2026-11-01).
 The shell, gallery and UI test targets embed the original
 [`arinn-mark.svg`](../design/handoff/assets/arinn-mark.svg) unchanged under
 `qrc:/brand/`; its existing CC-BY-SA-4.0 attribution remains applicable.

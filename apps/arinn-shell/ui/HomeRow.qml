@@ -20,6 +20,9 @@ FocusScope {
     property string variant: "content"
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
+    // A row Home has faded out of the header band (#659) takes no pointer
+    // input; D-pad focus still reaches it, which brings it back.
+    property bool pointerBlocked: false
     property string selectedId: ""
     property int selectedIndex: 0
     readonly property int count: shown.length
@@ -270,5 +273,15 @@ FocusScope {
                 }
             }
         }
+    }
+    MouseArea {
+        objectName: "rowPointerBlocker"
+        // The cards' viewport reaches glowMargin past the row's edges.
+        x: -root.glowMargin; width: parent.width + 2 * root.glowMargin; height: parent.height
+        z: 2000
+        enabled: root.pointerBlocked
+        hoverEnabled: true
+        acceptedButtons: Qt.AllButtons
+        onWheel: wheel => wheel.accepted = true
     }
 }

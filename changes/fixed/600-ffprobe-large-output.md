@@ -1,0 +1,1 @@
+- The library reads the duration and languages of a video with many streams or attachments, such as a release with dozens of fonts, instead of waiting 5 seconds on every scan and leaving them unknown. ffprobe now opens only local files ([#600](https://github.com/LimeBeck/arinn/issues/600)).

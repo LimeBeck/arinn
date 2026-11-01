@@ -230,6 +230,8 @@ FocusScope {
             asynchronous: true
             cache: false
             visible: false
+            // Decode only what the cell covers, not the full poster (#611).
+            sourceSize: Artwork.sourceSize(source, width, height)
             onStatusChanged: artworkCanvas.syncSource()
             onSourceChanged: Qt.callLater(artworkCanvas.syncSource)
         }
@@ -240,16 +242,23 @@ FocusScope {
             opacity: artworkSlot.ready ? 1 : 0
             property string loadedSource: ""
             property bool showsArtwork: false
+            // The canvas copy is decoded at the Image's decoded size, which
+            // covers the cell (#611), so the crop uses the same pixels.
+            property size loadedSize: Qt.size(0, 0)
             function syncSource() {
-                const next = picture.status === Image.Ready ? picture.source.toString() : "";
-                if (loadedSource !== next) {
+                const ready = picture.status === Image.Ready;
+                const next = ready ? picture.source.toString() : "";
+                const size = ready ? Qt.size(picture.implicitWidth, picture.implicitHeight) : Qt.size(0, 0);
+                if (loadedSource !== next || loadedSize.width !== size.width
+                        || loadedSize.height !== size.height) {
                     showsArtwork = false;
                     if (loadedSource.length) unloadImage(loadedSource);
                     loadedSource = next;
+                    loadedSize = size;
                 }
                 if (available && next.length && !isImageLoaded(next)
                         && !isImageLoading(next) && !isImageError(next))
-                    loadImage(next);
+                    Artwork.loadCopy(artworkCanvas, picture);
                 requestPaint();
             }
             onAvailableChanged: syncSource()
@@ -1246,6 +1255,7 @@ FocusScope {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: false
+            sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
             source: root.detailEntry && root.detailEntry.fanart ? root.detailEntry.fanart : ""
             visible: status === Image.Ready
         }

@@ -1,0 +1,1 @@
+- Without a systemd user manager, a crashing provider is now restarted four times before it is marked failed, the same budget as under systemd, instead of twice ([#602](https://github.com/LimeBeck/arinn/issues/602)).

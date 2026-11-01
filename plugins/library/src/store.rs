@@ -34,6 +34,8 @@ pub(crate) const MAX_ROOTS: usize = 64;
 const MAX_FILES: usize = 50_000;
 const MAX_DEPTH: usize = 64;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Upper bound on ffprobe's JSON; real files stay far below it.
+const PROBE_OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Settings {
@@ -286,10 +288,18 @@ impl Store {
                completed INTEGER NOT NULL,
                observed_at_us INTEGER NOT NULL
              );
-             CREATE TABLE IF NOT EXISTS imports (
-               completion_id TEXT PRIMARY KEY,
-               item_id TEXT NOT NULL
-             );",
+             CREATE TABLE IF NOT EXISTS import_ledger (
+               provider_id TEXT NOT NULL,
+               job_id TEXT NOT NULL,
+               completion_id TEXT NOT NULL,
+               item_id TEXT NOT NULL,
+               PRIMARY KEY (provider_id, job_id, completion_id)
+             );
+             -- The old ledger keyed on the output id alone, so two jobs with
+             -- the same output id shared an item (#599). Its rows carry no
+             -- provider or job and are dropped; a repeated import still
+             -- finds the item by its path.
+             DROP TABLE IF EXISTS imports;",
         )
         .map_err(|_| ErrorCode::Internal)?;
         seed_collections(&conn)?;
@@ -668,7 +678,7 @@ impl Store {
     fn import_inner(&mut self, candidates: &[ImportCandidate]) -> Result<Vec<String>, ErrorCode> {
         let mut ids = Vec::with_capacity(candidates.len());
         for candidate in candidates {
-            if let Some(existing) = self.completion(&candidate.completion_id)? {
+            if let Some(existing) = self.completion(candidate)? {
                 if ids.iter().any(|id| id == &existing) {
                     return Err(ErrorCode::InvalidArgument);
                 }
@@ -697,8 +707,14 @@ impl Store {
             }
             self.conn
                 .execute(
-                    "INSERT INTO imports (completion_id, item_id) VALUES (?1, ?2)",
-                    params![candidate.completion_id, id],
+                    "INSERT INTO import_ledger (provider_id, job_id, completion_id, item_id)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        candidate.source.provider_id,
+                        candidate.source.local_id,
+                        candidate.completion_id,
+                        id
+                    ],
                 )
                 .map_err(|_| ErrorCode::Internal)?;
             ids.push(id);
@@ -1066,11 +1082,18 @@ impl Store {
         Ok(root.clone())
     }
 
-    fn completion(&self, id: &str) -> Result<Option<String>, ErrorCode> {
+    /// The item a completed download output was imported as. ADR-0067 keys
+    /// the ledger on (download provider, job id, output id).
+    fn completion(&self, candidate: &ImportCandidate) -> Result<Option<String>, ErrorCode> {
         self.conn
             .query_row(
-                "SELECT item_id FROM imports WHERE completion_id = ?1",
-                [id],
+                "SELECT item_id FROM import_ledger
+                 WHERE provider_id = ?1 AND job_id = ?2 AND completion_id = ?3",
+                params![
+                    candidate.source.provider_id,
+                    candidate.source.local_id,
+                    candidate.completion_id
+                ],
                 |row| row.get(0),
             )
             .optional()
@@ -1964,6 +1987,10 @@ fn probe_one(command: &Path, file: &Path) -> Option<(i64, String, String)> {
         .args([
             "-v",
             "quiet",
+            // Downloaded files are untrusted; a playlist or reference file
+            // must not make ffprobe open anything but local files (#600).
+            "-protocol_whitelist",
+            "file",
             "-print_format",
             "json",
             "-show_format",
@@ -1976,26 +2003,48 @@ fn probe_one(command: &Path, file: &Path) -> Option<(i64, String, String)> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // The JSON of a file with many streams or attachments is larger than the
+    // pipe buffer, so stdout is drained while ffprobe runs (#600).
+    let stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || read_probe_output(stdout));
     let started = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let mut body = String::new();
-                child.stdout.take()?.read_to_string(&mut body).ok()?;
-                return parse_probe(&body);
-            }
-            Ok(None) if started.elapsed() > PROBE_TIMEOUT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() > PROBE_TIMEOUT => break None,
             Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => return None,
+            Err(_) => break None,
         }
+    };
+    let Some(status) = status else {
+        // The reader ends once the pipe closes; it is not joined, because a
+        // process the probe started may still hold the pipe open.
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let body = reader.join().ok().flatten()?;
+    if !status.success() {
+        return None;
     }
+    parse_probe(&body)
+}
+
+/// Reads ffprobe's stdout up to `PROBE_OUTPUT_LIMIT` and discards the rest,
+/// so the child never blocks on a full pipe. Output over the limit is not
+/// parsed.
+fn read_probe_output(stdout: impl Read) -> Option<String> {
+    let mut stdout = stdout;
+    let mut body = Vec::new();
+    (&mut stdout)
+        .take(PROBE_OUTPUT_LIMIT + 1)
+        .read_to_end(&mut body)
+        .ok()?;
+    if body.len() as u64 > PROBE_OUTPUT_LIMIT {
+        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
+        return None;
+    }
+    String::from_utf8(body).ok()
 }
 
 fn parse_probe(body: &str) -> Option<(i64, String, String)> {

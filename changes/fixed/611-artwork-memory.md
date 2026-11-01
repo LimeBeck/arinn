@@ -1,0 +1,1 @@
+- Library, Home and Downloads artwork is decoded at the size it is shown instead of at full resolution, so a grid of large posters no longer takes hundreds of megabytes. Posters scrolled away before they load no longer delay the ones on screen, and the Activity background on Home keeps one copy of its frame instead of two ([#611](https://github.com/LimeBeck/arinn/issues/611)).

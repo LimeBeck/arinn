@@ -242,6 +242,7 @@ private:
   void openShortcut(const QString &id);
   void beginOperation(const QString &id, const QDBusMessage &msg);
   void setResultMessage(const QString &text);
+  void setConnectionBanner(const QString &text);
   void watchOperation(const QString &id, const QString &operationPath,
                       quint64 epoch);
   void clearShortcuts();
@@ -267,4 +268,8 @@ private:
   // Clears an action result such as "Done" after resultMessageMs.
   QTimer m_resultTimer;
   QString m_resultMessage;
+  // m_message is a daemon, provider or KWin connection state, which a later
+  // Status replaces or clears. Tracked here because the text is translated
+  // (#607).
+  bool m_connectionBanner = false;
 };

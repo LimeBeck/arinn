@@ -116,6 +116,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
       return;
     m_message.clear();
     m_resultMessage.clear();
+    m_connectionBanner = false;
     publishState();
   });
   auto bus = QDBusConnection::sessionBus();
@@ -520,7 +521,7 @@ void Backend::reloadCatalog() {
               m_loaded = false;
               m_snapshotError = false;
               clearShortcuts();
-              m_message = tr("Daemon is unavailable · reconnecting");
+              setConnectionBanner(tr("Daemon is unavailable · reconnecting"));
               publishState();
               return;
             }
@@ -565,20 +566,16 @@ void Backend::reloadCatalog() {
             // Status is polled every second. It may replace a connection
             // banner, and only a connection banner: an operation result has to
             // stay visible when that poll's reply arrives in the same turn.
-            const auto connectionBanner =
-                m_message.isEmpty() || m_message.startsWith(QLatin1String("Daemon")) ||
-                m_message.startsWith(QLatin1String("Provider")) ||
-                m_message.startsWith(QLatin1String("KWin"));
+            const auto replaceable = m_message.isEmpty() || m_connectionBanner;
             if (!platform) {
-              if (connectionBanner)
-                m_message = tr("KWin adapter is not connected");
+              if (replaceable)
+                setConnectionBanner(tr("KWin adapter is not connected"));
             } else if (!m_available) {
-              if (connectionBanner)
-                m_message = tr("Provider is unavailable");
-            } else if (m_message.startsWith(QLatin1String("Daemon")) ||
-                       m_message.startsWith(QLatin1String("Provider")) ||
-                       m_message.startsWith(QLatin1String("KWin")))
-              m_message.clear();
+              if (replaceable)
+                setConnectionBanner(tr("Provider is unavailable"));
+            } else if (m_connectionBanner) {
+              setConnectionBanner(QString());
+            }
             publishState();
             auto catalog = std::make_shared<Catalog>();
             catalog->epoch = epoch;
@@ -1161,7 +1158,12 @@ void Backend::openShortcut(const QString &id) {
 void Backend::setResultMessage(const QString &text) {
   m_message = text;
   m_resultMessage = text;
+  m_connectionBanner = false;
   m_resultTimer.start();
+}
+void Backend::setConnectionBanner(const QString &text) {
+  m_message = text;
+  m_connectionBanner = !text.isEmpty();
 }
 void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   if (m_pendingIds.contains(id))
@@ -1169,6 +1171,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   const auto epoch = m_connectionEpoch;
   m_pendingIds.insert(id);
   m_message = tr("Working…");
+  m_connectionBanner = false;
   publishState();
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);

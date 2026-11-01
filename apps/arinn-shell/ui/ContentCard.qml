@@ -35,6 +35,8 @@ Surface {
             anchors.fill: parent
             asynchronous: true
             fillMode: Image.PreserveAspectCrop
+            // Decode only what the card covers, not the full poster (#611).
+            sourceSize: Artwork.sourceSize(source, width, height)
             source: root.artwork
             visible: false
             onStatusChanged: frame.syncSource()
@@ -52,16 +54,23 @@ Surface {
             property string loadedSource: ""
             // Whether the last paint drew the artwork.
             property bool showsArtwork: false
+            // The canvas copy is decoded at the Image's decoded size, which
+            // covers the card (#611), so the crop uses the same pixels.
+            property size loadedSize: Qt.size(0, 0)
             function syncSource() {
-                const next = picture.status === Image.Ready ? picture.source.toString() : "";
-                if (loadedSource !== next) {
+                const ready = picture.status === Image.Ready;
+                const next = ready ? picture.source.toString() : "";
+                const size = ready ? Qt.size(picture.implicitWidth, picture.implicitHeight) : Qt.size(0, 0);
+                if (loadedSource !== next || loadedSize.width !== size.width
+                        || loadedSize.height !== size.height) {
                     if (loadedSource.length)
                         unloadImage(loadedSource);
                     loadedSource = next;
+                    loadedSize = size;
                 }
                 if (available && next.length && !isImageLoaded(next)
                         && !isImageLoading(next) && !isImageError(next))
-                    loadImage(next);
+                    Artwork.loadCopy(frame, picture);
                 requestPaint();
             }
             onAvailableChanged: syncSource()

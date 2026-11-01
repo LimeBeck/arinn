@@ -102,11 +102,13 @@ FocusScope {
             anchors.fill: parent
             asynchronous: true
             fillMode: Image.PreserveAspectCrop
+            // The row's slot size, for the Image and the canvas copy (#611).
+            sourceSize: Artwork.sourceSize(source, width, height)
             source: slot.source
             visible: false
             onStatusChanged: {
                 if (status === Image.Ready)
-                    plate.loadImage(source);
+                    Artwork.loadCopy(plate, picture);
                 plate.requestPaint();
             }
         }

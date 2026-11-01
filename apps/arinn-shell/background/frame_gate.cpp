@@ -57,8 +57,7 @@ bool Snapshot::valid() const {
          (!context || (context->valid() && context->epoch == epoch));
 }
 void FrameGate::clear() {
-  // Release capacity too; invalidation must not retain a previous frame's bytes.
-  std::vector<std::uint8_t>().swap(m_pixels);
+  m_ready = false;
   if (m_serial != std::numeric_limits<std::uint64_t>::max()) ++m_serial;
 }
 void FrameGate::observe(Evidence evidence) {
@@ -131,7 +130,8 @@ bool FrameGate::completeRead(const Ticket &ticket, const Context &echoed,
     if (ticket.serial == m_serial) failed();
     return false;
   }
-  m_pixels = std::move(*rgba);
+  // The copy is freed when rgba goes out of scope.
+  m_ready = true;
   return true;
 }
 } // namespace arinn::background

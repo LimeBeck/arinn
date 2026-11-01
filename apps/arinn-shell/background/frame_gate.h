@@ -3,7 +3,6 @@
 #pragma once
 #include <cstdint>
 #include <optional>
-#include <span>
 #include <string>
 #include <vector>
 
@@ -47,12 +46,14 @@ public:
   std::optional<Ticket> beginRead();
   // Off-thread copying is performed by transport using platform Pixels. Even
   // cancelled work must call completeRead once, releasing the single worker slot.
+  // The gate validates the copy and frees it: the presentation keeps the only
+  // image of an admitted frame, so a 4K frame is not resident twice (#611).
   bool completeRead(const Ticket &ticket, const Context &echoed,
                     std::uint32_t width, std::uint32_t height,
                     std::optional<std::vector<std::uint8_t>> rgba);
-  bool ready() const { return !m_pixels.empty(); }
+  // An admitted frame is current until the next invalidation.
+  bool ready() const { return m_ready; }
   bool busy() const { return m_worker.has_value(); }
-  std::span<const std::uint8_t> pixels() const { return m_pixels; }
 private:
   void clear();
   bool m_reconciled = false;
@@ -61,6 +62,6 @@ private:
   std::optional<Ticket> m_worker;
   std::uint64_t m_serial = 1, m_floor = 0, m_retiredRevision = 0;
   std::string m_signalEpoch, m_retiredRequest;
-  std::vector<std::uint8_t> m_pixels;
+  bool m_ready = false;
 };
 } // namespace arinn::background

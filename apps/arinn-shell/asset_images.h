@@ -6,6 +6,7 @@
 
 #pragma once
 #include <QImage>
+#include <QSize>
 #include <QString>
 
 class QQmlEngine;
@@ -38,9 +39,12 @@ public:
                            QString *objectPath, QString *generation,
                            QString *assetId);
 
-  // Blocks. Call it off the UI thread. A hit does not call the daemon.
+  // Blocks. Call it off the UI thread. A hit does not call the daemon. A
+  // valid requestedSize decodes no larger than needed to cover it; any image
+  // stays within 4096 pixels a side (#611).
   Result fetch(const QString &providerId, const QString &objectPath,
-               const QString &generation, const QString &assetId);
+               const QString &generation, const QString &assetId,
+               const QSize &requestedSize = QSize());
 
 private:
   AssetImages();

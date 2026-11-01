@@ -41,9 +41,9 @@ shows.
   values and constraints (ADR-0065):
 
   ```json
-  {"ru": {"roots": {"title": "Папки медиатеки",
-                    "description": "Где искать фильмы и сериалы"},
-          "hardware_decoding": {"options": {"auto": "Автоматически"}}},
+  {"de": {"roots": {"title": "Mediathek-Ordner",
+                    "description": "Ordner mit Filmen und Serien"},
+          "hardware_decoding": {"options": {"auto": "Automatisch"}}},
    "pt_BR": {"roots": {"title": "Pastas da biblioteca"}}}
   ```
 

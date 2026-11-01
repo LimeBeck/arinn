@@ -208,7 +208,9 @@ QString daemonText(const QString &providerId, const QString &text) {
 }
 // A provider's translation of one setting text (ADR-0129): the entry for the
 // full locale (`ru_RU`), then for its language (`ru`), else the source text.
-// `option` picks an enum option title instead of `field`.
+// `option` picks an enum option title instead of `field`. Only a description
+// may be translated to an empty text, as the protocol allows; an empty title,
+// unit or option title is not a translation.
 QString translatedText(const QJsonObject &table, const QString &settingId,
                        const QString &field, const QString &source,
                        const QString &option = {}) {
@@ -220,7 +222,9 @@ QString translatedText(const QJsonObject &table, const QString &settingId,
         option.isEmpty()
             ? entry.value(field)
             : entry.value(QStringLiteral("options")).toObject().value(option);
-    if (value.isString() && !value.toString().isEmpty())
+    const auto emptyAllowed =
+        option.isEmpty() && field == QLatin1String("description");
+    if (value.isString() && (emptyAllowed || !value.toString().isEmpty()))
       return value.toString();
   }
   return source;

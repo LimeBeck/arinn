@@ -649,7 +649,7 @@ private slots:
     daemon.translations.insert(
         QStringLiteral("alpha"),
         QStringLiteral(
-            R"({"ru":{"decoding":{"title":"Декодирование","options":{"auto":"Автоматически"}},"delay":{"unit":"с"}},"ru_RU":{"scan":{"title":"Сканировать","description":"Искать новые файлы"}}})"));
+            R"({"ru":{"decoding":{"title":"Декодирование","options":{"auto":"Автоматически"}},"delay":{"unit":"с","description":""}},"ru_RU":{"scan":{"title":"Сканировать","description":"Искать новые файлы"}}})"));
     QVERIFY(registerBus(daemon));
     const auto previous = QLocale();
     const auto options = [](const QVariantMap &row) {
@@ -681,6 +681,11 @@ private slots:
                    .value(QStringLiteral("unit"))
                    .toString(),
                QStringLiteral("с"));
+      // A description translated to an empty text stays empty.
+      QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                   .value(QStringLiteral("description"))
+                   .toString(),
+               QString());
       const auto scan = rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("scan"));
       QCOMPARE(scan.value(QStringLiteral("title")).toString(),
                QStringLiteral("Сканировать"));

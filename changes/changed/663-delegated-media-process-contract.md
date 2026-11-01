@@ -1,0 +1,1 @@
+- Clarify compatible process evidence for verified delegated media endpoints, enabling proxy-only browser association while retaining the strict audible-tab and identity rules.

@@ -4,7 +4,7 @@
 - **Date:** 2026-10-07
 - **Deciders:** Owner (product behaviour, option A in [#359](https://github.com/LimeBeck/arinn/issues/359)); delegated technical choice for the contract
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** ADR-0117
+- **Amended by / Superseded by:** ADR-0117, ADR-0126
 - **Specification:** §5.1, §7.1, §7.3, §10; R-01, R-03
 
 ## Context

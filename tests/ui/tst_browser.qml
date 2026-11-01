@@ -253,6 +253,32 @@ TestCase {
         compare(child("letter-long").text, "V");
     }
 
+    function test_rows_and_header_follow_the_handoff() {
+        // #565, handoff os-1-list / OS-8.
+        focused("row-t2");
+        // "On screen" and "Sound" follow the domain, not the row's right edge.
+        const sub = child("sub-t2");
+        compare(sub.width, sub.implicitWidth);
+        const onScreen = child("onscreen-t2");
+        compare(Math.round(onScreen.mapToItem(sub.parent, 0, 0).x), Math.round(sub.x + sub.width + 24));
+        const sound = child("sound-t2");
+        verify(sound.mapToItem(sub.parent, 0, 0).x > onScreen.mapToItem(sub.parent, 0, 0).x + onScreen.width);
+        verify(sound.mapToItem(sub.parent, 0, 0).x + sound.width < sub.parent.width / 2);
+        // The close button draws the thin 40 px close icon, not a text glyph.
+        const closeIcon = child("closeIcon-t2");
+        compare(closeIcon.name, "close");
+        compare(closeIcon.width, 40);
+        verify(closeIcon.visible);
+        // "Site or search": an add icon before the label, the pill ending at x1800.
+        const browse = child("browserBrowse");
+        compare(browse.x + browse.width, 1800);
+        compare(browse.height, 80);
+        const icon = child("browserBrowseIcon");
+        compare(icon.name, "add");
+        verify(icon.x + icon.width < child("browserBrowseLabel").x);
+        compare(child("browserBrowseLabel").text, "Site or search");
+    }
+
     function test_scroll_position_and_hold() {
         const tabs = [];
         for (let i = 0; i < 12; ++i)

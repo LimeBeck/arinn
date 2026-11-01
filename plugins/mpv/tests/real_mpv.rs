@@ -229,12 +229,18 @@ async fn null_output_plays_a_generated_file() {
         let mut lines = BufReader::new(read).lines();
         for (request, property) in [(1, "hwdec"), (2, "hwdec-current")] {
             write.write_all(format!("{{\"command\":[\"get_property\",\"{property}\"],\"request_id\":{request}}}\n").as_bytes()).await.unwrap();
-            let line = tokio::time::timeout(Duration::from_secs(2), lines.next_line())
-                .await
-                .unwrap()
-                .unwrap()
-                .unwrap();
-            let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let reply = tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let line = lines.next_line().await.unwrap().unwrap();
+                    let reply: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    // mpv broadcasts lifecycle events on new IPC connections.
+                    if reply["request_id"].as_i64() == Some(request) {
+                        break reply;
+                    }
+                }
+            })
+            .await
+            .unwrap();
             assert_eq!(reply["error"], "success");
             if property == "hwdec" {
                 assert!(reply["data"] == "auto" || reply["data"] == serde_json::json!(["auto"]));

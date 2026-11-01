@@ -525,3 +525,13 @@ limit is 8192 UTF-8 bytes without NUL; empty is valid. Unknown item: NotFound;
 stale pair: Conflict; missing feature: Unsupported. An invalid/failed optional
 lookup does not invalidate the base catalogue. SDK `LibraryMetadata` publishes
 descriptions atomically and never changes existing Item/LibraryPage signatures.
+
+### Delegated media process evidence
+
+`MediaProcess1.GetProcessId` identifies the verified application controlling the
+media. Direct endpoints keep reporting their owner; a recognized delegated proxy
+may report its represented application only with the pinned-owner, direct kernel
+parent and matching protocol-claim evidence in
+[ADR-0126](../adr/0126-delegated-media-process.md). Existing wire signatures,
+caller restrictions and the strict audible-tab/uniqueness join are unchanged.
+This is provider/daemon evidence only, never shell-visible process information.

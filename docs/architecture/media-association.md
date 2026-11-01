@@ -27,12 +27,18 @@ and `Browser1` signatures do not change. Types and validation are in
 - Arguments are the current registration generation and one current local ID.
   A stale generation is `Conflict`, an unknown ID is `NotFound`, and malformed
   arguments are `InvalidArgument`.
-- The result is the process ID of the process that owns the session's media
-  endpoint (`MediaProcess1`), or of the browser process the window belongs to
-  (`BrowserProcess1`). 0 means unknown. A provider never derives a process ID
-  by parsing IDs, bus-name suffixes, titles or URLs.
+- The result is the verified application process controlling the media
+  (`MediaProcess1`), or the browser process the window belongs to
+  (`BrowserProcess1`). Direct media endpoints report their bus-owner process.
+  A recognized delegated endpoint may report its represented application process
+  only under the pinned-owner, direct kernel-parent and matching protocol-claim
+  rules of [ADR-0126](../adr/0126-delegated-media-process.md). 0 means unknown.
+  A provider never derives a process ID by parsing IDs, bus-name suffixes, titles
+  or URLs. No arbitrary ancestor lookup is permitted.
 - **MPRIS provider (reference producer):** `GetConnectionUnixProcessID` of the
-  player's bus name, read when the name appears and dropped with it.
+  player's bus name, read when the name appears and dropped with it. For a
+  verified delegated fallback, report the represented application process under
+  ADR-0126; native-over-proxy precedence remains ADR-0117.
 - **Chrome provider (reference producer):** the parent process of the
   native-messaging host connection (`GetConnectionUnixProcessID` of the host's
   bus name, then its parent from `/proc/<pid>/stat`). It is recorded per
@@ -201,3 +207,12 @@ Tests:
 Read-only inspection for #581 confirmed the Plasma proxy parent/native owner
 relationship and matching `kde:pid`, without recording process IDs or media
 metadata. End-to-end real Chrome/KDE qualification of this change is not run.
+
+## Delegated endpoint compatibility
+
+[ADR-0126](../adr/0126-delegated-media-process.md) clarifies process evidence for
+proxy-only browsers without changing wire signatures or the strict join above.
+Implementation must publish effective-process changes as revision changes and
+revalidate owner/process evidence before answering. Suppressed endpoints must not
+retain a published session that can be resurrected by a failed read. A paused
+cold start still cannot establish a link until exactly one tab is audible.

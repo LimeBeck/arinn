@@ -11,15 +11,17 @@ use super::*;
 use arinn_plugin_sdk::snapshots::{HierarchySnapshots, LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Additions, Collection, FEATURE_ADDITIONS, FEATURE_HIERARCHY, FEATURE_IMPORT,
-        FEATURE_RESUME, FEATURE_ROOTS, Folder, FolderMember, HierarchyPage, Item,
-        LibraryAdditionsProxy, LibraryHierarchyProxy, LibraryPage, LibraryProviderProxy,
-        LibraryResumeProxy, LibraryRootsProxy, Resume, ResumePage, Roots,
+        self, Additions, Collection, Description, FEATURE_ADDITIONS, FEATURE_DESCRIPTIONS,
+        FEATURE_HIERARCHY, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, Folder, FolderMember,
+        HierarchyPage, Item, LibraryAdditionsProxy, LibraryDescriptionsProxy,
+        LibraryHierarchyProxy, LibraryPage, LibraryProviderProxy, LibraryResumeProxy,
+        LibraryRootsProxy, Resume, ResumePage, Roots,
     },
     media::{FEATURE_OPEN, MediaOpenProxy, MediaSource},
 };
 
 const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_DESCRIPTIONS,
     FEATURE_HIERARCHY,
     FEATURE_ADDITIONS,
     FEATURE_RESUME,
@@ -761,6 +763,66 @@ pub(super) struct LibraryEndpoint {
 }
 #[zbus::interface(name = "org.arinn.Library1")]
 impl LibraryEndpoint {
+    async fn get_description(
+        &self,
+        generation: &str,
+        revision: u64,
+        id: &str,
+    ) -> production::Result<(Description,)> {
+        validation::id(id)?;
+        let owner = {
+            let state = self.core.state.lock().await;
+            let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+            if !p.features.iter().any(|f| f == FEATURE_DESCRIPTIONS) {
+                return Err(ErrorCode::Unsupported.into());
+            }
+            if p.info.generation != generation || p.info.revision != revision {
+                return Err(ErrorCode::Conflict.into());
+            }
+            if p.info.runtime_state != "ready" || p.info.backend_state == "unavailable" {
+                return Err(ErrorCode::Unavailable.into());
+            }
+            if !p.items.iter().any(|item| item.id == id) {
+                return Err(ErrorCode::NotFound.into());
+            }
+            p.owner.clone()
+        };
+        let work = async {
+            let proxy = LibraryDescriptionsProxy::builder(&self.core.connection)
+                .destination(owner.as_str())
+                .map_err(|_| ErrorCode::Internal)?
+                .build()
+                .await
+                .map_err(|_| ErrorCode::Unavailable)?;
+            let (description,) = proxy
+                .get_description(generation, revision, id)
+                .await
+                .map_err(normalize_error)?;
+            description.validate().map_err(|_| ErrorCode::Internal)?;
+            if description.generation != generation || description.revision != revision {
+                return Err(ErrorCode::Conflict);
+            }
+            if description.id != id {
+                return Err(ErrorCode::Internal);
+            }
+            Ok(description)
+        };
+        let description = tokio::time::timeout(Duration::from_millis(500), work)
+            .await
+            .map_err(|_| ErrorCode::Timeout)??;
+        let state = self.core.state.lock().await;
+        let p = state
+            .providers
+            .get(&self.id)
+            .ok_or(ErrorCode::Unavailable)?;
+        if p.owner != owner || p.info.generation != generation {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        if p.info.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((description,))
+    }
     async fn get_library(
         &self,
         token: &str,

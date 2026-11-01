@@ -6,7 +6,7 @@
 //! logged.
 mod common;
 use arinn_plugin_sdk::runtime::{
-    self, AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler,
+    self, AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryMetadata,
     LibraryResumeHandler, LibraryService,
 };
 use arinn_protocol::{
@@ -196,7 +196,8 @@ async fn scenario() {
         .assets(Posters)
         .roots()
         .additions()
-        .hierarchy();
+        .hierarchy()
+        .descriptions();
     let service = LibraryService::with_extensions(
         handler.clone(),
         vec![collection()],
@@ -245,6 +246,7 @@ async fn scenario() {
             "LibraryResume1".to_string(),
             "LibraryImport1".to_string(),
             "AssetProvider1".to_string(),
+            "LibraryDescriptions1".to_string(),
             "LibraryHierarchy1".to_string(),
             "LibraryAdditions1".to_string(),
             "LibraryRoots1".to_string()
@@ -589,6 +591,108 @@ async fn scenario() {
         "org.arinn.Error1.PermissionDenied"
     );
 
+    let descriptions = arinn_protocol::library::LibraryDescriptionsProxy::builder(&server)
+        .destination(provider.unique_name().unwrap().clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (current,) = proxy.get_library("").await.unwrap();
+    let id = current.items[0].id.clone();
+    assert!(
+        descriptions
+            .get_description(&context.generation, current.revision, &id)
+            .await
+            .unwrap()
+            .0
+            .text
+            .is_empty()
+    );
+    let metadata = || LibraryMetadata {
+        descriptions: std::collections::HashMap::from([(id.clone(), "Local plot".into())]),
+        ..LibraryMetadata::default()
+    };
+    service
+        .replace_with_metadata(
+            current.collections.clone(),
+            current.items.clone(),
+            "available",
+            metadata(),
+        )
+        .await
+        .unwrap();
+    let (changed,) = proxy.get_library("").await.unwrap();
+    assert!(changed.revision > current.revision);
+    assert_eq!(
+        descriptions
+            .get_description(&context.generation, changed.revision, &id)
+            .await
+            .unwrap()
+            .0
+            .text,
+        "Local plot"
+    );
+    assert!(
+        error_name(
+            descriptions
+                .get_description(&context.generation, current.revision, &id)
+                .await
+        )
+        .ends_with("Conflict")
+    );
+    assert!(
+        error_name(
+            descriptions
+                .get_description(&context.generation, changed.revision, "missing")
+                .await
+        )
+        .ends_with("NotFound")
+    );
+    service
+        .replace_with_metadata(
+            current.collections.clone(),
+            current.items.clone(),
+            "available",
+            metadata(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        proxy.get_library("").await.unwrap().0.revision,
+        changed.revision
+    );
+    let stranger_bus = bus.connection().await;
+    let stranger_descriptions =
+        arinn_protocol::library::LibraryDescriptionsProxy::builder(&stranger_bus)
+            .destination(provider.unique_name().unwrap().clone())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+    assert!(
+        error_name(
+            stranger_descriptions
+                .get_description(&context.generation, changed.revision, &id)
+                .await
+        )
+        .ends_with("PermissionDenied")
+    );
+    service
+        .replace(current.collections, current.items, "available")
+        .await
+        .unwrap();
+    let (cleared,) = proxy.get_library("").await.unwrap();
+    assert!(cleared.revision > changed.revision);
+    assert!(
+        descriptions
+            .get_description(&context.generation, cleared.revision, &id)
+            .await
+            .unwrap()
+            .0
+            .text
+            .is_empty()
+    );
+
     let introspect = zbus::fdo::IntrospectableProxy::builder(&server)
         .destination(provider.unique_name().unwrap().clone())
         .unwrap()
@@ -605,6 +709,10 @@ async fn scenario() {
         ("org.arinn.LibraryRoots1", "library-roots1.xml"),
         ("org.arinn.LibraryAdditions1", "library-additions1.xml"),
         ("org.arinn.LibraryHierarchy1", "library-hierarchy1.xml"),
+        (
+            "org.arinn.LibraryDescriptions1",
+            "library-descriptions1.xml",
+        ),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",

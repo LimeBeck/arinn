@@ -161,3 +161,17 @@ then offers Catalogue only. A bounded diagnostic includes no paths or titles.
 Scan catalogue and folder writes share a SQLite savepoint, including offline
 ancestry reconstruction, so directory updates do not create a transaction per
 file. Content and resume persistence remain provider-owned.
+
+## Local descriptions
+
+[ADR-0125](../adr/0125-library-descriptions.md) adds optional
+`LibraryDescriptions1` without changing Item/page signatures. The local provider
+reads a video's matching NFO `<plot>` and a series' `tvshow.nfo`, including CDATA
+and XML entities, as bounded plain text. Provider SQLite `item_descriptions`
+keeps text under the existing content ID; readable rescans update/remove text,
+unavailable roots retain it. Resume, discovery times and identity are unchanged.
+Unchanged text does not write an update. The publication map is capped at 16 MiB
+in item-ID order; excess optional descriptions are omitted, not the catalogue.
+The SDK publishes it atomically with additions, hierarchy and the base snapshot.
+The daemon forwards only requested text, with a 500 ms deadline and identity,
+provider-owner and catalogue-pair validation before returning it.

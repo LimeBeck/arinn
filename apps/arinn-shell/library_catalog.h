@@ -15,6 +15,8 @@
 // properties. Launch is an operation; the shell never sees a file URI.
 class LibraryCatalog : public QObject {
   Q_OBJECT
+  Q_PROPERTY(QString descriptionEntryId READ descriptionEntryId NOTIFY descriptionChanged)
+  Q_PROPERTY(QString descriptionText READ descriptionText NOTIFY descriptionChanged)
   Q_PROPERTY(QString libraryState READ libraryState NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY catalogChanged)
   Q_PROPERTY(QVariantList entries READ entries NOTIFY catalogChanged)
@@ -26,6 +28,9 @@ class LibraryCatalog : public QObject {
 public:
   explicit LibraryCatalog(QObject *parent = nullptr);
   QString libraryState() const;
+  QString descriptionEntryId() const { return m_descriptionEntryId; }
+  QString descriptionText() const { return m_descriptionText; }
+  Q_INVOKABLE void requestDescription(const QString &entryId);
   QVariantList tabs() const { return m_tabs; }
   QVariantList entries() const { return m_entries; }
   QVariantList folderEntries() const { return m_folderEntries; }
@@ -52,6 +57,7 @@ public slots:
   void refresh();
 signals:
   void catalogChanged();
+  void descriptionChanged();
   void operationChanged();
   void sessionLaunched(const QString &presentationId);
 
@@ -62,6 +68,8 @@ private:
     QString providerId;
     QString path;
     QString generation;
+    quint64 revision = 0;
+    bool descriptions = false;
     QString tabId;
     QString collectionLocal;
     QString parentLocal;
@@ -139,5 +147,8 @@ private:
   bool m_connected = false, m_loaded = false, m_error = false,
        m_unreachable = false, m_refreshing = false, m_dirty = false;
   quint64 m_epoch = 0, m_commandTicket = 0;
+  QString m_descriptionEntryId, m_descriptionText, m_descriptionGeneration;
+  quint64 m_descriptionRevision = 0, m_descriptionTicket = 0;
+  bool m_descriptionLoaded = false, m_descriptionPending = false, m_descriptionSupported = false;
   QTimer m_timer;
 };

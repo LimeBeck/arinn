@@ -57,3 +57,11 @@ The library provider reconciles files, creates or updates its entries and return
 A generic ActionProvider cannot express a structured list of jobs with revisions, states and available actions; a product-specific Transmission API in the core would violate R-01. Hence a separate DownloadProvider. `LibraryImport1` separates download completion from content indexing and works with any download backend.
 
 The chosen types, state machine and ownership close the architectural question of the extension. Media and library D-Bus XML, protocol types, the SDK and the provider contract tests are [ADR-0054](../adr/0054-media-and-library-wire-contract.md). The DownloadProvider XML, types, SDK service and contract tests are [ADR-0067](../adr/0067-download-wire-contract.md). Transport limits and errors come from ADR-0020.
+
+### Local library descriptions
+
+Optional `LibraryDescriptions1` and daemon `Library1.GetDescription` provide
+bounded, revision-fenced plain text for one item, without full-library polling.
+[ADR-0125](../adr/0125-library-descriptions.md) specifies authorization, limits,
+atomic SDK publication and failure isolation. No online metadata service or
+filesystem location is introduced into the shell-facing contract.

@@ -135,6 +135,56 @@ LibraryCatalog::LibraryCatalog(QObject *parent) : QObject(parent) {
   refresh();
 }
 
+void LibraryCatalog::requestDescription(const QString &entryId) {
+  if (entryId.isEmpty() && m_descriptionEntryId.isEmpty() && !m_descriptionPending) return;
+  const auto *found = findId(entryId);
+  const bool supported = found && found->descriptions;
+  const auto generation = found ? found->generation : QString();
+  const auto revision = found ? found->revision : 0;
+  if (entryId == m_descriptionEntryId && generation == m_descriptionGeneration
+      && revision == m_descriptionRevision && supported == m_descriptionSupported
+      && (m_descriptionLoaded || m_descriptionPending))
+    return;
+  const auto ticket = ++m_descriptionTicket;
+  m_descriptionEntryId = entryId;
+  m_descriptionGeneration = generation;
+  m_descriptionRevision = revision;
+  m_descriptionSupported = supported;
+  m_descriptionText.clear();
+  m_descriptionLoaded = false;
+  m_descriptionPending = false;
+  emit descriptionChanged();
+  if (!found || !found->descriptions || !m_connected) {
+    m_descriptionLoaded = found && !found->descriptions;
+    return;
+  }
+  const auto item = *found;
+  const auto epoch = m_epoch;
+  m_descriptionPending = true;
+  auto msg = QDBusMessage::createMethodCall(service, item.path, "org.arinn.Library1", "GetDescription");
+  msg << item.generation << qulonglong(item.revision) << item.localId;
+  auto pending = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 1000), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+      [this, ticket, epoch, item](auto *call) {
+    const auto reply = call->reply();
+    call->deleteLater();
+    if (ticket != m_descriptionTicket || epoch != m_epoch) return;
+    m_descriptionPending = false;
+    const auto *current = findId(item.id);
+    if (!current || current->generation != item.generation || current->revision != item.revision
+        || reply.type() == QDBusMessage::ErrorMessage || reply.signature() != "(stss)"
+        || reply.arguments().size() != 1) return;
+    const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+    QString generation, id, text; qulonglong revision = 0;
+    arg.beginStructure(); arg >> generation >> revision >> id >> text; arg.endStructure();
+    if (generation != item.generation || revision != item.revision || id != item.localId
+        || text.toUtf8().size() > 8192 || text.contains(QChar(0))) return;
+    m_descriptionLoaded = true;
+    m_descriptionText = text;
+    emit descriptionChanged();
+  });
+}
+
 QString LibraryCatalog::libraryState() const {
   if (!m_loaded)
     return QStringLiteral("loading");
@@ -168,6 +218,7 @@ void LibraryCatalog::setOperation(const QString &state) {
   emit operationChanged();
 }
 void LibraryCatalog::publish() {
+  requestDescription(m_descriptionEntryId);
   QVariantList tabs;
   tabs.reserve(m_collections.size());
   for (const auto &collection : m_collections) {
@@ -679,6 +730,7 @@ void LibraryCatalog::readLibrary(const std::shared_ptr<Catalog> &catalog,
           row.providerId = providerId;
           row.path = providerPath;
           row.generation = generation;
+          row.revision = revision;
           row.backend = backend;
           bool hasYear = false, hasSeason = false, hasEpisode = false,
                available = false;
@@ -897,6 +949,11 @@ void LibraryCatalog::readFeatures(const std::shared_ptr<Catalog> &catalog,
                   reply.arguments().at(0).toStringList().contains(
                       QLatin1String("LibraryResume1"));
             }
+            const bool descriptions = reply.type() != QDBusMessage::ErrorMessage
+                && reply.signature() == "as" && !reply.arguments().isEmpty()
+                && reply.arguments().at(0).toStringList().contains(QLatin1String("LibraryDescriptions1"));
+            for (qsizetype i = catalog->providerStartItems; i < catalog->items.size(); ++i)
+              catalog->items[i].descriptions = descriptions;
             if (catalog->resumeFeature)
               readResumes(catalog, index);
             else

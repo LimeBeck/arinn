@@ -749,8 +749,8 @@ pub use download::{
     DownloadAction, DownloadHandler, DownloadService, run_download, run_download_on,
 };
 pub use library::{
-    LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler, LibraryService,
-    run_library, run_library_on,
+    LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryMetadata, LibraryResumeHandler,
+    LibraryService, run_library, run_library_on,
 };
 pub use media::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,

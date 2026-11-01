@@ -8,15 +8,17 @@ use super::{Endpoint, RegistrationContext, backend_state, run_endpoint};
 use crate::snapshots::{HierarchySnapshots, LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Addition, Additions, Collection, FEATURE_ADDITIONS, FEATURE_HIERARCHY,
-        FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS, Folder, FolderMember, HierarchyPage,
-        ImportCandidate, Item, LibraryPage, Resume, ResumePage, RootState, Roots,
+        self, Addition, Additions, Collection, Description, FEATURE_ADDITIONS,
+        FEATURE_DESCRIPTIONS, FEATURE_HIERARCHY, FEATURE_IMPORT, FEATURE_RESUME, FEATURE_ROOTS,
+        Folder, FolderMember, HierarchyPage, ImportCandidate, Item, LibraryPage, Resume,
+        ResumePage, RootState, Roots,
     },
     media::{self, PlaybackSource},
     production::{self, PROVIDER_PATH},
     validation::{self, ErrorCode},
 };
 use std::{
+    collections::HashMap,
     future::Future,
     pin::Pin,
     sync::{
@@ -62,8 +64,15 @@ pub struct LibraryExtensions {
     roots: bool,
     additions: bool,
     hierarchy: bool,
+    descriptions: bool,
 }
 impl LibraryExtensions {
+    /// Enable lazy, revision-fenced plain-text item descriptions.
+    pub fn descriptions(mut self) -> Self {
+        self.descriptions = true;
+        self
+    }
+
     pub fn hierarchy(mut self) -> Self {
         self.hierarchy = true;
         self
@@ -96,6 +105,15 @@ impl LibraryExtensions {
     }
 }
 
+/// Optional metadata published atomically with its base catalogue.
+#[derive(Default)]
+pub struct LibraryMetadata {
+    pub additions: Vec<Addition>,
+    pub folders: Vec<Folder>,
+    pub members: Vec<FolderMember>,
+    pub descriptions: HashMap<String, String>,
+}
+
 struct Data {
     daemon_owner: String,
     generation: String,
@@ -113,6 +131,7 @@ struct Data {
     members: Vec<FolderMember>,
     hierarchy_snapshots: Option<HierarchySnapshots>,
     roots_revision: u64,
+    descriptions: HashMap<String, String>,
 }
 
 #[derive(Clone)]
@@ -170,6 +189,7 @@ impl LibraryService {
                 members: Vec::new(),
                 hierarchy_snapshots: None,
                 roots_revision: 0,
+                descriptions: HashMap::new(),
             })),
             handler: Arc::new(handler),
             extensions,
@@ -251,6 +271,42 @@ impl LibraryService {
         folders: Vec<Folder>,
         members: Vec<FolderMember>,
     ) -> Result<(), ErrorCode> {
+        self.replace_with_metadata(
+            collections,
+            items,
+            backend,
+            LibraryMetadata {
+                additions,
+                folders,
+                members,
+                ..LibraryMetadata::default()
+            },
+        )
+        .await
+    }
+
+    /// Publish all enabled metadata in one catalogue revision. Legacy replace
+    /// methods clear descriptions, so removed metadata cannot remain visible.
+    pub async fn replace_with_metadata(
+        &self,
+        collections: Vec<Collection>,
+        items: Vec<Item>,
+        backend: &str,
+        metadata: LibraryMetadata,
+    ) -> Result<(), ErrorCode> {
+        let LibraryMetadata {
+            additions,
+            folders,
+            members,
+            descriptions,
+        } = metadata;
+        if (!self.extensions.descriptions && !descriptions.is_empty())
+            || (!self.extensions.hierarchy && (!folders.is_empty() || !members.is_empty()))
+            || (!self.extensions.additions && !additions.is_empty())
+        {
+            return Err(ErrorCode::Unsupported);
+        }
+        library::validate_descriptions(&descriptions, &items)?;
         library::validate_hierarchy_items(&folders, &members, &items)?;
         library::validate_addition_items(&additions, &items)?;
         library::validate_entries(&collections, &items)?;
@@ -260,7 +316,8 @@ impl LibraryService {
             let backend_changed = data.backend != backend
                 || data.additions != additions
                 || data.folders != folders
-                || data.members != members;
+                || data.members != members
+                || data.descriptions != descriptions;
             // Prepare the hierarchy first so a failed bounded-page build changes nothing.
             let mut hierarchy = if data.snapshots.is_some() && self.extensions.hierarchy {
                 let mut h = HierarchySnapshots::new(&data.generation)?;
@@ -292,6 +349,7 @@ impl LibraryService {
                     data.hierarchy_snapshots = hierarchy;
                 }
             }
+            data.descriptions = descriptions;
             data.folders = folders;
             data.members = members;
             data.additions = additions;
@@ -373,6 +431,9 @@ impl LibraryService {
         }
         if self.extensions.assets.is_some() {
             names.push(arinn_protocol::assets::FEATURE_ASSETS.into());
+        }
+        if self.extensions.descriptions {
+            names.push(FEATURE_DESCRIPTIONS.into());
         }
         if self.extensions.hierarchy {
             names.push(FEATURE_HIERARCHY.into());
@@ -495,6 +556,38 @@ impl LibraryService {
         generation: &str,
         revision: u64,
     ) -> zbus::Result<()>;
+}
+
+#[derive(Clone)]
+struct DescriptionsIface(LibraryService);
+#[zbus::interface(name = "org.arinn.LibraryDescriptions1")]
+impl DescriptionsIface {
+    async fn get_description(
+        &self,
+        generation: &str,
+        revision: u64,
+        id: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(Description,)> {
+        validation::id(id)?;
+        self.0.authorized(&header).await?;
+        let data = self.0.data.lock().await;
+        if data.snapshots.is_none() {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        if data.generation != generation || data.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        if !data.items.iter().any(|item| item.id == id) {
+            return Err(ErrorCode::NotFound.into());
+        }
+        Ok((Description {
+            generation: data.generation.clone(),
+            revision: data.revision,
+            id: id.into(),
+            text: data.descriptions.get(id).cloned().unwrap_or_default(),
+        },))
+    }
 }
 
 #[derive(Clone)]
@@ -782,6 +875,12 @@ impl Endpoint for LibraryService {
             .await?
         {
             return Err("provider endpoint already exported".into());
+        }
+        if self.extensions.descriptions {
+            connection
+                .object_server()
+                .at(PROVIDER_PATH, DescriptionsIface(self.clone()))
+                .await?;
         }
         if self.extensions.hierarchy {
             connection

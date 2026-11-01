@@ -175,6 +175,7 @@ struct DiskFile {
     rel: String,
     absolute: PathBuf,
     parsed: Parsed,
+    description: String,
     inode: Option<i64>,
     size: Option<i64>,
     mtime_sec: i64,
@@ -243,6 +244,10 @@ impl Store {
                mtime_sec INTEGER,
                mtime_nsec INTEGER,
                probed INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE TABLE IF NOT EXISTS item_descriptions (
+               item_id TEXT PRIMARY KEY,
+               description TEXT NOT NULL
              );
              CREATE TABLE IF NOT EXISTS item_additions (
                item_id TEXT PRIMARY KEY,
@@ -330,6 +335,32 @@ impl Store {
             series: source.2 == "series",
             poster: source.3 == id,
         })
+    }
+
+    /// Descriptions are optional and bounded separately from catalogue rows.
+    pub fn descriptions(&self) -> Result<HashMap<String, String>, ErrorCode> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT d.item_id, d.description FROM item_descriptions d
+            JOIN items i ON i.id = d.item_id ORDER BY d.item_id",
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|_| ErrorCode::Internal)?;
+        let mut descriptions = HashMap::new();
+        let mut bytes = 0;
+        for row in rows {
+            let (id, text) = row.map_err(|_| ErrorCode::Internal)?;
+            let text = parse::limit_text(&text);
+            bytes += id.len() + text.len();
+            if bytes > library::MAX_DESCRIPTION_SNAPSHOT_BYTES {
+                break;
+            }
+            descriptions.insert(id, text);
+        }
+        Ok(descriptions)
     }
 
     pub fn snapshot(&self) -> Result<(Vec<Collection>, Vec<Item>), ErrorCode> {
@@ -780,13 +811,16 @@ impl Store {
             .collect();
         let mut rows = Vec::new();
         let mut metas = HashMap::new();
+        let mut descriptions = HashMap::new();
         for (file, old) in paired {
             let meta = (file.parsed.kind == Kind::Episode).then(|| SeriesMeta {
                 title: file.parsed.series_title.clone(),
                 has_year: file.parsed.series_has_year,
                 year: file.parsed.series_year,
             });
+            let description = file.description.clone();
             let row = file_row(root_id, file, old);
+            descriptions.insert(row.id.clone(), description);
             if let Some(meta) = meta {
                 metas.insert(row.id.clone(), meta);
             }
@@ -817,8 +851,8 @@ impl Store {
             .into_iter()
             .filter(|row| row.kind == "series")
             .collect();
-        link_series(root, &mut rows, series_existing, &metas);
-        self.replace_root(root_id, &rows)
+        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        self.replace_root(root_id, &rows, &descriptions)
     }
 
     fn upsert_file(
@@ -858,8 +892,10 @@ impl Store {
             has_year: pair.0.parsed.series_has_year,
             year: pair.0.parsed.series_year,
         });
+        let description = pair.0.description.clone();
         let row = file_row(root_id, pair.0, pair.1);
         let id = row.id.clone();
+        let mut descriptions = HashMap::from([(id.clone(), description)]);
         let mut metas = HashMap::new();
         if let Some(meta) = meta {
             metas.insert(id.clone(), meta);
@@ -874,8 +910,8 @@ impl Store {
             .filter(|item| item.kind == "series")
             .collect();
         rows.push(row);
-        link_series(root, &mut rows, series_existing, &metas);
-        self.replace_root(root_id, &rows)?;
+        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        self.replace_root(root_id, &rows, &descriptions)?;
         let parent = path
             .parent()
             .and_then(|p| p.strip_prefix(root).ok())
@@ -885,12 +921,33 @@ impl Store {
         Ok(Some(id))
     }
 
-    fn replace_root(&mut self, root_id: &str, rows: &[Row]) -> Result<(), ErrorCode> {
+    fn replace_root(
+        &mut self,
+        root_id: &str,
+        rows: &[Row],
+        descriptions: &HashMap<String, String>,
+    ) -> Result<(), ErrorCode> {
         self.conn
             .execute_batch("SAVEPOINT arinn_replace")
             .map_err(|_| ErrorCode::Internal)?;
         let saved = (|| {
             self.write_root(root_id, rows)?;
+            for (id, description) in descriptions {
+                if description.is_empty() {
+                    self.conn
+                        .execute("DELETE FROM item_descriptions WHERE item_id = ?1", [id])
+                        .map_err(|_| ErrorCode::Internal)?;
+                } else {
+                    self.conn
+                        .execute(
+                            "INSERT INTO item_descriptions (item_id, description) VALUES (?1, ?2)
+                        ON CONFLICT(item_id) DO UPDATE SET description=excluded.description
+                        WHERE description != excluded.description",
+                            params![id, description],
+                        )
+                        .map_err(|_| ErrorCode::Internal)?;
+                }
+            }
             self.conn
                 .execute_batch("RELEASE SAVEPOINT arinn_replace")
                 .map_err(|_| ErrorCode::Internal)?;
@@ -1575,6 +1632,7 @@ fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
         rel,
         absolute: path.to_path_buf(),
         parsed,
+        description: nfo.description.unwrap_or_default(),
         inode: i64::try_from(meta.ino()).ok(),
         size: i64::try_from(meta.len()).ok(),
         mtime_sec: meta.mtime(),
@@ -1705,6 +1763,7 @@ fn link_series(
     rows: &mut Vec<Row>,
     existing: Vec<Row>,
     metas: &HashMap<String, SeriesMeta>,
+    descriptions: &mut HashMap<String, String>,
 ) {
     let mut pool = existing;
     let mut created: HashMap<String, String> = HashMap::new();
@@ -1753,7 +1812,9 @@ fn link_series(
             }
         }
         if !dir.is_empty() {
+            descriptions.insert(series.id.clone(), String::new());
             if let Some(nfo) = parse::read_nfo(&root.join(&dir).join("tvshow.nfo"), root) {
+                descriptions.insert(series.id.clone(), nfo.description.unwrap_or_default());
                 if let Some(title) = nfo.title {
                     series.title = title;
                 }
@@ -1785,6 +1846,10 @@ fn link_series(
         .collect();
     for row in rows.iter_mut().filter(|row| row.kind == "series") {
         row.available = live.contains(&row.id);
+        // Match films/episodes: an unavailable series keeps known metadata.
+        if !row.available {
+            descriptions.remove(&row.id);
+        }
     }
 }
 

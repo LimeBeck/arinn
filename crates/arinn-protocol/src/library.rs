@@ -165,6 +165,64 @@ pub struct HierarchyPage {
 
 pub const FEATURE_HIERARCHY: &str = "LibraryHierarchy1";
 
+pub const FEATURE_DESCRIPTIONS: &str = "LibraryDescriptions1";
+pub const MAX_DESCRIPTION_SNAPSHOT_BYTES: usize = 16 * 1024 * 1024;
+
+/// Optional plain text for one item at an exact catalogue revision.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub struct Description {
+    pub generation: String,
+    pub revision: u64,
+    pub id: String,
+    pub text: String,
+}
+
+impl Description {
+    pub fn validate(&self) -> Result<(), ErrorCode> {
+        uuid::Uuid::parse_str(&self.generation).map_err(|_| ErrorCode::InvalidArgument)?;
+        if self.revision == 0 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        validation::id(&self.id)?;
+        validation::text(&self.text)
+    }
+}
+
+/// Publication is bounded independently of the base catalogue.
+pub fn validate_descriptions(
+    descriptions: &HashMap<String, String>,
+    items: &[Item],
+) -> Result<(), ErrorCode> {
+    let ids: HashSet<_> = items.iter().map(|i| i.id.as_str()).collect();
+    let mut bytes = 0usize;
+    for (id, text) in descriptions {
+        validation::id(id)?;
+        validation::text(text)?;
+        bytes = bytes.saturating_add(id.len()).saturating_add(text.len());
+        if !ids.contains(id.as_str()) || bytes > MAX_DESCRIPTION_SNAPSHOT_BYTES {
+            return Err(ErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
+}
+
+pub mod descriptions {
+    use super::Description;
+    #[zbus::proxy(
+        interface = "org.arinn.LibraryDescriptions1",
+        default_path = "/org/arinn/Provider1"
+    )]
+    pub trait LibraryDescriptions {
+        fn get_description(
+            &self,
+            generation: &str,
+            revision: u64,
+            id: &str,
+        ) -> zbus::Result<(Description,)>;
+    }
+}
+pub use descriptions::LibraryDescriptionsProxy;
+
 impl HierarchyPage {
     pub fn encoded_len(&self) -> Result<usize, ErrorCode> {
         to_bytes(Context::new_dbus(LE, 0), &(self,))
@@ -693,6 +751,12 @@ pub use roots::LibraryRootsProxy;
     default_service = "org.arinn.Daemon1"
 )]
 pub trait LibraryApi {
+    fn get_description(
+        &self,
+        generation: &str,
+        revision: u64,
+        id: &str,
+    ) -> zbus::Result<(Description,)>;
     fn get_hierarchy(
         &self,
         generation: &str,
@@ -1026,6 +1090,36 @@ mod tests {
         assert_eq!(
             reply(&generation, 0).validate(),
             Err(ErrorCode::InvalidArgument)
+        );
+    }
+}
+
+#[cfg(test)]
+mod description_tests {
+    use super::*;
+    #[test]
+    fn description_wire_roundtrip_and_bounds() {
+        let mut value = Description {
+            generation: uuid::Uuid::new_v4().to_string(),
+            revision: 1,
+            id: "film".into(),
+            text: "Русский <b>текст</b>".into(),
+        };
+        value.validate().unwrap();
+        assert_eq!(Description::SIGNATURE.to_string(), "(stss)");
+        let encoded = to_bytes(Context::new_dbus(LE, 0), &value).unwrap();
+        let (decoded, _): (Description, _) = encoded.deserialize().unwrap();
+        assert_eq!(decoded, value);
+        value.text = "x".repeat(validation::MAX_TEXT_BYTES + 1);
+        assert_eq!(value.validate(), Err(ErrorCode::InvalidArgument));
+        value.text = "bad\0text".into();
+        assert!(value.validate().is_err());
+        value.text.clear();
+        value.revision = 0;
+        assert!(value.validate().is_err());
+        assert!(
+            validate_descriptions(&HashMap::from([("missing".into(), "plot".into())]), &[])
+                .is_err()
         );
     }
 }

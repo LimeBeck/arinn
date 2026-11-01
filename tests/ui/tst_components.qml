@@ -176,6 +176,28 @@ TestCase {
         verify(title.lineCount <= 2);
         verify(title.mapToItem(card, 0, 0).y >= 0, "the title starts inside the card");
     }
+    // #656 (owner decision 2026-11-01): a Favorites tile shows its name on up
+    // to two lines inside the tile instead of eliding after a few letters.
+    function test_tile_name_uses_two_lines_data() {
+        return [
+            {tag: "site-or-search", title: "Сайт или поиск", whole: true},
+            {tag: "series", title: "Сериалы онлайн", whole: true},
+            {tag: "one-word", title: "Кинопоиск", whole: true},
+            {tag: "too-long", title: "Невероятнодлинноеназвание сервиса для телевизора", whole: false}
+        ];
+    }
+    function test_tile_name_uses_two_lines(data) {
+        const tile = createTemporaryObject(tileFactory, suite, {width: 264, height: 132, text: data.title});
+        const name = findChild(tile, "tileTitle");
+        verify(name);
+        tryVerify(() => name.width > 0);
+        verify(name.lineCount <= 2);
+        compare(name.truncated, !data.whole);
+        verify(name.contentWidth <= name.width + 0.5, "name is " + name.contentWidth + " wide in " + name.width);
+        const box = name.mapToItem(tile, 0, 0);
+        verify(box.x + name.width <= tile.width && box.y >= 0 && box.y + name.height <= tile.height,
+               "name box " + box.x + "," + box.y + " " + name.width + "×" + name.height);
+    }
     function test_hover_suppression() {
         const first = createTemporaryObject(buttonFactory, suite);
         const second = createTemporaryObject(buttonFactory, suite, { y: 400, pointerMode: true, hoverFocusEnabled: false });

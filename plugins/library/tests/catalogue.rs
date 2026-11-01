@@ -1299,3 +1299,81 @@ fn legacy_catalogue_keeps_nested_folder_membership_when_first_reopened_offline()
     assert_eq!(members[0].item_id, id);
     assert_eq!(store.resumes().unwrap(), resumes);
 }
+
+#[test]
+fn local_descriptions_refresh_without_changing_identity_or_resume() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    fs::create_dir_all(root.join("Show/Season 1")).unwrap();
+    fs::write(root.join("Film.mkv"), b"fixture").unwrap();
+    fs::write(
+        root.join("Film.nfo"),
+        "<movie><plot>Русское описание &#38; текст.</plot></movie>",
+    )
+    .unwrap();
+    fs::write(root.join("Show/Season 1/Show S01E01.mkv"), b"fixture").unwrap();
+    fs::write(
+        root.join("Show/Season 1/Show S01E01.nfo"),
+        "<episodedetails><plot>Episode plot</plot></episodedetails>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("Show/tvshow.nfo"),
+        "<tvshow><plot>Series plot</plot></tvshow>",
+    )
+    .unwrap();
+    let cfg = settings(&root, false, PathBuf::new());
+    let mut store = open(&scratch);
+    store.scan(&cfg).unwrap();
+    let (_, before) = store.snapshot().unwrap();
+    let film = before.iter().find(|i| i.kind == "film").unwrap();
+    let series = before.iter().find(|i| i.kind == "series").unwrap();
+    let episode = before.iter().find(|i| i.kind == "episode").unwrap();
+    store
+        .set_progress(&film.id, 5_000_000, 600_000_000, false)
+        .unwrap();
+    let resumes = store.resumes().unwrap();
+    let descriptions = store.descriptions().unwrap();
+    assert_eq!(descriptions[&film.id], "Русское описание & текст.");
+    assert_eq!(descriptions[&series.id], "Series plot");
+    assert_eq!(descriptions[&episode.id], "Episode plot");
+    fs::write(
+        root.join("Film.nfo"),
+        "<movie><plot>Changed plot</plot></movie>",
+    )
+    .unwrap();
+    store.scan(&cfg).unwrap();
+    assert_eq!(store.descriptions().unwrap()[&film.id], "Changed plot");
+    assert_eq!(store.snapshot().unwrap().1, before);
+    assert_eq!(store.resumes().unwrap(), resumes);
+    fs::remove_file(root.join("Film.nfo")).unwrap();
+    store.scan(&cfg).unwrap();
+    assert!(!store.descriptions().unwrap().contains_key(&film.id));
+    assert_eq!(store.resumes().unwrap(), resumes);
+    // A missing series folder also keeps text while the rest of the root
+    // remains readable, consistently with unavailable films and episodes.
+    fs::rename(root.join("Show"), scratch.path().join("series-away")).unwrap();
+    store.scan(&cfg).unwrap();
+    assert!(
+        !store
+            .snapshot()
+            .unwrap()
+            .1
+            .iter()
+            .find(|i| i.id == series.id)
+            .unwrap()
+            .available
+    );
+    assert_eq!(store.descriptions().unwrap()[&series.id], "Series plot");
+    // An unavailable root keeps previously known local descriptive metadata.
+    fs::rename(&root, scratch.path().join("away")).unwrap();
+    store.scan(&cfg).unwrap();
+    assert_eq!(store.descriptions().unwrap()[&series.id], "Series plot");
+    drop(store);
+    let reopened = open(&scratch);
+    assert_eq!(
+        reopened.descriptions().unwrap()[&episode.id],
+        "Episode plot"
+    );
+    assert_eq!(reopened.resumes().unwrap(), resumes);
+}

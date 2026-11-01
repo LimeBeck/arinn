@@ -29,6 +29,23 @@ TestCase {
     SignalSpy { id: backs; signalName: "backRequested" }
     SignalSpy { id: homes; signalName: "homeRequested" }
 
+    function test_selected_description_is_plain_text_and_scoped_to_its_entry() {
+        createLibrary(catalogue());
+        library.tabs = [{id: "films", title: "Films", kind: "film"}];
+        library.entries = [{id: "a", tabId: "films", kind: "film", title: "First"},
+                           {id: "b", tabId: "films", kind: "film", title: "Second"}];
+        library.openEntry("a");
+        library.descriptionEntryId = "a";
+        library.descriptionText = "Русский <b>текст</b> & описание";
+        tryCompare(child("detailDescription"), "text", library.descriptionText);
+        compare(child("detailDescription").textFormat, Text.PlainText);
+        library.openEntry("b");
+        compare(child("detailDescription").text, "");
+        library.descriptionEntryId = "b";
+        library.descriptionText = "Second local description";
+        compare(child("detailDescription").text, "Second local description");
+    }
+
     function child(name) {
         const item = findChild(library, name);
         verify(item !== null, name);
@@ -615,8 +632,11 @@ TestCase {
         keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Left); keyClick(Qt.Key_Left);
         focused("episode-s1e3");
-        const stopped = rail.contentX;
+        // Reversing focus can retarget the running animation. Observe its
+        // settled position rather than sampling an intermediate frame.
         wait(550);
+        const stopped = rail.contentX;
+        wait(100);
         fuzzyCompare(rail.contentX, stopped, 0.5);
         keyClick(Qt.Key_Right);
         tryVerify(() => rail.contentX > stopped + 1, 250);

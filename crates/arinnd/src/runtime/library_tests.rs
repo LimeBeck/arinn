@@ -6,8 +6,9 @@
 use super::*;
 use arinn_protocol::{
     library::{
-        Addition, Additions, FEATURE_ADDITIONS, FEATURE_HIERARCHY, FEATURE_ROOTS, Folder,
-        FolderMember, HierarchyPage, LibraryApiProxy, RootState, Roots,
+        Addition, Additions, Description, FEATURE_ADDITIONS, FEATURE_DESCRIPTIONS,
+        FEATURE_HIERARCHY, FEATURE_ROOTS, Folder, FolderMember, HierarchyPage, LibraryApiProxy,
+        RootState, Roots,
     },
     media::{PlaybackSource, Session, SessionPage},
     production::{EntityRef, ProductionDaemonProxy, ProductionOperationProxy},
@@ -54,6 +55,8 @@ struct FakeLibrary {
     hierarchy: Arc<StdMutex<Option<HierarchyPage>>>,
     library_delay: Arc<StdMutex<Duration>>,
     additions_delay: Arc<StdMutex<Duration>>,
+    description: Arc<StdMutex<Option<Description>>>,
+    description_delay: Arc<StdMutex<Duration>>,
 }
 #[zbus::interface(name = "org.arinn.LibraryProvider1")]
 impl FakeLibrary {
@@ -77,6 +80,9 @@ impl FakeLibrary {
     }
     fn features(&self) -> Vec<String> {
         let mut features = Vec::new();
+        if self.description.lock().unwrap().is_some() {
+            features.push(FEATURE_DESCRIPTIONS.into());
+        }
         if self.hierarchy.lock().unwrap().is_some() {
             features.push(FEATURE_HIERARCHY.into());
         }
@@ -246,6 +252,28 @@ impl FakeOpen {
     }
 }
 
+#[derive(Clone)]
+struct FakeDescriptions(FakeLibrary);
+#[zbus::interface(name = "org.arinn.LibraryDescriptions1")]
+impl FakeDescriptions {
+    async fn get_description(
+        &self,
+        _generation: &str,
+        _revision: u64,
+        _id: &str,
+    ) -> production::Result<(Description,)> {
+        let delay = *self.0.description_delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        Ok((self
+            .0
+            .description
+            .lock()
+            .unwrap()
+            .clone()
+            .ok_or(ErrorCode::Unsupported)?,))
+    }
+}
+
 struct Fixture {
     bus: Child,
     address: String,
@@ -262,6 +290,8 @@ struct Fixture {
     hierarchy: Arc<StdMutex<Option<HierarchyPage>>>,
     library_delay: Arc<StdMutex<Duration>>,
     additions_delay: Arc<StdMutex<Duration>>,
+    description: Arc<StdMutex<Option<Description>>>,
+    description_delay: Arc<StdMutex<Duration>>,
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
@@ -338,6 +368,8 @@ impl Fixture {
         let hierarchy = Arc::new(StdMutex::new(None));
         let library_delay = Arc::new(StdMutex::new(Duration::ZERO));
         let additions_delay = Arc::new(StdMutex::new(Duration::ZERO));
+        let description = Arc::new(StdMutex::new(None));
+        let description_delay = Arc::new(StdMutex::new(Duration::ZERO));
         let mut bus = Command::new("dbus-daemon")
             .args(["--session", "--nofork", "--print-address=1"])
             .stdout(Stdio::piped())
@@ -377,6 +409,8 @@ impl Fixture {
             hierarchy: hierarchy.clone(),
             library_delay: library_delay.clone(),
             additions_delay: additions_delay.clone(),
+            description: description.clone(),
+            description_delay: description_delay.clone(),
         };
         objects
             .at(production::PROVIDER_PATH, fake.clone())
@@ -388,6 +422,10 @@ impl Fixture {
             .unwrap();
         objects
             .at(production::PROVIDER_PATH, FakeAdditions(fake.clone()))
+            .await
+            .unwrap();
+        objects
+            .at(production::PROVIDER_PATH, FakeDescriptions(fake.clone()))
             .await
             .unwrap();
         objects
@@ -492,6 +530,8 @@ impl Fixture {
             hierarchy,
             library_delay,
             additions_delay,
+            description,
+            description_delay,
         };
         for _ in 0..150 {
             {
@@ -990,4 +1030,76 @@ async fn disconnected_hierarchy_readers_release_all_paging_leases() {
         recovered,
         "disconnected reader's leases must be freed before the 30s TTL"
     );
+}
+
+#[tokio::test]
+async fn lazy_descriptions_are_optional_bounded_and_revision_fenced() {
+    let f = Fixture::new(false, false).await;
+    let api = f.api().await;
+    assert!(
+        error_name(api.get_description(&f.generation, 1, "film-1").await).ends_with("Unsupported")
+    );
+    let valid = Description {
+        generation: f.generation.clone(),
+        revision: 1,
+        id: "film-1".into(),
+        text: "Local plain <b>plot</b>".into(),
+    };
+    *f.description.lock().unwrap() = Some(valid.clone());
+    // Publish the newly advertised optional feature through the normal poll.
+    for _ in 0..150 {
+        if api
+            .features()
+            .await
+            .unwrap()
+            .iter()
+            .any(|name| name == FEATURE_DESCRIPTIONS)
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        api.get_description(&f.generation, 1, "film-1")
+            .await
+            .unwrap()
+            .0,
+        valid
+    );
+    assert!(
+        error_name(api.get_description(&f.generation, 2, "film-1").await).ends_with("Conflict")
+    );
+    assert!(
+        error_name(api.get_description(&f.generation, 1, "missing").await).ends_with("NotFound")
+    );
+    f.description.lock().unwrap().as_mut().unwrap().id = "film-2".into();
+    assert!(
+        error_name(api.get_description(&f.generation, 1, "film-1").await).ends_with("Internal")
+    );
+    *f.description.lock().unwrap() = Some(Description {
+        text: "x".repeat(8193),
+        ..valid.clone()
+    });
+    assert!(
+        error_name(api.get_description(&f.generation, 1, "film-1").await).ends_with("Internal")
+    );
+    *f.description.lock().unwrap() = Some(valid);
+    *f.description_delay.lock().unwrap() = Duration::from_millis(800);
+    assert!(error_name(api.get_description(&f.generation, 1, "film-1").await).ends_with("Timeout"));
+    assert_eq!(api.get_library("").await.unwrap().0.items.len(), 2);
+    *f.description_delay.lock().unwrap() = Duration::from_millis(100);
+    let change = async {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        f.core
+            .state
+            .lock()
+            .await
+            .providers
+            .get_mut("library")
+            .unwrap()
+            .info
+            .revision = 2;
+    };
+    let (result, ()) = tokio::join!(api.get_description(&f.generation, 1, "film-1"), change);
+    assert!(error_name(result).ends_with("Conflict"));
 }

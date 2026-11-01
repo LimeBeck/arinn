@@ -1,0 +1,1 @@
+- Show local NFO plot descriptions in Library film and series details through an optional compatible API; preserve catalogue identities, artwork and playback progress.

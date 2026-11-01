@@ -1055,10 +1055,14 @@ Window {
             libraryState: libraryCatalog.libraryState
             tabs: libraryCatalog.tabs
             entries: libraryCatalog.entries
+            descriptionEntryId: libraryCatalog.descriptionEntryId
+            descriptionText: libraryCatalog.descriptionText
             folderEntries: libraryCatalog.folderEntries
             operationState: libraryCatalog.operationState
             launchingId: libraryCatalog.launchingId
+            onEntryRequested: entryId => libraryCatalog.requestDescription(entryId)
             onDetailOpenChanged: {
+                if (!detailOpen) libraryCatalog.requestDescription("");
                 if (!detailOpen && root.libraryDetailFromHome) {
                     root.libraryDetailFromHome = false;
                     if (home.screen === "library") home.returnFromLibraryDetail();

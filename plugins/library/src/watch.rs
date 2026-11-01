@@ -7,8 +7,8 @@
 
 use crate::store::{Settings, Store};
 use arinn_plugin_sdk::runtime::{
-    AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryResumeHandler,
-    LibraryService, SettingsHandler, run_library_on, serve_settings,
+    AssetHandler, LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryMetadata,
+    LibraryResumeHandler, LibraryService, SettingsHandler, run_library_on, serve_settings,
 };
 use arinn_protocol::{
     library::{
@@ -20,7 +20,7 @@ use arinn_protocol::{
 };
 use serde_json::{Map, Value};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     future::Future,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
     path::PathBuf,
@@ -52,6 +52,7 @@ struct Publication {
     resumes: Vec<Resume>,
     additions: Vec<Addition>,
     hierarchy: (Vec<Folder>, Vec<FolderMember>),
+    descriptions: HashMap<String, String>,
 }
 
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
@@ -81,7 +82,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         settings: Arc::new(std::sync::Mutex::new(settings)),
         written: Arc::new(written),
     };
-    let (collections, items, resumes, additions, hierarchy) = {
+    let (collections, items, resumes, additions, hierarchy, descriptions) = {
         let store = bridge.store.lock().map_err(|_| ErrorCode::Internal)?;
         let (collections, items) = store.snapshot()?;
         (
@@ -90,6 +91,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             store.resumes()?,
             store.additions()?,
             bounded_hierarchy(store.hierarchy()),
+            store.descriptions()?,
         )
     };
     let service = LibraryService::with_extensions(
@@ -107,10 +109,11 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             .import(bridge.clone())
             .roots()
             .additions()
-            .hierarchy(),
+            .hierarchy()
+            .descriptions(),
     )?;
     service
-        .replace_with_hierarchy(
+        .replace_with_metadata(
             collections,
             items,
             if backend_ok {
@@ -118,9 +121,12 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             } else {
                 "unavailable"
             },
-            additions,
-            hierarchy.0,
-            hierarchy.1,
+            LibraryMetadata {
+                additions,
+                folders: hierarchy.0,
+                members: hierarchy.1,
+                descriptions,
+            },
         )
         .await?;
     *bridge.service.lock().await = Some(service.clone());
@@ -179,7 +185,7 @@ impl Bridge {
     async fn read_publication(&self) -> Result<Publication, ErrorCode> {
         let permit = self.publication.clone().lock_owned().await;
         let store = self.store.clone();
-        let (collections, items, resumes, additions, hierarchy) =
+        let (collections, items, resumes, additions, hierarchy, descriptions) =
             tokio::task::spawn_blocking(move || {
                 let store = store.lock().map_err(|_| ErrorCode::Internal)?;
                 let (collections, items) = store.snapshot()?;
@@ -189,6 +195,7 @@ impl Bridge {
                     store.resumes()?,
                     store.additions()?,
                     bounded_hierarchy(store.hierarchy()),
+                    store.descriptions()?,
                 ))
             })
             .await
@@ -200,6 +207,7 @@ impl Bridge {
             resumes,
             additions,
             hierarchy,
+            descriptions,
         })
     }
 
@@ -211,6 +219,7 @@ impl Bridge {
             resumes,
             additions,
             hierarchy,
+            descriptions,
         } = self.read_publication().await?;
         let service = self
             .service
@@ -219,13 +228,16 @@ impl Bridge {
             .clone()
             .ok_or(ErrorCode::Unavailable)?;
         service
-            .replace_with_hierarchy(
+            .replace_with_metadata(
                 collections,
                 items,
                 "available",
-                additions,
-                hierarchy.0,
-                hierarchy.1,
+                LibraryMetadata {
+                    additions,
+                    folders: hierarchy.0,
+                    members: hierarchy.1,
+                    descriptions,
+                },
             )
             .await?;
         service.replace_resumes(resumes).await?;
@@ -665,7 +677,8 @@ mod tests {
             "available",
             LibraryExtensions::default()
                 .resume(bridge.clone())
-                .hierarchy(),
+                .hierarchy()
+                .descriptions(),
         )
         .unwrap();
         service

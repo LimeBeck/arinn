@@ -20,6 +20,8 @@ FocusScope {
     property string statusActionText: ""
     property var tabs: []
     property string currentTabId: ""
+    property string descriptionEntryId: ""
+    property string descriptionText: ""
     property var entries: []
     property var folderEntries: []
     readonly property bool folderMode: currentTabId === "@folders"
@@ -1320,7 +1322,9 @@ FocusScope {
                     objectName: "detailDescription"
                     width: Math.min(960, parent.width)
                     role: "body"
-                    text: root.detailEntry ? (root.detailEntry.description || "") : ""
+                    text: root.descriptionEntryId === root.detailEntryId ? root.descriptionText
+                          : root.detailEntry ? (root.detailEntry.description || "") : ""
+                    textFormat: Text.PlainText
                     color: Ui.Theme.textSecondary
                     maximumLineCount: 3
                     elide: Text.ElideRight

@@ -214,7 +214,11 @@ metadata. End-to-end real Chrome/KDE qualification of this change is not run.
 [ADR-0126](../adr/0126-delegated-media-process.md) clarifies process evidence for
 proxy-only browsers without changing wire signatures or the strict join above.
 The MPRIS producer stores pinned-owner/process evidence with each published
-session. A query re-reads the pinned endpoint and requires the same evidence,
+session. A publication write gate covers evidence changes through the SDK
+replace/touch revision update. Query capture and final answer take its read gate;
+the endpoint read runs outside it. Registration is checked again after the
+players lock, and a deterministic contention test covers both boundaries.
+A query re-reads the pinned endpoint and requires the same evidence,
 registration and tracked instance after the await; otherwise it returns unknown.
 Effective-process or evidence-loss changes advance the snapshot revision even
 with identical paused fields. Failed required Metadata reads cannot publish a

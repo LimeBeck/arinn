@@ -19,7 +19,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::{Mutex, Notify, RwLock};
 use zbus::{
     Connection,
     proxy::CacheProperties,
@@ -104,6 +104,8 @@ struct Tracked {
 #[derive(Clone)]
 struct Bridge {
     connection: Connection,
+    // Serializes published process evidence with the SDK snapshot revision.
+    publication: Arc<RwLock<()>>,
     players: Arc<Mutex<BTreeMap<String, Tracked>>>,
     force: Arc<Mutex<HashSet<String>>>,
     /// A tracked bus name changed owner since the last publish. The next
@@ -116,6 +118,7 @@ struct Bridge {
 pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
     let bridge = Bridge {
         connection: connection.clone(),
+        publication: Arc::new(RwLock::new(())),
         players: Arc::new(Mutex::new(BTreeMap::new())),
         force: Arc::new(Mutex::new(HashSet::new())),
         moved: Arc::new(AtomicBool::new(false)),
@@ -166,6 +169,39 @@ impl Processes {
         Ok(())
     }
 }
+impl Processes {
+    async fn final_process(
+        &self,
+        sender: &str,
+        generation: &str,
+        id: &str,
+        evidence: Option<ProcessEvidence>,
+        latest: &Arc<Mutex<PlayerRead>>,
+        fresh: Option<ObservedPlayer>,
+    ) -> production::Result<u32> {
+        // A registration or published snapshot that changed across the await
+        // must not give this caller evidence from a different session/owner.
+        let _publication = self.bridge.publication.read().await;
+        let players = self.bridge.players.lock().await;
+        self.check(sender, generation, id)?;
+        let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
+        if tracked.session.is_none() {
+            return Err(ErrorCode::NotFound.into());
+        }
+        let process = match (evidence, fresh) {
+            (Some(published), Some(read))
+                if Arc::ptr_eq(latest, &tracked.latest)
+                    && tracked.evidence.as_ref() == Some(&published)
+                    && read.evidence == published =>
+            {
+                published.application()
+            }
+            _ => media_association::UNKNOWN_PROCESS,
+        };
+        Ok(process)
+    }
+}
+
 #[zbus::interface(name = "org.arinn.MediaProcess1")]
 impl Processes {
     async fn get_process_id(
@@ -177,7 +213,9 @@ impl Processes {
         let sender = header.sender().ok_or(ErrorCode::PermissionDenied)?.as_str();
         self.check(sender, generation, id)?;
         let (bus_name, evidence, latest) = {
+            let _publication = self.bridge.publication.read().await;
             let players = self.bridge.players.lock().await;
+            self.check(sender, generation, id)?;
             let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
             if tracked.session.is_none() {
                 return Err(ErrorCode::NotFound.into());
@@ -195,25 +233,8 @@ impl Processes {
         .await
         .ok()
         .and_then(Result::ok);
-        // A registration or published snapshot that changed across the await
-        // must not give this caller evidence from a different session/owner.
-        self.check(sender, generation, id)?;
-        let players = self.bridge.players.lock().await;
-        let tracked = players.get(id).ok_or(ErrorCode::NotFound)?;
-        if tracked.session.is_none() {
-            return Err(ErrorCode::NotFound.into());
-        }
-        let process = match (evidence, fresh) {
-            (Some(published), Some(read))
-                if Arc::ptr_eq(&latest, &tracked.latest)
-                    && tracked.evidence.as_ref() == Some(&published)
-                    && read.evidence == published =>
-            {
-                published.application()
-            }
-            _ => media_association::UNKNOWN_PROCESS,
-        };
-        Ok(process)
+        self.final_process(sender, generation, id, evidence, &latest, fresh)
+            .await
     }
 }
 
@@ -352,6 +373,7 @@ impl Bridge {
     }
 
     async fn publish(&self, service: &MediaService) -> Result<(), ErrorCode> {
+        let _publication = self.publication.write().await;
         // Taken first: a move during this publish is seen by the next one.
         let moved = self.moved.swap(false, Ordering::SeqCst);
         let names: Vec<Snapshot> = {
@@ -808,4 +830,160 @@ fn dictionary(value: &OwnedValue) -> HashMap<String, OwnedValue> {
     // Artwork URLs stay out of the map the session is built from.
     map.remove("mpris:artUrl");
     map
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader},
+        process::{Child, Command, Stdio},
+    };
+
+    struct PrivateBus(Child);
+    impl Drop for PrivateBus {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+
+    #[tokio::test]
+    async fn publication_and_registration_fence_process_answers() {
+        let mut child = Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        BufReader::new(child.stdout.take().unwrap())
+            .read_line(&mut address)
+            .unwrap();
+        let _bus = PrivateBus(child);
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let generation = "00000000-0000-4000-8000-000000000002";
+        let owner = connection.unique_name().unwrap().to_string();
+        let (registration, registrations) =
+            tokio::sync::watch::channel(Some(RegistrationContext {
+                connection: connection.clone(),
+                daemon_owner: owner.clone(),
+                daemon_epoch: "00000000-0000-4000-8000-000000000001".into(),
+                generation: generation.into(),
+            }));
+        let evidence = ProcessEvidence {
+            owner: owner.clone(),
+            process: 101,
+            proxy_for: 100,
+        };
+        let read = ObservedPlayer {
+            raw: decode(&HashMap::new()),
+            evidence: evidence.clone(),
+        };
+        let latest = Arc::new(Mutex::new(PlayerRead::Ready(read.clone())));
+        let (session, _) = map::project("fixture", &read.raw, None, false, Instant::now(), 1);
+        let tracked = Tracked {
+            bus_name: "org.mpris.MediaPlayer2.fixture".into(),
+            sample: None,
+            session: Some(session),
+            track_id: None,
+            evidence: Some(evidence.clone()),
+            latest: latest.clone(),
+            listener: None,
+            reader: tokio::spawn(std::future::pending()),
+        };
+        let processes = Processes {
+            bridge: Bridge {
+                connection,
+                publication: Arc::new(RwLock::new(())),
+                players: Arc::new(Mutex::new(BTreeMap::from([("fixture".into(), tracked)]))),
+                force: Arc::new(Mutex::new(HashSet::new())),
+                moved: Arc::new(AtomicBool::new(false)),
+                wake: Arc::new(Notify::new()),
+            },
+            registrations,
+        };
+        // Poll at the contested boundary, without a timing sleep. The answer
+        // cannot observe evidence before the publisher advances its revision.
+        let publishing = processes.bridge.publication.write().await;
+        let answer = processes.final_process(
+            &owner,
+            generation,
+            "fixture",
+            Some(evidence.clone()),
+            &latest,
+            Some(read.clone()),
+        );
+        tokio::pin!(answer);
+        assert!(
+            answer
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        processes
+            .bridge
+            .players
+            .lock()
+            .await
+            .get_mut("fixture")
+            .unwrap()
+            .evidence
+            .as_mut()
+            .unwrap()
+            .proxy_for = 200;
+        drop(publishing);
+        assert_eq!(answer.await.unwrap(), 0);
+
+        processes
+            .bridge
+            .players
+            .lock()
+            .await
+            .get_mut("fixture")
+            .unwrap()
+            .evidence = Some(evidence.clone());
+        assert_eq!(
+            processes
+                .final_process(
+                    &owner,
+                    generation,
+                    "fixture",
+                    Some(evidence.clone()),
+                    &latest,
+                    Some(read.clone())
+                )
+                .await
+                .unwrap(),
+            100
+        );
+        // Registration can change while the published players lock is busy.
+        let players = processes.bridge.players.lock().await;
+        let answer = processes.final_process(
+            &owner,
+            generation,
+            "fixture",
+            Some(evidence),
+            &latest,
+            Some(read),
+        );
+        tokio::pin!(answer);
+        assert!(
+            answer
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+                .is_pending()
+        );
+        registration.send_replace(None);
+        drop(players);
+        assert!(
+            matches!(answer.await, Err(error) if error.to_string().contains("PermissionDenied"))
+        );
+        for tracked in processes.bridge.players.lock().await.values() {
+            tracked.reader.abort();
+        }
+    }
 }

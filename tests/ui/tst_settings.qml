@@ -225,6 +225,25 @@ TestCase {
         compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
     }
 
+    // LF-5: Add on a full path list stays focusable but does nothing.
+    function test_full_path_list_add_hint() {
+        view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
+                      title: "Folders", description: "Places to read", type: "path",
+                      currentValue: ["/a", "/b"], constraints: {directory: true, multiple: true, maxItems: 2},
+                      enabled: true}];
+        keyClick(Qt.Key_Right);
+        tryVerify(() => view.detailFocused);
+        compare(view.partName, "path:0");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        // path:0 → remove:0 → path:1 → remove:1 → add
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        compare(view.partName, "add");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        keyClick(Qt.Key_Left);
+        compare(view.partName, "remove:1");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+    }
+
     // A path list taller than the viewport scrolls to the focused field.
     function test_tall_path_list_reveals_the_focused_control() {
         const paths = [];

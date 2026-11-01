@@ -210,8 +210,9 @@ sheet, so Select still reaches it (AC-02). A pending row is not editable until
 that change settles.
 
 While a row has focus, the bottom-left hint bar reads "OK Edit · Back To
-sections" (handoff se-lf-1), or "OK Unavailable" on a row with `enabled` false
-(ED-2). When the rows overflow, 72 px fade masks cover
+sections" (handoff se-lf-1), or "OK Unavailable" where OK does nothing on the
+focused part: a row with `enabled` false (ED-2), a row still saving, or Add on
+a path list at its `maxItems` (LF-5). When the rows overflow, 72 px fade masks cover
 the top and bottom edges of the list, and scrolling keeps the focused row clear
 of them; at either end of the list that mask is hidden.
 

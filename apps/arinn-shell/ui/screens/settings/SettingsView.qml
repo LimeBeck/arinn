@@ -76,10 +76,11 @@ FocusScope {
     signal homeRequested()
     signal retryRequested()
 
-    // OK does nothing on a row that cannot be changed now or is still saving.
+    // OK does nothing on the focused part: a row that cannot be changed now,
+    // one still saving, or Add on a full path list.
     readonly property bool hintRowLocked: {
         const row = rowByKey(focusedRowKey);
-        return !!row && !canEdit(row);
+        return !!row && !partActionable(row, partName);
     }
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
@@ -153,6 +154,14 @@ FocusScope {
     }
     function canEdit(row) {
         return !!row && row.enabled !== false && !row.pending;
+    }
+    // A path list at its maxItems: Add stays focusable but does nothing (LF-5).
+    function pathFull(row) {
+        return hasBound(row, "maxItems") && pathList(row).length >= Number(row.constraints.maxItems);
+    }
+    // Whether OK on this part of the row does something.
+    function partActionable(row, part) {
+        return canEdit(row) && !(part === "add" && pathFull(row));
     }
     function optionsOf(row) {
         const options = row && row.constraints && row.constraints.options;
@@ -1673,7 +1682,7 @@ FocusScope {
                                     focusPolicy: Qt.StrongFocus
                                     focus: rowScope.wants("add")
                                     activeFocusOnTab: false
-                                    readonly property bool full: root.hasBound(row, "maxItems") && root.pathList(row).length >= Number(row.constraints.maxItems)
+                                    readonly property bool full: root.pathFull(row)
                                     opacity: !root.canEdit(row) || full ? 0.45 : 1
                                     text: qsTr("Add path")
                                     onClicked: if (!full) root.openEditor(row, "add", "")

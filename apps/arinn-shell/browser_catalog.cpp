@@ -110,6 +110,20 @@ struct BrowserCatalog::Catalog {
   bool disconnected = false, providerError = false;
   QStringList failedProviders;
 };
+// Home counts web services, while Open services retains the complete tab
+// inventory (including browser-internal placeholders that can still be closed).
+QVariantList BrowserCatalog::serviceTabs() const {
+  QVariantList services;
+  for (const auto &entry : m_tabs) {
+    const QUrl url(entry.toMap().value(QStringLiteral("url")).toString());
+    if (url.isValid() && !url.host().isEmpty() &&
+        (url.scheme() == QStringLiteral("http") ||
+         url.scheme() == QStringLiteral("https")))
+      services.append(entry);
+  }
+  return services;
+}
+
 BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association(this) {
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "Changed", this, SLOT(invalidateEvidence()));

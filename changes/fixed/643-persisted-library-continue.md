@@ -1,0 +1,1 @@
+- Restore Home's Continue cards for unfinished local films and series after restarting the shell or player provider, using the library's persisted resume state. Avoid duplicates with active players and prefer the current saved episode over an older stopped session.

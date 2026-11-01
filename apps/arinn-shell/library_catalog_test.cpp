@@ -984,6 +984,186 @@ private slots:
     QTRY_COMPARE(catalog.operationState(), QStringLiteral("Unavailable"));
     QCOMPARE(launched.size(), 1);
   }
+  void persistedContinueSurvivesFreshShellCatalogs_data() {
+    QTest::addColumn<qulonglong>("observed");
+    QTest::newRow("known-time") << qulonglong(20);
+    QTest::newRow("unknown-time-still-resumable") << qulonglong(0);
+  }
+  void persistedContinueSurvivesFreshShellCatalogs() {
+    QFETCH(qulonglong, observed);
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    daemon.resumes = {resumeOn(QStringLiteral("north"), 50000000, 100000000, false, observed)};
+    QVERIFY(registerBus(daemon));
+    QString cardId;
+    for (int run = 0; run < 2; ++run) {
+      LibraryCatalog catalog;
+      QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+      QTRY_COMPARE(catalog.continueEntries().size(), 1);
+      const auto card = catalog.continueEntries().first().toMap();
+      QCOMPARE(card.value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+      QCOMPARE(card.value(QStringLiteral("progress")).toDouble(), 0.5);
+      QVERIFY(card.value(QStringLiteral("id")) != catalog.entries().first().toMap().value(QStringLiteral("id")));
+      if (run == 0) cardId = card.value(QStringLiteral("id")).toString();
+      else {
+        QCOMPARE(card.value(QStringLiteral("id")).toString(), cardId);
+        catalog.launch(card.value(QStringLiteral("resumeContentId")).toString());
+        QTRY_COMPARE(daemon.lastLocal, QStringLiteral("north"));
+      }
+    }
+  }
+  void persistedContinueGroupsSeriesAndFiltersUnavailableOrFinished() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("Series"), QStringLiteral("series")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")),
+                    film(QStringLiteral("done"), QStringLiteral("Done")),
+                    film(QStringLiteral("gone"), QStringLiteral("Gone"), false),
+                    film(QStringLiteral("zero"), QStringLiteral("Zero")),
+                    showItem(), episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1),
+                    episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4)};
+    daemon.resumes = {resumeOn(QStringLiteral("north"), 10000000, 100000000, false, 10),
+                      resumeOn(QStringLiteral("done"), 90000000, 100000000, true, 50),
+                      resumeOn(QStringLiteral("gone"), 10000000, 100000000, false, 60),
+                      resumeOn(QStringLiteral("zero"), 0, 100000000, false, 70),
+                      resumeOn(QStringLiteral("ep1"), 10000000, 100000000, false, 20),
+                      resumeOn(QStringLiteral("ep4"), 50000000, 100000000, false, 40)};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 2);
+    const auto show = catalog.continueEntries().first().toMap();
+    QCOMPARE(show.value(QStringLiteral("title")).toString(), QStringLiteral("Serial"));
+    QCOMPARE(show.value(QStringLiteral("subtitle")).toString(), QStringLiteral("Fourth"));
+    QCOMPARE(show.value(QStringLiteral("progress")).toDouble(), 0.5);
+    QVERIFY(!show.contains(QStringLiteral("episodes")));
+    QVERIFY(!show.contains(QStringLiteral("seasons")));
+    QCOMPARE(catalog.continueEntries().last().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+    catalog.launch(show.value(QStringLiteral("resumeContentId")).toString());
+    QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+  }
+  void persistedContinueIsBoundedToTheNewestFourTitles() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    for (int i = 0; i < 8; ++i) {
+      const auto id = QString::number(i);
+      daemon.page1.append(film(id, QStringLiteral("Film ") + id));
+      daemon.resumes.append(resumeOn(id, 10000000, 100000000, false, qulonglong(i)));
+    }
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 4);
+    QCOMPARE(catalog.continueEntries().first().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Film 7"));
+    QCOMPARE(catalog.continueEntries().last().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Film 4"));
+  }
+  void homeRestoresContinueAcrossFreshShells_data() {
+    QTest::addColumn<bool>("live");
+    QTest::addColumn<bool>("library");
+    QTest::newRow("persisted-library-only") << false << true;
+    QTest::newRow("live-library-without-duplicate") << true << true;
+    QTest::newRow("external-player-still-running") << true << false;
+  }
+  void homeRestoresContinueAcrossFreshShells() {
+    QFETCH(bool, live);
+    QFETCH(bool, library);
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"), QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    if (library) daemon.resumes = {resumeOn(QStringLiteral("north"), 50000000, 100000000, false, 20)};
+    if (live) {
+      ProviderWire media;
+      media.id = QStringLiteral("media-provider");
+      media.generation = QStringLiteral("g-media");
+      media.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_media"));
+      media.capabilities = {QStringLiteral("media")};
+      daemon.providers.append(media);
+      SessionWire session;
+      session.id = QStringLiteral("playing");
+      session.title = library ? QStringLiteral("North") : QStringLiteral("Browser video");
+      session.state = QStringLiteral("paused");
+      session.duration = 100000000;
+      session.position = 50000000;
+      session.actions = {QStringLiteral("play")};
+      session.hasContent = library;
+      if (library) session.content = {QStringLiteral("library-provider"), QStringLiteral("library"), QStringLiteral("north")};
+      daemon.sessions = {session};
+    }
+    QVERIFY(registerBus(daemon));
+    for (int run = 0; run < 2; ++run) {
+      ShellStandIn backend;
+      SessionGuardStandIn guard;
+      QQmlApplicationEngine engine;
+      installAssetImageProvider(&engine);
+      engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+      engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+      engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+      auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+      QVERIFY(window);
+      window->show(); window->requestActivate();
+      auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+      QVERIFY(home);
+      if (live) {
+        auto media = window->findChild<QObject *>(QStringLiteral("mediaCatalog"));
+        QVERIFY(media);
+        QTRY_COMPARE(media->property("continueEntries").toList().size(), 1);
+      }
+      QTRY_COMPARE(home->property("continueEntries").toList().size(), 1);
+      const auto card = home->property("continueEntries").toList().first().toMap();
+      QCOMPARE(card.value(QStringLiteral("title")).toString(), library ? QStringLiteral("North") : QStringLiteral("Browser video"));
+      QCOMPARE(!card.value(QStringLiteral("resumeContentId")).toString().isEmpty(), !live);
+      QQuickItem *item = nullptr;
+      QTRY_VERIFY((item = findItem(home, QStringLiteral("entry-") + card.value(QStringLiteral("id")).toString())));
+      item->forceActiveFocus(); QTRY_VERIFY(item->hasActiveFocus());
+      if (run == 1 && !live) {
+        QTest::keyClick(window, Qt::Key_Return);
+        QTRY_COMPARE(daemon.lastLocal, QStringLiteral("north"));
+      }
+    }
+  }
+  void stoppedOldEpisodeDoesNotHideTheNewerPersistedResume() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("shows"), QStringLiteral("Series"), QStringLiteral("series")}};
+    daemon.page1 = {showItem(), episodeItem(QStringLiteral("ep1"), QStringLiteral("Pilot"), 1, 1),
+                    episodeItem(QStringLiteral("ep4"), QStringLiteral("Fourth"), 1, 4)};
+    daemon.resumes = {resumeOn(QStringLiteral("ep1"), 10000000, 100000000, false, 10),
+                      resumeOn(QStringLiteral("ep4"), 50000000, 100000000, false, 40)};
+    ProviderWire media;
+    media.id = QStringLiteral("media-provider");
+      media.generation = QStringLiteral("g-media");
+    media.path = QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_media"));
+    media.capabilities = {QStringLiteral("media")};
+    daemon.providers.append(media);
+    SessionWire stopped;
+    stopped.id = QStringLiteral("old"); stopped.title = QStringLiteral("Pilot");
+    stopped.state = QStringLiteral("stopped"); stopped.duration = 100000000; stopped.position = 10000000;
+    stopped.hasContent = true;
+    stopped.content = {QStringLiteral("library-provider"), QStringLiteral("library"), QStringLiteral("ep1")};
+    daemon.sessions = {stopped};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
+    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window); window->show(); window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto player = window->findChild<QObject *>(QStringLiteral("mediaCatalog"));
+    auto catalog = window->findChild<LibraryCatalog *>(QStringLiteral("libraryCatalog"));
+    QVERIFY(home); QVERIFY(player); QVERIFY(catalog);
+    QTRY_COMPARE(player->property("continueEntries").toList().size(), 1);
+    QTRY_COMPARE(catalog->continueEntries().size(), 1);
+    QTRY_COMPARE(home->property("continueEntries").toList().size(), 1);
+    const auto card = home->property("continueEntries").toList().first().toMap();
+    QCOMPARE(card.value(QStringLiteral("resumeContentId")).toString(), presentationId(QStringLiteral("library-provider"), QStringLiteral("ep4")));
+    QQuickItem *item = nullptr;
+    QTRY_VERIFY((item = findItem(home, QStringLiteral("entry-") + card.value(QStringLiteral("id")).toString())));
+    item->forceActiveFocus(); QTRY_VERIFY(item->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep4"));
+  }
   // #247: Continue resumes a stopped film by its provider-local item id.
   void launchContentFindsTheItem() {
     LibraryDaemon daemon;

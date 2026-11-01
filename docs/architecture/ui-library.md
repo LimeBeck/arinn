@@ -208,6 +208,25 @@ dbus-run-session -- ./build/apps/arinn-shell/arinn-library-catalog-test
 Operator tests, television readability and the 22-screen design gate are not
 part of this increment.
 
+## Persisted Home Continue (#643)
+
+LibraryCatalog projects up to four available, unfinished film/series cards from
+LibraryResume1, ordered by the saved observation time. One series card selects
+the same most recent unfinished episode as Library launch. Unknown duration
+does not discard a positive saved position. A fresh shell reads these cards
+without requiring a retained Media1 session; no second history database is made.
+
+Home merges this projection with current media sessions. Active sessions
+take precedence for their library title; an old stopped session does not hide the
+provider's newer saved episode. Prefixed presentation IDs keep Continue separate
+from New. OK resumes the exact saved content through LibraryCatalog.launch,
+while the same title in New continues to open detail without playback.
+
+External browser/app sessions remain live-provider data. Restarting the shell
+rediscovers a surviving player; retaining watched-video history after that player
+exits needs a durable provider-owned reopen target and is not supplied by this
+local-library correction.
+
 ## Offline folder mode (#629)
 
 The Catalogue/Folders switch separates collection categories from physical

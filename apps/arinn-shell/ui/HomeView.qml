@@ -191,6 +191,7 @@ FocusScope {
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
     readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
     signal libraryEntryRequested(string entryId)
+    signal libraryResumeRequested(string entryId)
     signal entryRequested(string entryId)
     signal runningRequested(string entryId)
     signal returnRequested(string activityId)
@@ -511,6 +512,7 @@ FocusScope {
     }
     function activate(entryId) {
         const entry = entryById(entryId);
+        if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }

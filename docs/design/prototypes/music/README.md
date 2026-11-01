@@ -65,6 +65,9 @@ tracks from another local album are added. Next/Previous follow the edited queue
 Transport, queue and player feedback use original inline SVG icons with accessible
 names and focus tooltips; Play/Pause updates its name/icon with session state,
 and feedback exposes `aria-pressed`. No external icon font is loaded. The
+full player keeps transport, queue, seek, feedback and track radio in one
+horizontal row, with separators between groups; the 1080p/4K browser checks
+verify alignment and that all controls fit the information column. The
 `home-card` and `home-card-paused` scenes show a proposed 400×225 Continue card
 matching the current Home row geometry: track/artist, source/station, playing or
 paused status, and a separate icon transport action. Opening the card preserves

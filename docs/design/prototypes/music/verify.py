@@ -116,6 +116,15 @@ def main():
                 assert page.locator("#" + control + " svg").count() == 1
                 assert page.locator("#" + control).get_attribute("aria-label")
             assert page.locator("#pause").get_attribute("aria-label") == "Pause"
+            for width, height in [(1920, 1080), (3840, 2160)]:
+                page.set_viewport_size({"width": width, "height": height})
+                row = page.locator(".now .transport").bounding_box()
+                buttons = page.locator(".now .transport button").all()
+                assert len(buttons) == 8
+                centers = [control.bounding_box()["y"] + control.bounding_box()["height"] / 2 for control in buttons]
+                assert max(centers) - min(centers) < 2, "Player controls must occupy one horizontal row"
+                assert all(control.bounding_box()["x"] >= row["x"] and control.bounding_box()["x"] + control.bounding_box()["width"] <= row["x"] + row["width"] + 1 for control in buttons), "Controls must fit the information column"
+            page.set_viewport_size({"width": 1920, "height": 1080})
             page.locator("#pause").click()
             assert page.locator("#pause").get_attribute("aria-label") == "Play"
             assert page.locator("#mini-pause").get_attribute("aria-label") == "Play"

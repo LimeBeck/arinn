@@ -61,6 +61,9 @@ words. Keep accessible names, visible keyboard/remote focus and focused-control
 labels; the Play/Pause icon and accessible action name change with confirmed
 state. Like/dislike icons retain distinct selected states. Descriptive navigation,
 station titles and recovery actions keep readable text.
+Place player actions in one horizontal row, grouped by transport, queue/seek and
+feedback/radio, while keeping the Play/Pause action prominent. Do not stack the
+compact icon groups into separate rows at the 1080p/4K target sizes.
 
 The proposed Home music card belongs to the existing Continue row and follows its
 400×225 content-card geometry. Artwork, track and artist identify current music;

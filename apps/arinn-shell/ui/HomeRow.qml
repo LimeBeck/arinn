@@ -164,13 +164,23 @@ FocusScope {
                         // so it cannot show in the focused card's glow margin.
                         readonly property bool inSafeArea: x - viewport.contentX < root.width
                             && x + width - viewport.contentX > 0
-                        opacity: inSafeArea || (item && item.activeFocus) ? 1 : 0
+                        readonly property bool painted: inSafeArea || (item && item.activeFocus)
+                        opacity: painted ? 1 : 0
                         sourceComponent: root.variant === "app" ? tile : card
                         function chosen() {
                             root.selectedIndex = index;
                             root.selectedId = modelData.id;
                             root.selected(modelData);
                             root.reveal(index);
+                        }
+                        // Opacity does not stop input. While hidden, the card
+                        // takes no clicks; D-pad focus still reaches it.
+                        MouseArea {
+                            objectName: "hiddenCardBlocker"
+                            anchors.fill: parent
+                            z: 1000
+                            enabled: !entryLoader.painted
+                            acceptedButtons: Qt.AllButtons
                         }
                         Component {
                             id: tile
@@ -187,7 +197,8 @@ FocusScope {
                                 enabled: entryLoader.modelData.enabled !== false
                                 busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                                 pointerMode: root.pointerMode
-                                hoverFocusEnabled: root.hoverFocusEnabled
+                                // A hidden card must not take focus from the pointer.
+                                hoverFocusEnabled: root.hoverFocusEnabled && entryLoader.painted
                                 // An unavailable saved favorite is focusable so it can be removed.
                                 unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
                                 onActivated: root.activated(entryLoader.modelData.id)
@@ -238,7 +249,8 @@ FocusScope {
                                 enabled: entryLoader.modelData.enabled !== false
                                 busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                                 pointerMode: root.pointerMode
-                                hoverFocusEnabled: root.hoverFocusEnabled
+                                // A hidden card must not take focus from the pointer.
+                                hoverFocusEnabled: root.hoverFocusEnabled && entryLoader.painted
                                 onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
                                 onActivated: root.activated(entryLoader.modelData.id)
                                 onDpadRequested: root.dpadRequested()

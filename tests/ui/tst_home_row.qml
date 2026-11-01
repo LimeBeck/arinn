@@ -38,6 +38,7 @@ TestCase {
             width: Ui.Theme.canvasWidth - Ui.Theme.safeLeft - Ui.Theme.safeRight
         }
     }
+    SignalSpy { id: rowActivated; signalName: "activated" }
     Component {
         id: backdropFactory
         Rectangle { width: suite.width; height: suite.height; z: -1; color: Ui.Theme.background }
@@ -161,6 +162,22 @@ TestCase {
         tryVerify(() => edges()[0] === 120 && edges()[1] === 1872);
         compare(next.parent.opacity, 0);
         tryVerify(() => plain(1866), 5000, "the next card shows in the glow margin");
+
+        // The hidden card lies inside the widened clip, but the pointer can
+        // neither focus nor activate it there.
+        rowActivated.target = home;
+        rowActivated.clear();
+        mouseMove(suite, 1860, y);
+        wait(50);
+        compare(next.activeFocus, false, "hover focused the hidden card");
+        compare(last.activeFocus, true);
+        mouseClick(suite, 1860, y);
+        wait(50);
+        compare(rowActivated.count, 0, "a click activated the hidden card");
+        compare(last.activeFocus, true);
+        compare(findChild(home, "continueViewport").contentX, 0);
+        rowActivated.target = null;
+        mouseMove(suite, 10, suite.height - 10);
     }
 
     function test_added_and_removed_entries() {

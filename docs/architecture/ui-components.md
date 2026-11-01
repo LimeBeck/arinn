@@ -164,7 +164,8 @@ A row paints only between its own edges, which are Home's safe edges (x120 to
 x1824, handoff 01). The viewport keeps a 48 px margin on each side for the
 focus glow, lift and scale. Those margins are clipped except on the side where
 the focused card's glow needs them. A card that lies wholly outside the safe
-area and has no focus is not painted. So no card peeks past x1824 at rest, and
+area and has no focus is not painted. It also takes no pointer focus or clicks,
+though D-pad focus still reaches it. So no card peeks past x1824 at rest, and
 the focus glow is not cut (#564).
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional

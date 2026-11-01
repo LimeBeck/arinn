@@ -263,6 +263,10 @@ every action goes through the methods above.
   kglobalacceld 6.6.90, Plasma 6.7) does it mark PowerDevil's `PowerOff` and
   `PowerDown` KGlobalAccel actions not present for this KGlobalAccel run
   (`setInactive`; nothing about them is written to `kglobalshortcutsrc`).
+  The `actionList` lookup sends one `QKeySequence` struct argument (`(ai)`),
+  not a bare integer array (`ai`); Qt rejects the latter with `UnknownMethod`.
+  The private-bus power-key fixture checks the exact message signature so
+  permissive deserialization cannot hide this failure (#638).
   Before Plasma 6.7 KGlobalAccel refuses the keys: PowerDevil's actions are
   never touched, `ArinnPower` stays empty, the inhibitor is dropped, and the
   desktop's dialog stays (logged as `power-key` `Unsupported`). A key another

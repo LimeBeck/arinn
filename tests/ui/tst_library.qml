@@ -529,16 +529,22 @@ TestCase {
             focused("season-s1");
             keyClick(Qt.Key_Down);
         }
-        for (let i = 0; i < list.length; ++i) {
-            focused("episode-ep" + i);
-            const still = child("episode-ep" + i);
-            const caption = child("episodeDuration-ep" + i);
+        function visibleEpisode(index) {
+            focused("episode-ep" + index);
+            const cell = child("episode-ep" + index).parent;
+            const caption = child("episodeDuration-ep" + index);
             tryVerify(() => {
-                const top = still.mapToItem(library, 0, 0);
+                // Check layout bounds; the Surface's decorative focus scale
+                // may extend beyond its cell without changing rail position.
+                const top = cell.mapToItem(library, 0, 0);
+                const right = cell.mapToItem(library, cell.width, 0);
                 const bottom = caption.mapToItem(library, caption.width, caption.height);
-                return top.x >= 0 && top.y >= 0 && top.x + still.width <= library.width
+                return top.x >= 0 && top.y >= 0 && right.x <= library.width
                         && bottom.y <= library.height;
-            }, 1500, "Episode " + i + " and caption must be inside the viewport");
+            }, 1500, "Episode " + index + " and caption must be inside the viewport");
+        }
+        for (let i = 0; i < list.length; ++i) {
+            visibleEpisode(i);
             if (i + 1 < list.length)
                 keyClick(Qt.Key_Right);
         }
@@ -547,7 +553,7 @@ TestCase {
         compare(episodes.signalArguments[0][1], "ep11");
         for (let i = list.length - 2; i >= 0; --i) {
             keyClick(Qt.Key_Left);
-            focused("episode-ep" + i);
+            visibleEpisode(i);
         }
         keyClick(Qt.Key_Up);
         if (data.withSeason) {

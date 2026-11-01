@@ -39,6 +39,8 @@ fallback; it does not promise a hardware decoder for every codec/device. Keep
 No provider names or decoding logic are added to core routing or QML. Generic
 Settings renders the enum; there is no plugin-supplied UI or new wire method.
 
+See the [configuration example](../architecture/media-decoding-settings.md).
+
 ## Consequences
 
 The preference can change without rebuilding Arinn. Current playback continues;

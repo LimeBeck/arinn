@@ -30,9 +30,10 @@ const RULE: &str = "arinn-keyboard-panel";
 /// The marker in Arinn's state directory: `kwinrc` names Arinn's input
 /// method, written by Arinn or found there, and is never written again.
 pub const INPUT_METHOD_MARKER: &str = "kde-input-method-selected";
-/// Forced (`…rule=2`): no focus, above other windows, no border, and out of
-/// the taskbar, pager and switcher. The KWin script places the window.
-const RULE_ENTRIES: [(&str, &str); 17] = [
+/// Forced (`…rule=2`): no focus, OSD layer above active fullscreen windows,
+/// no border, and out of the taskbar, pager and switcher. Keep Above alone
+/// is below KWin's active fullscreen layer. The script places the window.
+const RULE_ENTRIES: [(&str, &str); 19] = [
     ("Description", "Arinn on-screen keyboard panel"),
     ("above", "true"),
     ("aboverule", "2"),
@@ -50,6 +51,8 @@ const RULE_ENTRIES: [(&str, &str); 17] = [
     ("titlematch", "1"),
     ("wmclass", "org.arinn.Shell"),
     ("wmclassmatch", "1"),
+    ("layer", "osd"),
+    ("layerrule", "2"),
 ];
 
 fn log(level: &str, operation: &str, error: Option<&str>) {
@@ -407,6 +410,42 @@ mod tests {
         assert_eq!(fixed, text);
         assert_eq!(
             rule("[$i]\n[General]\ncount=0\n"),
+            Edit::Refused("PermissionDenied")
+        );
+    }
+
+    #[test]
+    fn the_panel_rule_upgrades_above_fullscreen_without_accepting_focus() {
+        // The deployed ADR-0105 rule kept the panel above ordinary windows,
+        // but KWin's active fullscreen layer is higher than Keep Above.
+        let legacy = "[arinn-keyboard-panel]\nDescription=Arinn on-screen keyboard panel\nabove=true\naboverule=2\nacceptfocus=false\nacceptfocusrule=2\nnoborder=true\nnoborderrule=2\nskippager=true\nskippagerrule=2\nskipswitcher=true\nskipswitcherrule=2\nskiptaskbar=true\nskiptaskbarrule=2\ntitle=org.arinn.KeyboardPanel\ntitlematch=1\nwmclass=org.arinn.Shell\nwmclassmatch=1\n\n[other]\nwmclass=example.browser\nwmclassmatch=1\nlayer=normal\nlayerrule=2\n\n[General]\nrules=other,arinn-keyboard-panel\ncount=2\n";
+        let Edit::Changed(upgraded) = rule(legacy) else {
+            panic!("the old Keep Above rule must be upgraded");
+        };
+        let parsed = File::parse(&upgraded).unwrap();
+        assert_eq!(parsed.get(RULE, "layer").as_deref(), Some("osd"));
+        assert_eq!(parsed.get(RULE, "layerrule").as_deref(), Some("2"));
+        for (key, value) in [
+            ("acceptfocus", "false"),
+            ("acceptfocusrule", "2"),
+            ("title", "org.arinn.KeyboardPanel"),
+            ("titlematch", "1"),
+            ("wmclass", "org.arinn.Shell"),
+            ("wmclassmatch", "1"),
+        ] {
+            assert_eq!(parsed.get(RULE, key).as_deref(), Some(value));
+        }
+        assert!(upgraded.contains(
+            "[other]\nwmclass=example.browser\nwmclassmatch=1\nlayer=normal\nlayerrule=2\n"
+        ));
+        assert_eq!(
+            parsed.get("General", "rules").as_deref(),
+            Some("other,arinn-keyboard-panel")
+        );
+        assert_eq!(parsed.get("General", "count").as_deref(), Some("2"));
+        assert_eq!(rule(&upgraded), Edit::Unchanged);
+        assert_eq!(
+            rule(&legacy.replace("[arinn-keyboard-panel]", "[arinn-keyboard-panel][$i]")),
             Edit::Refused("PermissionDenied")
         );
     }

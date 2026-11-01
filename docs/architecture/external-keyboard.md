@@ -93,10 +93,22 @@ The pieces:
   - It places the panel along the bottom of the active output and keeps it above.
 - **The daemon's KDE code** (`platform/kde/keyboard_config.rs`) runs on each new KWin adapter connection:
   - it sets `kwinrc [Wayland] InputMethod` to `org.arinn.InputMethod.desktop` only when the entry is empty, and sends KConfig's change notification. It does so **once**: the marker `kde-input-method-selected` in Arinn's state directory records that the value was written or found, so a later *None* in Plasma's Virtual Keyboard settings (which deletes the key) is respected;
-  - it keeps the `arinn-keyboard-panel` window rule in `kwinrulesrc` (accept focus, above, no border and the skip flags, all forced) and asks KWin to reconfigure;
+  - it keeps the `arinn-keyboard-panel` window rule in `kwinrulesrc` (accept focus off, OSD layer, above, no border and the skip flags, all forced) and asks KWin to reconfigure;
   - it never writes a file with immutable markers;
   - it logs `Conflict` when another input method is chosen.
   - **Uninstall** reverses neither the `kwinrc` value nor the window rule. Both are harmless: the rule matches only Arinn's panel, and a missing desktop file only turns KWin's input method off. Choose another input method, or *None*, under System Settings → Keyboard → Virtual Keyboard to clear the value.
+
+  The exact class/title match applies `layer=osd`, `layerrule=2` only to
+  the keyboard panel. KWin's Keep Above layer alone is below the active
+  fullscreen layer; its OSD layer is above it. The forced no-focus rule stays
+  in place, so showing the panel does not deactivate the application's input
+  context. Existing installations receive the added layer entries on the next
+  adapter connection, through the same rule update and KWin reconfigure path.
+  This uses KWin's existing layer rule (available in Plasma 6.0), without a
+  new Qt shell integration or dependency. See KWin's
+  [rule schema](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.0/src/rulesettings.kcfg),
+  [layer selection](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.0/src/window.cpp)
+  and [stacking layers](https://invent.kde.org/plasma/kwin/-/blob/Plasma/6.0/src/layers.cpp).
 - **`arinn-input-method`** (`platform/kde/input-method`) is what KWin starts. A pure state machine (`machine.rs`) decides; the I/O layer carries out its decisions.
   - `[open, S]`: lock check, `forceActivate()`, wait 1 s for the context, `grab_keyboard`, `Opened`.
   - Panel keys (evdev 103, 108, 105, 106, 28, 96, 352, 353, 1, 158) become `Input` on press; held arrows repeat at the grab's rate.
@@ -120,7 +132,12 @@ The pieces:
   - fast toggles leave no records behind;
   - the queue bound and concurrent polls;
   - no typed text or key name in log records.
-- **KDE configuration** (`keyboard_config` tests) and KGlobalAccel writes (`global_home` tests, `adapter_connection_applies_configured_home_shortcut`).
+- **KDE configuration** (`keyboard_config` tests), including upgrading the
+  pre-fullscreen-fix rule to the forced OSD layer while preserving exact panel
+  matching, no-focus guards, unrelated rules, idempotence and immutable-file
+  refusal; and KGlobalAccel writes (`global_home` tests,
+  `adapter_connection_applies_configured_home_shortcut`). These configuration
+  fixtures do not prove real compositor stacking.
 - **X11/EWMH:** see [x11-ewmh.md](x11-ewmh.md#on-screen-keyboard) (Xvfb tests).
 - **KDE input method** (`arinn-input-method` tests): the state machine, and a scenario against a fake `zwp_input_method_v1` compositor, a fake `VirtualKeyboard`, lock service and daemon:
   - no auto-show;
@@ -139,7 +156,9 @@ The pieces:
 - **Not verified here.** No KWin, no real compositor and no hardware are available here. These need the owner's operator test on the HTPC (G-5.9):
   - KWin 6 starting the input method from `kwinrc`;
   - `forceActivate` and the keyboard grab with Chrome;
-  - the window rule keeping the panel unfocused, and the script's placement (it assigns `frameGeometry` from a plain object);
+  - the window rule keeping the panel unfocused above an active fullscreen
+    application, and the script's placement (it assigns `frameGeometry` from a
+    plain object);
   - commits in Chrome with and without its Wayland IME;
   - XFCE with a real window manager;
   - the hwdb remap of the microphone.

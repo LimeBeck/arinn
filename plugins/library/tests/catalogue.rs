@@ -4,7 +4,7 @@
 //! Catalogue scans on temporary folders: names, NFO, availability, rename,
 //! resume and import. No network mounts.
 
-use arinn_plugin_library::{MountTables, Settings, Store, scan_shared, to_file_uri};
+use arinn_plugin_library::{MountTables, Rules, Settings, Store, scan_shared, to_file_uri};
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
@@ -44,6 +44,7 @@ fn settings(root: &Path, probe: bool, ffprobe: PathBuf) -> Settings {
         roots: vec![root.to_path_buf()],
         probe,
         ffprobe,
+        ..Settings::default()
     }
 }
 
@@ -536,6 +537,66 @@ fn rename_inside_a_root_keeps_the_uuid() {
     assert_eq!(renamed.title, "After");
     assert!(renamed.available);
     assert_eq!(items.iter().filter(|item| item.kind == "film").count(), 1);
+}
+
+// #658 (ADR-0128): a rule change reclassifies a film as an episode at the
+// next scan. The item keeps its id, resume position and discovery time; no
+// duplicate is left and nothing on disk changes.
+#[test]
+fn changed_rules_reclassify_without_losing_identity_or_progress() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    let folder = root.join("Synthetic Show 2nd Season");
+    fs::create_dir_all(&folder).unwrap();
+    let video = folder.join("Synthetic Show 2nd Season - 01.mkv");
+    fs::write(&video, b"episode").unwrap();
+    let mut store = open(&scratch);
+    let mut without_ordinal = settings(&root, false, PathBuf::from("ffprobe"));
+    without_ordinal.recognition = Rules::from_value(&serde_json::json!({
+        "disable": ["ordinal-season"]
+    }))
+    .unwrap();
+    store.scan(&without_ordinal).unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let film = items
+        .iter()
+        .find(|item| item.kind == "film")
+        .unwrap()
+        .clone();
+    assert!(items.iter().all(|item| item.kind != "episode"));
+    let duration = 24 * 60 * 1_000_000;
+    store
+        .set_progress(&film.id, 300_000_000, duration, false)
+        .unwrap();
+    let added = store.additions().unwrap()[0].added_at_us;
+
+    // The default rules know `2nd Season`.
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    assert!(items.iter().all(|item| item.kind != "film"), "{items:?}");
+    let episode = items.iter().find(|item| item.kind == "episode").unwrap();
+    assert_eq!(episode.id, film.id);
+    assert_eq!((episode.season, episode.episode), (2, 1));
+    let series = items.iter().find(|item| item.kind == "series").unwrap();
+    assert_eq!(series.title, "Synthetic Show");
+    assert_eq!(episode.parent_id, series.id);
+    assert_eq!(
+        items.iter().filter(|item| item.kind == "episode").count(),
+        1
+    );
+    let resume = store
+        .resumes()
+        .unwrap()
+        .into_iter()
+        .find(|resume| resume.content_id == film.id)
+        .unwrap();
+    assert_eq!(resume.position_us, 300_000_000);
+    let additions = store.additions().unwrap();
+    assert_eq!(additions[0].id, series.id);
+    assert_eq!(additions[0].added_at_us, added);
+    assert!(video.is_file());
 }
 
 #[test]

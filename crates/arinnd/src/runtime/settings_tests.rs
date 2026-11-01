@@ -468,3 +468,19 @@ async fn the_daemon_export_matches_the_published_settings1_xml() {
     assert_eq!(live, file);
     assert_eq!(file.len(), 3);
 }
+
+/// The daemon's own schema obeys the same rules as a provider schema, so
+/// the shell shows every row: `search_engine` once used the unknown
+/// category `browser` and was dropped (#682). Handoff: a Settings › Apps row.
+#[test]
+fn the_daemon_schema_is_valid_and_lists_the_search_engine_under_applications() {
+    let engines = vec![crate::browse::Engine {
+        id: "example".into(),
+        title: "Example Search".into(),
+        template: "https://search.example/?q={query}".into(),
+    }];
+    let schema = daemon_schema(&engines);
+    assert_eq!(settings::validate_schema(&schema), Ok(()));
+    let engine = schema.iter().find(|s| s.id == "search_engine").unwrap();
+    assert_eq!(engine.category, "applications");
+}

@@ -4,6 +4,7 @@
 //! File-name and sidecar NFO parsing (ADR-0056).
 //! NFO is read as text. External entities and DTDs are not resolved.
 
+use crate::recognition::Rules;
 use arinn_protocol::validation;
 use std::{
     fs,
@@ -51,7 +52,22 @@ pub fn is_video(path: &Path) -> bool {
     extension(path).is_some_and(|ext| VIDEO_EXTENSIONS.contains(&ext.as_str()))
 }
 
+/// A folder or file name as the recognition rules see it (ADR-0128):
+/// cleaned, with `[...]` markers unwrapped and a year taken out.
+pub fn rule_text(name: &str) -> String {
+    take_year(&clean(&unwrap_markers(name))).0
+}
+
+/// `parse_video_with` and the default recognition rules.
+#[cfg(test)]
 pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
+    parse_video_with(root, path, &Rules::default())
+}
+
+/// Parses a video path below `root` with the given recognition rules
+/// (ADR-0128): built-in markers first, then the configured season rules,
+/// and the configured episode rules before a season folder's loose number.
+pub fn parse_video_with(root: &Path, path: &Path, rules: &Rules) -> Option<Parsed> {
     if !is_video(path) {
         return None;
     }
@@ -60,7 +76,7 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
     if stem.is_empty() || stem.starts_with('.') {
         return None;
     }
-    let dir = series_dir(rel);
+    let dir = series_dir(rel, rules);
     let season_from_dir = dir.season;
     let cleaned = clean(stem);
     let (mut text, mut year) = take_year(&cleaned);
@@ -70,7 +86,18 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
         // in `[...]` groups, which the plain cleaning drops. A standalone
         // `Snn` season marks a season the same way (ADR-0109).
         let (alt, alt_year) = take_year(&clean(&unwrap_markers(stem)));
-        marker = season_marker(&alt);
+        // A configured season rule marks a season the same way (ADR-0128),
+        // with the episode number right after it, if any.
+        marker = season_marker(&alt).or_else(|| {
+            rules
+                .season_in(&alt)
+                .map(|found| match lead_episode(&alt[found.end..], false) {
+                    Some((episode, len)) => {
+                        (found.number, Some(episode), found.start, found.end + len)
+                    }
+                    None => (found.number, None, found.start, found.end),
+                })
+        });
         if marker.is_some() || season_from_dir.is_some() {
             text = alt;
             year = alt_year;
@@ -88,8 +115,13 @@ pub fn parse_video(root: &Path, path: &Path) -> Option<Parsed> {
             let after = trim_seps(&without_year[end..]);
             (Some(season), episode_no, before, after)
         }
-        // In a season folder the episode number may stand alone (ADR-0085).
-        None => match loose_episode(&without_year) {
+        // In a season folder a configured episode rule (ADR-0128) comes
+        // first; otherwise the number may stand alone (ADR-0085).
+        None => match rules
+            .episode_in(&without_year)
+            .map(|found| (found.number, found.start, found.end))
+            .or_else(|| loose_episode(&without_year))
+        {
             Some((episode_no, start, end)) => (
                 season_from_dir,
                 Some(episode_no),
@@ -174,7 +206,7 @@ struct SeriesDir {
     title: Option<(String, Option<i32>)>,
 }
 
-fn series_dir(rel: &Path) -> SeriesDir {
+fn series_dir(rel: &Path, rules: &Rules) -> SeriesDir {
     let mut parts = Vec::new();
     for component in rel.parent().unwrap_or(Path::new("")).components() {
         let Some(name) = component.as_os_str().to_str() else {
@@ -183,14 +215,14 @@ fn series_dir(rel: &Path) -> SeriesDir {
         if name.starts_with('.') {
             return SeriesDir::default();
         }
-        if let Some(season) = season_dir(name) {
+        if let Some(season) = season_dir(name, rules) {
             return SeriesDir {
                 path: parts.join("/"),
                 season: Some(season),
                 title: None,
             };
         }
-        if let Some((title, year, season)) = titled_season_dir(name) {
+        if let Some((title, year, season)) = titled_season_dir(name, rules) {
             return SeriesDir {
                 path: String::new(),
                 season: Some(season),
@@ -205,8 +237,9 @@ fn series_dir(rel: &Path) -> SeriesDir {
     }
 }
 
-/// `Season N`, or a folder that is only a `TVn` or `Snn` marker.
-fn season_dir(name: &str) -> Option<u32> {
+/// `Season N`, or a folder that is only a `TVn` or `Snn` marker, or only a
+/// configured season marker (ADR-0128).
+fn season_dir(name: &str, rules: &Rules) -> Option<u32> {
     let cleaned = clean(&unwrap_markers(name));
     if let Some((season, 0, end)) = find_season_marker(&cleaned)
         && end == cleaned.len()
@@ -214,19 +247,32 @@ fn season_dir(name: &str) -> Option<u32> {
         return Some(season);
     }
     let lower = name.to_ascii_lowercase();
-    let rest = lower.strip_prefix("season")?.trim_start();
-    let rest = rest
-        .strip_prefix([' ', '.', '_', '-'])
-        .unwrap_or(rest)
-        .trim();
-    index_token(rest)
+    if let Some(rest) = lower.strip_prefix("season") {
+        let rest = rest.trim_start();
+        let rest = rest
+            .strip_prefix([' ', '.', '_', '-'])
+            .unwrap_or(rest)
+            .trim();
+        if let Some(season) = index_token(rest) {
+            return Some(season);
+        }
+    }
+    rules
+        .season_in(&cleaned)
+        .filter(|found| found.start == 0 && found.end == cleaned.len())
+        .map(|found| found.number)
 }
 
-/// `<Title> TVn` or `<Title> Snn` (an optional year anywhere, `[...]` groups
-/// dropped): season `n` of `<Title>`.
-fn titled_season_dir(name: &str) -> Option<(String, Option<i32>, u32)> {
+/// `<Title> TVn`, `<Title> Snn` or `<Title> <configured season marker>`
+/// (ADR-0128), with an optional year anywhere and `[...]` groups dropped:
+/// season `n` of `<Title>`.
+fn titled_season_dir(name: &str, rules: &Rules) -> Option<(String, Option<i32>, u32)> {
     let (text, year) = take_year(&clean(&unwrap_markers(name)));
-    let (season, start, end) = find_season_marker(&text)?;
+    let (season, start, end) = find_season_marker(&text).or_else(|| {
+        rules
+            .season_at_end(&text)
+            .map(|found| (found.number, found.start, found.end))
+    })?;
     let title = trim_seps(&text[..start]);
     if title.is_empty() || !trim_seps(&text[end..]).is_empty() {
         return None;
@@ -916,6 +962,100 @@ mod tests {
         assert_eq!(episode.season, 1);
         assert_eq!(episode.episode, 2);
         assert_eq!(episode.title, "Pilot");
+    }
+
+    // #658: an ordinal season marker (`2nd Season`) in the folder and the
+    // file name is season 2, not a film (default rule, ADR-0128).
+    #[test]
+    fn an_ordinal_season_is_an_episode_with_the_default_rules() {
+        let root = Path::new("/library");
+        let episode = parse_video(
+            root,
+            Path::new(
+                "/library/[Fixture] Synthetic Show 2nd Season/\
+                 [Fixture] Synthetic Show 2nd Season - 01.mkv",
+            ),
+        )
+        .unwrap();
+        assert_eq!(episode.kind, Kind::Episode);
+        assert_eq!(episode.series_title, "Synthetic Show");
+        assert!(episode.has_season && episode.season == 2);
+        assert!(episode.has_episode && episode.episode == 1);
+        // The control from the issue is unchanged.
+        let control = parse_video(
+            root,
+            Path::new("/library/Synthetic Show/Season 02/Synthetic Show - 01.mkv"),
+        )
+        .unwrap();
+        assert_eq!(
+            (control.kind, control.season, control.episode),
+            (Kind::Episode, 2, 1)
+        );
+        // A file name alone at the root, and a marker-only folder.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Synthetic Show 3rd Season - 04.mkv"),
+        )
+        .unwrap();
+        assert_eq!(
+            (episode.kind, episode.season, episode.episode),
+            (Kind::Episode, 3, 4)
+        );
+        assert_eq!(episode.series_title, "Synthetic Show");
+        let episode = parse_video(
+            root,
+            Path::new("/library/Synthetic Show/2nd Season/Synthetic Show - 05.mkv"),
+        )
+        .unwrap();
+        assert_eq!(
+            (episode.kind, episode.season, episode.episode),
+            (Kind::Episode, 2, 5)
+        );
+        assert_eq!(episode.series_title, "Synthetic Show");
+    }
+
+    // Numbered and ordinal film titles stay films.
+    #[test]
+    fn numbered_film_titles_are_not_seasons() {
+        let root = Path::new("/library");
+        for name in [
+            "The 2nd Coming (2001).mkv",
+            "Film 2 (2019).mkv",
+            "Fifth Season Rising.mkv",
+            "Seasonal 2nd Round.mkv",
+        ] {
+            let path = Path::new("/library").join(name);
+            let film = parse_video(root, &path).unwrap();
+            assert_eq!(film.kind, Kind::Film, "{name}");
+            assert!(!film.has_season, "{name}");
+        }
+    }
+
+    // A custom rule from the settings takes effect without a rebuild, and
+    // disabling the default turns the ordinal form off again.
+    #[test]
+    fn configured_rules_change_recognition() {
+        let root = Path::new("/library");
+        let path = Path::new("/library/Шоу 2-й сезон/Шоу серия 03.mkv");
+        let film = parse_video(root, path).unwrap();
+        assert_eq!(film.kind, Kind::Film);
+        let rules = Rules::from_value(&serde_json::json!({
+            "season": ["{n}-й сезон"],
+            "episode": ["серия {n}"],
+        }))
+        .unwrap();
+        let episode = parse_video_with(root, path, &rules).unwrap();
+        assert_eq!(
+            (episode.kind, episode.season, episode.episode),
+            (Kind::Episode, 2, 3)
+        );
+        assert_eq!(episode.series_title, "Шоу");
+        let off = Rules::from_value(&serde_json::json!({"disable": ["ordinal-season"]})).unwrap();
+        let ordinal = Path::new("/library/Show 2nd Season/Show 2nd Season - 01.mkv");
+        assert_eq!(
+            parse_video_with(root, ordinal, &off).unwrap().kind,
+            Kind::Film
+        );
     }
 
     #[test]

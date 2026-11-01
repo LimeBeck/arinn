@@ -7,8 +7,8 @@
 use arinn_plugin_library::serve;
 use arinn_protocol::{
     library::{
-        ImportCandidate, LibraryAdditionsProxy, LibraryImportProxy, LibraryProviderProxy,
-        LibraryResumeProxy, LibraryRootsProxy, RootState,
+        ImportCandidate, LibraryAdditionsProxy, LibraryHierarchyProxy, LibraryImportProxy,
+        LibraryProviderProxy, LibraryResumeProxy, LibraryRootsProxy, RootState,
     },
     production::{self, EntityRef, Registration, RegistrationReply},
     settings::ProviderSettingsProxy,
@@ -131,6 +131,7 @@ async fn scenario() {
         vec![
             "LibraryResume1".to_string(),
             "LibraryImport1".into(),
+            "LibraryHierarchy1".into(),
             "LibraryAdditions1".into(),
             "LibraryRoots1".into()
         ]
@@ -141,6 +142,24 @@ async fn scenario() {
         .find(|item| item.title == "QuietTitle")
         .unwrap();
     let id = film.id.clone();
+    let hierarchy = LibraryHierarchyProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (folders,) = hierarchy
+        .get_hierarchy(&page.generation, page.revision, "")
+        .await
+        .unwrap();
+    assert!(folders.next_token.is_empty());
+    arinn_protocol::library::validate_hierarchy_items(
+        &folders.folders,
+        &folders.members,
+        &page.items,
+    )
+    .unwrap();
+    assert!(folders.members.iter().any(|member| member.item_id == id));
     let additions = LibraryAdditionsProxy::builder(&server)
         .path("/org/arinn/Provider1")
         .unwrap()

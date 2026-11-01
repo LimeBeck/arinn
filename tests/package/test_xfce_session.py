@@ -73,26 +73,28 @@ exit 0
         self.env["HOME"] = str(self.root / "home")
         self.screensaver = None
         if os.environ.get("ARINN_XFCE_NO_SCREENSAVER_STUB") != "1":
-            self.assertTrue(
-                SCREENSAVER_STUB.exists(),
-                f"build {SCREENSAVER_STUB} with cargo build -p arinn-platform-x11",
-            )
-            self.screensaver = subprocess.Popen(
-                [str(SCREENSAVER_STUB)],
-                env={**os.environ, "DBUS_SESSION_BUS_ADDRESS": address},
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            self.screensaver = self.start_screensaver_stub()
             self.addCleanup(self.stop_process, self.screensaver)
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                if self.dbus.dbus_bus_name_has_owner(
-                    self.owner, b"org.xfce.ScreenSaver", None
-                ):
-                    break
-                time.sleep(0.02)
-            else:
-                self.fail("screensaver stub did not claim org.xfce.ScreenSaver")
+
+    def start_screensaver_stub(self):
+        self.assertTrue(
+            SCREENSAVER_STUB.exists(),
+            "build with cargo build -p arinn-platform-x11 --features test-support",
+        )
+        child = subprocess.Popen(
+            [str(SCREENSAVER_STUB)],
+            env={**os.environ, "DBUS_SESSION_BUS_ADDRESS": self.address},
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if self.dbus.dbus_bus_name_has_owner(
+                self.owner, b"org.xfce.ScreenSaver", None
+            ):
+                return child
+            time.sleep(0.02)
+        self.fail("screensaver stub did not claim org.xfce.ScreenSaver")
 
     @staticmethod
     def stop_process(child):
@@ -139,14 +141,40 @@ class XfceSessionWithoutLockProvider(XfceSession):
     def setUp(self):
         os.environ["ARINN_XFCE_NO_SCREENSAVER_STUB"] = "1"
         super().setUp()
+        self.env["ARINN_LOCK_PROVIDER_WAIT_SECS"] = "1"
         self.addCleanup(os.environ.pop, "ARINN_XFCE_NO_SCREENSAVER_STUB", None)
 
     def test_missing_lock_provider_never_starts_target(self):
         child = self.launch()
-        _, stderr = child.communicate(timeout=10)
+        _, stderr = child.communicate(timeout=5)
         self.assertEqual(child.returncode, 1)
         self.assertEqual(stderr.strip(), LOCK_PROVIDER_MISSING)
         self.assertNotIn("start arinn-ewmh-session.target", self.log.read_text())
+
+
+class XfceSessionLateLockProvider(XfceSession):
+    """Screensaver appears after the helper starts, within the wait bound."""
+
+    def setUp(self):
+        os.environ["ARINN_XFCE_NO_SCREENSAVER_STUB"] = "1"
+        super().setUp()
+        self.addCleanup(os.environ.pop, "ARINN_XFCE_NO_SCREENSAVER_STUB", None)
+
+    def test_late_screensaver_still_starts(self):
+        child = self.launch(ARINN_LOCK_PROVIDER_WAIT_SECS="5")
+        time.sleep(0.4)
+        stub = self.start_screensaver_stub()
+        self.addCleanup(self.stop_process, stub)
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if "start arinn-ewmh-session.target" in self.log.read_text():
+                break
+            self.assertIsNone(child.poll(), "helper exited before a late provider appeared")
+            time.sleep(0.02)
+        else:
+            self.fail("startup timed out after a late screensaver")
+        self.close_owner()
+        self.assertEqual(child.wait(timeout=5), 0)
 
 
 class XfceSessionWithLockProvider(XfceSession):

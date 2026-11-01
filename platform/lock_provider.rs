@@ -72,6 +72,76 @@ pub async fn provider_present(session: &Connection) -> bool {
     probe(session).await.0.is_some()
 }
 
+/// How long the XFCE session helper waits for a ScreenSaver autostart entry
+/// (`xfce4-screensaver`, `light-locker`) to claim a [`LOCK_ENDPOINTS`] name.
+pub const PROVIDER_WAIT: Duration = Duration::from_secs(20);
+
+/// Reads [`PROVIDER_WAIT`], overridable in tests via `ARINN_LOCK_PROVIDER_WAIT_SECS`.
+pub fn provider_wait_from_env() -> Duration {
+    match std::env::var("ARINN_LOCK_PROVIDER_WAIT_SECS") {
+        Ok(value) if !value.is_empty() => value
+            .parse::<u64>()
+            .ok()
+            .filter(|&seconds| seconds > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(PROVIDER_WAIT),
+        _ => PROVIDER_WAIT,
+    }
+}
+
+/// Waits up to [`provider_wait_from_env()`], re-probing on ScreenSaver
+/// `NameOwnerChanged`, until [`provider_present`] succeeds.
+pub async fn wait_for_provider(session: &Connection) -> bool {
+    wait_for_provider_for(session, provider_wait_from_env()).await
+}
+
+/// Same as [`wait_for_provider`] with an explicit bound (used in unit tests).
+pub async fn wait_for_provider_for(session: &Connection, wait: Duration) -> bool {
+    if provider_present(session).await {
+        return true;
+    }
+    if wait.is_zero() {
+        return false;
+    }
+    let Ok(bus) = zbus::fdo::DBusProxy::new(session).await else {
+        return false;
+    };
+    let deadline = tokio::time::Instant::now() + wait;
+    let Ok(freedesktop) = bus
+        .receive_name_owner_changed_with_args(&[(0, LOCK_ENDPOINTS[0].0)])
+        .await
+    else {
+        return provider_present(session).await;
+    };
+    let Ok(xfce) = bus
+        .receive_name_owner_changed_with_args(&[(0, LOCK_ENDPOINTS[2].0)])
+        .await
+    else {
+        return provider_present(session).await;
+    };
+    use futures_util::StreamExt;
+    let mut owners = futures_util::stream::select(freedesktop.map(|_| ()), xfce.map(|_| ()));
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return provider_present(session).await;
+        }
+        tokio::select! {
+            change = owners.next() => {
+                if change.is_none() {
+                    return provider_present(session).await;
+                }
+                if provider_present(session).await {
+                    return true;
+                }
+            }
+            _ = tokio::time::sleep(remaining) => {
+                return provider_present(session).await;
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,5 +202,41 @@ mod tests {
             .unwrap();
         screensaver.request_name(LOCK_ENDPOINTS[2].0).await.unwrap();
         assert!(provider_present(&session).await);
+    }
+
+    #[tokio::test]
+    async fn wait_for_provider_accepts_a_late_screensaver() {
+        let bus = Bus::new();
+        let session = bus.connect().await;
+        let waiting = tokio::spawn({
+            let session = session.clone();
+            async move { wait_for_provider_for(&session, Duration::from_secs(5)).await }
+        });
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let screensaver = bus.connect().await;
+        #[derive(Clone, Default)]
+        struct Xfce(Arc<AtomicBool>);
+        #[zbus::interface(name = "org.xfce.ScreenSaver")]
+        impl Xfce {
+            fn get_active(&self) -> bool {
+                self.0.load(Ordering::SeqCst)
+            }
+        }
+        screensaver
+            .object_server()
+            .at(LOCK_ENDPOINTS[2].1, Xfce::default())
+            .await
+            .unwrap();
+        screensaver.request_name(LOCK_ENDPOINTS[2].0).await.unwrap();
+        assert!(waiting.await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn wait_for_provider_times_out_without_a_provider() {
+        let bus = Bus::new();
+        let session = bus.connect().await;
+        let started = tokio::time::Instant::now();
+        assert!(!wait_for_provider_for(&session, Duration::from_millis(400)).await);
+        assert!(started.elapsed() >= Duration::from_millis(400));
     }
 }

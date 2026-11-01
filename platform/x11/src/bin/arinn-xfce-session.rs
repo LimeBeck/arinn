@@ -267,7 +267,7 @@ async fn run() -> Result<()> {
             "an Arinn session is already running"
         );
     }
-    if !lock_provider::provider_present(&connection).await {
+    if !lock_provider::wait_for_provider(&connection).await {
         return Err(anyhow::Error::new(LockProviderMissing));
     }
     let mut startup = Box::pin(start());

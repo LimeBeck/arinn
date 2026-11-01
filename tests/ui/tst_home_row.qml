@@ -28,6 +28,21 @@ TestCase {
         }
     }
 
+    // A row in Home's geometry: from the safe left x 120 to the safe right
+    // x 1824 (handoff 01).
+    Component {
+        id: homeRowFactory
+        Ui.HomeRow {
+            objectName: "continue"
+            x: Ui.Theme.safeLeft; y: 420
+            width: Ui.Theme.canvasWidth - Ui.Theme.safeLeft - Ui.Theme.safeRight
+        }
+    }
+    Component {
+        id: backdropFactory
+        Rectangle { width: suite.width; height: suite.height; z: -1; color: Ui.Theme.background }
+    }
+
     function child(name) {
         const item = findChild(row, name);
         verify(item !== null, name);
@@ -90,6 +105,62 @@ TestCase {
         compare(a.activeFocus, true);
         tryCompare(row, "selectedIndex", 1);
         compare(child("entry-c").text, "Gamma");
+    }
+
+    function test_rows_stop_at_the_safe_edges_data() {
+        return [
+            // The fifth 400 px card and the seventh 264 px tile start at x 1848.
+            {tag: "content", variant: "content", count: 6, last: "d", next: "e"},
+            {tag: "app", variant: "app", count: 8, last: "f", next: "g"}
+        ];
+    }
+    function test_rows_stop_at_the_safe_edges(data) {
+        createTemporaryObject(backdropFactory, suite);
+        const entries = [];
+        for (let i = 0; i < data.count; ++i)
+            entries.push({id: "abcdefgh"[i], title: "Item " + i, monogram: "I"});
+        const home = createTemporaryObject(homeRowFactory, suite, {variant: data.variant, entries: entries});
+        tryCompare(home, "count", data.count);
+        const clip = findChild(home, "continueSafeClip");
+        verify(clip);
+        const edges = () => {
+            const left = Math.round(clip.mapToItem(suite, 0, 0).x);
+            return [left, left + Math.round(clip.width)];
+        };
+        const last = findChild(home, "entry-" + data.last);
+        const next = findChild(home, "entry-" + data.next);
+        compare(Math.round(next.mapToItem(suite, 0, 0).x), 1848);
+        const y = Math.round(next.mapToItem(suite, 0, next.height / 2).y);
+        // Nothing from the row is painted past the safe edge: the strip
+        // right of x 1824 matches the backdrop further right.
+        const plain = (x) => {
+            const pixels = grabImage(suite);
+            return Math.abs(pixels.red(x, y) - pixels.red(1905, y)) <= 2
+                && Math.abs(pixels.green(x, y) - pixels.green(1905, y)) <= 2;
+        };
+
+        // At rest the row paints from x 120 to x 1824 (#564).
+        compare(edges(), [120, 1824]);
+        compare(last.parent.opacity, 1);
+        compare(next.parent.opacity, 0);
+        verify(waitForRendering(home));
+        tryVerify(() => plain(1860), 5000, "a card shows past the safe edge at rest");
+
+        // The first card's glow reaches left of x 120; the clip makes room.
+        findChild(home, "entry-a").forceActiveFocus();
+        tryCompare(findChild(home, "entry-a"), "activeFocus", true);
+        tryVerify(() => edges()[0] === 72 && edges()[1] === 1824);
+
+        // In pointer mode the last whole card can take focus without a
+        // scroll. Its glow gets room on the right; the next card stays hidden.
+        mouseMove(suite, 10, suite.height - 10);
+        home.pointerMode = true;
+        last.forceActiveFocus();
+        tryCompare(last, "activeFocus", true);
+        compare(findChild(home, "continueViewport").contentX, 0);
+        tryVerify(() => edges()[0] === 120 && edges()[1] === 1872);
+        compare(next.parent.opacity, 0);
+        tryVerify(() => plain(1866), 5000, "the next card shows in the glow margin");
     }
 
     function test_added_and_removed_entries() {

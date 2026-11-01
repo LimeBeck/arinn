@@ -26,6 +26,14 @@ FocusScope {
     property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
     readonly property real cellHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
     readonly property real gap: variant === "content" ? 32 : 24
+    // Room for the focus glow, lift and scale around a card (Surface).
+    readonly property real glowMargin: 48
+    // The focused card's left edge relative to the row's safe area.
+    readonly property real focusedLeft: selectedIndex * (cellWidth + gap) - viewport.contentX
+    // The clip ends at the safe edges (handoff 01: x120 to x1824). It
+    // reaches past an edge only where the focused card's glow needs it.
+    readonly property real clipLeft: activeFocus && focusedLeft < glowMargin ? glowMargin : 0
+    readonly property real clipRight: activeFocus && focusedLeft + cellWidth > width - glowMargin ? glowMargin : 0
     signal selected(var entry)
     signal activated(string entryId)
     signal actionsRequested(string entryId)
@@ -116,110 +124,125 @@ FocusScope {
         } else edge(event.key);
     }
     UiText { width: parent.width; text: root.title; role: "section"; maximumLineCount: 1; elide: Text.ElideRight }
-    Flickable {
-        id: viewport
-        objectName: root.objectName + "Viewport"
-        x: -48; y: 10; width: parent.width + 96; height: root.cellHeight + 104
+    // Cards past the right safe edge must not show through the viewport's
+    // glow margin (#564). The viewport keeps its geometry, so scrolling and
+    // reveal() are unchanged; this item only limits what is painted.
+    Item {
+        id: safeClip
+        objectName: root.objectName + "SafeClip"
+        x: -root.clipLeft; y: 10
+        width: root.width + root.clipLeft + root.clipRight
+        height: root.cellHeight + 104
         clip: true
-        contentWidth: cardsRow.width + 96
-        contentHeight: height
-        boundsBehavior: Flickable.StopAtBounds
-        flickableDirection: Flickable.HorizontalFlick
-        onContentXChanged: root.scrolled()
-        Row {
-            id: cardsRow
-            x: 48; y: 48
-            spacing: root.gap
-            Repeater {
-                id: cards
-                // Cards are keyed by entry and updated in place. An array
-                // model would recreate every card, and reload its artwork,
-                // whenever one entry changes, e.g. a playing session's
-                // position (#441).
-                model: ListModel { id: keyModel }
-                delegate: Loader {
-                    id: entryLoader
-                    required property string key
-                    required property int index
-                    readonly property var modelData: root.byKey[key] || ({})
-                    width: root.cellWidth; height: root.cellHeight
-                    sourceComponent: root.variant === "app" ? tile : card
-                    function chosen() {
-                        root.selectedIndex = index;
-                        root.selectedId = modelData.id;
-                        root.selected(modelData);
-                        root.reveal(index);
-                    }
-                    Component {
-                        id: tile
-                        AppTile {
-                            objectName: "entry-" + entryLoader.modelData.id
-                            width: entryLoader.width; height: entryLoader.height
-                            text: entryLoader.modelData.title
-                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
-                            monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
-                            iconSource: entryLoader.modelData.iconSource || ""
-                            subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
-                            running: entryLoader.modelData.running || false
-                            serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
-                            enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            // An unavailable saved favorite is focusable so it can be removed.
-                            unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
-                            onActivated: root.activated(entryLoader.modelData.id)
-                            onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
-                            Keys.onPressed: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                    if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
-                                    event.accepted = true;
-                                }
-                            }
-                            property bool holdHandled: false
-                            Timer {
-                                id: holdTimer; interval: 650
-                                onTriggered: {
-                                    parent.holdHandled = true; parent.down = false;
-                                    root.actionsRequested(entryLoader.modelData.id);
-                                }
-                            }
-                            Keys.onReleased: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
-                                    if (event.isAutoRepeat) { event.accepted = true; return; }
-                                    holdTimer.stop();
-                                    if (holdHandled) { down = false; event.accepted = true; }
-                                    else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
-                                    event.accepted = true;
-                                }
-                            }
-                            onActiveFocusChanged: {
-                                if (activeFocus) entryLoader.chosen();
-                                else holdTimer.stop();
-                            }
-                            onDpadRequested: root.dpadRequested()
+        Flickable {
+            id: viewport
+            objectName: root.objectName + "Viewport"
+            x: root.clipLeft - root.glowMargin; y: 0; width: root.width + 2 * root.glowMargin; height: parent.height
+            contentWidth: cardsRow.width + 96
+            contentHeight: height
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.HorizontalFlick
+            onContentXChanged: root.scrolled()
+            Row {
+                id: cardsRow
+                x: 48; y: 48
+                spacing: root.gap
+                Repeater {
+                    id: cards
+                    // Cards are keyed by entry and updated in place. An array
+                    // model would recreate every card, and reload its artwork,
+                    // whenever one entry changes, e.g. a playing session's
+                    // position (#441).
+                    model: ListModel { id: keyModel }
+                    delegate: Loader {
+                        id: entryLoader
+                        required property string key
+                        required property int index
+                        readonly property var modelData: root.byKey[key] || ({})
+                        width: root.cellWidth; height: root.cellHeight
+                        // Wholly outside the safe area: not painted unless focused,
+                        // so it cannot show in the focused card's glow margin.
+                        readonly property bool inSafeArea: x - viewport.contentX < root.width
+                            && x + width - viewport.contentX > 0
+                        opacity: inSafeArea || (item && item.activeFocus) ? 1 : 0
+                        sourceComponent: root.variant === "app" ? tile : card
+                        function chosen() {
+                            root.selectedIndex = index;
+                            root.selectedId = modelData.id;
+                            root.selected(modelData);
+                            root.reveal(index);
                         }
-                    }
-                    Component {
-                        id: card
-                        ContentCard {
-                            objectName: "entry-" + entryLoader.modelData.id
-                            width: entryLoader.width; height: entryLoader.height
-                            text: entryLoader.modelData.title
-                            visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
-                            subtitle: entryLoader.modelData.subtitle || ""
-                            artwork: entryLoader.modelData.artwork || ""
-                            stack: entryLoader.modelData.stack || []
-                            running: entryLoader.modelData.running || false
-                            showProgress: entryLoader.modelData.progress !== undefined
-                            progress: entryLoader.modelData.progress || 0
-                            enabled: entryLoader.modelData.enabled !== false
-                            busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
-                            pointerMode: root.pointerMode
-                            hoverFocusEnabled: root.hoverFocusEnabled
-                            onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
-                            onActivated: root.activated(entryLoader.modelData.id)
-                            onDpadRequested: root.dpadRequested()
+                        Component {
+                            id: tile
+                            AppTile {
+                                objectName: "entry-" + entryLoader.modelData.id
+                                width: entryLoader.width; height: entryLoader.height
+                                text: entryLoader.modelData.title
+                                visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                                monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
+                                iconSource: entryLoader.modelData.iconSource || ""
+                                subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
+                                running: entryLoader.modelData.running || false
+                                serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
+                                enabled: entryLoader.modelData.enabled !== false
+                                busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
+                                pointerMode: root.pointerMode
+                                hoverFocusEnabled: root.hoverFocusEnabled
+                                // An unavailable saved favorite is focusable so it can be removed.
+                                unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
+                                onActivated: root.activated(entryLoader.modelData.id)
+                                onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
+                                Keys.onPressed: event => {
+                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                        if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
+                                        event.accepted = true;
+                                    }
+                                }
+                                property bool holdHandled: false
+                                Timer {
+                                    id: holdTimer; interval: 650
+                                    onTriggered: {
+                                        parent.holdHandled = true; parent.down = false;
+                                        root.actionsRequested(entryLoader.modelData.id);
+                                    }
+                                }
+                                Keys.onReleased: event => {
+                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                                        if (event.isAutoRepeat) { event.accepted = true; return; }
+                                        holdTimer.stop();
+                                        if (holdHandled) { down = false; event.accepted = true; }
+                                        else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
+                                        event.accepted = true;
+                                    }
+                                }
+                                onActiveFocusChanged: {
+                                    if (activeFocus) entryLoader.chosen();
+                                    else holdTimer.stop();
+                                }
+                                onDpadRequested: root.dpadRequested()
+                            }
+                        }
+                        Component {
+                            id: card
+                            ContentCard {
+                                objectName: "entry-" + entryLoader.modelData.id
+                                width: entryLoader.width; height: entryLoader.height
+                                text: entryLoader.modelData.title
+                                visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                                subtitle: entryLoader.modelData.subtitle || ""
+                                artwork: entryLoader.modelData.artwork || ""
+                                stack: entryLoader.modelData.stack || []
+                                running: entryLoader.modelData.running || false
+                                showProgress: entryLoader.modelData.progress !== undefined
+                                progress: entryLoader.modelData.progress || 0
+                                enabled: entryLoader.modelData.enabled !== false
+                                busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
+                                pointerMode: root.pointerMode
+                                hoverFocusEnabled: root.hoverFocusEnabled
+                                onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                                onActivated: root.activated(entryLoader.modelData.id)
+                                onDpadRequested: root.dpadRequested()
+                            }
                         }
                     }
                 }

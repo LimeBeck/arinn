@@ -204,6 +204,26 @@ TestCase {
         keyClick(Qt.Key_Escape); focused("menuButton");
     }
 
+    function test_brand_button_has_a_plate_only_on_focus() {
+        // Handoff 01: at rest the mark and "Arinn" stand without a plate,
+        // the mark at x 120 (#564). Focus adds the plate.
+        const button = child("menuButton");
+        const plate = findChild(button, "brandPlate");
+        verify(plate);
+        verify(!button.activeFocus);
+        compare(plate.color.a, 0);
+        compare(plate.border.color.a, 0);
+        const mark = findChild(child("headerBrand"), "brandMark");
+        compare(mark.width, 36);
+        compare(Math.round(mark.mapToItem(home, 0, 0).x), 120);
+        button.forceActiveFocus();
+        focused("menuButton");
+        tryVerify(() => plate.color.a > 0.15);
+        verify(plate.border.color.a > 0);
+        keyClick(Qt.Key_Down);
+        tryVerify(() => plate.color.a === 0);
+    }
+
     function test_distinct_sessions_keep_identical_titles() {
         home.currentServiceId = "service";
         home.currentServiceTitle = "Same title";

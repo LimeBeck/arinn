@@ -227,7 +227,9 @@ fn season_dir(name: &str) -> Option<u32> {
 /// `<Title> TVn` or `<Title> Snn` (an optional year anywhere, `[...]` groups
 /// dropped): season `n` of `<Title>`.
 fn titled_season_dir(name: &str) -> Option<(String, Option<i32>, u32)> {
-    let (text, year) = take_year(&clean(&unwrap_markers(name)));
+    // The release suffix goes first, so a year before it (`S02 2019 1080p`)
+    // ends the text and `take_year` finds it (#660).
+    let (text, year) = take_year(&strip_release_tags(&clean(&unwrap_markers(name))));
     let (season, start, end) = find_season_marker(&text)?;
     let title = trim_seps(&text[..start]);
     // A release suffix after the marker (`S02 2160p WEB-DL ...`) still names
@@ -1129,6 +1131,18 @@ mod tests {
         assert!(episode.series_has_year);
         assert_eq!(episode.series_year, 2019);
         assert_eq!(episode.title, "Pilot");
+
+        // A year between the marker and the release suffix is the series
+        // year, not text after the marker.
+        let episode = parse_video(
+            root,
+            Path::new("/library/Example Show S02 2019 1080p WEB-DL/Example.Show.S02E03.mkv"),
+        )
+        .unwrap();
+        assert_eq!(episode.series_title, "Example Show");
+        assert_eq!(episode.season, 2);
+        assert!(episode.series_has_year);
+        assert_eq!(episode.series_year, 2019);
 
         // Text after the marker that is not a release suffix keeps today's
         // reading: the folder stays the series directory.

@@ -113,7 +113,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0093](0093-structured-sentry-diagnostics.md) | Structured, allowlisted Sentry diagnostics | Proposed | 0116 |
 | [0094](0094-configurable-global-home-keys.md) | Configurable global Home keys | Accepted | — |
 | [0095](0095-shell-input-mode-ownership.md) | Shell input mode ownership | Accepted | — |
-| [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | 0117 |
+| [0096](0096-browser-media-session-association.md) | Associate a browser's media session with its audible tab | Accepted | 0117, 0126 |
 | [0097](0097-build-identity.md) | Build identity with the commit hash | Accepted | — |
 | [0098](0098-restart-after-an-update.md) | Restart Arinn after an update | Accepted | — |
 | [0099](0099-snapshot-package-version.md) | Snapshot package version with the commit | Accepted | — |
@@ -143,4 +143,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0123](0123-library-folder-hierarchy.md) | Optional paged library folder hierarchy | Accepted | — |
 | [0124](0124-offline-folder-and-season-navigation.md) | Offline folder and season navigation | Proposed | — |
 | [0125](0125-library-descriptions.md) | Optional lazy library descriptions | Accepted | — |
+| [0126](0126-delegated-media-process.md) | Verified application identity behind a media proxy | Accepted | — |
 <!-- register:end -->

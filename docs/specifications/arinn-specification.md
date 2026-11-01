@@ -578,6 +578,11 @@ An **Activity** is what the user is doing right now: a Chrome tab, a Steam game,
 
 ## 11. State ownership and persistence
 
+Browser/media process evidence remains ephemeral provider/daemon state. The
+compatible delegated-application interpretation of `MediaProcess1` is
+[ADR-0126](../adr/0126-delegated-media-process.md); the existing strict association
+policy in §5.1 is unchanged.
+
 Each provider is the source of truth for its own state (browser tabs, playback, installed applications, library and resume, download jobs). The core aggregates state and MUST NOT duplicate it in its own database; Chrome history, a Steam library database or a media database are never copied when a provider can supply them.
 
 Arinn persists only its own state:

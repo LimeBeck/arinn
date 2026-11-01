@@ -1,4 +1,4 @@
-# Android TV home screen: post-MVP specification and PoC plan
+# Android TV and Automotive OS: post-MVP specification and PoC plan
 
 Status: planning only, owner-requested documentation for [#198](https://github.com/LimeBeck/arinn/issues/198).
 No Android build, emulator run or device test has been performed for this document.
@@ -10,6 +10,7 @@ they do not extend Linux MVP acceptance or commit a delivery date.
 
 The proposed product is a TV-first home screen with application tiles and
 D-pad/OK/Back and touch navigation, preserving Arinn's visual language and plugin model.
+The owner also requested an AAOS head-unit variant, qualified separately below.
 Execution follows the Linux MVP, including its current KDE/Wayland and XFCE/X11
 scope. #186 is related portability work, not an Android prerequisite.
 
@@ -152,8 +153,70 @@ version from one passing device. The documentation PR is complete when this plan
 its specification/backlog links and changelog pass documentation checks. #198
 remains open for the experiments, decisions and subsequent implementation.
 
+## Android Automotive OS head-unit variant
+
+Owner clarification: also plan execution directly on an Android Automotive OS
+(AAOS) head unit. This is a separate qualification target alongside Android TV;
+it is not phone-projected Android Auto. A generic Android aftermarket head unit
+is not automatically AAOS: record the actual OS, API, automotive features,
+OEM firmware and distribution channel before assigning support.
+
+| Mode | Feasibility question | Fallback / limitation |
+| --- | --- | --- |
+| Ordinary installed AAOS app | Which supported app category, host/UI model, installation channel and parked/driving availability permit Arinn's intended behavior on this firmware? | Qualify only the allowed subset; an installable APK alone is not evidence of usable or distributable support |
+| Default Home on AAOS | Does the OEM expose a supported user-selectable Home role or launcher choice to an ordinary app? | Keep the OEM launcher when unavailable; OEM/system-app integration is a separate decision, not a standard prerequisite |
+
+Do not assume a TV manifest, Leanback intent, QML surface or Car App Library
+template can be reused unchanged. Compare the native automotive host and shared
+presentation against supported categories, host requirements and OEM restrictions.
+Reuse portable domain logic and provider semantics where appropriate; isolate
+automotive lifecycle, input and platform APIs. No CAN/vehicle-control integration,
+privileged car permissions or control of safety-critical functions is included.
+
+The proposed initial qualification is parked use. Determine allowed behavior
+while moving from platform/OEM UX restrictions and the approved application
+category before enabling any moving-use surface. Respect restrictions and their
+changes at runtime, including loss of eligibility; do not bypass restrictions
+or keep video, a keyboard or unrestricted browsing visible when prohibited.
+Unknown restriction state must not enable an unrestricted surface. Car APIs
+and their permissions/availability require an explicit feasibility check rather
+than assuming access from an ordinary APK.
+
+Extend stages A–E with an AAOS track:
+- **A:** select an AAOS emulator image and representative owner-approved head unit;
+  record category/distribution eligibility, Home availability and firmware limits.
+- **B:** run the touch cases above and available rotary controller/Select/Back
+  input, focus restoration, display density/insets, day/night appearance and
+  permitted keyboard behavior. Do not require D-pad hardware on the head unit.
+- **C:** test application discovery/launch against the permitted automotive
+  surface and caller trust, plus disconnect/reconnect, lifecycle and restriction
+  changes; never assume all installed apps are launchable.
+- **D:** test parked launch/return, ignition-related shutdown/resume and process
+  recreation, then restore OEM Home if replacement is supported. Simulate driving
+  restrictions in the emulator; no real-road test is authorized by this plan.
+- **E:** publish separate TV and AAOS support decisions and bounded follow-up
+  tasks. A TV pass does not qualify AAOS, or vice versa.
+
+Real-head-unit/operator tests still require separate explicit owner permission;
+plan any approved physical checks on a stationary vehicle or bench. Record safe
+access back to the OEM interface before changing Home. If the recovery path or
+required category is unavailable, record Home/app mode as unsupported or blocked
+rather than requiring root or disabling OEM packages.
+
+| Additional target | App/category eligibility | Home selection / recovery | Touch / rotary | Parked / driving restrictions | Shutdown / resume | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| AAOS emulator, image/API TBD | Not run | Not run | Not run | Not run | Not run | None |
+| AAOS head unit, model/OEM firmware TBD | Not run | Not run | Not run | Not run | Not run | None; separate permission required |
+
+No automotive APK, emulator run, head-unit test or distribution approval has been
+performed. Platform/category selection and driving-use scope remain owner-reviewed
+decisions before implementation.
+
 ## Primary references
 
+- [Android Automotive OS](https://source.android.com/docs/automotive)
+- [Build apps for cars: platform and category guidance](https://developer.android.com/training/cars)
+- [Driver distraction and UX restrictions](https://source.android.com/docs/automotive/driver_distraction/consume)
 - [Qt for Android](https://doc.qt.io/qt-6/android.html)
 - [TV app registration](https://developer.android.com/training/tv/get-started/create)
 - [HOME role](https://developer.android.com/reference/android/app/role/RoleManager#ROLE_HOME)

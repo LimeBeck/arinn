@@ -1,1 +1,1 @@
-- Document the post-MVP Android TV home-screen scope, touchscreen input adaptation, staged PoC plan, support matrix and verification criteria; no Android implementation or device qualification is included.
+- Document the post-MVP Android TV home-screen and Android Automotive OS head-unit scope, touchscreen input adaptation, staged PoC plan, support matrix and verification criteria; no Android implementation or device qualification is included.

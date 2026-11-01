@@ -15,6 +15,12 @@ as the logical Series category, so a third category tab is confusing. The owner
 agreed to continue after the Catalogue/Folders mode distinction was explained.
 The optional hierarchy prerequisite is merged in #627.
 
+On 2026-11-01 the owner requested that visual changes be developed first in the
+original HTML/JS design prototype. The editable
+[working derivative](../design/prototypes/library-navigation/README.md) keeps
+the historical handoff unchanged. Further shell presentation changes follow
+review of that prototype.
+
 ## Decision proposed for owner merge
 
 Use a Catalogue/Folders view switch. Catalogue keeps the existing collection
@@ -74,3 +80,6 @@ C++ tests cover optional paged/stale/malformed hierarchy, identity separation an
 numeric/unknown seasons. QML tests cover modes, traversal, empty/unavailable
 folders, Back/focus and season filtering. The PR records check results and
 independent review; real HTPC tests are not part of this change.
+Browser smoke checks exercise the working HTML prototype's view modes, nested
+directories, episode/detail return focus, empty/unavailable folders and season
+groups in Russian and English.

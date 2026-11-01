@@ -254,6 +254,48 @@ fn season_only_folders_form_one_series() {
     assert!(items.iter().all(|item| item.kind != "film"));
 }
 
+// #660: scene-style season folders `<Title> Snn <release tags>` form one
+// series named `<Title>`, not one series per folder named after the release.
+#[test]
+fn release_tagged_season_folders_form_one_series() {
+    let scratch = Scratch::new();
+    let root = scratch.path().join("root");
+    let first = root.join("Example Show S01 1080p AMZN WEB-DL DDP5.1 H.264-GROUP");
+    let second = root.join("Example Show S02 2160p NF WEB-DL DDP5.1 DV HEVC-GROUP");
+    fs::create_dir_all(&first).unwrap();
+    fs::create_dir_all(&second).unwrap();
+    fs::write(
+        first.join("Example.Show.S01E01.1080p.AMZN.WEB-DL.DDP5.1.H.264-GROUP.mkv"),
+        b"episode",
+    )
+    .unwrap();
+    fs::write(
+        second.join("Example.Show.S02E01.2160p.NF.WEB-DL.DDP5.1.DV.HEVC-GROUP.mkv"),
+        b"episode",
+    )
+    .unwrap();
+
+    let mut store = open(&scratch);
+    store
+        .scan(&settings(&root, false, PathBuf::from("ffprobe")))
+        .unwrap();
+    let (_, items) = store.snapshot().unwrap();
+    let series: Vec<_> = items.iter().filter(|item| item.kind == "series").collect();
+    assert_eq!(series.len(), 1, "{series:?}");
+    assert_eq!(series[0].title, "Example Show");
+    let mut episodes: Vec<(u32, u32)> = items
+        .iter()
+        .filter(|item| item.kind == "episode")
+        .map(|item| {
+            assert_eq!(item.parent_id, series[0].id);
+            assert!(!item.title.contains("WEB-DL"), "{}", item.title);
+            (item.season, item.episode)
+        })
+        .collect();
+    episodes.sort();
+    assert_eq!(episodes, vec![(1, 1), (2, 1)]);
+}
+
 #[test]
 fn in_root_symlink_is_one_catalogue_item() {
     let scratch = Scratch::new();

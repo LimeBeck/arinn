@@ -213,7 +213,12 @@ metadata. End-to-end real Chrome/KDE qualification of this change is not run.
 
 [ADR-0126](../adr/0126-delegated-media-process.md) clarifies process evidence for
 proxy-only browsers without changing wire signatures or the strict join above.
-Implementation must publish effective-process changes as revision changes and
-revalidate owner/process evidence before answering. Suppressed endpoints must not
-retain a published session that can be resurrected by a failed read. A paused
+The MPRIS producer stores pinned-owner/process evidence with each published
+session. A query re-reads the pinned endpoint and requires the same evidence,
+registration and tracked instance after the await; otherwise it returns unknown.
+Effective-process or evidence-loss changes advance the snapshot revision even
+with identical paused fields. Failed required Metadata reads cannot publish a
+fresh empty session, and lost evidence is withdrawn while the last transport
+sample may remain. Suppression clears the published proxy session, track and
+evidence so a later failed read cannot resurrect its metadata. A paused
 cold start still cannot establish a link until exactly one tab is audible.

@@ -19,6 +19,7 @@
 class BrowserCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList tabs READ tabs NOTIFY tabsChanged)
+  Q_PROPERTY(QVariantList serviceTabs READ serviceTabs NOTIFY tabsChanged)
   Q_PROPERTY(QVariantList windows READ windows NOTIFY windowsChanged)
   Q_PROPERTY(QVariantList shortcuts READ shortcuts NOTIFY shortcutsChanged)
   Q_PROPERTY(QString browserState READ browserState NOTIFY changed)
@@ -42,6 +43,7 @@ class BrowserCatalog : public QObject {
 public:
   explicit BrowserCatalog(QObject *parent = nullptr);
   QVariantList tabs() const { return m_tabs; }
+  QVariantList serviceTabs() const;
   QVariantList windows() const { return m_windows; }
   QVariantList shortcuts() const { return m_shortcuts; }
   QString browserState() const;

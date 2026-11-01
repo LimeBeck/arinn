@@ -71,6 +71,11 @@ token stays the letter chip. Origin comparison is scheme, host and port, with
 letter is the first character of the host after one `www.`, `m.` or `hd.`
 prefix, computed in the catalog.
 
+Home's open-service summary uses `BrowserCatalog.serviceTabs`, a projection of
+valid HTTP/HTTPS tabs with a host. Browser-internal placeholder pages do not add
+to that summary. The complete `tabs` list and its activate/close commands remain
+available in Open services; QML receives this projection without parsing URLs.
+
 ## Creating a tab
 
 Creating a tab goes through a known shortcut id, which matches

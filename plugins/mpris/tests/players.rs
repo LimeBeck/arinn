@@ -6,7 +6,7 @@
 use arinn_plugin_mpris::serve;
 use arinn_protocol::{
     media::MediaProviderProxy,
-    media_association::MediaProcessProxy,
+    media_association::{self, MediaProcessProxy, ProcessSession, ProcessTab, ProcessWindow},
     production::{self, Registration, RegistrationReply},
 };
 use std::{
@@ -77,6 +77,7 @@ impl Daemon {
 
 struct Inner {
     status: Mutex<String>,
+    read_failed: AtomicBool,
     position: Mutex<i64>,
     metadata: Mutex<HashMap<String, OwnedValue>>,
     can_play: AtomicBool,
@@ -121,6 +122,17 @@ impl Player {
         *self.0.position.lock().unwrap() = position;
     }
 
+    // Synthetic private-bus fixture controls, never part of the provider API.
+    fn fixture_claim(&self, process: u32) {
+        self.0
+            .metadata
+            .lock()
+            .unwrap()
+            .insert("kde:pid".into(), OwnedValue::from(process));
+    }
+    fn fixture_read_failed(&self, failed: bool) {
+        self.0.read_failed.store(failed, Ordering::SeqCst);
+    }
     #[zbus(property)]
     fn playback_status(&self) -> String {
         self.0.status.lock().unwrap().clone()
@@ -130,8 +142,11 @@ impl Player {
         *self.0.position.lock().unwrap()
     }
     #[zbus(property)]
-    fn metadata(&self) -> HashMap<String, OwnedValue> {
-        self.0.metadata.lock().unwrap().clone()
+    fn metadata(&self) -> zbus::fdo::Result<HashMap<String, OwnedValue>> {
+        if self.0.read_failed.load(Ordering::SeqCst) {
+            return Err(zbus::fdo::Error::Failed("synthetic read failure".into()));
+        }
+        Ok(self.0.metadata.lock().unwrap().clone())
     }
     #[zbus(property)]
     fn can_play(&self) -> bool {
@@ -188,6 +203,7 @@ fn player(title: &str, with_track: bool) -> Player {
     }
     Player(Arc::new(Inner {
         status: Mutex::new("Playing".into()),
+        read_failed: AtomicBool::new(false),
         position: Mutex::new(1_000),
         metadata: Mutex::new(metadata),
         can_play: AtomicBool::new(true),
@@ -804,6 +820,7 @@ fn browser_proxy_fixture_child() {
             .await
             .unwrap();
         let fixture = player("Different proxy title", true);
+        *fixture.0.status.lock().unwrap() = "Paused".into();
         fixture.0.metadata.lock().unwrap().insert(
             "kde:pid".into(),
             OwnedValue::from(
@@ -872,6 +889,139 @@ fn native_browser_source_precedes_verified_proxy_and_restores_fallback() {
             p.sessions.len() == 1 && p.sessions[0].id == "plasma-browser-integration"
         })
         .await;
+        // A verified proxy-only endpoint must join its browser, not its helper.
+        let processes = MediaProcessProxy::builder(&daemon)
+            .destination(&destination)
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        let (fallback,) = proxy.get_sessions("").await.unwrap();
+        assert_eq!(
+            processes
+                .get_process_id(&fallback.generation, "plasma-browser-integration")
+                .await
+                .unwrap(),
+            std::process::id()
+        );
+        let represented = processes
+            .get_process_id(&fallback.generation, "plasma-browser-integration")
+            .await
+            .unwrap();
+        let sessions = vec![ProcessSession {
+            media_provider: "mpris".into(),
+            media_generation: fallback.generation.clone(),
+            session: "plasma-browser-integration".into(),
+            process: represented,
+        }];
+        let windows = vec![ProcessWindow {
+            browser_provider: "browser".into(),
+            browser_generation: "fixture".into(),
+            window: "window".into(),
+            process: std::process::id(),
+        }];
+        let mut tabs = vec![ProcessTab {
+            browser_provider: "browser".into(),
+            browser_generation: "fixture".into(),
+            window: "window".into(),
+            tab: "tab".into(),
+            audible: true,
+        }];
+        let linked = media_association::join(&sessions, &windows, &tabs, &[]);
+        assert_eq!(linked.len(), 1);
+        tabs[0].audible = false;
+        assert!(media_association::join(&sessions, &windows, &tabs, &[]).is_empty());
+        assert_eq!(
+            media_association::join(&sessions, &windows, &tabs, &linked),
+            linked
+        );
+        assert!(
+            media_association::join(
+                &[sessions[0].clone(), sessions[0].clone()],
+                &windows,
+                &tabs,
+                &linked
+            )
+            .is_empty()
+        );
+
+        // A claim change advances revision even with identical paused fields.
+        let before = fallback;
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureClaim",
+                &1_u32,
+            )
+            .await
+            .unwrap();
+        let (changed,) = wait_page(&proxy, |p| p.revision > before.revision).await;
+        assert_eq!(changed.sessions, before.sessions);
+        assert_eq!(
+            processes
+                .get_process_id(&changed.generation, "plasma-browser-integration")
+                .await
+                .unwrap(),
+            child.0.id()
+        );
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureClaim",
+                &std::process::id(),
+            )
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| p.revision > changed.revision).await;
+        assert_eq!(
+            processes
+                .get_process_id(&changed.generation, "plasma-browser-integration")
+                .await
+                .unwrap(),
+            std::process::id()
+        );
+        let (verified,) = proxy.get_sessions("").await.unwrap();
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureReadFailed",
+                &true,
+            )
+            .await
+            .unwrap();
+        let (lost,) = wait_page(&proxy, |p| p.revision > verified.revision).await;
+        assert_eq!(lost.sessions, verified.sessions);
+        assert_eq!(
+            processes
+                .get_process_id(&lost.generation, "plasma-browser-integration")
+                .await
+                .unwrap(),
+            0
+        );
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureReadFailed",
+                &false,
+            )
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| p.revision > lost.revision).await;
+        assert_eq!(
+            processes
+                .get_process_id(&lost.generation, "plasma-browser-integration")
+                .await
+                .unwrap(),
+            std::process::id()
+        );
         let native = bus.connection().await;
         native
             .object_server()
@@ -886,8 +1036,43 @@ fn native_browser_source_precedes_verified_proxy_and_restores_fallback() {
             p.sessions.len() == 1 && p.sessions[0].id == "native_fixture"
         })
         .await;
+        // Suppression must discard the proxy's published cache. A later
+        // failing read cannot resurrect it, even if the native endpoint exits.
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureReadFailed",
+                &true,
+            )
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        let (suppressed,) = proxy.get_sessions("").await.unwrap();
+        assert_eq!(suppressed.sessions.len(), 1);
+        assert_eq!(suppressed.sessions[0].id, "native_fixture");
+        assert_eq!(
+            error_name(
+                processes
+                    .get_process_id(&suppressed.generation, "plasma-browser-integration")
+                    .await
+            ),
+            "org.arinn.Error1.NotFound"
+        );
         native
             .release_name("org.mpris.MediaPlayer2.native_fixture")
+            .await
+            .unwrap();
+        wait_page(&proxy, |p| p.sessions.is_empty()).await;
+        daemon
+            .call_method(
+                Some("org.mpris.MediaPlayer2.plasma-browser-integration"),
+                "/org/mpris/MediaPlayer2",
+                Some("org.mpris.MediaPlayer2.Player"),
+                "FixtureReadFailed",
+                &false,
+            )
             .await
             .unwrap();
         wait_page(&proxy, |p| {

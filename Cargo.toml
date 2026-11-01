@@ -10,6 +10,10 @@ resolver = "2"
 version = "0.2.0"
 edition = "2024"
 repository = "https://github.com/LimeBeck/arinn"
+# Members are not published to crates.io; cargo-deny then allows their path
+# dependencies without a version (#613). arinn-protocol has none and keeps
+# the default.
+publish = false
 
 [workspace.dependencies]
 anyhow = "1"

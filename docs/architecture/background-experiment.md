@@ -198,8 +198,10 @@ reads `Background1` for Home:
   for the same revision, so a persistent failure cannot loop.
 - **Rendering.** The copy becomes a `QImage` served by the `arinn-activity`
   image provider under a per-frame serial; a released frame's URL resolves to
-  nothing. The provider holds at most one frame (≤ 8 MiB) beside the gate's
-  copy, and MultiEffect's blur textures follow the full-screen item.
+  nothing. The provider holds at most one frame (≤ 8 MiB). The gate checks
+  the copy's size and frees it, so the frame is not resident twice
+  ([#611](https://github.com/LimeBeck/arinn/issues/611)), and MultiEffect's
+  blur textures follow the full-screen item.
 - **Home.** `HomeView` draws `ui/ActivityBackground.qml` behind its content:
   near while the Activity's own card has focus (the current-service card for a
   Return Activity verified as a browser service), otherwise far, and no layer

@@ -1,0 +1,1 @@
+- Document initial music-provider feasibility research, proposed local-library requirements and a common-interface design brief for #677. Record service access/playback blockers and owner-review decisions without claiming implemented provider support.

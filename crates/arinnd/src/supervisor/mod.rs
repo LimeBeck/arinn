@@ -500,6 +500,9 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
         assert_eq!(supervisor.state(unit).await.unwrap(), "failed");
+        // StartLimitBurst=5: the first start and four restarts, then failed,
+        // as systemd counts them (#602).
+        assert_eq!(supervisor.restarts(unit).await.unwrap(), 4);
         assert!(
             supervisor
                 .start(

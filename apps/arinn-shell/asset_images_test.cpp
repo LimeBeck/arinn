@@ -32,14 +32,17 @@
 #include <QUrl>
 #include <QtDBus>
 #include <memory>
+#include <vector>
+#include <QQmlEngine>
+#include <QQuickImageResponse>
 
 namespace {
 constexpr auto kPath = "/org/arinn/Daemon1/providers/p_media";
 constexpr auto kProvider = "media-provider";
 constexpr auto kGeneration = "g-media";
 
-QByteArray pngBytes(const QColor &color) {
-  QImage image(8, 8, QImage::Format_RGB32);
+QByteArray pngBytes(const QColor &color, const QSize &size = QSize(8, 8)) {
+  QImage image(size, QImage::Format_RGB32);
   image.fill(color);
   QByteArray bytes;
   QBuffer buffer(&bytes);
@@ -120,15 +123,16 @@ public:
 };
 
 AssetImages::Result fetchOnWorker(const QString &provider, const QString &path,
-                                  const QString &generation, const QString &id) {
+                                  const QString &generation, const QString &id,
+                                  const QSize &requested = QSize()) {
   struct Box {
     QMutex mutex;
     bool done = false;
     AssetImages::Result result;
   };
   auto box = std::make_shared<Box>();
-  auto *job = QRunnable::create([box, provider, path, generation, id] {
-    auto result = AssetImages::shared().fetch(provider, path, generation, id);
+  auto *job = QRunnable::create([box, provider, path, generation, id, requested] {
+    auto result = AssetImages::shared().fetch(provider, path, generation, id, requested);
     QMutexLocker lock(&box->mutex);
     box->result = result;
     box->done = true;
@@ -612,6 +616,104 @@ private slots:
       QCOMPARE(daemon.calls, before + 2);
       QCOMPARE(AssetImages::shared().cachedEntries(), 0);
     }
+  }
+  void requestedSizeBoundsTheDecodedImage() {
+    // A 2000×3000 poster in a 180×270 cell is decoded at the cell's size,
+    // not as a 24 MB image (#611).
+    QVERIFY(registerDaemon(&daemon));
+    daemon.png = pngBytes(Qt::red, QSize(2000, 3000));
+    const auto fetch = [](const QString &id, const QSize &requested) {
+      return fetchOnWorker(QString::fromLatin1(kProvider), QString::fromLatin1(kPath),
+                           QString::fromLatin1(kGeneration), id, requested);
+    };
+    QCOMPARE(fetch(QStringLiteral("poster"), QSize(180, 270)).image.size(), QSize(180, 270));
+    // A cached poster is decoded again at the next requested size.
+    const auto hit = fetch(QStringLiteral("poster"), QSize(300, 300));
+    QVERIFY(hit.cacheHit);
+    // Covers the requested size, so PreserveAspectCrop has no blank edge.
+    QCOMPARE(hit.image.size(), QSize(300, 450));
+    QCOMPARE(fetch(QStringLiteral("poster"), QSize(120, 0)).image.size(), QSize(120, 180));
+    // Never upscaled.
+    QCOMPARE(fetch(QStringLiteral("poster"), QSize(4000, 6000)).image.size(), QSize(2000, 3000));
+    QCOMPARE(fetch(QStringLiteral("poster"), QSize()).image.size(), QSize(2000, 3000));
+    QCOMPARE(daemon.calls, 1);
+    // With no requested size an image stays within 4096 pixels a side.
+    daemon.png = pngBytes(Qt::red, QSize(8192, 1024));
+    QCOMPARE(fetch(QStringLiteral("panorama"), QSize()).image.size(), QSize(4096, 512));
+  }
+  void cancelledRequestsSkipTheDaemon() {
+    // A fast scroll cancels posters that left the screen. They must not
+    // call the daemon once a pool thread is free, so visible posters do
+    // not wait behind them (#611).
+    QVERIFY(registerDaemon(&daemon));
+    daemon.hold = true;
+    QQmlEngine engine;
+    installAssetImageProvider(&engine);
+    auto *provider = static_cast<QQuickAsyncImageProvider *>(
+        engine.imageProvider(QStringLiteral("arinn-assets")));
+    QVERIFY(provider);
+    const auto id = [](int index) {
+      return AssetImages::imageUrl(QString::fromLatin1(kProvider), QString::fromLatin1(kPath),
+                                   QString::fromLatin1(kGeneration),
+                                   QStringLiteral("poster-%1").arg(index))
+          .mid(QStringLiteral("image://arinn-assets/").size());
+    };
+    // The asset pool has four threads; four held calls occupy all of them.
+    std::vector<std::unique_ptr<QQuickImageResponse>> busy;
+    std::vector<std::unique_ptr<QSignalSpy>> busyFinished;
+    for (int i = 0; i < 4; ++i) {
+      busy.emplace_back(provider->requestImageResponse(id(i), QSize(180, 270)));
+      busyFinished.push_back(std::make_unique<QSignalSpy>(busy.back().get(),
+                                                          &QQuickImageResponse::finished));
+    }
+    QTRY_COMPARE(daemon.calls, 4);
+    std::unique_ptr<QQuickImageResponse> scrolledAway(
+        provider->requestImageResponse(id(4), QSize(180, 270)));
+    QSignalSpy cancelled(scrolledAway.get(), &QQuickImageResponse::finished);
+    scrolledAway->cancel();
+    daemon.hold = false;
+    daemon.release();
+    QTRY_COMPARE(cancelled.count(), 1);
+    for (auto &spy : busyFinished)
+      QTRY_COMPARE(spy->count(), 1);
+    QTest::qWait(100);
+    QCOMPARE(daemon.calls, 4);
+    QVERIFY(!scrolledAway->errorString().isEmpty());
+  }
+  void artworkIsDecodedAtItsSlotSize() {
+    // The card, the library poster and their Canvas copies decode a large
+    // poster at the slot's size, and the copy still matches the Image, so
+    // the centre crop draws (#611).
+    QVERIFY(registerDaemon(&daemon));
+    daemon.png = pngBytes(Qt::red, QSize(2000, 3000));
+    const auto url = AssetImages::imageUrl(
+        QString::fromLatin1(kProvider), QString::fromLatin1(kPath),
+        QString::fromLatin1(kGeneration), QStringLiteral("large"));
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("assetUrl"), url);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_PLACEHOLDER_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    auto card = findItem(window->contentItem(), QStringLiteral("card"));
+    auto cardArtwork = findItem(window->contentItem(), QStringLiteral("cardArtwork"));
+    auto cardCanvas = findItem(window->contentItem(), QStringLiteral("cardArtworkCanvas"));
+    auto poster = findItem(window->contentItem(), QStringLiteral("posterImage-north"));
+    QVERIFY(card && cardArtwork && cardCanvas && poster);
+    QTRY_COMPARE(card->property("artworkReady").toBool(), true);
+    QTRY_COMPARE(cardCanvas->property("showsArtwork").toBool(), true);
+    const auto cardWidth = qCeil(cardArtwork->width());
+    QVERIFY(cardWidth > 0);
+    QCOMPARE(qRound(cardArtwork->implicitWidth()), cardWidth);
+    QVERIFY(cardArtwork->implicitHeight() < 3000);
+    QTRY_COMPARE(poster->property("ready").toBool(), true);
+    auto posterCanvas = findItem(poster, QStringLiteral("roundedArtworkCanvas"));
+    QVERIFY(posterCanvas);
+    QVERIFY(posterCanvas->property("showsArtwork").toBool());
+    QVERIFY(qCeil(poster->width()) < 2000);
+    QTRY_VERIFY(continueCardShowsRed(card));
   }
   void placeholderStaysUntilTheImageArrives() {
     QVERIFY(registerDaemon(&daemon));

@@ -16,6 +16,28 @@ function clipRounded(ctx, w, h, r) {
     ctx.clip();
 }
 
+// Whether the shell's asset provider decodes this URL. It honours a requested
+// size for an Image and for a Canvas copy alike, so a copy loaded at the
+// Image's implicit size has exactly that size (#611). Other sources load at
+// their own size.
+function decodesAtSize(url) {
+    return String(url).startsWith("image://arinn-assets/");
+}
+
+// The Image sourceSize for artwork shown at w×h: only what the slot covers,
+// not a full-resolution poster (#611). Undefined keeps the image's own size.
+function sourceSize(url, w, h) {
+    return decodesAtSize(url) && w > 0 && h > 0 ? Qt.size(Math.ceil(w), Math.ceil(h)) : undefined;
+}
+
+// Loads the Canvas copy of a ready Image at the Image's decoded size.
+function loadCopy(canvas, image) {
+    if (decodesAtSize(image.source))
+        canvas.loadImage(image.source, Qt.size(image.implicitWidth, image.implicitHeight));
+    else
+        canvas.loadImage(image.source);
+}
+
 // Draws an iw×ih image over w×h with a centre crop, as
 // Image.PreserveAspectCrop does. Returns false when there is nothing to draw.
 function drawCover(ctx, image, iw, ih, w, h) {

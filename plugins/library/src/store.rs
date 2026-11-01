@@ -8,6 +8,7 @@ use crate::{
     mounts::MountTables,
     parse::{self, Kind, Parsed},
     progress::{self, Progress},
+    recognition::Rules,
     uri,
 };
 use arinn_protocol::{
@@ -33,6 +34,8 @@ pub(crate) const MAX_ROOTS: usize = 64;
 const MAX_FILES: usize = 50_000;
 const MAX_DEPTH: usize = 64;
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// Upper bound on ffprobe's JSON; real files stay far below it.
+const PROBE_OUTPUT_LIMIT: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct Settings {
@@ -40,6 +43,11 @@ pub struct Settings {
     pub roots: Vec<PathBuf>,
     pub probe: bool,
     pub ffprobe: PathBuf,
+    /// Season and episode recognition rules (ADR-0128).
+    pub recognition: Rules,
+    /// Why the configured rules were rejected, if they were: the defaults
+    /// apply instead and the rest of the settings still load.
+    pub recognition_error: Option<String>,
 }
 
 impl Default for Settings {
@@ -49,6 +57,8 @@ impl Default for Settings {
             roots: Vec::new(),
             probe: true,
             ffprobe: PathBuf::from("ffprobe"),
+            recognition: Rules::default(),
+            recognition_error: None,
         }
     }
 }
@@ -64,6 +74,8 @@ struct SettingsJson {
     ffprobe: Option<String>,
     #[serde(default)]
     roots: Vec<String>,
+    #[serde(default)]
+    recognition: Option<serde_json::Value>,
 }
 
 fn yes() -> bool {
@@ -103,11 +115,22 @@ impl Settings {
             }
             Some(_) => return Err(ErrorCode::InvalidArgument),
         };
+        // Invalid rules fall back to the defaults (ADR-0128): the library
+        // stays usable, and the reason is reported once at start.
+        let (recognition, recognition_error) = match file.recognition.as_ref() {
+            None => (Rules::default(), None),
+            Some(value) => match Rules::from_value(value) {
+                Ok(rules) => (rules, None),
+                Err(error) => (Rules::default(), Some(error)),
+            },
+        };
         Ok(Self {
             autoscan: file.autoscan,
             roots,
             probe: file.probe,
             ffprobe,
+            recognition,
+            recognition_error,
         })
     }
 }
@@ -137,6 +160,9 @@ pub struct Store {
     /// Roots from the latest settings. Import uses this list, not every
     /// historical row in `roots`.
     configured_roots: Vec<PathBuf>,
+    /// Recognition rules from the latest settings (ADR-0128), for imports
+    /// between scans.
+    configured_rules: Rules,
     /// Mount tables for tests; `None` reads the system's at each scan and
     /// import (ADR-0115).
     mounts: Option<MountTables>,
@@ -262,18 +288,31 @@ impl Store {
                completed INTEGER NOT NULL,
                observed_at_us INTEGER NOT NULL
              );
-             CREATE TABLE IF NOT EXISTS imports (
-               completion_id TEXT PRIMARY KEY,
-               item_id TEXT NOT NULL
-             );",
+             CREATE TABLE IF NOT EXISTS import_ledger (
+               provider_id TEXT NOT NULL,
+               job_id TEXT NOT NULL,
+               completion_id TEXT NOT NULL,
+               item_id TEXT NOT NULL,
+               PRIMARY KEY (provider_id, job_id, completion_id)
+             );
+             -- The old ledger keyed on the output id alone, so two jobs with
+             -- the same output id shared an item (#599). Its rows carry no
+             -- provider or job and are dropped; a repeated import still
+             -- finds the item by its path.
+             DROP TABLE IF EXISTS imports;",
         )
         .map_err(|_| ErrorCode::Internal)?;
         seed_collections(&conn)?;
         Ok(Self {
             conn,
             configured_roots: Vec::new(),
+            configured_rules: Rules::default(),
             mounts: None,
         })
+    }
+
+    pub(crate) fn set_configured_rules(&mut self, rules: &Rules) {
+        self.configured_rules = rules.clone();
     }
 
     pub(crate) fn set_configured_roots(&mut self, roots: &[PathBuf]) {
@@ -639,7 +678,7 @@ impl Store {
     fn import_inner(&mut self, candidates: &[ImportCandidate]) -> Result<Vec<String>, ErrorCode> {
         let mut ids = Vec::with_capacity(candidates.len());
         for candidate in candidates {
-            if let Some(existing) = self.completion(&candidate.completion_id)? {
+            if let Some(existing) = self.completion(candidate)? {
                 if ids.iter().any(|id| id == &existing) {
                     return Err(ErrorCode::InvalidArgument);
                 }
@@ -655,16 +694,12 @@ impl Store {
                 return Err(ErrorCode::InvalidArgument);
             }
             let root_id = self.root_id(&root)?;
-            let Some(id) = self.upsert_file(
-                &root_id,
-                &root,
-                &path,
-                &Settings {
-                    probe: false,
-                    ..Settings::default()
-                },
-            )?
-            else {
+            let settings = Settings {
+                probe: false,
+                recognition: self.configured_rules.clone(),
+                ..Settings::default()
+            };
+            let Some(id) = self.upsert_file(&root_id, &root, &path, &settings)? else {
                 continue;
             };
             if ids.iter().any(|seen| seen == &id) {
@@ -672,8 +707,14 @@ impl Store {
             }
             self.conn
                 .execute(
-                    "INSERT INTO imports (completion_id, item_id) VALUES (?1, ?2)",
-                    params![candidate.completion_id, id],
+                    "INSERT INTO import_ledger (provider_id, job_id, completion_id, item_id)
+                     VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        candidate.source.provider_id,
+                        candidate.source.local_id,
+                        candidate.completion_id,
+                        id
+                    ],
                 )
                 .map_err(|_| ErrorCode::Internal)?;
             ids.push(id);
@@ -744,6 +785,7 @@ impl Store {
             .map_err(|_| ErrorCode::Internal)?;
         let result = (|| {
             self.configured_roots = settings.roots.clone();
+            self.configured_rules = settings.recognition.clone();
             let stored = self
                 .conn
                 .prepare("SELECT id, path FROM roots")
@@ -862,14 +904,16 @@ impl Store {
         path: &Path,
         settings: &Settings,
     ) -> Result<Option<String>, ErrorCode> {
-        if relative(root, path).is_none() || parse::parse_video(root, path).is_none() {
+        if relative(root, path).is_none()
+            || parse::parse_video_with(root, path, &settings.recognition).is_none()
+        {
             // Subtitles, NFO files and other extras of a download are not
             // catalogue items; the scan skips them too (#598).
             return Ok(None);
         }
         // A video that vanished or became unreadable after the caller's
         // checks stays retryable instead of passing for an extra.
-        let Some(file) = disk_file(root, path)? else {
+        let Some(file) = disk_file(root, path, &settings.recognition)? else {
             return Err(ErrorCode::Unavailable);
         };
         let existing = self.load_root(root_id)?;
@@ -1038,11 +1082,18 @@ impl Store {
         Ok(root.clone())
     }
 
-    fn completion(&self, id: &str) -> Result<Option<String>, ErrorCode> {
+    /// The item a completed download output was imported as. ADR-0067 keys
+    /// the ledger on (download provider, job id, output id).
+    fn completion(&self, candidate: &ImportCandidate) -> Result<Option<String>, ErrorCode> {
         self.conn
             .query_row(
-                "SELECT item_id FROM imports WHERE completion_id = ?1",
-                [id],
+                "SELECT item_id FROM import_ledger
+                 WHERE provider_id = ?1 AND job_id = ?2 AND completion_id = ?3",
+                params![
+                    candidate.source.provider_id,
+                    candidate.source.local_id,
+                    candidate.completion_id
+                ],
                 |row| row.get(0),
             )
             .optional()
@@ -1410,7 +1461,7 @@ fn discover(settings: &Settings, mounts: &MountTables) -> Vec<RootScan> {
             );
             let files = paths
                 .iter()
-                .filter_map(|file| disk_file(path, file).ok().flatten())
+                .filter_map(|file| disk_file(path, file, &settings.recognition).ok().flatten())
                 .collect();
             RootScan {
                 path: path.clone(),
@@ -1606,11 +1657,11 @@ fn regular_file_inside(root: &Path, path: &Path) -> bool {
     fs::metadata(path).is_ok_and(|meta| meta.is_file()) && contained(root, path)
 }
 
-fn disk_file(root: &Path, path: &Path) -> Result<Option<DiskFile>, ErrorCode> {
+fn disk_file(root: &Path, path: &Path, rules: &Rules) -> Result<Option<DiskFile>, ErrorCode> {
     let Some(rel) = relative(root, path) else {
         return Ok(None);
     };
-    let Some(mut parsed) = parse::parse_video(root, path) else {
+    let Some(mut parsed) = parse::parse_video_with(root, path, rules) else {
         return Ok(None);
     };
     let nfo_path = path.with_extension("nfo");
@@ -1936,6 +1987,10 @@ fn probe_one(command: &Path, file: &Path) -> Option<(i64, String, String)> {
         .args([
             "-v",
             "quiet",
+            // Downloaded files are untrusted; a playlist or reference file
+            // must not make ffprobe open anything but local files (#600).
+            "-protocol_whitelist",
+            "file",
             "-print_format",
             "json",
             "-show_format",
@@ -1948,26 +2003,48 @@ fn probe_one(command: &Path, file: &Path) -> Option<(i64, String, String)> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
+    // The JSON of a file with many streams or attachments is larger than the
+    // pipe buffer, so stdout is drained while ffprobe runs (#600).
+    let stdout = child.stdout.take()?;
+    let reader = thread::spawn(move || read_probe_output(stdout));
     let started = Instant::now();
-    loop {
+    let status = loop {
         match child.try_wait() {
-            Ok(Some(status)) => {
-                if !status.success() {
-                    return None;
-                }
-                let mut body = String::new();
-                child.stdout.take()?.read_to_string(&mut body).ok()?;
-                return parse_probe(&body);
-            }
-            Ok(None) if started.elapsed() > PROBE_TIMEOUT => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if started.elapsed() > PROBE_TIMEOUT => break None,
             Ok(None) => thread::sleep(Duration::from_millis(20)),
-            Err(_) => return None,
+            Err(_) => break None,
         }
+    };
+    let Some(status) = status else {
+        // The reader ends once the pipe closes; it is not joined, because a
+        // process the probe started may still hold the pipe open.
+        let _ = child.kill();
+        let _ = child.wait();
+        return None;
+    };
+    let body = reader.join().ok().flatten()?;
+    if !status.success() {
+        return None;
     }
+    parse_probe(&body)
+}
+
+/// Reads ffprobe's stdout up to `PROBE_OUTPUT_LIMIT` and discards the rest,
+/// so the child never blocks on a full pipe. Output over the limit is not
+/// parsed.
+fn read_probe_output(stdout: impl Read) -> Option<String> {
+    let mut stdout = stdout;
+    let mut body = Vec::new();
+    (&mut stdout)
+        .take(PROBE_OUTPUT_LIMIT + 1)
+        .read_to_end(&mut body)
+        .ok()?;
+    if body.len() as u64 > PROBE_OUTPUT_LIMIT {
+        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
+        return None;
+    }
+    String::from_utf8(body).ok()
 }
 
 fn parse_probe(body: &str) -> Option<(i64, String, String)> {
@@ -2099,6 +2176,25 @@ mod tests {
         assert!(Settings::parse(r#"{"roots":["/"]}"#).is_err());
         assert!(Settings::parse(r#"{"roots":["films"]}"#).is_err());
         assert!(Settings::parse(r#"{"extra":true}"#).is_err());
+        // ADR-0128: valid rules load; invalid ones fall back to the defaults
+        // with a reason, and the roots still load.
+        let custom =
+            Settings::parse(r#"{"roots":["/srv/films"],"recognition":{"season":["Part {n}"]}}"#)
+                .unwrap();
+        assert!(custom.recognition_error.is_none());
+        assert_eq!(custom.recognition.season_rules()[0].template, "Part {n}");
+        let invalid =
+            Settings::parse(r#"{"roots":["/srv/films"],"recognition":{"season":["{n}"]}}"#)
+                .unwrap();
+        assert_eq!(invalid.roots, vec![PathBuf::from("/srv/films")]);
+        assert_eq!(invalid.recognition, Rules::default());
+        let reason = invalid.recognition_error.unwrap();
+        assert!(
+            reason.contains("season:1") && !reason.contains("/srv"),
+            "{reason}"
+        );
+        let shape = Settings::parse(r#"{"recognition":["not a table"]}"#).unwrap();
+        assert!(shape.recognition_error.is_some());
     }
 
     #[test]
@@ -2116,7 +2212,11 @@ mod tests {
         let gone = root.join("Gone (2001).mkv");
         fs::write(&gone, b"gone").unwrap();
         fs::remove_file(&gone).unwrap();
-        assert!(disk_file(&root, &gone).unwrap().is_none());
+        assert!(
+            disk_file(&root, &gone, &Rules::default())
+                .unwrap()
+                .is_none()
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -2139,6 +2239,7 @@ mod tests {
             roots: vec![root.clone()],
             probe: false,
             ffprobe: PathBuf::from("ffprobe"),
+            ..Settings::default()
         };
         // The import checked the path, then the video disappeared: it must
         // not be skipped like an extra (#598).
@@ -2177,6 +2278,7 @@ mod tests {
                 roots: vec![root],
                 probe: false,
                 ffprobe: PathBuf::from("ffprobe"),
+                ..Settings::default()
             })
             .unwrap();
         let id = store

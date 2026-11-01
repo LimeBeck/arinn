@@ -1,0 +1,1 @@
+- A finished download whose file has the same relative path as an earlier one in another torrent, such as `Season 1/Episode 01.mkv` of a different show, is now imported as its own library item instead of pointing at the earlier one ([#599](https://github.com/LimeBeck/arinn/issues/599)).

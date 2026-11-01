@@ -1,0 +1,1 @@
+- Settings › Applications shows the Search engine choice again; the row was hidden because the daemon filed it under a category the screen does not have ([#682](https://github.com/LimeBeck/arinn/issues/682)).

@@ -1,0 +1,1 @@
+- Plan a native music interface with Yandex Music, Spotify, SoundCloud, YouTube Music and a local music library as initial provider candidates. Requirements and feasibility checks precede design, API review, implementation of feasible providers and verification; blocked candidates remain tracked for an owner decision. No music functionality is implemented by this roadmap entry.

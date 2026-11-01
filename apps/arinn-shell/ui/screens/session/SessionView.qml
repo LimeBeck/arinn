@@ -260,6 +260,7 @@ FocusScope {
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: false
+                            sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
                             source: root.artwork
                             visible: status === Image.Ready
                         }

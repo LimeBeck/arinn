@@ -5,6 +5,7 @@
 [package]
 name = "arinn-plugin-library"
 version.workspace = true
+publish.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
 repository.workspace = true
@@ -18,5 +19,6 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
+toml.workspace = true
 uuid.workspace = true
 zbus.workspace = true

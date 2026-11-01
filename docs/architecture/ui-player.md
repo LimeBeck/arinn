@@ -121,6 +121,12 @@ list, so the session itself still loads.
 | `MediaTracks1` | `ListTracks`, `SelectTrack` and `DisableSubtitles`. The subtitle sheet starts with Off, a shell-only id. Choosing it calls `DisableSubtitles` and never `SelectTrack` |
 | `MediaTimeline1` | `GetTimeline` supplies chapter positions and the buffered range that contains the playhead. `RequestThumbnail` runs when the timeline is focused and again for a seek target. The operation result's `local_id` becomes the `thumbnail` URL. A failure leaves the previous URL |
 
+`MediaCatalog.continueEntries` omits a **stopped** session whose title is
+empty or blank: it is neither resumable content nor the current activity
+(§5.1, owner decision on [#448](https://github.com/LimeBeck/arinn/issues/448)).
+The session stays in the catalog, so the player screen and the
+`session*`/`playbackState` properties still see it.
+
 A Continue card for a **stopped** session whose content reference has the
 `library` capability opens neither screen. A stopped session has nothing to
 present (its launch id is empty, see [managed playback](managed-playback.md)),

@@ -1,0 +1,1 @@
+- Continue no longer shows an empty card for a media player that has stopped and reports no title, such as a browser after its video ends ([#448](https://github.com/LimeBeck/arinn/issues/448)).

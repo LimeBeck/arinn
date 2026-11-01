@@ -834,23 +834,24 @@ fn strip_release_tags(text: &str) -> String {
     while start > 0 && service_release_tag(&tokens[start - 1]) {
         start -= 1;
     }
-    // A year inside the suffix (`Movie 1080p 2020`, `2020-GROUP`, `(2020)`)
-    // stays, in any form `take_year` reads, so it still finds it.
-    let mut kept: Vec<&str> = tokens[..start].iter().map(String::as_str).collect();
-    kept.extend(
-        tokens[start..]
-            .iter()
-            .filter(|token| {
-                year_token(token).is_some()
-                    || token
-                        .strip_prefix('(')
-                        .and_then(|rest| rest.strip_suffix(')'))
-                        .and_then(year_token)
-                        .is_some_and(|_| token.len() == 6)
-            })
-            .map(String::as_str),
-    );
+    // A year inside the suffix stays in any form `take_year` reads: a year
+    // token (`2020`, `2020-GROUP`) as it is, a `(YYYY)` anywhere in a token
+    // (`(2020)`, `(2020)-GROUP`) as `(YYYY)`. `take_year` then still finds it.
+    let mut kept: Vec<String> = tokens[..start].to_vec();
+    for token in &tokens[start..] {
+        if year_token(token).is_some() {
+            kept.push(token.clone());
+        } else if let Some(year) = parenthesized_year(token) {
+            kept.push(format!("({year})"));
+        }
+    }
     trim_seps(&kept.join(" "))
+}
+
+/// A `(YYYY)` anywhere in `token`, as `take_year` reads it.
+fn parenthesized_year(token: &str) -> Option<i32> {
+    let (_, year) = take_year(token);
+    year.filter(|_| token.contains('('))
 }
 
 fn fallback_title(parsed: &str, stem: &str) -> String {
@@ -1068,6 +1069,7 @@ mod tests {
             ("Movie 1080p 2020", "Movie 2020"),
             ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
             ("Movie 1080p (2020)", "Movie (2020)"),
+            ("Movie 1080p (2020)-GROUP", "Movie (2020)"),
             ("Show S02 WEB-DLRip-GROUP", "Show S02"),
             ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
             ("", ""),
@@ -1179,6 +1181,15 @@ mod tests {
         assert!(episode.series_has_year);
         assert_eq!(episode.series_year, 2021);
         let film = parse_video(root, Path::new("/library/Example.Film.1080p.(2020).mkv")).unwrap();
+        assert_eq!(film.title, "Example Film");
+        assert!(film.has_year);
+        assert_eq!(film.year, 2020);
+
+        let film = parse_video(
+            root,
+            Path::new("/library/Example.Film.1080p.(2020)-GROUP.mkv"),
+        )
+        .unwrap();
         assert_eq!(film.title, "Example Film");
         assert!(film.has_year);
         assert_eq!(film.year, 2020);

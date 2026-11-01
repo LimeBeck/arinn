@@ -155,8 +155,8 @@ FocusScope {
                     readonly property real safeLeft: viewport.contentX - x
                     readonly property real safeRight: safeLeft + root.width
                     // Only a focused card whose body is inside the safe
-                    // area may paint past it: its glow uses the viewport's
-                    // margin. Every other card is cut at the safe edges, so
+                    // area may paint past it: its glow and focus scale use
+                    // the viewport's margin. Every other card is cut at the safe edges, so
                     // no neighbour or flicked card shows past them (#564).
                     readonly property bool focusedInside: !!item && item.activeFocus
                         && safeLeft <= 0 && safeRight >= width

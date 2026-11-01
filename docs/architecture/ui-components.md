@@ -164,7 +164,7 @@ A row paints only between its own edges, which are Home's safe edges (x120 to
 x1824, handoff 01). The viewport keeps a 48 px margin on each side for the
 focus glow, lift and scale, and each card is clipped at the safe edges. Only
 the focused card, while its body is inside the safe area, paints into that
-margin, and only its glow ends up there. A neighbour, or a focused card flicked
+margin, and only its focus treatment (glow and focus scale) ends up there. A neighbour, or a focused card flicked
 across an edge, is cut at the edge. A card wholly outside the safe area is not
 painted and takes no pointer focus or clicks, though D-pad focus still reaches
 it. Scrolling to a focused card keeps its body inside the safe right edge. So

@@ -1353,10 +1353,13 @@ FocusScope {
                                     Column {
                                         id: simpleText
                                         x: 32
-                                        y: 20
+                                        // A title alone sits on the row's centre, level with
+                                        // the value and chevron (handoff 14, ED-1; #641).
+                                        y: Math.max(20, Math.round((parent.height - height) / 2))
                                         width: parent.width - 64 - (rowScope.switchRow ? 88 : simpleEditor.visible ? 520 : 280)
                                         spacing: 6
                                         Ui.UiText {
+                                            objectName: rowScope.simpleRow ? "title-" + rowScope.key : ""
                                             width: parent.width
                                             text: row.title || ""
                                             role: "control"

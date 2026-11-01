@@ -1,0 +1,1 @@
+- In Settings, a row without a description shows its title on the row's vertical centre, level with its value, instead of at the top ([#641](https://github.com/LimeBeck/arinn/issues/641)).

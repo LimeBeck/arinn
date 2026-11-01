@@ -1,0 +1,1 @@
+- Serve local library posters and fanart through the existing asset interface, so artwork discovered next to films and series can appear in Library. Keep reads bounded and confined to configured library roots.

@@ -4,6 +4,7 @@
 //! Local folder library provider (ADR-0024, ADR-0054, ADR-0056, ADR-0071, ADR-0115).
 //! Paths, titles and file URIs are not logged.
 
+mod assets;
 mod mounts;
 mod parse;
 mod paths;

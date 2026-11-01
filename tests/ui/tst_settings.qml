@@ -159,6 +159,175 @@ TestCase {
         verify(insideView(windowFocus()));
     }
 
+    function texts(item) {
+        let found = [];
+        if (!item) return found;
+        if (item.text !== undefined && item.visible) found.push(String(item.text));
+        for (let i = 0; i < item.children.length; ++i)
+            found = found.concat(texts(item.children[i]));
+        return found;
+    }
+
+    // #566: handoff 14 / se-lf-1.
+    function test_rows_hints_and_icons_follow_the_handoff() {
+        // At rest a row is title and description; the provider shows on focus.
+        const provider = child("provider-library-scan");
+        compare(provider.visible, false);
+        compare(child("settingsHints").visible, false);
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        tryCompare(provider, "visible", true);
+        compare(provider.text, "Library");
+        // The key hints show while a row has focus.
+        const hints = child("settingsHints");
+        tryCompare(hints, "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        compare(texts(child("settingsHint-1")), ["Back", "To sections"]);
+        compare(Math.round(hints.mapToItem(view, 0, 0).x), 120);
+        keyClick(Qt.Key_Left);
+        focused("category-media");
+        tryCompare(provider, "visible", false);
+        tryCompare(hints, "visible", false);
+        // Category icons are filled: inside play_circle, left of its cut-out
+        // triangle, the icon is ink, where the old outline was hollow.
+        const icon = child("categoryIcon-playback");
+        compare(icon.width, 38);
+        verify(waitForRendering(icon));
+        tryVerify(() => {
+            const at = icon.mapToItem(suite, 12, 19);
+            const pixels = grabImage(suite);
+            return pixels.red(Math.round(at.x), Math.round(at.y)) > 120;
+        }, 5000, "the playback icon is not filled");
+    }
+
+    // ED-2: on a row that cannot be changed now the hint says so.
+    function test_locked_row_hint() {
+        down(4);
+        focused("category-applications");
+        keyClick(Qt.Key_Right);
+        focused("setting-shell-label");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-shell-locked");
+        tryCompare(child("settingsHints"), "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        // A row that is still saving cannot be edited either.
+        view.rows = copyRows(row => { if (row.id === "label") row.pending = true; });
+        keyClick(Qt.Key_Up);
+        focused("setting-shell-label");
+        tryCompare(child("settingsHint-0"), "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        view.rows = copyRows(row => { if (row.id === "label") row.pending = false; });
+        keyClick(Qt.Key_Down);
+        focused("setting-shell-locked");
+        keyClick(Qt.Key_Up);
+        focused("setting-shell-label");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+    }
+
+    // OK does nothing on an unsupported value or an unknown type.
+    function test_unsupported_value_hint() {
+        view.rows = [
+            {providerId: "p", providerName: "P", id: "flag", categoryId: "media", title: "Flag",
+             type: "boolean", currentValue: "maybe", constraints: {}, enabled: true},
+            {providerId: "p", providerName: "P", id: "count", categoryId: "media", title: "Count",
+             type: "integer", currentValue: "many", constraints: {min: 0, max: 9}, enabled: true},
+            {providerId: "p", providerName: "P", id: "mode", categoryId: "media", title: "Mode",
+             type: "enum", currentValue: "gone", constraints: {options: [{value: "a", title: "A"}]}, enabled: true},
+            {providerId: "p", providerName: "P", id: "odd", categoryId: "media", title: "Odd",
+             type: "colour", currentValue: "red", constraints: {}, enabled: true}
+        ];
+        keyClick(Qt.Key_Right);
+        focused("setting-p-flag");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-p-count");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        // An enum with an unknown value still opens its options.
+        keyClick(Qt.Key_Down);
+        focused("setting-p-mode");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        keyClick(Qt.Key_Down);
+        focused("setting-p-odd");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+    }
+
+    // LF-5: Add on a full path list stays focusable but does nothing.
+    function test_full_path_list_add_hint() {
+        view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
+                      title: "Folders", description: "Places to read", type: "path",
+                      currentValue: ["/a", "/b"], constraints: {directory: true, multiple: true, maxItems: 2},
+                      enabled: true}];
+        keyClick(Qt.Key_Right);
+        tryVerify(() => view.detailFocused);
+        compare(view.partName, "path:0");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+        // path:0 → remove:0 → path:1 → remove:1 → add
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
+        compare(view.partName, "add");
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        keyClick(Qt.Key_Left);
+        compare(view.partName, "remove:1");
+        compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+    }
+
+    // A path list taller than the viewport scrolls to the focused field.
+    function test_tall_path_list_reveals_the_focused_control() {
+        const paths = [];
+        for (let i = 0; i < 12; ++i) paths.push("/srv/media/folder-" + i);
+        view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
+                      title: "Folders", description: "Places to read", type: "path", currentValue: paths,
+                      constraints: {directory: true, multiple: true, maxItems: 64}, enabled: true}];
+        const top = child("rowFadeTop");
+        const bottom = child("rowFadeBottom");
+        tryCompare(bottom, "visible", true);
+        keyClick(Qt.Key_Right);
+        tryVerify(() => view.detailFocused);
+        // path:0, remove:0, ... path:11, remove:11, add.
+        for (let step = 0; step < 24; ++step) {
+            keyClick(Qt.Key_Right);
+            const item = windowFocus();
+            verify(insideView(item));
+            const itemTop = item.mapToItem(top.parent, 0, 0).y;
+            const itemBottom = item.mapToItem(top.parent, 0, item.height).y;
+            verify(itemTop >= top.y - 3, "step " + step + ": the focused control is above the list");
+            verify(itemBottom <= bottom.y + bottom.height + 3, "step " + step + ": the focused control is below the list");
+        }
+        compare(view.partName, "add");
+        tryCompare(bottom, "visible", false);
+    }
+
+    function test_long_rows_fade_at_the_edges() {
+        const rows = [];
+        for (let i = 0; i < 14; ++i)
+            rows.push({providerId: "library", providerName: "Library", id: "r" + i, categoryId: "media",
+                       title: "Setting " + i, description: "Row " + i, type: "boolean",
+                       currentValue: false, constraints: {}, enabled: true});
+        view.rows = rows;
+        const top = child("rowFadeTop");
+        const bottom = child("rowFadeBottom");
+        keyClick(Qt.Key_Right);
+        focused("setting-library-r0");
+        compare(top.visible, false);
+        tryCompare(bottom, "visible", true);
+        compare(bottom.height, 72);
+        // Moving down keeps the focused row clear of a visible mask.
+        for (let i = 1; i < rows.length; ++i) {
+            keyClick(Qt.Key_Down);
+            focused("setting-library-r" + i);
+            const row = child("setting-library-r" + i);
+            const rowTop = row.mapToItem(bottom.parent, 0, 0).y;
+            const rowBottom = row.mapToItem(bottom.parent, 0, row.height).y;
+            if (bottom.visible)
+                verify(rowBottom <= bottom.y + 3, "row " + i + " under the bottom fade");
+            if (top.visible)
+                verify(rowTop >= top.y + top.height - 3, "row " + i + " under the top fade");
+        }
+        // At the end of the list only the top mask remains.
+        tryCompare(bottom, "visible", false);
+        compare(top.visible, true);
+    }
+
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

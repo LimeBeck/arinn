@@ -852,6 +852,79 @@ TestCase {
         verify(!mute.visible);
         verify(!wifi.visible);
     }
+    // #659: with the New row focused the rows move up; none of them may
+    // show inside the header band of the menu button and the status area.
+    function test_new_row_focus_keeps_rows_out_of_the_header() {
+        const menu = child("menuButton");
+        const headerBottom = menu.mapToItem(home, 0, menu.height).y;
+        const rows = ["continue", "favorites", "new"].map(name => child(name));
+        const overlapping = () => rows.filter(row => row.visible && row.opacity > 0.01
+                                                 && row.mapToItem(home, 0, 0).y < headerBottom)
+                                      .map(row => row.objectName + "@" + Math.round(row.mapToItem(home, 0, 0).y));
+        // Sample the frames of a transition: the translation animates, so a
+        // row must stay out of the header while it moves, not only after.
+        const sampleTransition = () => {
+            for (let i = 0; i < 40; ++i) {
+                const bad = overlapping();
+                verify(bad.length === 0, "during the transition: " + bad.join(", "));
+                wait(16);
+            }
+        };
+        // Down twice: Continue → Favorites → New.
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        keyClick(Qt.Key_Down);
+        sampleTransition();
+        focused("entry-n");
+        tryVerify(() => home.homeOffset < 0);
+        // The translation animates: wait until the rows reach their offset.
+        const continueRow = child("continue");
+        tryVerify(() => Math.abs(continueRow.mapToItem(home, 0, 0).y - (continueRow.y + home.homeOffset)) < 0.5,
+                  3000, "the rows reach the New row offset");
+        verify(continueRow.mapToItem(home, 0, 0).y < headerBottom, "this fixture moves Continue into the header band");
+        // Then no row that is still shown may overlap the header.
+        tryVerify(() => {
+            for (const row of rows) {
+                const top = row.mapToItem(home, 0, 0).y;
+                const shown = row.visible && row.opacity > 0.01;
+                if (shown && top < headerBottom)
+                    return false;
+            }
+            return true;
+        }, 3000, "a shown row overlaps the header");
+        verify(child("new").opacity === 1);
+        verify(child("entry-n").mapToItem(home, 0, 0).y >= headerBottom);
+        // Back up: the Continue row returns at full opacity, without
+        // crossing the header visibly on the way.
+        keyClick(Qt.Key_Up);
+        sampleTransition();
+        focused("entry-f");
+        keyClick(Qt.Key_Up);
+        focused("entry-a");
+        tryCompare(child("continue"), "opacity", 1);
+        tryCompare(home, "homeOffset", 0);
+        // Down to New again for the pointer checks.
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        keyClick(Qt.Key_Down);
+        focused("entry-n");
+        tryVerify(() => Math.abs(continueRow.mapToItem(home, 0, 0).y - (continueRow.y + home.homeOffset)) < 0.5, 3000);
+        // The faded Continue cards still lie over the header and below it;
+        // they must not take the pointer. A click on an invisible card does
+        // nothing, and a click on the menu button reaches the menu button.
+        const hidden = child("entry-a");
+        const spot = hidden.mapToItem(home, hidden.width / 2, hidden.height - 20);
+        verify(spot.y > headerBottom, "the hidden card reaches below the header");
+        mouseClick(home, spot.x, spot.y);
+        wait(50);
+        compare(returns.count + entries.count, 0, "a click on a faded card activated it");
+        verify(!home.navOpen);
+        const menuSpot = menu.mapToItem(home, menu.width / 2, menu.height / 2);
+        mouseClick(home, menuSpot.x, menuSpot.y);
+        tryCompare(home, "navOpen", true);
+        keyClick(Qt.Key_Escape);
+        tryCompare(home, "navOpen", false);
+    }
     // #408 (owner decision 2026-11-01): a cable glyph on a wired link, a
     // crossed-out Wi-Fi while disconnected, nothing for another link or an
     // unknown state.

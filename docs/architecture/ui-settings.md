@@ -44,8 +44,8 @@ control.
 | Field | Role |
 | --- | --- |
 | Category `id`, `title` | Left-hand list entry, in the given order |
-| Category `icon` | Optional mark name (`video_library`, `play_circle`, `volume_up`, `wifi`, `apps`, `palette`, `memory`); anything else is a plain mark |
-| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption |
+| Category `icon` | Optional mark name (`video_library`, `play_circle`, `volume_up`, `wifi`, `apps`, `palette`, `memory`, drawn as the filled 38 px Material-style icons of handoff se-lf-1; `memory` is the gear the handoff shows for System); anything else is a plain mark |
+| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption on the focused row only; at rest a row is label and description as in handoff 14 (owner decision on #566, 2026-11-01) |
 | Row `id`, `categoryId`, `title`, `description` | One setting |
 | Row `type` | `boolean`, `enum`, `string`, `integer` or `path` |
 | Row `currentValue` | Current value from `GetSettings` |
@@ -90,7 +90,8 @@ keyboard only when an input device of that type is present. Arrow keys and other
 remote navigation do not mark one. The first character key enables the field.
 
 A single path, and a path with `multiple`, stay inline text fields with Add and
-Remove. While a path editor is open, its keyboard pill opens the
+Remove. The owner kept this inline list for the MVP instead of the handoff's
+Library folders screen and folder picker (LF, PK; #566, 2026-11-01). While a path editor is open, its keyboard pill opens the
 [on-screen keyboard](ui-keyboard.md) in the same full-screen typing layer, with
 the `path` context row (KB-5); its main key saves as Enter does. Without a
 keyboard the editor opens on that pill.
@@ -207,6 +208,14 @@ the editor without proposing the draft: the pill is not a text field. Replacing 
 catalog publish) puts focus back on the same row control, or back into an open
 sheet, so Select still reaches it (AC-02). A pending row is not editable until
 that change settles.
+
+While a row has focus, the bottom-left hint bar reads "OK Edit · Back To
+sections" (handoff se-lf-1), or "OK Unavailable" where OK does nothing on the
+focused part: a row with `enabled` false (ED-2), a row still saving, a boolean
+or integer whose value is unsupported, an unknown type, or Add on a path list at
+its `maxItems` (LF-5). `partActionable` mirrors the OK handlers. When the rows overflow, 72 px fade masks cover
+the top and bottom edges of the list, and scrolling keeps the focused row clear
+of them; at either end of the list that mask is hidden.
 
 ## Verification
 

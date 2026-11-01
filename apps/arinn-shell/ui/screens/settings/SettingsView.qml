@@ -76,6 +76,12 @@ FocusScope {
     signal homeRequested()
     signal retryRequested()
 
+    // OK does nothing on the focused part: a row that cannot be changed now,
+    // one still saving, or Add on a full path list.
+    readonly property bool hintRowLocked: {
+        const row = rowByKey(focusedRowKey);
+        return !!row && !partActionable(row, partName);
+    }
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
     onActiveRowsChanged: queueRowFocusRestore()
@@ -148,6 +154,30 @@ FocusScope {
     }
     function canEdit(row) {
         return !!row && row.enabled !== false && !row.pending;
+    }
+    // A path list at its maxItems: Add stays focusable but does nothing (LF-5).
+    function pathFull(row) {
+        return hasBound(row, "maxItems") && pathList(row).length >= Number(row.constraints.maxItems);
+    }
+    // Whether OK on this part of the row does something. It mirrors the
+    // handlers: the main control's onClicked with openOptions, openInteger,
+    // openString and openEditor, and Add's `full` guard.
+    function partActionable(row, part) {
+        if (!canEdit(row)) return false;
+        if (part === "add") return !pathFull(row);
+        if (part !== "main") return true;
+        switch (row.type) {
+        case "boolean":
+        case "integer":
+            return !valueUnsupported(row);
+        case "enum":
+            return optionsOf(row).length > 0;
+        case "string":
+        case "path":
+            return true;
+        default:
+            return false;
+        }
     }
     function optionsOf(row) {
         const options = row && row.constraints && row.constraints.options;
@@ -744,72 +774,101 @@ FocusScope {
         if (index >= 0) focusPart(index, partsFor(activeRows[index])[0] || "main");
         else if (categories.length) focusCategory(categoryIndex);
     }
+    // Filled category icons after the Material Symbols the handoff draws
+    // (se-lf-1, 38 px), painted on a 24-unit grid. Cut-outs are punched with
+    // destination-out, so the icon shows the plate behind it (#566).
     function paintIcon(ctx, name) {
         ctx.clearRect(0, 0, 38, 38);
-        ctx.lineWidth = 2.2;
+        ctx.save();
+        ctx.scale(38 / 24, 38 / 24);
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        const stroke = () => { ctx.stroke(); };
+        const cut = draw => {
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.beginPath();
+            draw();
+            ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+        };
+        const triangle = (x, top, bottom, tip) => {
+            ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.lineTo(tip, (top + bottom) / 2); ctx.closePath();
+        };
         if (name === "video_library") {
             ctx.beginPath();
-            ctx.moveTo(8, 12); ctx.lineTo(30, 12); ctx.lineTo(30, 26); ctx.lineTo(8, 26); ctx.closePath();
-            stroke();
-            ctx.beginPath();
-            ctx.moveTo(16, 16); ctx.lineTo(16, 22); ctx.lineTo(23, 19); ctx.closePath();
+            ctx.rect(2, 6, 2, 16);
+            ctx.rect(2, 20, 16, 2);
             ctx.fill();
+            ctx.beginPath();
+            ctx.roundedRect(6, 2, 16, 16, 2, 2);
+            ctx.fill();
+            cut(() => triangle(11.5, 5.5, 14.5, 17.5));
         } else if (name === "play_circle") {
             ctx.beginPath();
-            ctx.arc(19, 19, 10, 0, Math.PI * 2);
-            stroke();
-            ctx.beginPath();
-            ctx.moveTo(16, 14); ctx.lineTo(16, 24); ctx.lineTo(25, 19); ctx.closePath();
+            ctx.arc(12, 12, 10, 0, Math.PI * 2);
             ctx.fill();
+            cut(() => triangle(9.5, 7.5, 16.5, 16.5));
         } else if (name === "volume_up") {
             ctx.beginPath();
-            ctx.moveTo(10, 16); ctx.lineTo(15, 16); ctx.lineTo(21, 11); ctx.lineTo(21, 27); ctx.lineTo(15, 22); ctx.lineTo(10, 22); ctx.closePath();
+            ctx.moveTo(3, 9); ctx.lineTo(7, 9); ctx.lineTo(12, 4); ctx.lineTo(12, 20); ctx.lineTo(7, 15); ctx.lineTo(3, 15);
+            ctx.closePath();
             ctx.fill();
+            ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(21, 19, 6, -0.9, 0.9);
+            ctx.arc(12, 12, 4.5, -0.85, 0.85);
             ctx.stroke();
             ctx.beginPath();
-            ctx.arc(21, 19, 10, -0.8, 0.8);
+            ctx.arc(12, 12, 8.5, -0.95, 0.95);
             ctx.stroke();
         } else if (name === "wifi") {
-            ctx.beginPath(); ctx.arc(19, 26, 2.2, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(19, 26, 7, Math.PI * 1.2, Math.PI * 1.8); ctx.stroke();
-            ctx.beginPath(); ctx.arc(19, 26, 12, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke();
+            ctx.lineWidth = 2.4;
+            for (const radius of [4.8, 9.6, 14.4]) {
+                ctx.beginPath();
+                ctx.arc(12, 20.5, radius, Math.PI * 1.25, Math.PI * 1.75);
+                ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.arc(12, 19, 2, 0, Math.PI * 2);
+            ctx.fill();
         } else if (name === "apps") {
-            for (let col = 0; col < 2; ++col) {
-                for (let row = 0; row < 2; ++row) {
+            for (const y of [5, 12, 19]) {
+                for (const x of [5, 12, 19]) {
                     ctx.beginPath();
-                    ctx.rect(9 + col * 11, 9 + row * 11, 8, 8);
+                    ctx.arc(x, y, 2.2, 0, Math.PI * 2);
                     ctx.fill();
                 }
             }
         } else if (name === "palette") {
             ctx.beginPath();
-            ctx.arc(19, 19, 11, 0, Math.PI * 2);
-            stroke();
-            ctx.beginPath(); ctx.arc(14, 16, 2, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(22, 14, 2, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.arc(25, 21, 2, 0, Math.PI * 2); ctx.fill();
-        } else if (name === "memory") {
+            ctx.arc(12, 12, 10, 0, Math.PI * 2);
+            ctx.fill();
+            cut(() => {
+                for (const hole of [[6.5, 11.5], [9.5, 7], [14.5, 7], [17.5, 11.5]]) {
+                    ctx.moveTo(hole[0] + 1.6, hole[1]);
+                    ctx.arc(hole[0], hole[1], 1.6, 0, Math.PI * 2);
+                }
+            });
+            cut(() => ctx.arc(17, 18, 2.6, 0, Math.PI * 2));
+        } else if (name === "memory" || name === "settings") {
+            // The handoff draws the System category (`memory`) as a gear.
             ctx.beginPath();
-            ctx.rect(12, 12, 14, 14);
-            stroke();
-            for (let i = 0; i < 3; ++i) {
+            ctx.arc(12, 12, 7.5, 0, Math.PI * 2);
+            ctx.fill();
+            for (let i = 0; i < 8; ++i) {
+                ctx.save();
+                ctx.translate(12, 12);
+                ctx.rotate(i * Math.PI / 4);
                 ctx.beginPath();
-                ctx.moveTo(15 + i * 4, 12); ctx.lineTo(15 + i * 4, 8);
-                ctx.moveTo(15 + i * 4, 26); ctx.lineTo(15 + i * 4, 30);
-                ctx.moveTo(12, 15 + i * 4); ctx.lineTo(8, 15 + i * 4);
-                ctx.moveTo(26, 15 + i * 4); ctx.lineTo(30, 15 + i * 4);
-                ctx.stroke();
+                ctx.roundedRect(-2, -10.5, 4, 5, 1, 1);
+                ctx.fill();
+                ctx.restore();
             }
+            cut(() => ctx.arc(12, 12, 3.2, 0, Math.PI * 2));
         } else {
             ctx.beginPath();
-            ctx.arc(19, 19, 8, 0, Math.PI * 2);
-            stroke();
+            ctx.arc(12, 12, 6, 0, Math.PI * 2);
+            ctx.fill();
         }
+        ctx.restore();
     }
     function focusCategory(index) {
         if (!categories.length || screenBlocked) return;
@@ -838,7 +897,7 @@ FocusScope {
         const row = activeRows[rowIndex];
         focusedRowKey = row ? rowKey(row) : focusedRowKey;
         Ui.Focus.take(item);
-        revealRow(scope);
+        revealRow(scope, item);
         return true;
     }
     // The row repeater builds new buttons whenever rows are replaced. Without
@@ -867,12 +926,20 @@ FocusScope {
         if (attempt < 2)
             Qt.callLater(() => restoreRowFocus(attempt + 1));
     }
-    function revealRow(scope) {
-        const top = scope.y;
-        const bottom = top + scope.height;
-        if (top < rowFlick.contentY) rowFlick.contentY = top;
-        else if (bottom > rowFlick.contentY + rowFlick.height)
-            rowFlick.contentY = Math.max(0, bottom - rowFlick.height);
+    // Keeps the focused row clear of the list's fade masks (#566). At either
+    // end of the list the masks are hidden, so the row may touch the edge.
+    readonly property int rowFade: 72
+    // Reveals the focused control, not its whole row: a path list can be
+    // taller than the viewport, and its lower fields must still scroll in.
+    function revealRow(scope, item) {
+        const target = item || scope;
+        const top = target.mapToItem(rowColumn, 0, 0).y;
+        const bottom = top + target.height;
+        const maxY = Math.max(0, rowFlick.contentHeight - rowFlick.height);
+        if (top < rowFlick.contentY + rowFade)
+            rowFlick.contentY = Math.max(0, top - rowFade);
+        else if (bottom > rowFlick.contentY + rowFlick.height - rowFade)
+            rowFlick.contentY = Math.min(maxY, bottom - rowFlick.height + rowFade);
     }
     function moveVertical(step) {
         pointerMode = false;
@@ -1032,6 +1099,7 @@ FocusScope {
                 contentItem: Item {
                     Canvas {
                         id: categoryIcon
+                        objectName: "categoryIcon-" + modelData.id
                         x: 26
                         y: (parent.height - height) / 2
                         width: 38
@@ -1077,6 +1145,48 @@ FocusScope {
         }
     }
 
+    // Key hints while a setting row has focus (handoff se-lf-1).
+    Row {
+        objectName: "settingsHints"
+        x: 120
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 64
+        spacing: 44
+        visible: root.detailFocused && !root.sheetOpen && !root.screenBlocked
+        Repeater {
+            model: [
+                // ED-2: "OK Unavailable" where OK does nothing.
+                {key: qsTr("OK"), action: root.hintRowLocked ? qsTr("Unavailable") : qsTr("Edit")},
+                {key: qsTr("Back"), action: qsTr("To sections")}
+            ]
+            Row {
+                required property var modelData
+                required property int index
+                objectName: "settingsHint-" + index
+                spacing: 12
+                Rectangle {
+                    radius: 10
+                    color: Qt.rgba(1, 1, 1, 0.1)
+                    width: keyLabel.implicitWidth + 24
+                    height: 36
+                    Ui.UiText {
+                        id: keyLabel
+                        anchors.centerIn: parent
+                        text: modelData.key
+                        role: "caption"
+                        font.weight: 600
+                        color: Ui.Theme.textPrimary
+                    }
+                }
+                Ui.UiText {
+                    text: modelData.action
+                    role: "caption"
+                    color: Ui.Theme.textHint
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+    }
     Item {
         id: detail
         opacity: root.sheetOpen ? 0.55 : 1
@@ -1110,6 +1220,30 @@ FocusScope {
             title: qsTr("Nothing to show")
             description: qsTr("No settings are registered for this category.")
             actionText: ""
+        }
+        // Top and bottom fade masks while the rows scroll (handoff: scrolling
+        // lists fade at their edges, 72 px as in CL-13).
+        Rectangle {
+            objectName: "rowFadeTop"
+            z: 1
+            x: rowFlick.x; y: rowFlick.y
+            width: rowFlick.width; height: root.rowFade
+            visible: rowFlick.visible && rowFlick.contentY > 0.5
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Ui.Theme.background }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
+        Rectangle {
+            objectName: "rowFadeBottom"
+            z: 1
+            x: rowFlick.x; y: rowFlick.y + rowFlick.height - height
+            width: rowFlick.width; height: root.rowFade
+            visible: rowFlick.visible && rowFlick.contentY + rowFlick.height < rowFlick.contentHeight - 0.5
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "transparent" }
+                GradientStop { position: 1.0; color: Ui.Theme.background }
+            }
         }
         Flickable {
             id: rowFlick
@@ -1244,7 +1378,8 @@ FocusScope {
                                             text: row.providerName || ""
                                             role: "meta"
                                             color: Ui.Theme.textHint
-                                            visible: text.length > 0
+                                            // The source line shows on the focused row only (#566).
+                                            visible: text.length > 0 && rowScope.activeFocus
                                         }
                                         Ui.UiText {
                                             objectName: rowScope.simpleRow && root.showRowError(row) ? "error-" + rowScope.key : ""
@@ -1411,7 +1546,8 @@ FocusScope {
                                             text: row.providerName || ""
                                             role: "meta"
                                             color: Ui.Theme.textHint
-                                            visible: text.length > 0
+                                            // The source line shows on the focused row only (#566).
+                                            visible: text.length > 0 && rowScope.activeFocus
                                         }
                                         Ui.UiText {
                                             objectName: row.error && rowScope.multiple ? "error-" + rowScope.key : ""
@@ -1562,7 +1698,7 @@ FocusScope {
                                     focusPolicy: Qt.StrongFocus
                                     focus: rowScope.wants("add")
                                     activeFocusOnTab: false
-                                    readonly property bool full: root.hasBound(row, "maxItems") && root.pathList(row).length >= Number(row.constraints.maxItems)
+                                    readonly property bool full: root.pathFull(row)
                                     opacity: !root.canEdit(row) || full ? 0.45 : 1
                                     text: qsTr("Add path")
                                     onClicked: if (!full) root.openEditor(row, "add", "")

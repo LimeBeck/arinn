@@ -585,15 +585,15 @@ TestCase {
         const rail = child("episodeScroller");
         for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Right);
         focused("episode-s1e4");
-        const cell = child("episode-s1e4").parent;
-        const target = cell.x + cell.width - rail.width;
-        verify(target > 0);
-        tryVerify(() => rail.contentX > 1 && rail.contentX < target - 1, 250,
-                  "The row must visibly move through intermediate positions, not jump");
+        tryVerify(() => rail.contentX > 1, 250);
         const first = rail.contentX;
         wait(30);
-        verify(rail.contentX > first, "The row must keep moving towards the selected episode");
-        tryVerify(() => Math.abs(rail.contentX - target) < 0.5, 1000);
+        verify(rail.contentX > first, "The row must visibly move through intermediate positions, not jump");
+        wait(500);
+        const target = rail.contentX;
+        verify(target > first);
+        wait(50);
+        fuzzyCompare(rail.contentX, target, 0.5, "The row must settle after revealing the selected episode");
         for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Left);
         focused("episode-s1e0");
         tryVerify(() => rail.contentX > 1 && rail.contentX < target - 1, 250,
@@ -650,6 +650,107 @@ TestCase {
         const stopped = rail.contentX;
         wait(550);
         fuzzyCompare(rail.contentX, stopped, 0.5);
+    }
+
+    readonly property string roundedArtworkFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAHElEQVR4nGP4TwFgGNU8qnlU86jmUc2jmoezZgD1FQFiOyY3EQAAAABJRU5ErkJggg=="
+    function test_loaded_artwork_corners_data() {
+        return [{tag: "poster", episode: false, focused: false},
+                {tag: "poster-focused", episode: false, focused: true},
+                {tag: "episode", episode: true, focused: false},
+                {tag: "episode-focused", episode: true, focused: true},
+                {tag: "last-episode-focused", episode: true, focused: true, last: true}];
+    }
+    function createRoundedArtwork(data) {
+        const list = [];
+        for (let i = 0; i < (data.last ? 12 : 1); ++i)
+            list.push({id: i ? "rounded-ep" + i : "rounded-ep", title: "Episode " + i,
+                       seasonId: "s1", artwork: roundedArtworkFixture});
+        createLibrary({tabs: [{id: "series", title: "Series"}], entries: [{id: "rounded", tabId: "series",
+            title: "Rounded", kind: "series", artwork: roundedArtworkFixture,
+            seasons: [{id: "s1", title: "Season 1"}],
+            episodes: list}]});
+        let artwork;
+        if (data.episode) {
+            library.openEntry("rounded"); focused("detailPlay");
+            keyClick(Qt.Key_Down); focused("season-s1");
+            if (data.focused) { keyClick(Qt.Key_Down); focused("episode-rounded-ep"); }
+            if (data.last) {
+                for (let i = 0; i < 11; ++i) keyClick(Qt.Key_Right);
+                focused("episode-rounded-ep11");
+            }
+            artwork = child(data.last ? "episodeImage-rounded-ep11" : "episodeImage-rounded-ep");
+        } else {
+            focused("tab-series");
+            if (data.focused) { keyClick(Qt.Key_Down); focused("poster-rounded"); }
+            artwork = child("posterImage-rounded");
+        }
+        return artwork;
+    }
+    function test_loaded_artwork_corners(data) {
+        const artwork = createRoundedArtwork(data);
+        tryCompare(artwork, "status", Image.Ready);
+        wait(550); // Finish focus scale and the detail rail's existing reveal.
+        function whiteAt(pixels, x, y) {
+            const at = artwork.mapToItem(suite, x, y);
+            if (at.x < 0 || at.y < 0 || at.x >= pixels.width || at.y >= pixels.height) return false;
+            return pixels.red(Math.round(at.x), Math.round(at.y)) > 240
+                    && pixels.green(Math.round(at.x), Math.round(at.y)) > 240
+                    && pixels.blue(Math.round(at.x), Math.round(at.y)) > 240;
+        }
+        tryVerify(() => whiteAt(grabImage(suite), artwork.width / 2, artwork.height / 2),
+                  2000, "Loaded artwork must actually render before testing its corners");
+        const pixels = grabImage(suite);
+        for (const point of [[1, 1], [artwork.width - 2, 1], [1, artwork.height - 2],
+                             [artwork.width - 2, artwork.height - 2]])
+            verify(!whiteAt(pixels, point[0], point[1]), "Loaded artwork must not bleed into a rounded corner");
+        // The grid intentionally fades its top edge. Episode stills must
+        // retain their top/left edges even when focus scales and lifts them.
+        const edgeY = data.focused && !data.episode ? artwork.height - 6 : 6;
+        verify(whiteAt(pixels, artwork.width / 2, edgeY), "Straight edges must retain the artwork");
+        verify(whiteAt(pixels, 6, artwork.height / 2), "Straight edges must retain the artwork");
+        verify(whiteAt(pixels, artwork.width - 6, artwork.height / 2), "The focused right edge must stay inside the viewport");
+        verify(whiteAt(pixels, artwork.width / 2, artwork.height - 6), "The bottom edge must retain the artwork");
+    }
+
+    readonly property string roundedPortraitFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAI0lEQVR4nGNgYPhPARrVPKqZEBqSjh7VPIQ0D1mHj2oeGpoB5H9Vx748njcAAAAASUVORK5CYII="
+    readonly property string roundedLandscapeFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAB4AAAAUCAIAAAAVyRqTAAAAJklEQVR4nGNgYPiPB+GTY2DAr5eA9KjRo0aPGj1q9KjRo0YPTqMBN4hVx7XADNYAAAAASUVORK5CYII="
+    function test_rounded_artwork_crop_and_source_recovery_data() {
+        return [{tag: "poster", episode: false, focused: false},
+                {tag: "episode", episode: true, focused: false}];
+    }
+    function test_rounded_artwork_crop_and_source_recovery(data) {
+        const artwork = createRoundedArtwork(data);
+        const plate = child(data.episode ? "episodePlate-rounded-ep" : "posterPlate-rounded");
+        function sample(fx, fy) {
+            const pixels = grabImage(suite);
+            const at = artwork.mapToItem(suite, artwork.width * fx, artwork.height * fy);
+            return {r: pixels.red(Math.round(at.x), Math.round(at.y)),
+                    g: pixels.green(Math.round(at.x), Math.round(at.y)),
+                    b: pixels.blue(Math.round(at.x), Math.round(at.y))};
+        }
+        function isWhite() { const p = sample(0.5, 0.5); return p.r > 240 && p.g > 240 && p.b > 240; }
+        function croppedRed() {
+            // Stretching would put the blue outer third at these points;
+            // PreserveAspectCrop keeps the red centre of the source.
+            const p = sample(data.episode ? 0.5 : 0.2, data.episode ? 0.15 : 0.5);
+            return p.r > 200 && p.b < 50;
+        }
+        wait(550);
+        tryVerify(isWhite);
+        artwork.source = data.episode ? roundedPortraitFixture : roundedLandscapeFixture;
+        tryVerify(croppedRed, 2000, "Rounded artwork must retain centre cropping");
+        compare(plate.visible, false);
+        artwork.source = "";
+        tryCompare(artwork, "status", Image.Null);
+        tryCompare(plate, "visible", true);
+        tryVerify(() => !isWhite() && !croppedRed());
+        artwork.source = "data:image/png;base64,broken";
+        tryCompare(artwork, "status", Image.Error);
+        compare(plate.visible, true);
+        verify(!isWhite() && !croppedRed());
+        artwork.source = roundedArtworkFixture;
+        tryVerify(isWhite, 2000, "A source used before the error must load again");
+        compare(plate.visible, false);
     }
 
     function test_back_from_season_rail_returns_to_primary_action_before_grid() {

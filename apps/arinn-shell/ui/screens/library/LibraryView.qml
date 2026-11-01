@@ -4,6 +4,7 @@
 import QtQuick
 import QtQuick.Window
 import "../.." as Ui
+import "../../artwork.js" as Artwork
 
 // Catalogue presentation. Properties are presentation data; signals are
 // intents. This screen does not call a daemon, a bus or a provider.
@@ -207,6 +208,66 @@ FocusScope {
         for (let i = 0; i < text.length; ++i)
             hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
         return Qt.hsla((hash % 360) / 360, 0.42, 0.34, 1);
+    }
+    // A rounded backing does not clip an Image. Paint the crop through
+    // the same software-compatible mask used by ContentCard and Downloads.
+    component RoundedArtwork: Item {
+        id: artworkSlot
+        property alias source: picture.source
+        // Preserve the Image-like contract used by native image consumers.
+        // Ready means the rounded canvas has drawn the current source.
+        readonly property int status: picture.status === Image.Ready && !ready ? Image.Loading : picture.status
+        visible: picture.status === Image.Ready
+        property real cornerRadius: 0
+        readonly property bool ready: picture.status === Image.Ready && artworkCanvas.showsArtwork
+                && artworkCanvas.loadedSource === picture.source.toString()
+        onCornerRadiusChanged: artworkCanvas.requestPaint()
+        Image {
+            id: picture
+            anchors.fill: parent
+            asynchronous: true
+            cache: false
+            visible: false
+            onStatusChanged: artworkCanvas.syncSource()
+            onSourceChanged: Qt.callLater(artworkCanvas.syncSource)
+        }
+        Canvas {
+            id: artworkCanvas
+            objectName: "roundedArtworkCanvas"
+            anchors.fill: parent
+            opacity: artworkSlot.ready ? 1 : 0
+            property string loadedSource: ""
+            property bool showsArtwork: false
+            function syncSource() {
+                const next = picture.status === Image.Ready ? picture.source.toString() : "";
+                if (loadedSource !== next) {
+                    showsArtwork = false;
+                    if (loadedSource.length) unloadImage(loadedSource);
+                    loadedSource = next;
+                }
+                if (available && next.length && !isImageLoaded(next)
+                        && !isImageLoading(next) && !isImageError(next))
+                    loadImage(next);
+                requestPaint();
+            }
+            onAvailableChanged: syncSource()
+            onImageLoaded: requestPaint()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                const image = loadedSource;
+                if (!image.length || picture.status !== Image.Ready
+                        || image !== picture.source.toString() || !isImageLoaded(image)) {
+                    showsArtwork = false;
+                    return;
+                }
+                Artwork.clipRounded(ctx, width, height, artworkSlot.cornerRadius);
+                showsArtwork = Artwork.drawCover(ctx, image, picture.implicitWidth,
+                                                 picture.implicitHeight, width, height);
+            }
+        }
     }
     // The handoff's `movie` icon on a missing-artwork plate (§05 Library).
     component FilmGlyph: Item {
@@ -1022,21 +1083,18 @@ FocusScope {
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: 20
-                                    visible: posterImage.status !== Image.Ready
+                                    visible: !posterImage.ready
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: modelData.kind === "folder" ? "#292c31" : Qt.rgba(0.29, 0.29, 0.31, 1) }
                                         GradientStop { position: 1.0; color: modelData.kind === "folder" ? "#17191d" : Qt.rgba(0.21, 0.21, 0.23, 1) }
                                     }
                                 }
-                                Image {
+                                RoundedArtwork {
                                     id: posterImage
                                     objectName: "posterImage-" + modelData.id
                                     anchors.fill: parent
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    cache: false
+                                    cornerRadius: poster.cornerRadius
                                     source: cell.posterHasSource ? modelData.artwork : ""
-                                    visible: status === Image.Ready
                                 }
                                 Item {
                                     objectName: "posterPlate-" + modelData.id
@@ -1045,7 +1103,7 @@ FocusScope {
                                     anchors.rightMargin: 20
                                     anchors.topMargin: 22
                                     anchors.bottomMargin: 22
-                                    visible: posterImage.status !== Image.Ready
+                                    visible: !posterImage.ready
                                     FilmGlyph {
                                         objectName: "posterGlyph-" + modelData.id
                                         visible: modelData.kind !== "folder"
@@ -1395,10 +1453,15 @@ FocusScope {
                 Flickable {
                     id: episodeFlick
                     objectName: "episodeScroller"
-                    width: parent.width
-                    height: episodeRow.height
+                    // Keep the scaled/lifted first and last still inside the
+                    // clip. Offsetting the row preserves its normal position.
+                    readonly property int focusPadding: 16
+                    x: -focusPadding
+                    width: parent.width + focusPadding
+                    height: episodeRow.height + 2 * focusPadding
+                    transform: Translate { y: -episodeFlick.focusPadding }
                     visible: episodeRepeater.count > 0
-                    contentWidth: episodeRow.width
+                    contentWidth: episodeRow.width + 2 * focusPadding
                     contentHeight: height
                     clip: true
                     flickableDirection: Flickable.HorizontalFlick
@@ -1414,7 +1477,7 @@ FocusScope {
                         episodeScroll.stop();
                         cancelFlick();
                         const left = cell.x;
-                        const right = left + cell.width;
+                        const right = left + cell.width + 2 * focusPadding;
                         const target = Math.max(0, Math.min(contentWidth - width,
                                 left < contentX ? left : right > contentX + width ? right - width : contentX));
                         if (Math.abs(target - contentX) < 0.5)
@@ -1439,6 +1502,8 @@ FocusScope {
                     }
                     Row {
                         id: episodeRow
+                        x: episodeFlick.focusPadding
+                        y: episodeFlick.focusPadding
                         spacing: 40
                         Repeater {
                             id: episodeRepeater
@@ -1480,7 +1545,7 @@ FocusScope {
                                             objectName: "episodePlate-" + modelData.id
                                             anchors.fill: parent
                                             radius: 22
-                                            visible: stillImage.status !== Image.Ready
+                                            visible: !stillImage.ready
                                             gradient: Gradient {
                                                 GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
                                                 GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
@@ -1490,15 +1555,12 @@ FocusScope {
                                                 anchors.centerIn: parent
                                             }
                                         }
-                                        Image {
+                                        RoundedArtwork {
                                             id: stillImage
                                             objectName: "episodeImage-" + modelData.id
                                             anchors.fill: parent
-                                            fillMode: Image.PreserveAspectCrop
-                                            asynchronous: true
-                                            cache: false
+                                            cornerRadius: still.cornerRadius
                                             source: modelData.artwork ? modelData.artwork : ""
-                                            visible: status === Image.Ready
                                         }
                                         Rectangle {
                                             visible: modelData.progress > 0

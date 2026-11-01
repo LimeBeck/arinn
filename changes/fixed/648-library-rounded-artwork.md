@@ -1,0 +1,1 @@
+- Clip loaded Library posters and episode artwork to their rounded corners. Keep the enlarged first and last episode inside the scroll viewport, and preserve image cropping and fallback behavior.

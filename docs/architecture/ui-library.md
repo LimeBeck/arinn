@@ -144,6 +144,15 @@ row gap. Focus scales the poster and lifts its label. Detail replaces the grid:
 a full-bleed stand-in backdrop, a left scrim, an uppercase eyebrow, a 112px
 title, meta, description, and pill actions. A series with `seasons` adds season
 pills and episode stills at 420×236.
+Loaded posters and stills use the same rounded shape as their plates (20px
+and 22px respectively). A local Canvas slot reuses `artwork.js` for clipping
+and centre cropping on software and accelerated renderers; the fallback stays
+until that canvas has painted the current source, and source changes release
+the previous image. Focus rings, progress and missing-file labels remain above
+the image. The episode viewport includes 16px of focus room for the scale/lift;
+offsetting its row preserves the normal first-still position while keeping the
+first and last focused stills inside the clip. Pixel tests cover all four
+corners, focused edges, aspect crop and source/error recovery.
 
 Signals are intents only: `tabRequested`, `entryRequested`, `playRequested`,
 `episodeRequested`, `removeRequested`, `retryRequested`, `backRequested` and

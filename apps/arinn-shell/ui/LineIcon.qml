@@ -6,8 +6,8 @@ import QtQuick
 // Line icons drawn after the Material Symbols the handoff names. The shell
 // ships no icon font, so they are painted here. On-screen keyboard: keyboard,
 // keyboard_hide, shift, backspace, language, chevron_left, chevron_right,
-// history and public. Open services: bookmark_add, bookmark_added, close
-// and add.
+// history and public. Open services: bookmark_add, bookmark_added, close,
+// add and volume_up (the filled speaker of the Sound mark).
 Canvas {
     id: root
     property string name: ""
@@ -101,6 +101,18 @@ Canvas {
         case "add":
             ctx.moveTo(12, 5); ctx.lineTo(12, 19);
             ctx.moveTo(5, 12); ctx.lineTo(19, 12);
+            ctx.stroke();
+            break;
+        case "volume_up":
+            // The filled speaker with two arcs, as Settings draws it.
+            ctx.moveTo(3, 9); ctx.lineTo(7, 9); ctx.lineTo(12, 4); ctx.lineTo(12, 20); ctx.lineTo(7, 15); ctx.lineTo(3, 15);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(12, 12, 4.5, -0.85, 0.85);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(12, 12, 8.5, -0.95, 0.95);
             ctx.stroke();
             break;
         case "history":

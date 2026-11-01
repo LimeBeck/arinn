@@ -40,9 +40,9 @@ This refresh records existing work; it does not rerun tests or accept Proposed A
 
 ### Remaining MVP acceptance and stabilization
 
-- UI/design: [Home #564](https://github.com/LimeBeck/arinn/issues/564),
-  [Open services #565](https://github.com/LimeBeck/arinn/issues/565),
-  [Settings #566](https://github.com/LimeBeck/arinn/issues/566); G-5.1 and G-5.6–G-5.9 remain open.
+- UI/design: the handoff alignment of Home, Open services and Settings
+  (#564–#566) and its follow-ups (#639, #640, #641) are merged; G-5.1 (design
+  review) and G-5.6–G-5.9 remain open.
 - Device/platform: [playback #141](https://github.com/LimeBeck/arinn/issues/141),
   [power lifecycle #148](https://github.com/LimeBeck/arinn/issues/148),
   [background capture/budget #149](https://github.com/LimeBeck/arinn/issues/149),

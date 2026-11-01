@@ -852,6 +852,37 @@ TestCase {
         verify(!mute.visible);
         verify(!wifi.visible);
     }
+    // #408 (owner decision 2026-11-01): a cable glyph on a wired link, a
+    // crossed-out Wi-Fi while disconnected, nothing for another link or an
+    // unknown state.
+    function test_status_area_wired_and_no_network() {
+        home.clockText = "20:42";
+        const wifi = child("wifiIcon");
+        const wired = child("wiredIcon");
+        const offline = child("noNetworkIcon");
+        const clock = child("clock");
+        const shown = () => [wifi.visible, wired.visible, offline.visible];
+        compare(shown(), [false, false, false]);
+        home.network = "wired";
+        compare(shown(), [false, true, false]);
+        compare(wired.Accessible.name, "Connected by cable");
+        tryVerify(() => Math.abs(wired.x + wired.width + 24 - clock.x) < 1, 2000,
+                  "wired icon sits 24 px before the clock");
+        tryVerify(() => grabImage(wired).pixel(16, 7).a > 0.5);
+        home.network = "disconnected";
+        compare(shown(), [false, false, true]);
+        compare(offline.Accessible.name, "No network");
+        tryVerify(() => Math.abs(offline.x + offline.width + 24 - clock.x) < 1, 2000,
+                  "no-network icon sits 24 px before the clock");
+        home.network = "other";
+        compare(shown(), [false, false, false]);
+        home.network = "wifi";
+        home.wifi = true;
+        compare(shown(), [true, false, false]);
+        home.network = "";
+        home.wifi = false;
+        compare(shown(), [false, false, false]);
+    }
     // #368: the light field takes the artwork's hue, or the identity hue.
     function test_ambient_glow_follows_focus() {
         const glow = child("ambientGlow");

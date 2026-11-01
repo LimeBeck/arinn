@@ -95,7 +95,8 @@ The list contains every tab. The active tab of the focused window is marked
 "On screen" and is placed first. The remaining windows follow last use: the
 catalog records a monotonic stamp when a window becomes the focused window.
 The stamp is in memory only and is cleared when the daemon generation changes
-or the daemon disappears. An audible tab is marked "Sound". The marks follow
+or the daemon disappears. An audible tab is marked "Sound", after the ember
+`volume_up` speaker of `ui/LineIcon.qml` (#640). The marks follow
 the domain on the subline, as in handoff OS-1 ("domain · On screen · Sound");
 a long domain is elided before them (owner decision on #565, 2026-11-01). The
 close control draws the thin 40 px `close` icon of `ui/LineIcon.qml`. The chip is the

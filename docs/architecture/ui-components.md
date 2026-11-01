@@ -24,8 +24,8 @@ models into these properties and routing emitted actions to the daemon.
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
 | `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
-| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; the artwork is centre-cropped to the card like `Image.PreserveAspectCrop` (the canvas helper `ui/artwork.js`, shared with the Downloads poster), the previous image is released when the URL changes, and the artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Bytes from Assets1 are decoded in C++ |
-| `AppTile` | `text`, neutral `monogram`, `running` |
+| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; the artwork is centre-cropped to the card like `Image.PreserveAspectCrop` (the canvas helper `ui/artwork.js`, shared with the Downloads poster), the previous image is released when the URL changes, and the artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Title (two lines) and subtitle (one line) wrap with `Text.Wrap`, so a word wider than the column breaks and elides instead of running past the card; a narrow card (under 300 px, the New row's posters) sets the title at 24 px with 18 px insets ([#655](https://github.com/LimeBeck/arinn/issues/655)). Bytes from Assets1 are decoded in C++ |
+| `AppTile` | `text`, neutral `monogram`, `running`. The name is 26 px on up to two lines, wrapped with `Text.Wrap` and then elided, so "Site or search" shows whole; this departs from handoff 01, which elides to one line (owner decision on [#656](https://github.com/LimeBeck/arinn/issues/656), 2026-11-01) |
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
 | `AmbientGlow` | Home's light field: `source` artwork or `tint` identity colour, `lit`, `strength`. The dominant hue of a 24×24 decode of the artwork keys the handoff's three radial layers, painted once per hue at one-fifth resolution and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred per frame |
@@ -182,7 +182,9 @@ left over. The hero describes the focused item
 ([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
 `downloadProgress` drive the status-area download chip. `muted`, `wifi` and
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
-chip and the clock, only while known; `ambientSuppressed` turns
+chip and the clock, only while known; `network` (`wired` or `disconnected`)
+shows the cable or the crossed-out Wi-Fi icon in the Wi-Fi icon's place
+([#408](https://github.com/LimeBeck/arinn/issues/408)); `ambientSuppressed` turns
 the light field off while an Activity background is shown. A media entry whose
 `serviceId` names an open service is that service's card
 ([ADR-0096](../adr/0096-browser-media-session-association.md)): it merges into the
@@ -196,8 +198,8 @@ In production, `Main.qml` passes the browser catalog's tabs as `openServices` an
 `DownloadCatalog.downloading`/`downloadProgress` (bytes when every active download
 knows its size, else the mean of the known fractions, else unknown). Continue media
 without session artwork take the backdrop of the library item the session plays
-through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute and
-Wi-Fi come from `SystemStatus`, the shell's reader of the daemon's
+through `MediaCatalog.libraryContent` and `LibraryCatalog.artworkFor`. Mute,
+Wi-Fi and connectivity come from `SystemStatus`, the shell's reader of the daemon's
 `SystemStatus1` ([ADR-0100](../adr/0100-system-status.md),
 [#387](https://github.com/LimeBeck/arinn/issues/387)).
 

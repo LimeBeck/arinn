@@ -95,13 +95,18 @@ Surface {
             x: 100; width: parent.width - 120
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
+            // Up to two lines at 26 px, so "Site or search" fits whole
+            // (owner decision 2026-11-01, #656); Text.Wrap breaks a word
+            // wider than the column instead of letting it overflow.
             UiText {
+                objectName: "tileTitle"
                 width: parent.width
-                role: "control"; font.pixelSize: 28
+                role: "control"; font.pixelSize: 26
+                lineHeight: 1.1
                 text: root.busy ? qsTr("Loading…") : root.text
-                maximumLineCount: 1
+                maximumLineCount: 2
                 elide: Text.ElideRight
-                wrapMode: Text.NoWrap
+                wrapMode: Text.Wrap
                 color: root.unavailable ? Theme.textHint : Theme.textPrimary
             }
             UiText {
@@ -112,6 +117,7 @@ Surface {
                 color: Theme.textHint
                 maximumLineCount: 1
                 elide: Text.ElideRight
+                wrapMode: Text.Wrap
             }
         }
         Rectangle {

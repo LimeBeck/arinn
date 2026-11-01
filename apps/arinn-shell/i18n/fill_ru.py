@@ -173,6 +173,7 @@ RU = {
     "Sound": "Звук",
     "Sound muted": "Звук выключен",
     "Wi-Fi connected": "Wi-Fi подключён",
+    "No network": "Нет сети",
     # Launch overlay
     "%1 did not open": "%1 не открылся",
     "The service": "Сервис",

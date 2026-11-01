@@ -1,0 +1,1 @@
+- Favorites tiles on Home show their names on up to two lines, so names such as "Site or search" are no longer cut after a few letters ([#656](https://github.com/LimeBeck/arinn/issues/656)).

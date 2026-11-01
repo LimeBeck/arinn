@@ -879,6 +879,7 @@ Window {
             ambientEnabled: settingsCatalog.lightField
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
+            network: systemStatus.network
             currentServiceId: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.id || "")
             currentServiceTitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.title || "")
             currentServiceSubtitle: backend.homeVisible && !returnIsWebService ? "" : (browserCatalog.presentedService.subtitle || "")

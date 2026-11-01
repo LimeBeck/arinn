@@ -114,6 +114,10 @@ FocusScope {
     property bool muted: false
     property bool wifi: false
     property int wifiLevel: 0
+    // Connectivity: "wifi", "wired", "other", "disconnected", or empty when
+    // unknown. A cable shows "wired" and a crossed-out Wi-Fi shows
+    // "disconnected"; "other" and unknown show nothing (#408).
+    property string network: ""
     // True while an Activity background is shown (ADR-0027): the ambient
     // light field then stays off.
     property bool ambientSuppressed: false
@@ -732,6 +736,63 @@ FocusScope {
                         ctx.arc(16, 25, 6 + (part - 2) * 6, Math.PI * 1.22, Math.PI * 1.78);
                         ctx.stroke();
                     }
+                }
+            }
+            Canvas {
+                objectName: "wiredIcon"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.network === "wired" && !root.wifi
+                width: 32; height: 32
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("Connected by cable")
+                onPaint: {
+                    // Material Symbols lan: one node above two, joined.
+                    const ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.fillStyle = Theme.textSecondary;
+                    ctx.strokeStyle = Theme.textSecondary;
+                    ctx.lineWidth = 2.6;
+                    ctx.fillRect(12, 3, 8, 8);
+                    ctx.fillRect(3, 21, 8, 8);
+                    ctx.fillRect(21, 21, 8, 8);
+                    ctx.beginPath();
+                    ctx.moveTo(16, 11); ctx.lineTo(16, 16);
+                    ctx.moveTo(7, 21); ctx.lineTo(7, 16); ctx.lineTo(25, 16); ctx.lineTo(25, 21);
+                    ctx.stroke();
+                }
+            }
+            Canvas {
+                objectName: "noNetworkIcon"
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.network === "disconnected" && !root.wifi
+                width: 32; height: 32
+                Accessible.role: Accessible.StaticText
+                Accessible.name: qsTr("No network")
+                onPaint: {
+                    // Material Symbols wifi_off: the Wi-Fi glyph, crossed out.
+                    const ctx = getContext("2d");
+                    ctx.clearRect(0, 0, width, height);
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = "round";
+                    ctx.fillStyle = Theme.textSecondary;
+                    ctx.strokeStyle = Theme.textSecondary;
+                    ctx.beginPath(); ctx.arc(16, 25, 2.6, 0, Math.PI * 2); ctx.fill();
+                    for (let part = 2; part <= 4; ++part) {
+                        ctx.beginPath();
+                        ctx.arc(16, 25, 6 + (part - 2) * 6, Math.PI * 1.22, Math.PI * 1.78);
+                        ctx.stroke();
+                    }
+                    // The slash, with a gap cut out of the arcs around it.
+                    ctx.globalCompositeOperation = "destination-out";
+                    ctx.lineWidth = 7;
+                    ctx.beginPath();
+                    ctx.moveTo(5, 4); ctx.lineTo(27, 28);
+                    ctx.stroke();
+                    ctx.globalCompositeOperation = "source-over";
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(5, 4); ctx.lineTo(27, 28);
+                    ctx.stroke();
                 }
             }
             UiText {

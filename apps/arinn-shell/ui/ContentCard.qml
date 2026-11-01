@@ -16,6 +16,9 @@ Surface {
     // top-left corner instead of this card's own monogram (handoff H-1).
     property var stack: []
     readonly property bool artworkReady: picture.status === Image.Ready
+    // A poster (Home's New row, 180 px wide) has a narrow text column: its
+    // title is set smaller, with smaller insets.
+    readonly property bool compact: width < 300
     implicitWidth: 400
     implicitHeight: 225
     contentItem: Item {
@@ -145,15 +148,23 @@ Surface {
             color: Theme.textSecondary
         }
         Column {
-            x: 24
+            x: root.compact ? 18 : 24
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: 24
-            width: parent.width - 48
-            spacing: 8
-            UiText { width: parent.width; text: root.text; role: "section"; maximumLineCount: 2; elide: Text.ElideRight }
+            anchors.bottomMargin: root.compact ? 18 : 24
+            width: parent.width - 2 * x
+            spacing: root.compact ? 6 : 8
+            // Text.Wrap breaks a word wider than the column instead of letting
+            // it run past the card's edge.
+            UiText {
+                objectName: "cardTitle"
+                width: parent.width; text: root.text; role: "section"
+                font.pixelSize: root.compact ? 24 : 30
+                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+            }
             UiText {
                 objectName: "cardSubtitle"
-                width: parent.width; text: root.subtitle; maximumLineCount: 1; elide: Text.ElideRight
+                width: parent.width; text: root.subtitle
+                wrapMode: Text.Wrap; maximumLineCount: 1; elide: Text.ElideRight
                 // Media cards use the 24 sub style of handoff 02.
                 role: root.artworkReady || root.showProgress ? "caption" : "meta"
                 color: Theme.textSecondary

@@ -748,6 +748,14 @@
         <source>Wi-Fi connected</source>
         <translation>Wi-Fi подключён</translation>
     </message>
+    <message>
+        <source>Connected by cable</source>
+        <translation>Подключено по кабелю</translation>
+    </message>
+    <message>
+        <source>No network</source>
+        <translation>Нет сети</translation>
+    </message>
 </context>
 <context>
     <name>KeyboardButton</name>

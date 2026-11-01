@@ -1118,6 +1118,52 @@ private slots:
     QCOMPARE(offered.value(QStringLiteral("resumable")), true);
     QCOMPARE(offered.value(QStringLiteral("stuck")), false);
   }
+  // #448 (owner decision 2026-11-01): a stopped session without a title is
+  // neither resumable content nor the current activity, so Continue omits it.
+  // A titled stopped session and an untitled paused one stay.
+  void continueOmitsAStoppedUntitledSession() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    daemon.page1 = {
+        session(QStringLiteral("blank"), QString(), QStringLiteral("stopped"), 0, now, 0, {}),
+        session(QStringLiteral("titled"), QStringLiteral("Titled"), QStringLiteral("stopped"),
+                1000000, now, 8000000, {QStringLiteral("play")}),
+        session(QStringLiteral("paused"), QString(), QStringLiteral("paused"), 1000000, now,
+                8000000, {QStringLiteral("play")}),
+    };
+    daemon.page1[0].subtitle.clear();
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 2);
+    QStringList shown;
+    for (const auto &entry : catalog.continueEntries()) {
+      const auto map = entry.toMap();
+      shown << map.value(QStringLiteral("state")).toString() + QLatin1Char(':') +
+                   map.value(QStringLiteral("title")).toString();
+    }
+    shown.sort();
+    QCOMPARE(shown, QStringList({QStringLiteral("paused:"), QStringLiteral("stopped:Titled")}));
+  }
+  // The omitted session stays in the catalog: the player screen still sees it.
+  void omittedSessionStaysInTheCatalog() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    daemon.page1 = {
+        session(QStringLiteral("blank"), QStringLiteral("  "), QStringLiteral("stopped"), 0, now, 0, {}),
+    };
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.sessionState(), QStringLiteral("ready"));
+    QCOMPARE(catalog.playbackState(), QStringLiteral("stopped"));
+    QVERIFY(!catalog.selectedId().isEmpty());
+    QCOMPARE(catalog.continueEntries().size(), 0);
+  }
   void pagingAnchorAndActions() {
     MediaDaemon daemon;
     const auto now = monotonicUs();

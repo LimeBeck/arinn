@@ -1,0 +1,1 @@
+- On Open services, the first row starts where the design places it, and its focus outline and close button are no longer cut off at the top of the list ([#639](https://github.com/LimeBeck/arinn/issues/639)).

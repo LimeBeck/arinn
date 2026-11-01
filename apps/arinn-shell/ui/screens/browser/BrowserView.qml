@@ -610,11 +610,37 @@ FocusScope {
                 }
             }
 
+            // OS-8: an `add` icon before the label, the pill ending at x1800.
             Ui.ActionButton {
                 id: browseButton
                 objectName: "browserBrowse"
-                x: 1220; y: 96; height: 80
+                anchors.right: parent.right
+                anchors.rightMargin: 120
+                y: 96; height: 80
+                implicitWidth: 28 + browseIcon.width + 14 + browseLabel.implicitWidth + 36
                 text: qsTr("Site or search")
+                contentItem: Item {
+                    Ui.LineIcon {
+                        id: browseIcon
+                        objectName: "browserBrowseIcon"
+                        x: 28
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 36
+                        height: 36
+                        name: "add"
+                        color: browseButton.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                    }
+                    Ui.UiText {
+                        id: browseLabel
+                        objectName: "browserBrowseLabel"
+                        x: browseIcon.x + browseIcon.width + 14
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: browseButton.text
+                        role: "control"
+                        color: browseButton.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                        wrapMode: Text.NoWrap
+                    }
+                }
                 onActivated: root.browseRequested()
                 Keys.onDownPressed: root.settleFocus()
             }
@@ -809,9 +835,11 @@ FocusScope {
                                 id: hostLine
                                 width: textCol.width
                                 spacing: 24
+                                // The marks follow the domain (os-1-list: "domain ·
+                                // On screen · Sound"); a long domain is elided first.
                                 Ui.UiText {
                                     objectName: "sub-" + modelData.id
-                                    width: Math.max(0, hostLine.width - statusMarks.implicitWidth - (statusMarks.implicitWidth > 0 ? hostLine.spacing : 0))
+                                    width: Math.min(implicitWidth, Math.max(0, hostLine.width - statusMarks.implicitWidth - (statusMarks.implicitWidth > 0 ? hostLine.spacing : 0)))
                                     text: root.displaySub(modelData)
                                     role: "caption"
                                     color: Ui.Theme.textSecondary
@@ -1010,11 +1038,13 @@ FocusScope {
                             color: closeBtn.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.plate
                             Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
                         }
-                        Ui.UiText {
+                        Ui.LineIcon {
+                            objectName: "closeIcon-" + modelData.id
                             anchors.centerIn: parent
+                            width: 40
+                            height: 40
                             visible: !closeBtn.closing
-                            text: "×"
-                            font.pixelSize: 44
+                            name: "close"
                             color: closeBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
                         }
                         Item {

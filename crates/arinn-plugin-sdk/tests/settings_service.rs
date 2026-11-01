@@ -1,13 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! `ProviderSettings1` served by the SDK (ADR-0065) on a private bus.
+//! `ProviderSettings1` served by the SDK (ADR-0065, ADR-0129) on a private
+//! bus.
 mod common;
 use arinn_plugin_sdk::runtime::{
     RegistrationContext, SettingsHandler, serve_settings, settings_from_json,
 };
 use arinn_protocol::{
-    settings::{ProviderSettingsProxy, Setting},
+    settings::{ProviderSettingsProxy, Setting, Text, Translations},
     validation::ErrorCode,
 };
 use serde_json::{Map, Value, json};
@@ -57,6 +58,36 @@ impl SettingsHandler for Handler {
     }
 }
 
+/// A handler that also ships translations (ADR-0129).
+struct Translated(Translations);
+impl SettingsHandler for Translated {
+    fn schema(&self) -> Vec<Setting> {
+        schema()
+    }
+    fn translations(&self) -> Translations {
+        self.0.clone()
+    }
+    fn apply(
+        &self,
+        _values: Map<String, Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn context(
+    daemon: &zbus::Connection,
+    provider: &zbus::Connection,
+    generation: &str,
+) -> RegistrationContext {
+    RegistrationContext {
+        connection: provider.clone(),
+        daemon_owner: daemon.unique_name().unwrap().to_string(),
+        daemon_epoch: "epoch".into(),
+        generation: generation.into(),
+    }
+}
+
 fn error_name(result: zbus::Result<impl std::fmt::Debug>) -> String {
     match result {
         Err(zbus::Error::MethodError(name, _, _)) => name.to_string(),
@@ -89,6 +120,8 @@ async fn settings_are_served_only_to_the_daemon_and_checked() {
     };
     let settings = proxy(&daemon).await.unwrap();
     assert_eq!(settings.get_schema(&generation).await.unwrap(), schema());
+    // A provider without translations serves an empty table.
+    assert_eq!(settings.get_translations(&generation).await.unwrap(), "{}");
 
     // A partial update is completed with defaults before it is applied.
     settings
@@ -121,6 +154,14 @@ async fn settings_are_served_only_to_the_daemon_and_checked() {
         error_name(other.get_schema(&generation).await),
         "org.arinn.Error1.PermissionDenied"
     );
+    assert_eq!(
+        error_name(other.get_translations(&generation).await),
+        "org.arinn.Error1.PermissionDenied"
+    );
+    assert_eq!(
+        error_name(settings.get_translations("stale").await),
+        "org.arinn.Error1.Conflict"
+    );
     assert_eq!(handler.0.lock().unwrap().len(), 1);
 
     // The live export matches the published XML.
@@ -143,6 +184,7 @@ async fn settings_are_served_only_to_the_daemon_and_checked() {
     for needle in [
         "<method name=\"GetSchema\">",
         "<method name=\"Apply\">",
+        "<method name=\"GetTranslations\">",
         "a(sssssssb)",
     ] {
         assert!(live.contains(needle) && file.contains(needle), "{needle}");
@@ -160,5 +202,53 @@ fn startup_values_come_from_the_stored_json() {
     assert_eq!(
         Value::Object(settings_from_json(&schema(), "")),
         json!({"roots":["/srv/films"],"scan":true})
+    );
+}
+
+/// ADR-0129: the table is served as validated JSON, and a table that does
+/// not fit the schema stops the export.
+#[tokio::test]
+async fn translations_are_validated_at_export_and_served() {
+    let bus = common::Bus::start();
+    let daemon = bus.connection().await;
+    let provider = bus.connection().await;
+    let generation = uuid::Uuid::new_v4().to_string();
+    let (_registrations, receiver) =
+        tokio::sync::watch::channel(Some(context(&daemon, &provider, &generation)));
+    let table = Translations::default().with(
+        "ru",
+        "roots",
+        Text {
+            title: Some("Папки медиатеки".into()),
+            ..Text::default()
+        },
+    );
+    serve_settings(&provider, Translated(table.clone()), receiver)
+        .await
+        .unwrap();
+    let settings = ProviderSettingsProxy::builder(&daemon)
+        .destination(provider.unique_name().unwrap().clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let served = settings.get_translations(&generation).await.unwrap();
+    assert_eq!(Translations::from_json(&served).unwrap(), table);
+
+    let other = bus.connection().await;
+    let (_registrations, receiver) =
+        tokio::sync::watch::channel(Some(context(&daemon, &other, &generation)));
+    let unknown_id = Translations::default().with(
+        "ru",
+        "missing",
+        Text {
+            title: Some("Нет такой".into()),
+            ..Text::default()
+        },
+    );
+    assert!(
+        serve_settings(&other, Translated(unknown_id), receiver)
+            .await
+            .is_err()
     );
 }

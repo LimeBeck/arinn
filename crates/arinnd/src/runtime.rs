@@ -64,8 +64,9 @@ struct Provider {
     items: Vec<arinn_protocol::library::Item>,
     resume_cache: Option<arinn_plugin_sdk::snapshots::ResumeSnapshots>,
     resumes: Vec<arinn_protocol::library::Resume>,
-    /// The provider's settings schema for one generation (ADR-0065).
-    settings_schema: Option<(String, Vec<arinn_protocol::settings::Setting>)>,
+    /// The provider's settings schema and the JSON translations of its
+    /// texts for one generation (ADR-0065, ADR-0129).
+    settings_schema: Option<(String, Vec<arinn_protocol::settings::Setting>, String)>,
     started: Instant,
     enabled: bool,
 }

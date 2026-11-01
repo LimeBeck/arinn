@@ -5,6 +5,7 @@
 //! provider declares a typed schema with defaults; the daemon stores the
 //! values and pushes changes with `Apply`. At start the provider reads its
 //! values from `ARINN_PROVIDER_SETTINGS` (ADR-0064) with [`startup_settings`].
+//! It may also ship translations of its texts (ADR-0129).
 use super::RegistrationContext;
 use arinn_protocol::{
     production,
@@ -20,6 +21,11 @@ pub trait SettingsHandler: Send + Sync + 'static {
     /// The schema with defaults as values. It must not change while the
     /// provider runs.
     fn schema(&self) -> Vec<Setting>;
+    /// Translations of the schema texts (ADR-0129); none by default. They
+    /// must not change while the provider runs.
+    fn translations(&self) -> settings::Translations {
+        settings::Translations::default()
+    }
     /// Apply the complete effective values, already checked against the
     /// schema. Answer `Unsupported` when they can only take effect at the
     /// next start.
@@ -57,6 +63,10 @@ pub async fn serve_settings(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let schema = handler.schema();
     settings::validate_schema(&schema).map_err(|e| format!("invalid settings schema: {e}"))?;
+    let translations = handler.translations();
+    translations
+        .validate(&schema)
+        .map_err(|e| format!("invalid settings translations: {e}"))?;
     connection
         .object_server()
         .at(
@@ -64,6 +74,7 @@ pub async fn serve_settings(
             SettingsIface {
                 handler: Arc::new(handler),
                 schema,
+                translations: translations.to_json(),
                 registrations,
             },
         )
@@ -74,6 +85,7 @@ pub async fn serve_settings(
 struct SettingsIface {
     handler: Arc<dyn SettingsHandler>,
     schema: Vec<Setting>,
+    translations: String,
     registrations: watch::Receiver<Option<RegistrationContext>>,
 }
 impl SettingsIface {
@@ -101,6 +113,15 @@ impl SettingsIface {
     ) -> production::Result<Vec<Setting>> {
         self.authorize(generation, &header)?;
         Ok(self.schema.clone())
+    }
+
+    async fn get_translations(
+        &self,
+        generation: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<String> {
+        self.authorize(generation, &header)?;
+        Ok(self.translations.clone())
     }
 
     async fn apply(

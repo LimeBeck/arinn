@@ -26,6 +26,17 @@ fn schema() -> Vec<Setting> {
     }]
 }
 
+fn translations() -> settings::Translations {
+    settings::Translations::default().with(
+        "ru",
+        "roots",
+        settings::Text {
+            title: Some("Папки медиатеки".into()),
+            ..settings::Text::default()
+        },
+    )
+}
+
 #[derive(Clone)]
 struct Handler {
     applied: Arc<StdMutex<Vec<Map<String, Value>>>>,
@@ -34,6 +45,9 @@ struct Handler {
 impl SettingsHandler for Handler {
     fn schema(&self) -> Vec<Setting> {
         schema()
+    }
+    fn translations(&self) -> settings::Translations {
+        translations()
     }
     fn apply(
         &self,
@@ -466,5 +480,28 @@ async fn the_daemon_export_matches_the_published_settings1_xml() {
     live.sort();
     file.sort();
     assert_eq!(live, file);
-    assert_eq!(file.len(), 3);
+    assert_eq!(file.len(), 4);
+}
+
+/// ADR-0129: the provider's table is passed through with its generation;
+/// the daemon's own source and an unknown provider have none to give.
+#[tokio::test]
+async fn translations_are_passed_through() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, json) = api.get_translations("library").await.unwrap();
+    assert_eq!(generation, f.generation);
+    assert_eq!(
+        settings::Translations::from_json(&json).unwrap(),
+        translations()
+    );
+    let (_, json) = api.get_translations("arinn").await.unwrap();
+    assert_eq!(json, "{}");
+    // A provider without ProviderSettings1.
+    let (_, json) = api.get_translations("plain").await.unwrap();
+    assert_eq!(json, "{}");
+    assert_eq!(
+        error_name(api.get_translations("nobody").await),
+        "org.arinn.Error1.NotFound"
+    );
 }

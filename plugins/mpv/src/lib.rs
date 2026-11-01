@@ -11,6 +11,7 @@ mod paths;
 mod player;
 mod processes;
 mod scope;
+mod settings;
 mod thumbnail;
 
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
@@ -20,7 +21,8 @@ pub use thumbnail::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets, poster_due};
 
 use arinn_plugin_sdk::runtime::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
-    MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, run_media_on,
+    MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, SettingsHandler, run_media_on,
+    serve_settings, startup_settings,
 };
 use arinn_protocol::{
     media::{MediaSource, Thumbnail, Timeline, Track},
@@ -63,6 +65,9 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         thumb_dir: thumb_dir.unwrap_or_default(),
         backend: backend.to_string(),
     })?;
+    player.set_hardware_decoding(settings::hardware_decoding(&startup_settings(
+        &settings::schema(),
+    ))?);
     let bridge = Bridge(player.clone());
     let mut extensions = MediaExtensions::default()
         .open(bridge.clone())
@@ -72,7 +77,10 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
     if let Some(assets) = assets {
         extensions = extensions.assets(assets);
     }
-    let service = MediaService::with_extensions(bridge, Vec::new(), backend, extensions)?;
+    let service = MediaService::with_extensions(bridge.clone(), Vec::new(), backend, extensions)?;
+    serve_settings(&connection, bridge, service.registrations())
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
     processes::export(&connection, player.clone(), service.registrations()).await?;
     // Session card frames (#292): check every few seconds; ffmpeg runs at
     // most once per 30 s of playback, or once when paused or stopped at a
@@ -106,6 +114,23 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         result = run_media_on(connection, service) => result.map_err(|_| ErrorCode::Unavailable),
         result = &mut publish => result,
         _ = tokio::signal::ctrl_c() => Ok(()),
+    }
+}
+
+impl SettingsHandler for Bridge {
+    fn schema(&self) -> Vec<arinn_protocol::settings::Setting> {
+        settings::schema()
+    }
+
+    fn apply(
+        &self,
+        values: serde_json::Map<String, serde_json::Value>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async move {
+            self.0
+                .set_hardware_decoding(settings::hardware_decoding(&values)?);
+            Ok(())
+        })
     }
 }
 

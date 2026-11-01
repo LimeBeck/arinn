@@ -1204,3 +1204,53 @@ async fn reconnect_revalidates_ownership_before_stopping_a_replacement_peer() {
     drop(replacement);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test]
+async fn decoding_selection_is_per_open_and_never_reconfigures_current_playback() {
+    for legacy in [false, true] {
+        let dir = std::env::temp_dir().join(format!("arinn-mpv-decoding-{}", uuid::Uuid::new_v4()));
+        let peer = Peer::spawn(dir.clone(), true, legacy).await;
+        let player = player(&dir, peer.socket());
+        for enabled in [true, false, true] {
+            let before = player.view().await.unwrap();
+            let mutations = |messages: Vec<Value>| {
+                messages
+                    .into_iter()
+                    .filter(|m| {
+                        matches!(
+                            m.pointer("/command/0").and_then(Value::as_str),
+                            Some("loadfile" | "set_property" | "stop" | "seek" | "quit")
+                        )
+                    })
+                    .count()
+            };
+            let count = mutations(peer.commands().await);
+            player.set_hardware_decoding(enabled);
+            let after = player.view().await.unwrap();
+            assert_eq!(after.sessions, before.sessions);
+            assert_eq!(mutations(peer.commands().await), count);
+            player.open(source(&dir)).await.unwrap();
+            let loads: Vec<_> = peer
+                .commands()
+                .await
+                .into_iter()
+                .filter(|m| m.pointer("/command/0").and_then(Value::as_str) == Some("loadfile"))
+                .collect();
+            let last = loads.last().unwrap();
+            let options = last
+                .pointer(if legacy { "/command/3" } else { "/command/4" })
+                .unwrap();
+            assert_eq!(options["hwdec"], if enabled { "auto" } else { "no" });
+            assert_eq!(options["start"], "1.000000");
+            assert_eq!(options["alang"], "en");
+            assert_eq!(options["slang"], "ru");
+            if legacy {
+                let modern = &loads[loads.len() - 2];
+                assert_eq!(modern.pointer("/command/4").unwrap(), options);
+            }
+        }
+        drop(player);
+        drop(peer);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

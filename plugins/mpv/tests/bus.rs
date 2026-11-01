@@ -92,6 +92,7 @@ fn enter(test: &str) -> bool {
         .env("ARINN_PLUGIN_ID", "mpv")
         .env("ARINN_PLUGIN_VERSION", "0.0.1")
         .env("ARINN_TOKEN_FILE", &token)
+        .env("ARINN_PROVIDER_SETTINGS", r#"{"hardware_decoding":"auto"}"#)
         .output()
         .unwrap();
     std::fs::remove_file(token).unwrap();
@@ -180,6 +181,7 @@ async fn scenario() {
     assert!(xml.contains("org.arinn.MediaWindowProvider1"));
     assert!(xml.contains("org.arinn.AssetProvider1"));
     assert!(xml.contains("org.arinn.MediaProcess1"));
+    assert!(xml.contains("org.arinn.ProviderSettings1"));
     let processes = MediaProcessProxy::builder(&daemon)
         .destination(&first.destination)
         .unwrap()
@@ -279,6 +281,117 @@ async fn scenario() {
         0
     );
     second.runner.abort();
+    // Startup settings survive a provider restart; Apply only changes future
+    // Open options and never emits commands to interrupt current playback.
+    let listener = UnixListener::bind(&socket).unwrap();
+    let peer = tokio::spawn(self::peer(listener, commands.clone()));
+    let third = spawn_provider(&bus).await;
+    let proxy = provider_proxy(&daemon, &third.destination).await;
+    let (page,) = wait_session(&proxy).await;
+    let settings = arinn_protocol::settings::ProviderSettingsProxy::builder(&daemon)
+        .destination(&third.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let schema = settings.get_schema(&page.generation).await.unwrap();
+    assert_eq!(schema.len(), 1);
+    assert_eq!(schema[0].id, "hardware_decoding");
+    assert_eq!(schema[0].category, "playback");
+    assert_eq!(schema[0].value, r#""no""#);
+    let unauthorized = arinn_protocol::settings::ProviderSettingsProxy::builder(&stranger)
+        .destination(&third.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    for result in [
+        unauthorized.get_schema(&page.generation).await.map(|_| ()),
+        unauthorized
+            .apply(&page.generation, r#"{"hardware_decoding":"auto"}"#)
+            .await,
+    ] {
+        assert!(
+            matches!(result, Err(zbus::Error::MethodError(ref name, _, _)) if name.as_str() == "org.arinn.Error1.PermissionDenied")
+        );
+    }
+    for (generation, values, expected) in [
+        (
+            "00000000-0000-4000-8000-000000000009",
+            r#"{"hardware_decoding":"no"}"#,
+            "Conflict",
+        ),
+        (
+            page.generation.as_str(),
+            r#"{"hardware_decoding":"vaapi,unsafe"}"#,
+            "InvalidArgument",
+        ),
+        (
+            page.generation.as_str(),
+            r#"{"unknown":true}"#,
+            "InvalidArgument",
+        ),
+    ] {
+        assert!(
+            matches!(settings.apply(generation, values).await, Err(zbus::Error::MethodError(ref name, _, _)) if name.as_str() == format!("org.arinn.Error1.{expected}"))
+        );
+    }
+    let open = arinn_protocol::media::MediaOpenProxy::builder(&daemon)
+        .destination(&third.destination)
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let source = arinn_protocol::media::MediaSource {
+        content: production::EntityRef {
+            provider_id: "library".into(),
+            capability: "library".into(),
+            local_id: LOCAL_ID.into(),
+        },
+        uri: format!("file://{}/clip.mkv", root.display()),
+        start_position_us: 1_000_000,
+        audio_language: "en".into(),
+        subtitle_language: "ru".into(),
+    };
+    open.open(&page.generation, source.clone()).await.unwrap();
+    let last_load = || {
+        commands
+            .lock()
+            .unwrap()
+            .iter()
+            .rev()
+            .find(|m| m.pointer("/command/0").and_then(Value::as_str) == Some("loadfile"))
+            .unwrap()
+            .clone()
+    };
+    assert_eq!(last_load().pointer("/command/4/hwdec").unwrap(), "auto");
+    let count = names(&commands)
+        .iter()
+        .filter(|n| {
+            matches!(
+                n.as_str(),
+                "loadfile" | "set_property" | "stop" | "seek" | "quit"
+            )
+        })
+        .count();
+    settings
+        .apply(&page.generation, r#"{"hardware_decoding":"no"}"#)
+        .await
+        .unwrap();
+    assert_eq!(
+        names(&commands)
+            .iter()
+            .filter(|n| matches!(
+                n.as_str(),
+                "loadfile" | "set_property" | "stop" | "seek" | "quit"
+            ))
+            .count(),
+        count
+    );
+    open.open(&page.generation, source).await.unwrap();
+    assert_eq!(last_load().pointer("/command/4/hwdec").unwrap(), "no");
+    third.runner.abort();
+    peer.abort();
     drop(bus);
 }
 
@@ -435,6 +548,9 @@ async fn speak(
             &json!({"request_id": id, "error": "success", "data": reply_data}),
         )
         .await?;
+        if name == "loadfile" {
+            send(&mut write, &json!({"event":"file-loaded"})).await?;
+        }
         if name != "observe_property" {
             continue;
         }

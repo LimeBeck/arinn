@@ -75,7 +75,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0054](0054-media-and-library-wire-contract.md) | Media and library wire contract | Accepted | 0062, 0063, 0071 |
 | [0055](0055-launching-a-closed-browser.md) | Launching a closed browser before opening a URL | Accepted | — |
 | [0056](0056-local-library-scan-metadata-and-resume.md) | Local library scan, metadata and resume | Accepted | 0085, 0090, 0115 |
-| [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083 |
+| [0057](0057-mpv-ipc-and-process-scope.md) | mpv IPC, process scope and thumbnails | Accepted | 0083, 0127 |
 | [0058](0058-media-routing.md) | Daemon routing for media providers | Accepted | 0060, 0122 |
 | [0059](0059-application-icon-references.md) | Application icon references | Accepted | — |
 | [0060](0060-library-routing.md) | Daemon routing for library providers and library launch | Accepted | 0061 |
@@ -144,4 +144,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0124](0124-offline-folder-and-season-navigation.md) | Offline folder and season navigation | Proposed | — |
 | [0125](0125-library-descriptions.md) | Optional lazy library descriptions | Accepted | — |
 | [0126](0126-delegated-media-process.md) | Verified application identity behind a media proxy | Accepted | — |
+| [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Accepted | — |
 <!-- register:end -->

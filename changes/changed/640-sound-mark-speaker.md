@@ -1,0 +1,1 @@
+- On Open services, the Sound mark shows a speaker icon, as in the design, instead of two bars ([#640](https://github.com/LimeBeck/arinn/issues/640)).

@@ -885,17 +885,12 @@ FocusScope {
                                         spacing: 8
                                         visible: !!modelData.audible
                                         anchors.verticalCenter: parent.verticalCenter
-                                        Rectangle {
-                                            width: 8
-                                            height: 14
-                                            radius: 2
-                                            color: Ui.Theme.ember
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-                                        Rectangle {
-                                            width: 4
-                                            height: 22
-                                            radius: 2
+                                        // Handoff OS-1: an ember volume_up speaker.
+                                        Ui.LineIcon {
+                                            objectName: "soundIcon-" + modelData.id
+                                            width: 28
+                                            height: 28
+                                            name: "volume_up"
                                             color: Ui.Theme.ember
                                             anchors.verticalCenter: parent.verticalCenter
                                         }

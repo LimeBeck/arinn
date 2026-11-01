@@ -4,6 +4,7 @@
 import QtQuick
 import QtTest
 import "../../apps/arinn-shell/ui/screens/browser" as Browser
+import "../../apps/arinn-shell/ui" as Ui
 
 TestCase {
     id: suite
@@ -264,6 +265,13 @@ TestCase {
         const sound = child("sound-t2");
         verify(sound.mapToItem(sub.parent, 0, 0).x > onScreen.mapToItem(sub.parent, 0, 0).x + onScreen.width);
         verify(sound.mapToItem(sub.parent, 0, 0).x + sound.width < sub.parent.width / 2);
+        // #640: the Sound mark is the ember volume_up speaker of OS-1.
+        const soundIcon = child("soundIcon-t2");
+        compare(soundIcon.name, "volume_up");
+        compare(soundIcon.color, Ui.Theme.ember);
+        verify(soundIcon.visible && soundIcon.width >= 24);
+        // The speaker body is painted: a filled pixel at (8, 14) of 28.
+        tryVerify(() => grabImage(soundIcon).pixel(8, 14).a > 0.5);
         // The close button draws the thin 40 px close icon, not a text glyph.
         const closeIcon = child("closeIcon-t2");
         compare(closeIcon.name, "close");

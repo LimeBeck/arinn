@@ -827,7 +827,17 @@ fn strip_release_tags(text: &str) -> String {
             tokens.push(token.to_string());
         }
     }
-    let Some(first) = tokens.iter().position(|token| strong_release_tag(token)) else {
+    // A suffix follows the season or episode marker: a tag before a marker
+    // (`Show 1080p S02E03 Pilot`) is not a suffix start, so the marker stays.
+    let after_marker = tokens
+        .iter()
+        .rposition(|token| marker_token(token))
+        .map_or(0, |at| at + 1);
+    let Some(first) = tokens[after_marker..]
+        .iter()
+        .position(|token| strong_release_tag(token))
+        .map(|at| after_marker + at)
+    else {
         return text.to_string();
     };
     let mut start = first;
@@ -846,6 +856,13 @@ fn strip_release_tags(text: &str) -> String {
         }
     }
     trim_seps(&kept.join(" "))
+}
+
+/// A whole token that is a season or episode marker (`S02E03`, `1x03`,
+/// `S02`, `TV2`).
+fn marker_token(token: &str) -> bool {
+    find_marker(token).is_some_and(|(_, _, start, end)| start == 0 && end == token.len())
+        || find_season_marker(token).is_some_and(|(_, start, end)| start == 0 && end == token.len())
 }
 
 /// A `(YYYY)` anywhere in `token`, as `take_year` reads it.
@@ -1070,6 +1087,12 @@ mod tests {
             ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
             ("Movie 1080p (2020)", "Movie (2020)"),
             ("Movie 1080p (2020)-GROUP", "Movie (2020)"),
+            // A tag before a marker is not a suffix start.
+            ("Show 1080p S02E03 Pilot", "Show 1080p S02E03 Pilot"),
+            (
+                "Show 1080p S02E03 Pilot WEB-DL x264",
+                "Show 1080p S02E03 Pilot",
+            ),
             ("Show S02 WEB-DLRip-GROUP", "Show S02"),
             ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
             ("", ""),
@@ -1193,6 +1216,13 @@ mod tests {
         assert_eq!(film.title, "Example Film");
         assert!(film.has_year);
         assert_eq!(film.year, 2020);
+
+        // A release tag before the episode marker keeps the marker.
+        let episode = parse_video(root, Path::new("/library/Show.1080p.S02E03.Pilot.mkv")).unwrap();
+        assert_eq!(episode.kind, Kind::Episode);
+        assert_eq!(episode.season, 2);
+        assert_eq!(episode.episode, 3);
+        assert_eq!(episode.title, "Pilot");
 
         // A WEB-DLRip source with an attached group.
         let episode = parse_video(

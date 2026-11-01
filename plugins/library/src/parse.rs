@@ -156,7 +156,7 @@ fn series_title(series_dir: &str, before: &str, stem: &str) -> (String, Option<i
         .next_back()
         .filter(|part| !part.is_empty())
     {
-        let (title, year) = take_year(&clean_name(name));
+        let (title, year) = take_year(&clean(name));
         return (fallback_title(&title, name), year);
     }
     let (title, year) = take_year(before);
@@ -207,14 +207,13 @@ fn series_dir(rel: &Path) -> SeriesDir {
 
 /// `Season N`, or a folder that is only a `TVn` or `Snn` marker.
 fn season_dir(name: &str) -> Option<u32> {
-    let cleaned = clean_name(&unwrap_markers(name));
+    let cleaned = clean(&unwrap_markers(name));
     if let Some((season, 0, end)) = find_season_marker(&cleaned)
         && end == cleaned.len()
     {
         return Some(season);
     }
-    // `Season 2 1080p WEB-DL`: the cleaned name has the suffix dropped.
-    let lower = cleaned.to_ascii_lowercase();
+    let lower = name.to_ascii_lowercase();
     let rest = lower.strip_prefix("season")?.trim_start();
     let rest = rest
         .strip_prefix([' ', '.', '_', '-'])
@@ -226,12 +225,10 @@ fn season_dir(name: &str) -> Option<u32> {
 /// `<Title> TVn` or `<Title> Snn` (an optional year anywhere, `[...]` groups
 /// dropped): season `n` of `<Title>`.
 fn titled_season_dir(name: &str) -> Option<(String, Option<i32>, u32)> {
-    let (text, year) = take_year(&clean_name(&unwrap_markers(name)));
+    let (text, year) = take_year(&clean(&unwrap_markers(name)));
     let (season, start, end) = find_season_marker(&text)?;
     let title = trim_seps(&text[..start]);
-    // A release suffix after the marker (`S02 2160p WEB-DL ...`) still names
-    // season `n` of `<Title>` (#660).
-    if title.is_empty() || !strip_release_tags(&trim_seps(&text[end..])).is_empty() {
+    if title.is_empty() || !trim_seps(&text[end..]).is_empty() {
         return None;
     }
     Some((title, year, season))
@@ -366,13 +363,6 @@ fn extension(path: &Path) -> Option<String> {
 fn clean(raw: &str) -> String {
     let spaced = raw.replace(['.', '_'], " ");
     collapse(&strip_square(&spaced))
-}
-
-/// `clean`, then a scene-style release suffix dropped, before any year or
-/// marker is read from the name: a year before the suffix (`2019 1080p
-/// WEB-DL`) then ends the text and is found (#660).
-fn clean_name(raw: &str) -> String {
-    strip_release_tags(&clean(raw))
 }
 
 fn strip_square(input: &str) -> String {
@@ -736,139 +726,6 @@ fn trim_seps(value: &str) -> String {
     text.to_string()
 }
 
-/// The part of a tag before an attached release group: `HEVC-GROUP` is
-/// `hevc`. `WEB-DL` keeps its hyphen.
-fn tag_base(token: &str) -> String {
-    let token = token.to_ascii_lowercase();
-    // Hyphenated tags, longest first, so `WEB-DLRip-GROUP` is `web-dlrip`.
-    for tag in ["web-dlrip", "web-dl", "blu-ray", "dts-hd"] {
-        if let Some(rest) = token.strip_prefix(tag)
-            && (rest.is_empty() || rest.starts_with('-'))
-        {
-            return tag.to_string();
-        }
-    }
-    token
-        .split_once('-')
-        .map_or(token.clone(), |(head, _)| head.to_string())
-}
-
-/// Tags that can only be release metadata, never a word of a title:
-/// resolution, source and codec (#660). They start a release suffix.
-fn strong_release_tag(token: &str) -> bool {
-    let base = tag_base(token);
-    let resolution = base.strip_suffix(['p', 'i']).is_some_and(|digits| {
-        matches!(
-            digits,
-            "480" | "576" | "720" | "1080" | "1440" | "2160" | "4320"
-        )
-    });
-    resolution
-        || matches!(
-            base.as_str(),
-            "web-dl"
-                | "webdl"
-                | "web-dlrip"
-                | "webrip"
-                | "bluray"
-                | "blu-ray"
-                | "bdrip"
-                | "brrip"
-                | "bdremux"
-                | "hdtv"
-                | "hdtvrip"
-                | "dvdrip"
-                | "hdrip"
-                | "x264"
-                | "x265"
-                | "h264"
-                | "h265"
-                | "hevc"
-        )
-}
-
-/// Streaming-service codes and edition flags: part of a suffix, and the
-/// only tags a suffix may start with when a strong tag follows them.
-fn service_release_tag(token: &str) -> bool {
-    matches!(
-        tag_base(token).as_str(),
-        "nf" | "amzn"
-            | "dsnp"
-            | "hmax"
-            | "atvp"
-            | "pcok"
-            | "pmtp"
-            | "proper"
-            | "repack"
-            | "internal"
-    )
-}
-
-/// Drops a scene-style release suffix (`2160p NF WEB-DL DDP5 1 DV HEVC-GROUP`)
-/// from cleaned text. The suffix starts at the first strong tag, or at the
-/// service codes right before it, and runs to the end of the text; only years
-/// in it are kept. A strong tag is never a title word, so whatever follows it
-/// is release metadata however it is spelled (`DTS-HD MA`, `TrueHD 7 1`,
-/// `IMAX`), and no list of trailing tags has to be complete. Text without a
-/// strong tag is unchanged, so `Charlotte's Web` or `Show S02 Directors Cut`
-/// are never cut (#660).
-fn strip_release_tags(text: &str) -> String {
-    // `H.264` arrives as `h 264`: one token for the codec.
-    let mut tokens: Vec<String> = Vec::new();
-    for token in text.split(' ').filter(|token| !token.is_empty()) {
-        let joined = matches!(tokens.last(), Some(last) if last.eq_ignore_ascii_case("h"))
-            && (token.starts_with("264") || token.starts_with("265"));
-        if joined {
-            let last = tokens.pop().unwrap_or_default();
-            tokens.push(format!("{last}{token}"));
-        } else {
-            tokens.push(token.to_string());
-        }
-    }
-    // A suffix follows the season or episode marker: a tag before a marker
-    // (`Show 1080p S02E03 Pilot`) is not a suffix start, so the marker stays.
-    let after_marker = tokens
-        .iter()
-        .rposition(|token| marker_token(token))
-        .map_or(0, |at| at + 1);
-    let Some(first) = tokens[after_marker..]
-        .iter()
-        .position(|token| strong_release_tag(token))
-        .map(|at| after_marker + at)
-    else {
-        return text.to_string();
-    };
-    let mut start = first;
-    while start > 0 && service_release_tag(&tokens[start - 1]) {
-        start -= 1;
-    }
-    // A year inside the suffix stays in any form `take_year` reads: a year
-    // token (`2020`, `2020-GROUP`) as it is, a `(YYYY)` anywhere in a token
-    // (`(2020)`, `(2020)-GROUP`) as `(YYYY)`. `take_year` then still finds it.
-    let mut kept: Vec<String> = tokens[..start].to_vec();
-    for token in &tokens[start..] {
-        if year_token(token).is_some() {
-            kept.push(token.clone());
-        } else if let Some(year) = parenthesized_year(token) {
-            kept.push(format!("({year})"));
-        }
-    }
-    trim_seps(&kept.join(" "))
-}
-
-/// A whole token that is a season or episode marker (`S02E03`, `1x03`,
-/// `S02`, `TV2`).
-fn marker_token(token: &str) -> bool {
-    find_marker(token).is_some_and(|(_, _, start, end)| start == 0 && end == token.len())
-        || find_season_marker(token).is_some_and(|(_, start, end)| start == 0 && end == token.len())
-}
-
-/// A `(YYYY)` anywhere in `token`, as `take_year` reads it.
-fn parenthesized_year(token: &str) -> Option<i32> {
-    let (_, year) = take_year(token);
-    year.filter(|_| token.contains('('))
-}
-
 fn fallback_title(parsed: &str, stem: &str) -> String {
     let title = if parsed.is_empty() {
         clean(stem)
@@ -1059,132 +916,6 @@ mod tests {
         assert_eq!(episode.season, 1);
         assert_eq!(episode.episode, 2);
         assert_eq!(episode.title, "Pilot");
-    }
-
-    // #660: a scene-style release suffix starts at a tag that is never a title
-    // word; without one the text is unchanged.
-    #[test]
-    fn strips_only_a_whole_release_suffix() {
-        for (text, expected) in [
-            ("2160p NF WEB-DL DDP5 1 DV HEVC-GROUP", ""),
-            ("Pilot 1080p WEB-DL x264-GRP", "Pilot"),
-            (
-                "Example Show AMZN 1080p WEBRip DD+ 5 1 H 264-GRP",
-                "Example Show",
-            ),
-            ("Charlotte's Web 1080p BluRay", "Charlotte's Web"),
-            ("Charlotte's Web", "Charlotte's Web"),
-            ("Mad Max", "Mad Max"),
-            ("Dark Web DV", "Dark Web DV"),
-            ("Director's Cut", "Director's Cut"),
-            // Anything after a strong tag is release metadata.
-            ("Pilot 1080p Extended", "Pilot"),
-            ("Movie 2020 1080p BluRay DTS-HD MA x264-GROUP", "Movie 2020"),
-            ("Movie 2160p UHD BluRay TrueHD 7 1 Atmos IMAX ESub", "Movie"),
-            ("Movie 1080p 2020", "Movie 2020"),
-            ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
-            ("Movie 1080p (2020)", "Movie (2020)"),
-            ("Movie 1080p (2020)-GROUP", "Movie (2020)"),
-            // A tag before a marker is not a suffix start.
-            ("Show 1080p S02E03 Pilot", "Show 1080p S02E03 Pilot"),
-            (
-                "Show 1080p S02E03 Pilot WEB-DL x264",
-                "Show 1080p S02E03 Pilot",
-            ),
-            ("Show S02 WEB-DLRip-GROUP", "Show S02"),
-            ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
-            ("", ""),
-        ] {
-            assert_eq!(strip_release_tags(text), expected, "{text:?}");
-        }
-    }
-
-    #[test]
-    fn release_season_folder_names_its_series() {
-        // Only folder names drop a release suffix; file names are read as
-        // they are.
-        let root = Path::new("/library");
-        let episode = parse_video(
-            root,
-            Path::new(
-                "/library/Example Show S02 2160p NF WEB-DL DDP5.1 DV HEVC-GROUP/\
-                 Example.Show.S02E01.2160p.NF.WEB-DL.DDP5.1.DV.HEVC-GROUP.mkv",
-            ),
-        )
-        .unwrap();
-        assert_eq!(episode.kind, Kind::Episode);
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 2);
-        assert_eq!(episode.episode, 1);
-
-        // A marker-only season folder with a release suffix.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show/S03 1080p WEB-DL/Example Show - 04 - Title.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 3);
-
-        // `Season N` with a release suffix is still a season folder.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show/Season 2 1080p WEB-DL/Example Show - E01.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.kind, Kind::Episode);
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 2);
-
-        // A series folder with a year and a release suffix.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show 2019 1080p BluRay x264-GRP/Example.Show.S01E01.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert!(episode.series_has_year);
-        assert_eq!(episode.series_year, 2019);
-
-        // A year before, after or inside the folder's release suffix is the
-        // series year.
-        for (folder, year) in [
-            ("Example Show S02 2019 1080p WEB-DL", 2019),
-            ("Example Show S02 1080p 2019", 2019),
-            ("Example Show S02 1080p 2019-GROUP", 2019),
-            ("Example Show S02 1080p (2021)", 2021),
-            ("Example Show S02 1080p (2021)-GROUP", 2021),
-        ] {
-            let path = format!("/library/{folder}/Example Show - 01.mkv");
-            let episode = parse_video(root, Path::new(&path)).unwrap();
-            assert_eq!(episode.series_title, "Example Show", "{folder}");
-            assert_eq!(episode.season, 2, "{folder}");
-            assert!(episode.series_has_year, "{folder}");
-            assert_eq!(episode.series_year, year, "{folder}");
-        }
-
-        // A WEB-DLRip source with an attached group.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show S03 WEB-DLRip-GROUP/Example Show - 01.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show");
-        assert_eq!(episode.season, 3);
-
-        // File names are not cleaned: a release-tagged film keeps its name.
-        let film = parse_video(root, Path::new("/library/Example.Film.2160p.WEB-DL.mkv")).unwrap();
-        assert_eq!(film.kind, Kind::Film);
-        assert_eq!(film.title, "Example Film 2160p WEB-DL");
-
-        // Text after the marker that is not a release suffix keeps today's
-        // reading: the folder stays the series directory.
-        let episode = parse_video(
-            root,
-            Path::new("/library/Example Show S02 Directors Cut/Example Show S02E01.mkv"),
-        )
-        .unwrap();
-        assert_eq!(episode.series_title, "Example Show S02 Directors Cut");
     }
 
     #[test]

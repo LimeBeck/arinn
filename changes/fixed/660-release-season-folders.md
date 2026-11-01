@@ -1,1 +1,0 @@
-- The library reads a season folder named like a release, such as `Show Name S02 2160p WEB-DL HEVC-GROUP`, as season 2 of "Show Name", so Home and the Library show the series name instead of the whole folder name ([#660](https://github.com/LimeBeck/arinn/issues/660)).

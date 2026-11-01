@@ -10,13 +10,10 @@
 //!
 //! The daemon uses it to refuse and invalidate Activity background frames
 //! (ADR-0087). The shell keeps its own guard and never waits for this one.
-#[path = "lock_endpoints.rs"]
-mod lock_endpoints;
 #[path = "lock_provider.rs"]
 mod lock_provider;
 use futures_util::StreamExt;
-use lock_endpoints::LOCK_ENDPOINTS;
-use lock_provider::{Endpoint, probe};
+use lock_provider::probe;
 use std::time::Duration;
 use tokio::sync::watch;
 use zbus::{Connection, MatchRule, MessageStream, message::Message};
@@ -29,8 +26,7 @@ const LOGIND: &str = "org.freedesktop.login1";
 const REPROBE: Duration = Duration::from_secs(5);
 
 /// Re-export for callers that share the daemon's probe list.
-pub use lock_endpoints::LOCK_ENDPOINTS;
-pub use lock_provider::provider_present;
+pub use lock_provider::{LOCK_ENDPOINTS, provider_present};
 
 /// Starts the watcher. The receiver reads `true` (blocked) until the first
 /// probe proves the session unlocked. Without a system bus, sleep is only

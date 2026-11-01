@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Opt-in XDG autostart bridge; the XFCE session manager owns its lifetime.
-#[path = "../../../lock_provider.rs"]
-mod lock_provider;
+#[path = "../../../lock_preflight.rs"]
+mod lock_preflight;
 use anyhow::{Result, bail, ensure};
 use std::{
     env,
@@ -48,6 +48,15 @@ impl std::fmt::Display for LockProviderMissing {
     }
 }
 impl std::error::Error for LockProviderMissing {}
+
+#[derive(Debug)]
+struct LockProviderUnresponsive(&'static str);
+impl std::fmt::Display for LockProviderUnresponsive {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "lock provider not responding: {}", self.0)
+    }
+}
+impl std::error::Error for LockProviderUnresponsive {}
 
 struct Child(std::process::Child);
 impl Drop for Child {
@@ -267,8 +276,14 @@ async fn run() -> Result<()> {
             "an Arinn session is already running"
         );
     }
-    if !lock_provider::wait_for_provider(&connection).await {
-        return Err(anyhow::Error::new(LockProviderMissing));
+    match lock_preflight::wait_for_provider(&connection).await {
+        lock_preflight::ProviderWaitOutcome::Ready => {}
+        lock_preflight::ProviderWaitOutcome::Missing => {
+            return Err(anyhow::Error::new(LockProviderMissing));
+        }
+        lock_preflight::ProviderWaitOutcome::Unresponsive { service } => {
+            return Err(anyhow::Error::new(LockProviderUnresponsive(service)));
+        }
     }
     let mut startup = Box::pin(start());
     let outcome = tokio::select! {
@@ -317,6 +332,10 @@ async fn main() {
         Ok(()) => {}
         Err(error) if error.downcast_ref::<LockProviderMissing>().is_some() => {
             eprintln!("arinn-xfce-session: {LOCK_PROVIDER_MISSING}");
+            std::process::exit(1);
+        }
+        Err(error) if error.downcast_ref::<LockProviderUnresponsive>().is_some() => {
+            eprintln!("arinn-xfce-session: {error}");
             std::process::exit(1);
         }
         Err(_) => {

@@ -1,0 +1,1 @@
+- On Home, focusing the New row no longer slides the Continue row under the Arinn menu button: rows that move into the header fade out ([#659](https://github.com/LimeBeck/arinn/issues/659)).

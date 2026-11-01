@@ -58,7 +58,7 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
             .collect();
         schema.push(Setting {
             id: "search_engine".into(),
-            category: "browser".into(),
+            category: "applications".into(),
             title: "Search engine".into(),
             description: "Used when typed text is not an address".into(),
             kind: settings::KIND_ENUM.into(),

@@ -69,6 +69,20 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         .and_then(Settings::parse);
     let backend_ok = loaded.is_ok();
     let settings = loaded.unwrap_or_default();
+    // Rejected recognition rules (ADR-0128): the defaults apply; the reason
+    // names the rule, never a path.
+    if let Some(error) = &settings.recognition_error {
+        eprintln!(
+            "{}",
+            serde_json::json!({
+                "level": "warn",
+                "component": "arinn-plugin-library",
+                "operation": "recognition.rules",
+                "error": "InvalidArgument",
+                "detail": error,
+            })
+        );
+    }
     // Settings that do not load leave no roots to scan or report.
     let written = match (&text, backend_ok) {
         (Some(text), true) => crate::store::written_roots(text),
@@ -435,13 +449,13 @@ impl LibraryImportHandler for Bridge {
         let settings = self.settings.clone();
         Box::pin(async move {
             let ids = tokio::task::spawn_blocking(move || {
-                let roots = settings
-                    .lock()
-                    .map_err(|_| ErrorCode::Internal)?
-                    .roots
-                    .clone();
+                let (roots, rules) = {
+                    let settings = settings.lock().map_err(|_| ErrorCode::Internal)?;
+                    (settings.roots.clone(), settings.recognition.clone())
+                };
                 let mut store = store.lock().map_err(|_| ErrorCode::Internal)?;
                 store.set_configured_roots(&roots);
+                store.set_configured_rules(&rules);
                 store.import(&candidates)
             })
             .await

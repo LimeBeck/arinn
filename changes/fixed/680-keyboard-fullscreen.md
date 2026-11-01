@@ -1,0 +1,1 @@
+- Keep the external on-screen keyboard above active fullscreen applications on KDE/Wayland without taking focus from the application (#680).

@@ -190,6 +190,17 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    // The menu button and the status area end at y 108. A row fades out as
+    // its on-screen top (the animated translation, not the target offset)
+    // nears this line: fully shown from 60 px below it, gone at it, so no card
+    // slides under the header during or after the New row's offset (#659).
+    readonly property real headerClearance: 120
+    readonly property real headerFade: 60
+    function rowHeaderOpacity(row) {
+        const top = row.y + homeShift.y;
+        return Math.max(0, Math.min(1, (top - headerClearance) / headerFade));
+    }
+    function rowClearsHeader(row) { return rowHeaderOpacity(row) >= 1; }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
@@ -631,6 +642,9 @@ FocusScope {
         BrandButton {
             id: menuButton
             objectName: "menuButton"
+            // Above the rows, which a New row offset can move into the
+            // header band (#659).
+            z: 1
             x: Theme.safeLeft - lockupInset; y: 44; height: 64; text: "Arinn"
             pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
             onActivated: root.openNavigation()
@@ -644,6 +658,7 @@ FocusScope {
         // state (handoff 01). Unknown platform state shows nothing (#387).
         Row {
             objectName: "statusArea"
+            z: 1
             anchors.right: parent.right; anchors.rightMargin: Theme.safeRight
             y: 44; height: 64; spacing: 24
             Row {
@@ -810,6 +825,7 @@ FocusScope {
                 visible: root.homeState === "ready"
                 // A translation keeps all rows in a single logical screen.
                 transform: Translate {
+                    id: homeShift
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
@@ -831,10 +847,12 @@ FocusScope {
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"
+                    opacity: root.rowHeaderOpacity(continueRow)
+                    pointerBlocked: !root.rowClearsHeader(continueRow)
                     x: 120; y: 372; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
-                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
                     onEdge: key => root.rowEdge(continueRow, key)
@@ -844,11 +862,13 @@ FocusScope {
                 }
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
+                    opacity: root.rowHeaderOpacity(favoritesRow)
+                    pointerBlocked: !root.rowClearsHeader(favoritesRow)
                     x: 120; y: continueRow.visible ? 700 : 372; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
-                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(favoritesRow)
                     onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)

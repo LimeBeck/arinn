@@ -298,7 +298,7 @@ These are existing requests, not a newly committed delivery order or release dat
 | Input assignment UI, per-device bindings and gamepads ([#64](https://github.com/LimeBeck/arinn/issues/64)) | Basic shell bindings already delivered; remaining scope unscheduled, gamepads a Phase 6 candidate |
 | Steam game library, artwork and game-level Activities ([#435](https://github.com/LimeBeck/arinn/issues/435)) | Post-MVP; waits for stable Plugin API / Phase 6 |
 | Notifications over external applications ([#440](https://github.com/LimeBeck/arinn/issues/440)) | Post-MVP proposal; event policy and design pending |
-| Android TV home screen / launcher ([#198](https://github.com/LimeBeck/arinn/issues/198)) | Post-MVP feasibility and staged prototypes; Linux MVP first |
+| Android TV home screen / launcher and AAOS head-unit variant ([#198](https://github.com/LimeBeck/arinn/issues/198)) | Post-MVP; Linux MVP first. [Specification, staged PoC plan and verification criteria](docs/architecture/android-tv-plan.md) prepared; TV and AAOS qualified separately; Android builds/device tests not run, production decisions pending |
 | Voice control ([#85](https://github.com/LimeBeck/arinn/issues/85)) | Unscheduled post-MVP request; recognition, microphone and activation choices pending |
 
 The other Phase 6 candidates above (ES-DE, Jellyfin, TV/webOS and torrent addition)

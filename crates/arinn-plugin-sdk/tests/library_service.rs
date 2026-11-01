@@ -195,7 +195,8 @@ async fn scenario() {
         .import(import.clone())
         .assets(Posters)
         .roots()
-        .additions();
+        .additions()
+        .hierarchy();
     let service = LibraryService::with_extensions(
         handler.clone(),
         vec![collection()],
@@ -244,9 +245,100 @@ async fn scenario() {
             "LibraryResume1".to_string(),
             "LibraryImport1".to_string(),
             "AssetProvider1".to_string(),
+            "LibraryHierarchy1".to_string(),
             "LibraryAdditions1".to_string(),
             "LibraryRoots1".to_string()
         ]
+    );
+
+    let hierarchy = arinn_protocol::library::LibraryHierarchyProxy::builder(&server)
+        .destination(destination.clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    let (empty,) = hierarchy
+        .get_hierarchy(&context.generation, page.revision, "")
+        .await
+        .unwrap();
+    assert!(empty.folders.is_empty());
+    assert!(
+        error_name(hierarchy.get_hierarchy("stale", page.revision, "").await).ends_with("Conflict")
+    );
+    let stranger_connection = bus.connection().await;
+    let stranger_hierarchy =
+        arinn_protocol::library::LibraryHierarchyProxy::builder(&stranger_connection)
+            .destination(destination.clone())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+    assert!(
+        error_name(
+            stranger_hierarchy
+                .get_hierarchy(&context.generation, page.revision, "")
+                .await
+        )
+        .ends_with("PermissionDenied")
+    );
+    let folders = vec![arinn_protocol::library::Folder {
+        id: "root".into(),
+        parent_id: String::new(),
+        title: "Media".into(),
+        available: true,
+    }];
+    let members = vec![arinn_protocol::library::FolderMember {
+        folder_id: "root".into(),
+        item_id: page.items[0].id.clone(),
+    }];
+    service
+        .replace_with_hierarchy(
+            page.collections.clone(),
+            page.items.clone(),
+            "available",
+            Vec::new(),
+            folders.clone(),
+            members.clone(),
+        )
+        .await
+        .unwrap();
+    let (updated,) = proxy.get_library("").await.unwrap();
+    assert!(updated.revision > page.revision);
+    let (tree,) = hierarchy
+        .get_hierarchy(&context.generation, updated.revision, "")
+        .await
+        .unwrap();
+    assert_eq!(tree.folders, folders);
+    assert_eq!(tree.members, members);
+    service
+        .replace_with_hierarchy(
+            page.collections.clone(),
+            page.items.clone(),
+            "available",
+            Vec::new(),
+            tree.folders,
+            tree.members,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        proxy.get_library("").await.unwrap().0.revision,
+        updated.revision
+    );
+    // Legacy replacement clears hierarchy, preventing stale references.
+    service
+        .replace(page.collections.clone(), page.items.clone(), "available")
+        .await
+        .unwrap();
+    let (page,) = proxy.get_library("").await.unwrap();
+    assert!(
+        hierarchy
+            .get_hierarchy(&context.generation, page.revision, "")
+            .await
+            .unwrap()
+            .0
+            .folders
+            .is_empty()
     );
 
     let additions = LibraryAdditionsProxy::builder(&server)
@@ -512,6 +604,7 @@ async fn scenario() {
         ("org.arinn.LibraryImport1", "library-import1.xml"),
         ("org.arinn.LibraryRoots1", "library-roots1.xml"),
         ("org.arinn.LibraryAdditions1", "library-additions1.xml"),
+        ("org.arinn.LibraryHierarchy1", "library-hierarchy1.xml"),
     ] {
         let xml = std::fs::read_to_string(format!(
             "{}/../../docs/plugin-api/{file}",

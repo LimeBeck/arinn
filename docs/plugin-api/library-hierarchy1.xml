@@ -1,0 +1,12 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.LibraryHierarchy1">
+    <method name="GetHierarchy">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="revision" type="t" direction="in" />
+      <arg name="token" type="s" direction="in" />
+      <arg type="(sta(sssb)a(ss)s)" direction="out" />
+    </method>
+  </interface>
+</node>

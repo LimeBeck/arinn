@@ -8,17 +8,19 @@
 //! library provider to the media provider only; it never reaches the shell or
 //! the logs.
 use super::*;
-use arinn_plugin_sdk::snapshots::{LibrarySnapshots, ResumeSnapshots};
+use arinn_plugin_sdk::snapshots::{HierarchySnapshots, LibrarySnapshots, ResumeSnapshots};
 use arinn_protocol::{
     library::{
-        self, Additions, Collection, FEATURE_ADDITIONS, FEATURE_IMPORT, FEATURE_RESUME,
-        FEATURE_ROOTS, Item, LibraryAdditionsProxy, LibraryPage, LibraryProviderProxy,
+        self, Additions, Collection, FEATURE_ADDITIONS, FEATURE_HIERARCHY, FEATURE_IMPORT,
+        FEATURE_RESUME, FEATURE_ROOTS, Folder, FolderMember, HierarchyPage, Item,
+        LibraryAdditionsProxy, LibraryHierarchyProxy, LibraryPage, LibraryProviderProxy,
         LibraryResumeProxy, LibraryRootsProxy, Resume, ResumePage, Roots,
     },
     media::{FEATURE_OPEN, MediaOpenProxy, MediaSource},
 };
 
 const KNOWN_FEATURES: &[&str] = &[
+    FEATURE_HIERARCHY,
     FEATURE_ADDITIONS,
     FEATURE_RESUME,
     FEATURE_IMPORT,
@@ -81,6 +83,48 @@ pub(super) async fn read_library(
     };
     let (backend, features) = read_library_metadata(proxy).await?;
     Ok((revision, data, backend, features))
+}
+
+async fn read_hierarchy(
+    proxy: &LibraryHierarchyProxy<'_>,
+    generation: &str,
+    revision: u64,
+    cached: bool,
+) -> Result<Option<(Vec<Folder>, Vec<FolderMember>)>, ErrorCode> {
+    let mut token = String::new();
+    let mut tokens = HashSet::new();
+    let (mut folders, mut members) = (Vec::new(), Vec::new());
+    let mut total = 0;
+    loop {
+        let (page,) = proxy
+            .get_hierarchy(generation, revision, &token)
+            .await
+            .map_err(normalize_error)?;
+        page.validate()?;
+        total += page.encoded_len()?;
+        if total > 16 * 1024 * 1024
+            || folders.len() + members.len() + page.folders.len() + page.members.len() > 100_000
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if page.generation != generation || page.revision != revision {
+            return Err(ErrorCode::Conflict);
+        }
+        if token.is_empty() && cached {
+            return Ok(None);
+        }
+        folders.extend(page.folders);
+        members.extend(page.members);
+        token = page.next_token;
+        if token.is_empty() {
+            break;
+        }
+        if !tokens.insert(token.clone()) {
+            return Err(ErrorCode::Conflict);
+        }
+    }
+    library::validate_hierarchy(&folders, &members)?;
+    Ok(Some((folders, members)))
 }
 
 async fn read_library_metadata(
@@ -300,7 +344,49 @@ impl Core {
                     } else {
                         None
                     };
-                    Ok((snapshot, resumes, roots, additions))
+                    let hierarchy = if snapshot.3.iter().any(|f| f == FEATURE_HIERARCHY) {
+                        tokio::time::timeout(Duration::from_millis(500), async {
+                            let proxy = LibraryHierarchyProxy::builder(&self.connection)
+                                .destination(owner.as_str())
+                                .and_then(|b| b.path(production::PROVIDER_PATH))
+                                .map_err(normalize_error)?
+                                .build()
+                                .await
+                                .map_err(normalize_error)?;
+                            let cached = {
+                                let state = self.state.lock().await;
+                                state.library_hierarchy_ready.contains(&id)
+                                    && state.providers.get(&id).is_some_and(|p| {
+                                        p.owner == owner
+                                            && p.info.generation == generation
+                                            && p.info.revision == snapshot.0
+                                    })
+                            };
+                            let h = read_hierarchy(&proxy, &generation, snapshot.0, cached).await?;
+                            if let Some(h) = &h {
+                                if let Some((_, items)) = &snapshot.1 {
+                                    library::validate_hierarchy_items(&h.0, &h.1, items)?;
+                                } else {
+                                    let state = self.state.lock().await;
+                                    let p = state
+                                        .providers
+                                        .get(&id)
+                                        .filter(|p| {
+                                            p.owner == owner && p.info.generation == generation
+                                        })
+                                        .ok_or(ErrorCode::Unavailable)?;
+                                    library::validate_hierarchy_items(&h.0, &h.1, &p.items)?;
+                                }
+                            }
+                            Ok::<_, ErrorCode>(h)
+                        })
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                    } else {
+                        None
+                    };
+                    Ok((snapshot, resumes, roots, additions, hierarchy))
                 }
                 Err(error) => Err(error),
             };
@@ -310,6 +396,8 @@ impl Core {
                 library_roots,
                 library_additions,
                 library_additions_seen,
+                library_hierarchy,
+                library_hierarchy_ready,
                 ..
             } = &mut *state;
             let Some(p) = providers.get_mut(&id) else {
@@ -320,7 +408,7 @@ impl Core {
             }
             let mut signal = None;
             match result {
-                Ok(((revision, data, backend, features), resumes, roots, additions)) => {
+                Ok(((revision, data, backend, features), resumes, roots, additions, hierarchy)) => {
                     let cache = p
                         .library_cache
                         .get_or_insert_with(|| LibrarySnapshots::new(&generation).unwrap());
@@ -363,11 +451,28 @@ impl Core {
                             if let Some(added) = &additions {
                                 library_additions_seen.insert(id.clone(), added.clone());
                             }
+                            let was_ready = library_hierarchy_ready.contains(&id);
+                            let hierarchy_ok = hierarchy.is_some_and(|h| {
+                                let Some((folders, members)) = h else {
+                                    return was_ready;
+                                };
+                                let cache =
+                                    library_hierarchy.entry(id.clone()).or_insert_with(|| {
+                                        HierarchySnapshots::new(&generation).unwrap()
+                                    });
+                                cache.import(revision, folders, members).is_ok()
+                            });
+                            if hierarchy_ok {
+                                library_hierarchy_ready.insert(id.clone());
+                            } else {
+                                library_hierarchy_ready.remove(&id);
+                            }
                             let additions_changed =
                                 additions.as_ref() != library_additions.get(&id);
                             if revision != p.info.revision
                                 || resumes_changed
                                 || roots_changed
+                                || was_ready != hierarchy_ok
                                 || additions_changed
                             {
                                 signal = Some(revision);
@@ -416,6 +521,7 @@ impl Core {
                         Err(error) => {
                             // A failure in either substream requires a full
                             // reconciliation, even on a metadata-only wakeup.
+                            library_hierarchy_ready.remove(&id);
                             known_revision = None;
                             resume_revision = None;
                             failed(&mut p.info, error);
@@ -425,6 +531,7 @@ impl Core {
                 Err(error) => {
                     // A failure in either substream requires a full
                     // reconciliation, even on a metadata-only wakeup.
+                    library_hierarchy_ready.remove(&id);
                     known_revision = None;
                     resume_revision = None;
                     failed(&mut p.info, error);
@@ -724,6 +831,35 @@ impl LibraryEndpoint {
     /// Configured roots and their availability (ADR-0071). `Unsupported`
     /// unless `Features` lists `LibraryRoots1`; `Unavailable` until the
     /// first read.
+    async fn get_hierarchy(
+        &self,
+        generation: &str,
+        revision: u64,
+        token: &str,
+        #[zbus(header)] header: Header<'_>,
+    ) -> production::Result<(HierarchyPage,)> {
+        let owner = header.sender().ok_or(ErrorCode::PermissionDenied)?.as_str();
+        let mut state = self.core.state.lock().await;
+        let p = state.providers.get(&self.id).ok_or(ErrorCode::NotFound)?;
+        if !p.features.iter().any(|f| f == FEATURE_HIERARCHY) {
+            return Err(ErrorCode::Unsupported.into());
+        }
+        if p.info.generation != generation || p.info.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        if !state.library_hierarchy_ready.contains(&self.id) {
+            return Err(ErrorCode::Unavailable.into());
+        }
+        let page = state
+            .library_hierarchy
+            .get_mut(&self.id)
+            .ok_or(ErrorCode::Unavailable)?
+            .page(owner, token, Instant::now())?;
+        if page.generation != generation || page.revision != revision {
+            return Err(ErrorCode::Conflict.into());
+        }
+        Ok((page,))
+    }
     async fn get_additions(
         &self,
         generation: &str,

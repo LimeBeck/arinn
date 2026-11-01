@@ -1,0 +1,1 @@
+- The README, website and handbook screenshots show the current shell: the focus-only Home menu plate, the drawn on-screen and sound marks in Open services and the focus-only source line in Settings ([#644](https://github.com/LimeBeck/arinn/issues/644)).

@@ -9,18 +9,20 @@ gallery is not a screen renderer. The wider, earlier comparison baseline lives
 in [current-ui](../current-ui/README.md); historical handoff/archive assets are
 not changed by this refresh.
 
-Captured on 2026-10-27 from source commit `7782954` with Qt 6.12.0,
-the offscreen platform and the software Qt Quick renderer, at 1920 × 1080.
+Captured on 2026-11-01 from `master` commit `5d31b16` with Qt 6.8.2 on
+Debian trixie, the offscreen platform and the software Qt Quick renderer, at
+1920 × 1080 ([#644](https://github.com/LimeBeck/arinn/issues/644)).
 Only the four states selected in [#569](https://github.com/LimeBeck/arinn/issues/569)
 are published. The owner accepted Qt 6.8 or later; a Qt 6.10-only environment is
-not required. The production views and fixtures include the #572 icon/clock
-fixes and the #574 Home favorite ellipsis fix.
+not required. The frames include the #564 focus-only Home menu plate, the #565
+drawn on-screen and sound marks and Site or search button, the #566 focus-only
+Settings source line and the #641 centred Settings titles.
 
 | File | Manifest state | Contents |
 | --- | --- | --- |
-| `home.png` | `home-populated` | Continue cards, fictional favorite tiles and focused Home mark |
-| `open-services.png` | `browser-list` | Fictional .example services, drawn bookmark icons, active/sound states |
-| `settings.png` | `settings-rows` | Appearance: light field, ambient timeout, text size and source lines |
+| `home.png` | `home-populated` | Continue cards, fictional favorite tiles and the focused Home menu button with its plate |
+| `open-services.png` | `browser-list` | Fictional .example services with on-screen and sound marks, bookmark and close controls and the Site or search button |
+| `settings.png` | `settings-rows` | Appearance: light field, ambient timeout and text size; only the focused row shows its source line |
 | `library-folders.png` | `library-folders-list` | Inline fictional folder paths with Add path / Remove controls |
 
 The capture uses a fixed 22:57 clock, synthetic titles and paths, neutral service

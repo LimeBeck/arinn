@@ -107,6 +107,10 @@ public:
   bool operationDone = true;
   bool operationSuccess = false;
   bool platform = true;
+  // Status: provider availability, or a failed reply as from a daemon that
+  // is going away.
+  bool available = true;
+  bool statusError = false;
   QString activeWindow, activeClass;
   bool holdStatus = false;
   QList<QDBusMessage> statusCalls;
@@ -169,9 +173,13 @@ public:
       return true;
     } else if (m.member() == "Status") {
       if (holdStatus) { statusCalls.append(m); return true; }
+      if (statusError) {
+        bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "unavailable"));
+        return true;
+      }
       a.beginStructure();
       const QString epoch = "77777777-7777-4777-8777-777777777777";
-      a << epoch << true << epoch << qulonglong(1)
+      a << epoch << available << epoch << qulonglong(1)
         << home << returnedWindow << activeWindow << activeClass << false << platform
         << QString() << QString();
       a.endStructure();
@@ -337,6 +345,18 @@ public:
     return true;
   }
 };
+// Stands in for a non-English catalog: no Backend string keeps its English
+// first word (#607).
+class QuotingTranslator : public QTranslator {
+public:
+  bool isEmpty() const override { return false; }
+  QString translate(const char *context, const char *source, const char *, int) const override {
+    if (qstrcmp(context, "Backend") != 0)
+      return {};
+    return QStringLiteral("«%1»").arg(QString::fromUtf8(source));
+  }
+};
+
 class CatalogTest : public QObject {
   Q_OBJECT
 private slots:
@@ -1109,6 +1129,32 @@ private slots:
       QVERIFY(!backend.launchActive());
       QVERIFY(backend.launchError().isEmpty());
     }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  void translatedConnectionBannersClearOnReconnect() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.platform = false;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    QuotingTranslator translator;
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    {
+      Backend backend;
+      QTRY_COMPARE(backend.message(), QString("«KWin adapter is not connected»"));
+      daemon.platform = true;
+      daemon.available = false;
+      QTRY_COMPARE(backend.message(), QString("«Provider is unavailable»"));
+      daemon.available = true;
+      QTRY_COMPARE(backend.message(), QString());
+      daemon.statusError = true;
+      QTRY_COMPARE(backend.message(), QString("«Daemon is unavailable · reconnecting»"));
+      daemon.statusError = false;
+      QTRY_COMPARE(backend.message(), QString());
+    }
+    QCoreApplication::removeTranslator(&translator);
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }

@@ -1,0 +1,1 @@
+- In Russian and any other non-English interface, the "service unavailable", "provider unavailable" and "KWin adapter is not connected" banners now go away once the connection is back, instead of staying on Home until another message replaces them ([#607](https://github.com/LimeBeck/arinn/issues/607)).

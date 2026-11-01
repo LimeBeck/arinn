@@ -106,6 +106,9 @@ No real service account has been accessed and no service audio has been played.
 
 Focused commands, with the configured session Rust toolchain:
 
+Install FFmpeg (including `ffprobe`) before running the backend integration
+tests. The Arch CI build image includes it; the package smoke image does not.
+
 ```sh
 cargo fmt --all --check
 cargo test --locked -p arinn-music-common -p arinn-plugin-music-local -p arinn-plugin-yandex-music

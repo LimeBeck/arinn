@@ -258,6 +258,28 @@ and accepts the full UI; early component work does not close its criteria.
 
 Candidates: Steam provider (library, artwork, recent games), ES-DE provider, Jellyfin provider, TV/webOS control, gamepad input, adding torrents from Arinn. Each must fit existing capabilities or go through an API review (R-09, R-10).
 
+### Music
+
+**Status:** Planned; roadmap only. Owner request on 2026-11-01. Tracking: [#677](https://github.com/LimeBeck/arinn/issues/677). Design, API contracts and implementation have not started; this entry does not change MVP acceptance criteria or phase status.
+
+Goal: browse and play music through one native Arinn interface, with tracks, albums, playlists and search supplied by separate providers. Opening service websites is not the intended music experience.
+
+Initial providers:
+
+- Yandex Music;
+- Spotify;
+- SoundCloud;
+- YouTube Music;
+- local music library.
+
+Work proceeds in this order:
+
+1. Define requirements and check each service's API, authentication, playback and subscription restrictions. Record supported features and blockers before promising provider support; define local library scanning and metadata requirements.
+2. Design the shared music experience: source selection, search, artists, albums, playlists, track lists, playback queue and player controls. Include remote navigation and focus, account connection, loading, empty, unavailable and error states. Review the design before implementation.
+3. Specify the provider contract and playback ownership through an API review (R-09, R-10). Keep service-specific integration in providers and route shell commands through the daemon.
+4. Implement the shared interface and the five providers in separately scoped tasks, after their contracts and dependencies are ready.
+5. Verify browsing, search, playback and queue behaviour, account and service failures, local file availability and remote navigation. Qualify each provider separately; require explicit permission for real-desktop operator tests.
+
 ## Backlog
 
 - Multi-monitor edge cases: hot unplug, mirrored outputs, moving the Activity while Home is open.

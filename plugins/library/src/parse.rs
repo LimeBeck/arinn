@@ -883,15 +883,13 @@ fn strip_release_tags(text: &str) -> String {
     while start > 0 && service_release_tag(&tokens[start - 1]) {
         start -= 1;
     }
-    // A year inside the suffix (`Movie 1080p 2020`) stays, so `take_year`
-    // still finds it.
+    // A year inside the suffix (`Movie 1080p 2020`, `2020-GROUP`) stays, so
+    // `take_year` still finds it.
     let mut kept: Vec<&str> = tokens[..start].iter().map(String::as_str).collect();
     kept.extend(
         tokens[start..]
             .iter()
-            .filter(|token| {
-                token.chars().all(|ch| ch.is_ascii_digit()) && year_token(token).is_some()
-            })
+            .filter(|token| year_token(token).is_some())
             .map(String::as_str),
     );
     trim_seps(&kept.join(" "))
@@ -1107,6 +1105,7 @@ mod tests {
             ("Director's Cut", "Director's Cut"),
             ("Pilot 1080p Extended", "Pilot 1080p Extended"),
             ("Movie 1080p 2020", "Movie 2020"),
+            ("Movie 1080p 2020-GROUP", "Movie 2020-GROUP"),
             ("Show S02 WEB-DLRip-GROUP", "Show S02"),
             ("Show S02 1080p WEB-DL-GROUP", "Show S02"),
             ("", ""),
@@ -1195,6 +1194,14 @@ mod tests {
         assert!(episode.series_has_year);
         assert_eq!(episode.series_year, 2019);
         let film = parse_video(root, Path::new("/library/Example Film 1080p 2020.mkv")).unwrap();
+        assert_eq!(film.title, "Example Film");
+        assert!(film.has_year);
+        assert_eq!(film.year, 2020);
+        let film = parse_video(
+            root,
+            Path::new("/library/Example.Film.1080p.2020-GROUP.mkv"),
+        )
+        .unwrap();
         assert_eq!(film.title, "Example Film");
         assert!(film.has_year);
         assert_eq!(film.year, 2020);

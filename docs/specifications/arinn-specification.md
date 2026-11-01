@@ -110,6 +110,17 @@ Arinn is a **shared household device** used by two people. Version 1 has no logi
 - **Input:** keyboard-compatible remote and air mouse. The Air Mouse G60S Pro (BT/2.4G, Russian layout) emits standard keyboard and mouse events (P-05, P-07); no dedicated remote integration is needed ([ADR-0030](../adr/0030-phase0-machine-and-standard-input.md)).
 - **Development and Phase 0 verification** run on the development machine, which is technically equivalent to the HTPC (P-06). Final acceptance is repeated on the target HTPC at deployment.
 
+### 4.2.1. Android TV exploration (post-MVP)
+
+Android TV / Google TV home-screen support ([#198](https://github.com/LimeBeck/arinn/issues/198))
+is post-MVP planning, not a current supported platform or an extension of AC-01–AC-19.
+The [Android TV specification and PoC plan](../architecture/android-tv-plan.md)
+records proposed Home/app modes, platform constraints, staged experiments and
+verification criteria. Production UI, transport and device support remain undecided;
+reviewed specification/ADR work precedes implementation. Linux MVP scope and
+D-Bus contracts remain unchanged. Real-device/operator tests need separate
+explicit owner permission.
+
 ### 4.3. Distribution targets
 
 Binary components: `arinnd`, `arinn-shell`, `arinnctl`, `arinn-plugin-*` and `arinn-chrome-host`. The packaging layer installs the Chrome Native Messaging manifest. See [§18](#18-packaging-distribution-and-licensing).

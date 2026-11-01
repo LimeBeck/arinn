@@ -147,6 +147,35 @@ TestCase {
         compare(canvas.loadedSource, "");
         verify(!canvas.isImageLoaded(portrait));
     }
+    // A poster card (Home's New row) keeps long titles and subtitles inside
+    // the card: a word wider than the column wraps or elides instead of
+    // running past the edge.
+    function test_poster_text_stays_inside_the_card_data() {
+        return [
+            {tag: "long-word", title: "Edgerunnersextended Supercalifragilistic", subtitle: "Superlongsubtitlewithoutspaces"},
+            {tag: "cyrillic", title: "Маленькие демоны путешествуют на Запад", subtitle: "2025"},
+            {tag: "release", title: "Cyberpunk Edgerunners S02 2160p NF WEB-DL", subtitle: ""}
+        ];
+    }
+    function test_poster_text_stays_inside_the_card(data) {
+        const card = createTemporaryObject(cardFactory, suite, {
+            width: 180, height: 270, text: data.title, subtitle: data.subtitle, showProgress: true, progress: 0.3
+        });
+        const title = findChild(card, "cardTitle");
+        const subtitle = findChild(card, "cardSubtitle");
+        tryVerify(() => title.width > 0);
+        for (const text of [title, subtitle]) {
+            if (!text.visible)
+                continue;
+            verify(text.contentWidth <= text.width + 0.5,
+                   text.objectName + " is " + text.contentWidth + " wide in a column of " + text.width);
+            const left = text.mapToItem(card, 0, 0).x;
+            verify(left >= 0 && left + text.width <= card.width,
+                   text.objectName + " spans " + left + "–" + (left + text.width) + " of " + card.width);
+        }
+        verify(title.lineCount <= 2);
+        verify(title.mapToItem(card, 0, 0).y >= 0, "the title starts inside the card");
+    }
     function test_hover_suppression() {
         const first = createTemporaryObject(buttonFactory, suite);
         const second = createTemporaryObject(buttonFactory, suite, { y: 400, pointerMode: true, hoverFocusEnabled: false });

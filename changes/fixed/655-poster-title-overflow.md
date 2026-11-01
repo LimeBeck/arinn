@@ -1,0 +1,1 @@
+- On Home's New row, long poster titles stay inside the card: they wrap onto two lines and end with an ellipsis instead of running past the edge ([#655](https://github.com/LimeBeck/arinn/issues/655)).

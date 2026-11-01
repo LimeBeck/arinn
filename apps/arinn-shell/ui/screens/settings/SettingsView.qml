@@ -76,9 +76,10 @@ FocusScope {
     signal homeRequested()
     signal retryRequested()
 
+    // OK does nothing on a row that cannot be changed now or is still saving.
     readonly property bool hintRowLocked: {
         const row = rowByKey(focusedRowKey);
-        return !!row && row.enabled === false;
+        return !!row && !canEdit(row);
     }
     readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
     readonly property var activeRows: collectRows()
@@ -871,7 +872,7 @@ FocusScope {
         const row = activeRows[rowIndex];
         focusedRowKey = row ? rowKey(row) : focusedRowKey;
         Ui.Focus.take(item);
-        revealRow(scope);
+        revealRow(scope, item);
         return true;
     }
     // The row repeater builds new buttons whenever rows are replaced. Without
@@ -903,9 +904,12 @@ FocusScope {
     // Keeps the focused row clear of the list's fade masks (#566). At either
     // end of the list the masks are hidden, so the row may touch the edge.
     readonly property int rowFade: 72
-    function revealRow(scope) {
-        const top = scope.y;
-        const bottom = top + scope.height;
+    // Reveals the focused control, not its whole row: a path list can be
+    // taller than the viewport, and its lower fields must still scroll in.
+    function revealRow(scope, item) {
+        const target = item || scope;
+        const top = target.mapToItem(rowColumn, 0, 0).y;
+        const bottom = top + target.height;
         const maxY = Math.max(0, rowFlick.contentHeight - rowFlick.height);
         if (top < rowFlick.contentY + rowFade)
             rowFlick.contentY = Math.max(0, top - rowFade);
@@ -1126,7 +1130,7 @@ FocusScope {
         visible: root.detailFocused && !root.sheetOpen && !root.screenBlocked
         Repeater {
             model: [
-                // ED-2: OK does nothing on a row that cannot be changed now.
+                // ED-2: "OK Unavailable" where OK does nothing.
                 {key: qsTr("OK"), action: root.hintRowLocked ? qsTr("Unavailable") : qsTr("Edit")},
                 {key: qsTr("Back"), action: qsTr("To sections")}
             ]

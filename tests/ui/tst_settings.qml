@@ -211,9 +211,44 @@ TestCase {
         focused("setting-shell-locked");
         tryCompare(child("settingsHints"), "visible", true);
         compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        // A row that is still saving cannot be edited either.
+        view.rows = copyRows(row => { if (row.id === "label") row.pending = true; });
+        keyClick(Qt.Key_Up);
+        focused("setting-shell-label");
+        tryCompare(child("settingsHint-0"), "visible", true);
+        compare(texts(child("settingsHint-0")), ["OK", "Unavailable"]);
+        view.rows = copyRows(row => { if (row.id === "label") row.pending = false; });
+        keyClick(Qt.Key_Down);
+        focused("setting-shell-locked");
         keyClick(Qt.Key_Up);
         focused("setting-shell-label");
         compare(texts(child("settingsHint-0")), ["OK", "Edit"]);
+    }
+
+    // A path list taller than the viewport scrolls to the focused field.
+    function test_tall_path_list_reveals_the_focused_control() {
+        const paths = [];
+        for (let i = 0; i < 12; ++i) paths.push("/srv/media/folder-" + i);
+        view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
+                      title: "Folders", description: "Places to read", type: "path", currentValue: paths,
+                      constraints: {directory: true, multiple: true, maxItems: 64}, enabled: true}];
+        const top = child("rowFadeTop");
+        const bottom = child("rowFadeBottom");
+        tryCompare(bottom, "visible", true);
+        keyClick(Qt.Key_Right);
+        tryVerify(() => view.detailFocused);
+        // path:0, remove:0, ... path:11, remove:11, add.
+        for (let step = 0; step < 24; ++step) {
+            keyClick(Qt.Key_Right);
+            const item = windowFocus();
+            verify(insideView(item));
+            const itemTop = item.mapToItem(top.parent, 0, 0).y;
+            const itemBottom = item.mapToItem(top.parent, 0, item.height).y;
+            verify(itemTop >= top.y - 3, "step " + step + ": the focused control is above the list");
+            verify(itemBottom <= bottom.y + bottom.height + 3, "step " + step + ": the focused control is below the list");
+        }
+        compare(view.partName, "add");
+        tryCompare(bottom, "visible", false);
     }
 
     function test_long_rows_fade_at_the_edges() {

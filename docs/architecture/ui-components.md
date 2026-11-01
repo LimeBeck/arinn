@@ -162,13 +162,13 @@ keeps its cards by position, updating them in place; a changed entry, such as
 a playing session's position, does not recreate the row's cards (#441).
 A row paints only between its own edges, which are Home's safe edges (x120 to
 x1824, handoff 01). The viewport keeps a 48 px margin on each side for the
-focus glow, lift and scale. Those margins are clipped except on the side where
-the focused card's glow needs them, which is only while that card's body is
-inside the safe area. A card flicked across an edge is cut there. A card that lies wholly outside the safe
-area and has no focus is not painted. It also takes no pointer focus or clicks,
-though D-pad focus still reaches it. Scrolling to a focused card keeps its body
-inside the safe right edge. So no card peeks past x1824, and the focus glow is
-not cut (#564).
+focus glow, lift and scale, and each card is clipped at the safe edges. Only
+the focused card, while its body is inside the safe area, paints into that
+margin, and only its glow ends up there. A neighbour, or a focused card flicked
+across an edge, is cut at the edge. A card wholly outside the safe area is not
+painted and takes no pointer focus or clicks, though D-pad focus still reaches
+it. Scrolling to a focused card keeps its body inside the safe right edge. So
+no card peeks past x1824, and the focus glow is not cut (#564).
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional
 `currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on

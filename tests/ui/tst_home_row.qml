@@ -49,6 +49,25 @@ TestCase {
         verify(item !== null, name);
         return item;
     }
+    // A card's slot in its row, and its clip's horizontal edges in the window.
+    function slotOf(card) { return card.parent.parent.parent; }
+    function slotRight(card) {
+        const slot = slotOf(card);
+        return Math.round(slot.mapToItem(suite, slot.width, 0).x);
+    }
+    function clipEdges(card) {
+        const clip = card.parent.parent;
+        verify(clip.objectName === "cardClip");
+        const left = Math.round(clip.mapToItem(suite, 0, 0).x);
+        return [left, left + Math.round(clip.width)];
+    }
+    // Whether the window pixel at (x, y) matches the backdrop further out.
+    function plain(x, y, reference) {
+        const pixels = grabImage(suite);
+        const at = reference === undefined ? 1905 : reference;
+        return Math.abs(pixels.red(x, y) - pixels.red(at, y)) <= 2
+            && Math.abs(pixels.green(x, y) - pixels.green(at, y)) <= 2;
+    }
     function init() {
         row = createTemporaryObject(factory, suite);
         verify(row);
@@ -122,35 +141,24 @@ TestCase {
             entries.push({id: "abcdefgh"[i], title: "Item " + i, monogram: "I"});
         const home = createTemporaryObject(homeRowFactory, suite, {variant: data.variant, entries: entries});
         tryCompare(home, "count", data.count);
-        const clip = findChild(home, "continueSafeClip");
-        verify(clip);
-        const edges = () => {
-            const left = Math.round(clip.mapToItem(suite, 0, 0).x);
-            return [left, left + Math.round(clip.width)];
-        };
+        const first = findChild(home, "entry-a");
         const last = findChild(home, "entry-" + data.last);
         const next = findChild(home, "entry-" + data.next);
         compare(Math.round(next.mapToItem(suite, 0, 0).x), 1848);
         const y = Math.round(next.mapToItem(suite, 0, next.height / 2).y);
-        // Nothing from the row is painted past the safe edge: the strip
-        // right of x 1824 matches the backdrop further right.
-        const plain = (x) => {
-            const pixels = grabImage(suite);
-            return Math.abs(pixels.red(x, y) - pixels.red(1905, y)) <= 2
-                && Math.abs(pixels.green(x, y) - pixels.green(1905, y)) <= 2;
-        };
 
-        // At rest the row paints from x 120 to x 1824 (#564).
-        compare(edges(), [120, 1824]);
-        compare(last.parent.opacity, 1);
-        compare(next.parent.opacity, 0);
+        // At rest nothing from the row is painted past x 1824 (#564).
+        compare(slotOf(last).painted, true);
+        compare(slotOf(next).painted, false);
+        compare(clipEdges(next)[1] - clipEdges(next)[0], 0);
+        compare(clipEdges(last)[1], 1824);
         verify(waitForRendering(home));
-        tryVerify(() => plain(1860), 5000, "a card shows past the safe edge at rest");
+        tryVerify(() => plain(1860, y), 5000, "a card shows past the safe edge at rest");
 
-        // The first card's glow reaches left of x 120; the clip makes room.
-        findChild(home, "entry-a").forceActiveFocus();
-        tryCompare(findChild(home, "entry-a"), "activeFocus", true);
-        tryVerify(() => edges()[0] === 72 && edges()[1] === 1824);
+        // The first card's glow reaches left of x 120; its clip makes room.
+        first.forceActiveFocus();
+        tryCompare(first, "activeFocus", true);
+        tryVerify(() => clipEdges(first)[0] === 72);
 
         // In pointer mode the last whole card can take focus without a
         // scroll. Its glow gets room on the right; the next card stays hidden.
@@ -159,12 +167,11 @@ TestCase {
         last.forceActiveFocus();
         tryCompare(last, "activeFocus", true);
         compare(findChild(home, "continueViewport").contentX, 0);
-        tryVerify(() => edges()[0] === 120 && edges()[1] === 1872);
-        compare(next.parent.opacity, 0);
-        tryVerify(() => plain(1866), 5000, "the next card shows in the glow margin");
+        tryVerify(() => clipEdges(last)[1] === slotRight(last) + 48);
+        compare(slotOf(next).painted, false);
+        tryVerify(() => plain(1866, y), 5000, "the next card shows in the glow margin");
 
-        // The hidden card lies inside the widened clip, but the pointer can
-        // neither focus nor activate it there.
+        // The pointer can neither focus nor activate the hidden card there.
         rowActivated.target = home;
         rowActivated.clear();
         mouseMove(suite, 1860, y);
@@ -190,72 +197,71 @@ TestCase {
         const home = createTemporaryObject(homeRowFactory, suite, {variant: "poster", entries: entries});
         tryCompare(home, "count", 12);
         const poster = findChild(home, "entry-p8");
-        const slot = poster.parent;
-        compare(Math.round(slot.mapToItem(suite, 0, 0).x), 1752);
-        const y = Math.round(slot.mapToItem(suite, 0, slot.height / 2).y);
+        compare(Math.round(poster.mapToItem(suite, 0, 0).x), 1752);
+        // Cut at the safe edge while it has no focus.
+        compare(clipEdges(poster)[1], 1824);
+        const y = Math.round(poster.mapToItem(suite, 0, poster.height / 2).y);
         mouseMove(suite, 10, suite.height - 10);
         home.pointerMode = true;
         mouseMove(suite, 1790, y);
         tryCompare(poster, "activeFocus", true);
-        // The card's body ends at the safe edge, so only its glow uses the
-        // widened clip; the next poster stays hidden.
-        tryVerify(() => Math.round(slot.mapToItem(suite, slot.width, 0).x) === 1824);
-        compare(findChild(home, "entry-p9").parent.opacity, 0);
+        // The card's body ends at the safe edge, so only its glow reaches
+        // past it; the next poster stays hidden.
+        tryVerify(() => slotRight(poster) === 1824);
+        compare(slotOf(findChild(home, "entry-p9")).painted, false);
         verify(waitForRendering(home));
-        tryVerify(() => {
-            const pixels = grabImage(suite);
-            return Math.abs(pixels.red(1866, y) - pixels.red(1905, y)) <= 2;
-        }, 5000, "a poster shows past the safe edge");
+        tryVerify(() => plain(1866, y), 5000, "a poster shows past the safe edge");
         mouseMove(suite, 10, suite.height - 10);
     }
 
-    function test_flicked_focused_card_stays_inside_the_safe_edges() {
-        // A flick moves the row without reveal(). A focused card that ends up
-        // across a safe edge is cut there; the clip widens only for the glow
-        // of a card whose body is inside.
+    function test_flicked_cards_stay_inside_the_safe_edges() {
+        // A flick moves the row without reveal(). Neither the focused card
+        // nor a neighbour may then paint past a safe edge.
         createTemporaryObject(backdropFactory, suite);
         const entries = [];
         for (let i = 0; i < 6; ++i)
             entries.push({id: "abcdef"[i], title: "Item " + i});
         const home = createTemporaryObject(homeRowFactory, suite, {entries: entries});
         tryCompare(home, "count", 6);
-        const clip = findChild(home, "continueSafeClip");
         const viewport = findChild(home, "continueViewport");
-        const edges = () => {
-            const left = Math.round(clip.mapToItem(suite, 0, 0).x);
-            return [left, left + Math.round(clip.width)];
-        };
         const first = findChild(home, "entry-a");
+        const second = findChild(home, "entry-b");
+        const fifth = findChild(home, "entry-e");
         const y = Math.round(first.mapToItem(suite, 0, first.height / 2).y);
-        const plain = (x, reference) => {
-            const pixels = grabImage(suite);
-            return Math.abs(pixels.red(x, y) - pixels.red(reference, y)) <= 2
-                && Math.abs(pixels.green(x, y) - pixels.green(reference, y)) <= 2;
-        };
         mouseMove(suite, 10, suite.height - 10);
         home.pointerMode = true;
 
-        // Left edge: the first card keeps focus while the row moves 100 px.
+        // The focused first card crosses the left edge: it is cut at x 120.
         first.forceActiveFocus();
         tryCompare(first, "activeFocus", true);
-        tryVerify(() => edges()[0] === 72);
+        tryVerify(() => clipEdges(first)[0] === 72);
         viewport.contentX = 100;
-        tryVerify(() => edges()[0] === 120 && edges()[1] === 1824);
+        tryVerify(() => clipEdges(first)[0] === 120);
         verify(waitForRendering(home));
-        tryVerify(() => plain(100, 30), 5000, "the focused card shows left of x 120");
+        tryVerify(() => plain(100, y, 30), 5000, "the focused card shows left of x 120");
 
-        // Right edge: the fifth card ends at the safe edge, then the row moves
-        // back 32 px and the card crosses it.
+        // The focused second card sits 40 px inside the left edge, so its
+        // glow needs the margin, while 8 px of the first card stay inside.
+        // The first card is still cut at x 120.
+        second.forceActiveFocus();
+        tryCompare(second, "activeFocus", true);
+        viewport.contentX = 392;
+        tryVerify(() => clipEdges(second)[0] === 160 - 48);
+        compare(slotOf(first).painted, true);
+        compare(clipEdges(first)[0], 120);
+        verify(waitForRendering(home));
+        tryVerify(() => plain(100, y, 30), 5000, "the neighbour shows left of x 120");
+
+        // The focused fifth card ends at the safe right edge, then crosses it.
         viewport.contentX = 432;
-        const fifth = findChild(home, "entry-e");
         fifth.forceActiveFocus();
         tryCompare(fifth, "activeFocus", true);
         compare(viewport.contentX, 432);
-        tryVerify(() => edges()[1] === 1872);
+        tryVerify(() => clipEdges(fifth)[1] === slotRight(fifth) + 48);
         viewport.contentX = 400;
-        tryVerify(() => edges()[0] === 120 && edges()[1] === 1824);
+        tryVerify(() => clipEdges(fifth)[1] === 1824);
         verify(waitForRendering(home));
-        tryVerify(() => plain(1840, 1905), 5000, "the focused card shows past x 1824");
+        tryVerify(() => plain(1840, y), 5000, "the focused card shows past x 1824");
         mouseMove(suite, 10, suite.height - 10);
     }
 

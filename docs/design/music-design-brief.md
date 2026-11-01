@@ -33,6 +33,7 @@ is assumed. The navigation entry and these defaults require owner review.
 | Now playing | Artwork, title/artist/album, source/device, confirmed transport state, seek and queue entry | A stable transport focus order; controls without capability are absent or disabled with an explanation |
 | Queue | Current entry and ordered upcoming entries; supported play-next/add/remove/reorder actions | Menu opens an action sheet; Back restores the exact opener. Never offer mutations an upstream queue cannot confirm |
 | Connection / settings | Connect, cancel, reconnect, disconnect; local-root selection and scan status | Never request a password/token in the ordinary music UI. Setup failure has a clear recovery action; no assumed QR/device-code support |
+| Home / Continue music card | Current artwork, track, artist, source/station and playing/paused status; separate Play/Pause icon | Opening the card returns to the same player/queue without restarting. The transport action preserves Home focus |
 
 Illustrative structure for visual exploration, not a pixel specification:
 
@@ -53,6 +54,21 @@ replace another source's session or queue, show the effect explicitly and offer
 Cancel with safe initial focus. Never imply mixed-source queue support.
 
 ## Interaction rules to illustrate
+
+Owner-directed refinement: use icons for Play/Pause, Previous/Next, seek and
+Queue, including the compact player and Home card, rather than English transport
+words. Keep accessible names, visible keyboard/remote focus and focused-control
+labels; the Play/Pause icon and accessible action name change with confirmed
+state. Like/dislike icons retain distinct selected states. Descriptive navigation,
+station titles and recovery actions keep readable text.
+
+The proposed Home music card belongs to the existing Continue row and follows its
+400×225 content-card geometry. Artwork, track and artist identify current music;
+source and station distinguish My Wave from an album or ordinary playlist. A
+separate icon action toggles Play/Pause, while opening the card returns to the
+same session. This is a proposed Home projection, not a production Activity or
+favorite-station contract. The prototype has playing and paused captures; adding
+a station shortcut to Favorites remains a separate owner-reviewed scope choice.
 
 - Back dismisses the topmost sheet/keyboard, then returns through detail to
   catalogue, restoring focused entity and scroll. At Music root it returns to

@@ -112,12 +112,20 @@ def main():
             page.locator("#station-wave").click()
             assert "My Wave" in page.locator(".radio-label").inner_text()
             assert "no service connected" in page.locator(".now .eyebrow").inner_text().lower()
+            for control in ["previous", "pause", "next", "queue", "seek", "rating-like", "rating-dislike", "track-radio"]:
+                assert page.locator("#" + control + " svg").count() == 1
+                assert page.locator("#" + control).get_attribute("aria-label")
+            assert page.locator("#pause").get_attribute("aria-label") == "Pause"
+            page.locator("#pause").click()
+            assert page.locator("#pause").get_attribute("aria-label") == "Play"
+            assert page.locator("#mini-pause").get_attribute("aria-label") == "Play"
+            page.locator("#pause").click()
             current = page.locator("#mini-title h3").inner_text()
             page.locator("#rating-like").click()
-            assert page.locator("#rating-like").inner_text() == "Liked"
+            assert page.locator("#rating-like").get_attribute("aria-pressed") == "true"
             page.locator("#rating-dislike").click()
             assert page.locator("#mini-title h3").inner_text() == current, "Dislike must not cut off the playing track"
-            assert page.locator("#rating-like").inner_text() == "Like"
+            assert page.locator("#rating-like").get_attribute("aria-pressed") == "false"
             page.locator("#queue").click()
             assert page.locator(".track").count() == 4
             page.locator("#mini-next").click()
@@ -174,7 +182,7 @@ def main():
             assert page.locator("#rating-like").count() == 1
             page.goto(url + "&scene=feedback-error")
             page.locator("#feedback-retry").click()
-            assert page.locator("#rating-like").inner_text() == "Liked"
+            assert page.locator("#rating-like").get_attribute("aria-pressed") == "true"
             page.goto(url + "&scene=yandex-wave")
             page.locator("#station-wave").click()
             for _ in range(22):
@@ -182,6 +190,14 @@ def main():
                 page.locator("#next").click()
             page.locator("#queue").click()
             assert page.locator(".track").count() <= 6, "Feedback replacement must also bound queue history"
+            page.goto(url + "&scene=home-card")
+            assert page.locator("#home-toggle").get_attribute("aria-label") == "Pause"
+            assert "My Wave" in page.locator(".home-music-card").inner_text()
+            page.locator("#home-toggle").click()
+            assert page.locator("#home-toggle").get_attribute("aria-label") == "Play"
+            assert "Paused" in page.locator(".home-status").inner_text()
+            page.locator("#open-music-player").click()
+            assert page.locator("#pause").get_attribute("aria-label") == "Play", "Opening a Home card preserves playback state"
             if args.capture:
                 (HERE / "screenshots").mkdir(exist_ok=True)
                 for width, height, scenes_to_capture in [
@@ -193,6 +209,15 @@ def main():
                         page.goto(url + "&scene=" + scene)
                         page.evaluate("document.fonts.ready")
                         page.screenshot(path=str(HERE / "screenshots" / f"{scene}-{height}.png"))
+                page.set_viewport_size({"width": 1920, "height": 1080})
+                for scene in ["home-card", "home-card-paused"]:
+                    page.goto(url + "&scene=" + scene)
+                    page.evaluate("document.fonts.ready")
+                    box = page.locator(".home-music-card").bounding_box()
+                    page.screenshot(path=str(HERE / "screenshots" / f"{scene}-1080.png"), clip={
+                        "x": box["x"] - 12, "y": box["y"] - 12,
+                        "width": box["width"] + 24, "height": box["height"] + 24,
+                    })
             assert not errors, errors
             assert all(request.startswith(origin + "/") for request in requests), "External requests"
             browser.close()

@@ -62,6 +62,16 @@ Queue selection offers play, move earlier and remove in the local fixture.
 Queue entries retain album identity and unique occurrence keys, including when
 tracks from another local album are added. Next/Previous follow the edited queue.
 
+Transport, queue and player feedback use original inline SVG icons with accessible
+names and focus tooltips; Play/Pause updates its name/icon with session state,
+and feedback exposes `aria-pressed`. No external icon font is loaded. The
+`home-card` and `home-card-paused` scenes show a proposed 400×225 Continue card
+matching the current Home row geometry: track/artist, source/station, playing or
+paused status, and a separate icon transport action. Opening the card preserves
+the same session and queue. The Home projection is design only, not production
+daemon/Activity integration. The full-screen music mini-player is hidden on Home
+to avoid duplicating that card's controls.
+
 The review scene selector and `?scene=NAME` deep links cover:
 
 | Scenes | Review purpose |
@@ -126,6 +136,8 @@ flows remain design/contract questions. No mixed-source playback is promised.
 | Exhausted radio buffer | [Preview](screenshots/radio-empty-1080.png) | — |
 | Feedback pending | [Preview](screenshots/feedback-loading-1080.png) | — |
 | Feedback failed | [Preview](screenshots/feedback-error-1080.png) | — |
+| Home card · playing | [Card preview](screenshots/home-card-1080.png) | — |
+| Home card · paused | [Card preview](screenshots/home-card-paused-1080.png) | — |
 
 Captures are Chromium renders of this prototype, not production QML screenshots.
 Visual review inspected catalogue and player at 1080p. Uniform 4K rendering is
@@ -142,7 +154,7 @@ node --check docs/design/prototypes/music/music.js
 
 The verifier starts a loopback-only server, checks detail without autoplay,
 filtered-track identity, source/session isolation, queue edits, keyboard/sheet
-focus, safe Cancel, Home return, all 39 direct scenes and absence of external
+focus, safe Cancel, Home return, all 41 direct scenes and absence of external
 asset requests. `--capture` regenerates the captures. Override `--chromium` if
 the Chromium executable is elsewhere. This is not an operator test.
 
@@ -165,6 +177,10 @@ was caught by `node --check` and corrected. Independent review identified and
 prompted fixes for focus during trimming and history growth during repeated
 dislike/skip, with additional review scenes for exhausted-buffer and feedback
 failure/pending coverage. See PR validation for subsequent full rerun results.
+
+Icon/Home refinement verification checks the SVG controls' accessible names,
+rating pressed states, synchronized Play/Pause names in both players, Home-card
+transport and preserving paused state when opening the player from the card.
 
 Owner review of these screens and scenarios is required before production UI
 work. #677 remains open, and provider feasibility blockers remain unchanged.

@@ -132,7 +132,25 @@
   let modalOpener = null;
   const esc = value => String(value).replace(/[&<>"']/g,c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const sourceName = id => sources.find(x => x[0] === id)[1];
-  const button = (id,label,action,arg='',cls='') => `<button id="${id}" class="${cls}" data-action="${action}" data-arg="${esc(arg)}">${label}</button>`;
+  // Original SVG geometry; no external icon/font dependency.
+  const icons = {
+    play:'<path d="M8 4l13 8-13 8z" fill="currentColor" stroke="none"/>',
+    pause:'<path d="M7 4h4v16H7zm7 0h4v16h-4z" fill="currentColor" stroke="none"/>',
+    previous:'<path d="M5 4v16"/><path d="M19 5L9 12l10 7z" fill="currentColor" stroke="none"/>',
+    next:'<path d="M19 4v16"/><path d="M5 5l10 7-10 7z" fill="currentColor" stroke="none"/>',
+    queue:'<path d="M3 5h18M3 11h11M3 17h7M18 10v10m0-10l4 2"/><circle cx="15.5" cy="20" r="2"/>',
+    seek:'<path d="M19 6a9 9 0 1 0 2 9M19 2v5h-5"/><text x="12" y="16" text-anchor="middle" fill="currentColor" stroke="none" font-size="9" font-weight="650">10</text>',
+    like:'<path d="M8 10l4-7c2 0 3 2 2 5h5c2 0 3 1 2 3l-2 8H8zM3 10h5v10H3z"/>',
+    dislike:'<g transform="translate(24 24) rotate(180)"><path d="M8 10l4-7c2 0 3 2 2 5h5c2 0 3 1 2 3l-2 8H8zM3 10h5v10H3z"/></g>',
+    radio:'<circle cx="12" cy="12" r="2"/><path d="M7 7a7 7 0 0 0 0 10m10-10a7 7 0 0 1 0 10M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16"/>'
+  };
+  function button(id,label,action,arg='',cls='') {
+    const kind=action==='pause'?(session?.paused?'play':'pause'):action==='play'?'play':action==='rating'?arg:id==='track-radio'?'radio':['previous','next','queue','seek'].includes(action)?action:null;
+    const pressed=action==='rating'?ratings.get(session?.source+':'+session?.track)===arg:null;
+    const attributes=kind?` aria-label="${esc(label)}" title="${esc(label)}" data-tooltip="${esc(label)}"${pressed===null?'':` aria-pressed="${pressed}"`}`:'';
+    const body=kind?`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${icons[kind]}</svg>`:label;
+    return `<button id="${id}" class="${cls}${kind?' icon-button':''}" data-action="${action}" data-arg="${esc(arg)}"${attributes}>${body}</button>`;
+  }
   const art = (index,extra='') => `<div aria-hidden="true" class="art ${albums[index % albums.length][2]} ${extra}"></div>`;
   function focus(id) { const el = id && document.getElementById(id); if (el) el.focus({preventScroll:true}); else (overlay.querySelector('button,input') || content.querySelector('button,input'))?.focus({preventScroll:true}); }
   function navigate(patch) {
@@ -152,11 +170,15 @@
   function grid() {
     return `<div class="grid">${albums.map((a,i)=>button(`album-${i}`,`${art(i,s.tab==='Artists'?'artist':'')}<h3>${esc(s.tab==='Artists'?a[1]:s.tab==='Playlists'?playlists[i]:a[0])}</h3><p>${s.tab==='Artists'?'Artist':s.tab==='Playlists'?'Local library · 6 tracks':esc(a[1])+' · Album'}</p>`,s.tab==='Artists'?'artist':'detail',i,'card')).join('')}</div>`;
   }
+  function homeMusicCard() {
+    const title=tracks[session.track][0],artist=albums[session.album][1];
+    return `<div class="home-music"><div class="eyebrow">YOUR SPACE</div><h2>Continue</h2><article class="home-music-card">${button('open-music-player',`${art(session.album)}<span class="home-card-scrim"></span><span class="home-status">♪ ${session.paused?'Paused':'Playing'}</span><span class="home-card-copy"><strong>${esc(title)}</strong><span>${esc(artist)}</span><small>${esc(sourceName(session.source))}${radio?' · '+esc(radio.station.title):''}</small></span>`,'player','','home-card-open')}${button('home-toggle',session.paused?'Play':'Pause','pause','','home-card-control primary')}</article><p class="small home-fixture">Design fixture · No service connected</p>${button('music','Back to music browsing','music','','quiet pill')}</div>`;
+  }
   function render(preferred) {
     const isState = Boolean(states[s.scene]);
     const header = `<header>${button('back','‹','back','','quiet')}<div class="title"><div class="eyebrow">${s.screen==='home'?'ARINN':esc(sourceName(s.source))}</div><h1>${s.screen==='player'?'Now playing':s.screen==='queue'?'Play queue':s.screen==='home'?'Home':'Music'}</h1></div>${button('sources',esc(sourceName(s.source))+' ⌄','sources','','pill')}${s.source==='local'?button('search','Search','search','','pill'):''}${button('settings','Settings','settings','','quiet')}</header>`;
     let html = '';
-    if (s.screen==='home') html=`<div class="state"><div class="eyebrow">YOUR SPACE</div><h2>Make yourself at home.</h2><p>Your music keeps its place.</p>${button('music','Open music','music','','primary pill')}</div>`;
+    if (s.screen==='home') html=session?homeMusicCard():`<div class="state"><div class="eyebrow">YOUR SPACE</div><h2>Make yourself at home.</h2><p>Your music keeps its place.</p>${button('music','Open music','music','','primary pill')}</div>`;
     else if (s.screen==='player' && session) {
       html=`<div class="now">${art(session.album)}<div class="info"><div class="eyebrow">${esc(sourceName(session.source))} · ${session.fixture?'Design fixture · No service connected':'Demo session'}</div>${radio?'<div class="radio-label">'+esc(radio.station.title)+' · Endless radio'+(radio.state==='loading'?' · Loading more…':radio.state==='error'?' · Refill unavailable':'')+'</div>':''}<h1>${esc(tracks[session.track][0])}</h1><p>${esc(albums[session.album][1])}</p><p class="muted">${esc(albums[session.album][0])}</p><div class="timeline"><div class="bar"><div class="fill"></div></div><div class="gap"><span>1:12</span><span>${tracks[session.track][1]}</span></div></div><div class="gap transport">${button('previous','Previous','previous')}${button('pause',session.paused?'Play':'Pause','pause','','primary')}${button('next','Next','next')}</div><div class="gap">${button('queue','View queue','queue','','pill')}${button('seek','Seek +10s','seek','','quiet')}</div>${feedbackState()}${session.fixture&&s.feedbackStatus!=='loading'?'<div class="gap feedback">'+button('rating-like',ratings.get(session.source+':'+session.track)==='like'?'Liked':'Like','rating','like','pill')+button('rating-dislike',ratings.get(session.source+':'+session.track)==='dislike'?'Disliked':'Not for me','rating','dislike','pill')+button('track-radio','Track radio','track-menu',session.track,'quiet')+'</div>':''}</div></div>`;
     } else if (s.screen==='queue') {
@@ -183,7 +205,7 @@
     drawPlayer();drawModal();focus(preferred);
   }
   function drawPlayer() {
-    if(!session){player.innerHTML='';return;}
+    if(!session||s.screen==='home'){player.innerHTML='';return;}
     player.innerHTML=`${art(session.album)}${button('mini-title',`<h3>${esc(tracks[session.track][0])}</h3><p>${esc(albums[session.album][1])} · ${esc(sourceName(session.source))}${session.fixture?' · Design fixture':''}</p>`,'player','','identity')}${button('mini-previous','Previous','previous','','quiet')}${button('mini-pause',session.paused?'Play':'Pause','pause','','primary pill')}${button('mini-next','Next','next','','quiet')}${button('mini-queue','Queue','queue','','pill')}`;
   }
   function drawModal() {
@@ -206,6 +228,9 @@
   function applyScene(scene) {
     s={screen:'catalogue',source:'local',tab:'Albums',album:0,query:'',scene,designRadio:false};history=[];modal=null;session=null;radio=null;tracks.length=6;queue=queueFor(0);
     if(['player','queue','home'].includes(scene)){session={source:'local',album:0,track:1,paused:false};s.screen=scene;selectEntry(queue[1]);}
+    if(scene==='home-card'||scene==='home-card-paused') {
+      s.source='yandex';s.designRadio=true;beginStation('wave',true);history=[];s.screen='home';session.paused=scene==='home-card-paused';render('home-toggle');return;
+    }
     if(['yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio'].includes(scene)) {
       s.source=scene==='youtube-mixes'?'youtube':'yandex';s.designRadio=true;s.screen='recommendations';
       if(scene==='track-radio')s.screen='radio-tracks';
@@ -249,7 +274,7 @@
     else if(a==='track')play(Number(arg));
     else if(a==='play')play(arg);
     else if(a==='replace')start(arg);
-    else if(a==='pause'&&session){const id=b.id;session.paused=!session.paused;s.screen==='player'?render(id):(drawPlayer(),focus(id));}
+    else if(a==='pause'&&session){const id=b.id;session.paused=!session.paused;['player','home'].includes(s.screen)?render(id):(drawPlayer(),focus(id));}
     else if(a==='next'||a==='previous'){if(session&&queue.length){const id=b.id,index=queue.findIndex(entry=>entry.key===session.key);if(radio){if(a==='next'){recordRadioEvent({type:'skip',key:session.key});if(index+1<queue.length){selectEntry(queue[index+1]);session.paused=false;}if(queue.length-queue.findIndex(x=>x.key===session.key)-1<2)replenish();}else if(index>0)selectEntry(queue[index-1]);}else{const target=index<0?0:(index+(a==='next'?1:queue.length-1))%queue.length;selectEntry(queue[target]);}render(id);}}
     else if(a==='player')navigate({screen:'player',scene:'catalogue',source:session.source,designRadio:Boolean(session.fixture)});
     else if(a==='queue')navigate({screen:'queue',source:session?.source||s.source,album:session?.album||0,scene:'catalogue',designRadio:Boolean(session?.fixture)});
@@ -279,7 +304,7 @@
     const next=els.filter(x=>x!==document.activeElement).map(x=>{const r=x.getBoundingClientRect(),xv=r.x+r.width/2-ox,yv=r.y+r.height/2-oy;return {x,along:xv*dx+yv*dy,cross:Math.abs(xv*dy-yv*dx)};}).filter(x=>x.along>1).sort((a,b)=>(a.along+a.cross*3)-(b.along+b.cross*3))[0];
     if(next)next.x.focus();
   });
-  const scenes=['yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio','catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
+  const scenes=['home-card','home-card-paused','yandex-wave','youtube-mixes','radio-queue','radio-player','radio-loading','radio-error','radio-empty','feedback-loading','feedback-error','track-radio','catalogue','sources','detail','search','player','queue','home','account','replace','missing-art','metadata',...Object.keys(states)];
   document.querySelector('#scene').innerHTML=scenes.map(x=>`<option>${x}</option>`).join('');
   document.querySelector('#scene').addEventListener('change',e=>applyScene(e.target.value));
   function resize(){document.documentElement.style.setProperty('--scale',Math.min(innerWidth/1920,innerHeight/1080));}

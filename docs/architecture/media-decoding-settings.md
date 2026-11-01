@@ -20,6 +20,5 @@ includes `hwdec` in the per-file options with `start`, `alang` and `slang`, usin
 the same options for modern/legacy fallback. It also works with reused/restored
 players, without needing a new process or changing current playback. Automatic
 chooses a supported decoder and keeps software fallback. External player config
-and scripts remain disabled. See [ADR-0127](../adr/0127-configurable-video-decoding.md)
-(proposed; product specification change awaits owner review).
+and scripts remain disabled. See [ADR-0127](../adr/0127-configurable-video-decoding.md).
 

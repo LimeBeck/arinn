@@ -1,8 +1,8 @@
 # ADR-0127: Configurable decoding for managed video
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-01
-- **Deciders:** project owner for configurable hardware decoding (explicit request, task #673); per-file application is a delegated technical choice under ADR-0037
+- **Deciders:** project owner for configurable hardware decoding (explicit request and approval to merge PR #674 on 2026-11-01, task #673); per-file application is a delegated technical choice under ADR-0037
 - **Amends / Supersedes:** ADR-0057 managed player options
 - **Amended by / Superseded by:** —
 - **Specification:** §5.6, §7.4, §11; AC-09, AC-16; R-01–R-05

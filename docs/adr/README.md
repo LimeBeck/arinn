@@ -144,5 +144,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0124](0124-offline-folder-and-season-navigation.md) | Offline folder and season navigation | Proposed | — |
 | [0125](0125-library-descriptions.md) | Optional lazy library descriptions | Accepted | — |
 | [0126](0126-delegated-media-process.md) | Verified application identity behind a media proxy | Accepted | — |
-| [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Proposed | — |
+| [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Accepted | — |
 <!-- register:end -->

@@ -126,6 +126,21 @@ impl Queue {
         self.cursor -= 1;
         Ok(())
     }
+    pub fn append_finite(&mut self, tracks: Vec<String>) -> Result<(), Error> {
+        if self.station.is_some() {
+            return Err(Error::Unsupported);
+        }
+        if tracks.iter().any(String::is_empty)
+            || tracks.len() > MAX_UPCOMING.saturating_sub(self.upcoming())
+        {
+            return Err(Error::Full);
+        }
+        for track in tracks {
+            let entry = self.entry(track);
+            self.entries.push_back(entry);
+        }
+        Ok(())
+    }
 
     pub fn confirmed_end(&mut self, occurrence: u64) -> Result<(), Error> {
         if self.current().map(|e| e.occurrence) != Some(occurrence) {
@@ -277,6 +292,18 @@ mod tests {
         values.iter().map(|v| v.to_string()).collect()
     }
 
+    #[test]
+    fn finite_refill_preserves_duplicate_occurrences_and_window_bound() {
+        let mut q = Queue::default();
+        q.start(ids(&["a", "b"]), None).unwrap();
+        q.append_finite(ids(&["a", "a"])).unwrap();
+        assert_eq!(q.entries.len(), 4);
+        let occurrences: std::collections::HashSet<_> =
+            q.entries.iter().map(|e| e.occurrence).collect();
+        assert_eq!(occurrences.len(), 4);
+        assert!(q.append_finite(vec!["overflow".into(); 64]).is_err());
+        assert_eq!(q.entries.len(), 4);
+    }
     #[test]
     fn duplicate_tracks_have_distinct_occurrences_and_removed_items_are_not_played() {
         let mut q = Queue::default();

@@ -502,3 +502,27 @@ async fn committed_but_unacknowledged_and_dropped_leases_never_yield_an_api() {
     assert!(!auth.restore().await.unwrap());
     mock.finish();
 }
+
+#[tokio::test]
+async fn cancelling_before_a_reserved_start_is_polled_sends_no_request() {
+    let mock = Mock::new(vec![]);
+    let auth = mock.client(MemoryStore::default());
+    let start = auth.prepare();
+    auth.cancel();
+    assert!(matches!(
+        auth.start_prepared(start).await,
+        Err(Error::Cancelled)
+    ));
+    assert!(mock.finish().is_empty());
+}
+
+#[tokio::test]
+async fn startup_restore_reserved_before_connect_cannot_invalidate_that_connect() {
+    let mock = Mock::new(vec![]);
+    let auth = mock.client(MemoryStore::default());
+    let startup = auth.prepare();
+    let connect = auth.prepare();
+    assert_eq!(auth.restore_prepared(startup).await, Err(Error::Cancelled));
+    auth.current(connect.generation).unwrap();
+    assert!(mock.finish().is_empty());
+}

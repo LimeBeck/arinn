@@ -17,6 +17,7 @@ pub const CAPABILITIES: &[&str] = &[
     "library",
     "action",
     "download",
+    "music",
 ];
 
 /// Safe, payload-free error codes. Messages from a provider are not UI errors.

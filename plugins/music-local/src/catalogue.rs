@@ -117,6 +117,16 @@ impl Catalogue {
         probe: &impl Probe,
         limit: usize,
     ) -> Vec<RootStatus> {
+        self.scan_cancelled(roots, probe, limit, &|| false)
+            .expect("uncancelled scan")
+    }
+    pub(crate) fn scan_cancelled(
+        &mut self,
+        roots: &[Root],
+        probe: &impl Probe,
+        limit: usize,
+        cancelled: &impl Fn() -> bool,
+    ) -> Option<Vec<RootStatus>> {
         let before = self.tracks();
         for record in self.records.values_mut() {
             record.track.available = false;
@@ -124,6 +134,9 @@ impl Catalogue {
         let mut statuses = Vec::new();
         let mut encountered = 0_usize;
         for root in roots {
+            if cancelled() {
+                return None;
+            }
             let identity = root
                 .path
                 .is_absolute()
@@ -147,6 +160,9 @@ impl Catalogue {
                 let mut stack = vec![(root.path.clone(), 0)];
                 let mut visited = HashSet::new();
                 while let Some((directory, depth)) = stack.pop() {
+                    if cancelled() {
+                        return None;
+                    }
                     if depth > MAX_DEPTH || encountered >= limit {
                         status.incomplete = true;
                         break;
@@ -159,6 +175,9 @@ impl Catalogue {
                         }
                     };
                     for entry in entries {
+                        if cancelled() {
+                            return None;
+                        }
                         if encountered >= limit {
                             status.incomplete = true;
                             break;
@@ -260,7 +279,10 @@ impl Catalogue {
         if before != self.tracks() {
             self.revision = self.revision.saturating_add(1).max(1);
         }
-        statuses
+        if cancelled() {
+            return None;
+        }
+        Some(statuses)
     }
 }
 

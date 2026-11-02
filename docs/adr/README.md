@@ -147,4 +147,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Accepted | — |
 | [0128](0128-configurable-library-recognition.md) | Configurable season and episode recognition rules in the library | Accepted | — |
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
+| [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
 <!-- register:end -->

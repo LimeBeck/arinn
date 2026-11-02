@@ -205,6 +205,23 @@ A physical episode opens its existing series at that episode when its parent
 series is present, and returning from detail restores the physical file card.
 No online metadata source is selected by this increment.
 
+### 5.3.1. Native music (owner-requested extension)
+
+The music extension provides one native interface with provider selection,
+track/album/artist/playlist browsing, search and an independent background audio
+session. The owner selected single-row player layout B in #707/#710. Browsing
+another source MUST preserve the active session; replacing its queue MUST ask
+for confirmation. Local music and Yandex account connection are the first
+implementation slice. The roadmap retains Spotify, SoundCloud and YouTube Music
+as candidates subject to their own integration qualification.
+
+The [music design brief](../design/music-design-brief.md) and
+[proposed protocol](../plugin-api/music.md) describe this extension. Provider
+processes own playback and credentials; no user token, stream URL or local media
+path may cross the shell interface. Yandex uses provider-hosted device-code
+sign-in and Secret Service storage. This extension does not change MVP acceptance
+criteria, phase status or the Plugin API stability gate; #710 remains owner-gated.
+
 ### 5.4. Downloads
 
 A working MVP section backed by DownloadProvider ([§7.5](#75-downloads-and-transmission)): queue, progress, pause/resume/start now/retry, error and service-unavailable states, completion toast, and a "Watch" action once the media is imported into the library.

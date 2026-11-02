@@ -536,3 +536,6 @@ parent and matching protocol-claim evidence in
 [ADR-0126](../adr/0126-delegated-media-process.md). Existing wire signatures,
 caller restrictions and the strict audible-tab/uniqueness join are unchanged.
 This is provider/daemon evidence only, never shell-visible process information.
+
+The proposed native [music contract](music.md) defines catalogue snapshots,
+account prompts and provider-owned audio sessions (ADR-0134, #707/#710).

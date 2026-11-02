@@ -91,6 +91,12 @@ pub struct Prompt {
     pub expires_in: u64,
 }
 
+/// An attempt reserved synchronously before spawning network work.
+pub struct Start {
+    owner: Arc<()>,
+    generation: u64,
+}
+
 /// Caller retains an attempt, not its device code. A newer start invalidates it.
 pub struct Attempt {
     owner: Arc<()>,
@@ -236,8 +242,21 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
         }
     }
 
+    pub fn prepare(&self) -> Start {
+        Start {
+            owner: self.owner.clone(),
+            generation: self.advance(),
+        }
+    }
     pub async fn start(&self) -> Result<Attempt, Error> {
-        let generation = self.advance();
+        self.start_prepared(self.prepare()).await
+    }
+    pub async fn start_prepared(&self, start: Start) -> Result<Attempt, Error> {
+        if !Arc::ptr_eq(&self.owner, &start.owner) {
+            return Err(Error::InvalidInput);
+        }
+        let generation = start.generation;
+        self.current(generation)?;
         {
             let mut active = self.session.gate.lock().await;
             self.current(generation)?;
@@ -397,7 +416,14 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
     }
 
     pub async fn restore(&self) -> Result<bool, Error> {
-        let generation = self.advance();
+        self.restore_prepared(self.prepare()).await
+    }
+    pub async fn restore_prepared(&self, start: Start) -> Result<bool, Error> {
+        if !Arc::ptr_eq(&self.owner, &start.owner) {
+            return Err(Error::InvalidInput);
+        }
+        let generation = start.generation;
+        self.current(generation)?;
         let mut active = self.session.gate.lock().await;
         self.current(generation)?;
         if active

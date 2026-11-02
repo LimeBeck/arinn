@@ -203,8 +203,11 @@ FocusScope {
     function rowClearsHeader(row) { return rowHeaderOpacity(row) >= 1; }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
-    readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
-    readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
+    property string musicTitle: ""
+    readonly property var sections: [qsTr("Home"), qsTr("Library")].concat(musicTitle.length ? [musicTitle] : []).concat([qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")])
+    readonly property var routes: ["home", "library"].concat(musicTitle.length ? ["music"] : []).concat(["downloads", "applications", "settings"])
+    signal musicRequested()
+    signal musicTransportRequested()
     signal libraryEntryRequested(string entryId)
     signal libraryResumeRequested(string entryId)
     signal entryRequested(string entryId)
@@ -540,6 +543,7 @@ FocusScope {
     }
     function activate(entryId) {
         const entry = entryById(entryId);
+        if (entry && entry.kind === "music") { musicRequested(); return; }
         if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
@@ -556,8 +560,8 @@ FocusScope {
         if (!returnActivityId) {
             activityNotice.visible = true;
             noticeTimer.restart();
-            if (navOpen && navIndex === 6)
-                Focus.take(navItems.itemAt(5));
+            if (navOpen && navIndex === sections.length + 1)
+                Focus.take(navItems.itemAt(sections.length));
         }
     }
     Component.onCompleted: Qt.callLater(restoreScreen)
@@ -855,6 +859,7 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
+                    onSecondaryActivated: entryId => { const entry=root.entryById(entryId); if(entry && entry.kind === "music") root.musicTransportRequested(); }
                     onEdge: key => root.rowEdge(continueRow, key)
                     onFocusLost: root.focusAfterRemoval(continueRow)
                     onScrolled: hoverDelay.restart()
@@ -1016,7 +1021,7 @@ FocusScope {
                         required property string modelData
                         objectName: "nav-" + index
                         width: 444
-                        height: index === 5 && root.currentServiceTitle.length ? 112 : 84
+                        height: index === root.sections.length && root.currentServiceTitle.length ? 112 : root.musicTitle.length ? 76 : 84
                         text: modelData
                         visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
                         focusScale: 1.02
@@ -1030,7 +1035,7 @@ FocusScope {
                                 width: parent.width - 96
                                 spacing: 16
                                 Rectangle {
-                                    visible: index === 5
+                                    visible: index === root.sections.length
                                     width: 40; height: 40; radius: 12
                                     color: Qt.rgba(1, 1, 1, 0.08)
                                     anchors.verticalCenter: parent.verticalCenter
@@ -1043,7 +1048,7 @@ FocusScope {
                                     }
                                 }
                                 Column {
-                                    width: parent.width - (index === 5 ? 56 : 0)
+                                    width: parent.width - (index === root.sections.length ? 56 : 0)
                                     spacing: 2
                                     anchors.verticalCenter: parent.verticalCenter
                                     UiText {
@@ -1054,10 +1059,10 @@ FocusScope {
                                         maximumLineCount: 1; elide: Text.ElideRight
                                     }
                                     UiText {
-                                        objectName: index === 5 ? "openServicesSubline" : ""
+                                        objectName: index === root.sections.length ? "openServicesSubline" : ""
                                         width: parent.width
-                                        visible: index === 5 && root.currentServiceTitle.length > 0
-                                        text: index === 5 ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
+                                        visible: index === root.sections.length && root.currentServiceTitle.length > 0
+                                        text: index === root.sections.length ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
                                         role: "caption"
                                         color: Theme.textSecondary
                                         maximumLineCount: 1; elide: Text.ElideRight
@@ -1065,8 +1070,8 @@ FocusScope {
                                 }
                             }
                             Rectangle {
-                                objectName: index === 5 ? "openServicesBadge" : ""
-                                visible: index === 5 && root.openServiceCount > 0
+                                objectName: index === root.sections.length ? "openServicesBadge" : ""
+                                visible: index === root.sections.length && root.openServiceCount > 0
                                 anchors.right: parent.right
                                 anchors.rightMargin: 20
                                 anchors.verticalCenter: parent.verticalCenter
@@ -1076,9 +1081,9 @@ FocusScope {
                                 color: Theme.ember
                                 UiText {
                                     id: openServicesCount
-                                    objectName: index === 5 ? "openServicesCount" : ""
+                                    objectName: index === root.sections.length ? "openServicesCount" : ""
                                     anchors.centerIn: parent
-                                    text: index === 5 ? String(root.openServiceCount) : ""
+                                    text: index === root.sections.length ? String(root.openServiceCount) : ""
                                     font.pixelSize: 24
                                     font.weight: 600
                                     color: Theme.ink
@@ -1089,10 +1094,10 @@ FocusScope {
                         onActiveFocusChanged: if (activeFocus) root.navIndex = index
                         onDpadRequested: InputMode.keyPressed()
                         onActivated: {
-                            if (index < 5) root.selectSection(index);
-                            else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
-                            else if (index === 6) root.returnRequested(root.returnActivityId);
-                            else if (index === 7) root.powerRequested();
+                            if (index < root.sections.length) root.selectSection(index);
+                            else if (index === root.sections.length) { root.navOpen = false; root.openServicesRequested(); }
+                            else if (index === root.sections.length + 1) root.returnRequested(root.returnActivityId);
+                            else if (index === root.sections.length + 2) root.powerRequested();
                             else root.closeShellRequested();
                         }
                         Keys.onTabPressed: root.moveNavigation(1)
@@ -1104,7 +1109,7 @@ FocusScope {
                         Rectangle {
                             anchors.right: parent.right; anchors.rightMargin: 20; anchors.verticalCenter: parent.verticalCenter
                             width: 10; height: 10; radius: 5; color: Theme.ember
-                            visible: index < 5 && root.routes[index] === root.screen
+                            visible: index < root.sections.length && root.routes[index] === root.screen
                         }
                     }
                 }

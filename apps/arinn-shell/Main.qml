@@ -9,6 +9,7 @@ import "ui/screens/browser" as Browser
 import "ui/screens/browse" as Browse
 import "ui/screens/downloads" as Downloads
 import "ui/screens/library" as Library
+import "ui/screens/music" as Music
 import "ui/screens/player" as Player
 import "ui/screens/power" as Power
 import "ui/screens/session" as Session
@@ -467,13 +468,14 @@ Window {
         : sessionOpen ? "session"
         : browseOpen ? "browse"
         : browserOpen ? "browser"
+        : home.screen === "music" ? "music"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
                  power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
@@ -486,6 +488,7 @@ Window {
         case "session": sessionView.restore(); break;
         case "browser": browserView.settleFocus(); break;
         case "browse": browseView.focusInitial(); break;
+        case "music": musicView.focusInitial(); break;
         case "library": libraryView.focusInitial(); break;
         case "downloads": downloadsView.restore(); break;
         case "settings": settingsView.focusInitial(); break;
@@ -823,13 +826,15 @@ Window {
         visible: !root.activityBehind
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
+        MusicCatalog { id: musicCatalog }
         Ui.HomeView {
             id: home
+            musicTitle: musicCatalog.sources.length ? musicCatalog.sectionTitle : ""
             focus: root.focusedScreen === "home"
             // The navigation menu is drawn above the section screens (z 4) and
             // Open services, Browse and Session (z 5), below the player (z 6).
             z: navOpen || tileActionsOpen ? 5.5 : 0
-            coveredByScreen: libraryView.visible || settingsView.visible || downloadsView.visible
+            coveredByScreen: musicView.visible || libraryView.visible || settingsView.visible || downloadsView.visible
                 || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
@@ -856,10 +861,12 @@ Window {
                 && backend.daemonEpoch === browserCatalog.returnEpoch
                 && backend.returnWindow === browserCatalog.returnTarget
             continueEntries: (returnIsWebService ? [] : backend.continueEntries)
-                .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries, libraryCatalog.continueEntries))
+                .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries, libraryCatalog.continueEntries)).concat(musicCatalog.homeEntries)
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(backend.favorites)
             newEntries: libraryCatalog.newEntries
+            onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayer();}
+            onMusicTransportRequested: musicCatalog.transport(musicCatalog.activeState.playback === "playing" ? "pause" : "resume")
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: backend.items
@@ -1043,6 +1050,17 @@ Window {
             onDismissRequested: home.back()
             onHomeRequested: root.goHomeFrom("settings")
             onRetryRequested: settingsCatalog.refresh()
+        }
+        Music.MusicView {
+            id: musicView
+            catalog: musicCatalog
+            objectName: "productionMusic"
+            visible: home.screen === "music" && !root.playerOpen
+            enabled: visible
+            focus: root.focusedScreen === "music"
+            z: 4
+            onBackRequested: home.back()
+            onSettingsRequested: { home.screen = "settings"; Qt.callLater(root.restoreFocus); }
         }
         Library.LibraryView {
             id: libraryView

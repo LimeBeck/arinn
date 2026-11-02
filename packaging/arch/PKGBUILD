@@ -98,6 +98,10 @@ package() {
   install -Dm644 plugins/library/library.toml "${pkgdir}/usr/share/arinn/plugins/library.toml"
   install -Dm755 "${target}"/release/arinn-plugin-mpv "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-mpv"
   install -Dm644 plugins/mpv/mpv.toml "${pkgdir}/usr/share/arinn/plugins/mpv.toml"
+  install -Dm755 "${target}"/release/arinn-plugin-music-local "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-music-local"
+  install -Dm644 plugins/music-local/music-local.toml "${pkgdir}/usr/share/arinn/plugins/music-local.toml"
+  install -Dm755 "${target}"/release/arinn-plugin-yandex-music "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-yandex-music"
+  install -Dm644 plugins/yandex-music/yandex-music.toml "${pkgdir}/usr/share/arinn/plugins/yandex-music.toml"
   install -Dm755 "${target}"/release/arinn-plugin-transmission "${pkgdir}/usr/lib/arinn/plugins/arinn-plugin-transmission"
   install -Dm644 plugins/transmission/transmission.toml "${pkgdir}/usr/share/arinn/plugins/transmission.toml"
   # Chrome/Chromium integration (ADR-0048): provider, native host, the host

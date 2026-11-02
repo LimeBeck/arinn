@@ -56,6 +56,9 @@ pub struct Library {
 }
 
 impl Library {
+    pub fn catalogue_snapshot(&self) -> Catalogue {
+        self.state.catalogue.clone()
+    }
     /// Requires a private directory; a second writer fails without changing it.
     /// Corrupt/unsupported snapshots are errors, never silently reset.
     pub fn open(directory: &Path) -> Result<Self, Error> {
@@ -102,6 +105,24 @@ impl Library {
         let status = next.catalogue.scan(&next.roots, probe);
         self.commit(next)?;
         Ok(status)
+    }
+    pub fn scan_cancelled(
+        &mut self,
+        probe: &impl Probe,
+        cancelled: &impl Fn() -> bool,
+    ) -> Result<Option<Vec<RootStatus>>, Error> {
+        let mut next = self.state.clone();
+        let Some(status) = next
+            .catalogue
+            .scan_cancelled(&next.roots, probe, 100_000, cancelled)
+        else {
+            return Ok(None);
+        };
+        if cancelled() {
+            return Ok(None);
+        }
+        self.commit(next)?;
+        Ok(Some(status))
     }
     pub fn create_playlist(&mut self, title: &str, tracks: Vec<String>) -> Result<String, Error> {
         if self.state.next_playlist == u64::MAX {

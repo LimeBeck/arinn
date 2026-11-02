@@ -29,6 +29,10 @@ int main(int argc, char **argv) {
   if (translator.load(QLocale(), QStringLiteral("arinn"), QStringLiteral("_"),
                       QStringLiteral(":/i18n")))
     app.installTranslator(&translator);
+  QTranslator musicTranslator;
+  if (musicTranslator.load(QLocale(), QStringLiteral("music"), QStringLiteral("_"),
+                           QStringLiteral(":/i18n")))
+    app.installTranslator(&musicTranslator);
   // The desktop entry names the icon (#289); X11 also needs it on the window.
   app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.arinn.Shell"),
                                      QIcon(QStringLiteral(":/brand/arinn-mark.svg"))));

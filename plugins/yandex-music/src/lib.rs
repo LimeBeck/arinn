@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Provider-private catalogue/radio and device-code connection backends.
-//! Client provisioning, playback, D-Bus export, UI and live-service qualification
-//! are not implemented by these modules.
+//! Native D-Bus account lifecycle is available; playback and live client
+//! provisioning qualification remain separate integration work.
 pub mod auth;
 mod parse;
 pub mod secrets;
+pub mod service;
 #[cfg(test)]
 mod tests;
 use arinn_music_common::Track;

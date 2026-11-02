@@ -1,0 +1,26 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.MusicProvider1">
+    <method name="GetState">
+      <arg name="generation" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="GetPage">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="client" type="s" direction="in" />
+      <arg name="query" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="Command">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="client" type="s" direction="in" />
+      <arg name="command" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <signal name="StateChanged">
+      <arg name="generation" type="s" />
+      <arg name="revision" type="t" />
+    </signal>
+  </interface>
+</node>

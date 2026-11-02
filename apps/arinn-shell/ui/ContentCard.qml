@@ -8,6 +8,16 @@ Surface {
     id: root
     identityGlow: true
     property string subtitle: ""
+    property string statusText: ""
+    readonly property bool focusWithin: activeFocus || secondaryAction.activeFocus
+    property string secondaryIcon: ""
+    property string secondaryText: ""
+    property bool secondaryEnabled: true
+    signal secondaryActivated()
+    Keys.onRightPressed: event => {
+        if (secondaryAction.visible && secondaryAction.enabled) Focus.take(secondaryAction);
+        else event.accepted=false;
+    }
     property url artwork: ""
     property bool running: false
     property bool showProgress: false
@@ -153,26 +163,41 @@ Surface {
             x: root.running && !root.busy ? 44 : 24; y: 20
             width: parent.width - 108
             role: "caption"
-            text: root.busy ? qsTr("Loading…") : root.running ? qsTr("Now running") : ""
+            text: root.statusText.length ? root.statusText : root.busy ? qsTr("Loading…") : root.running ? qsTr("Now running") : ""
             color: Theme.textSecondary
+        }
+        Surface {
+            id: secondaryAction
+            objectName: "cardSecondaryAction"
+            anchors.right: parent.right; anchors.rightMargin: 20
+            anchors.bottom: parent.bottom; anchors.bottomMargin: 24
+            width: 72; height: 72; cornerRadius: 36
+            visible: root.secondaryIcon.length>0
+            enabled: root.secondaryEnabled && !root.busy
+            text: root.secondaryText
+            contentItem: LineIcon { name: root.secondaryIcon; color: secondaryAction.activeFocus ? Theme.ink : Theme.textPrimary }
+            onActivated: root.secondaryActivated()
+            Keys.onLeftPressed: Focus.take(root)
+            // Other arrows reach the enclosing row exactly as card arrows do.
+            onDpadRequested: root.dpadRequested()
         }
         Column {
             x: root.compact ? 18 : 24
             anchors.bottom: parent.bottom
             anchors.bottomMargin: root.compact ? 18 : 24
-            width: parent.width - 2 * x
+            width: parent.width - 2 * x - (secondaryAction.visible ? 88 : 0)
             spacing: root.compact ? 6 : 8
             // Text.Wrap breaks a word wider than the column instead of letting
             // it run past the card's edge.
             UiText {
                 objectName: "cardTitle"
-                width: parent.width; text: root.text; role: "section"
+                width: parent.width; text: root.text; textFormat: Text.PlainText; role: "section"
                 font.pixelSize: root.compact ? 24 : 30
                 wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
             }
             UiText {
                 objectName: "cardSubtitle"
-                width: parent.width; text: root.subtitle
+                width: parent.width; text: root.subtitle; textFormat: Text.PlainText
                 wrapMode: Text.Wrap; maximumLineCount: 1; elide: Text.ElideRight
                 // Media cards use the 24 sub style of handoff 02.
                 role: root.artworkReady || root.showProgress ? "caption" : "meta"

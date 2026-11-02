@@ -50,8 +50,14 @@ dependencies = [
 name = "arinn-music-common"
 version = "0.2.0"
 dependencies = [
+ "arinn-plugin-sdk",
+ "arinn-protocol",
  "libc",
  "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -165,11 +171,15 @@ name = "arinn-plugin-music-local"
 version = "0.2.0"
 dependencies = [
  "arinn-music-common",
+ "arinn-plugin-sdk",
+ "arinn-protocol",
  "libc",
  "serde",
  "serde_json",
  "sha2",
+ "tokio",
  "uuid",
+ "zbus",
 ]
 
 [[package]]
@@ -205,6 +215,8 @@ name = "arinn-plugin-yandex-music"
 version = "0.2.0"
 dependencies = [
  "arinn-music-common",
+ "arinn-plugin-sdk",
+ "arinn-protocol",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

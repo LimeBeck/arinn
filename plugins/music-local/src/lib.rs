@@ -7,3 +7,4 @@ pub mod library;
 pub mod metadata;
 mod paths;
 pub mod probe;
+pub mod service;

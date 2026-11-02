@@ -1,6 +1,6 @@
 # Music backend implementation increment
 
-Status: **in progress; not a usable music provider yet**. Task
+Status: **native local/account integration in progress; MR remains draft**. Task
 [#707](https://github.com/LimeBeck/arinn/issues/707), parent
 [#677](https://github.com/LimeBeck/arinn/issues/677). The owner authorized one
 implementation MR for local music, Yandex and their common API/UI on 2026-11-01.
@@ -15,20 +15,41 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 
 | Package | Implemented in this increment | Still missing |
 | --- | --- | --- |
-| `arinn-music-common` | Provider-private metadata, bounded finite/radio queue and anchored atomic state-file helper | Accepted wire projection and runtime command/confirmation integration |
-| `arinn-plugin-music-local` | Audio catalogue, bounded ffprobe, metadata grouping, persistent configured roots/catalogue/finite playlists, unavailable-root retention and secure descriptor reopening | Provider process/registration, paged export, artwork extraction, settings UI and actual playback routing |
-| `arinn-plugin-yandex-music` | Private HTTP catalogue/radio adapter, device-code connection controller and staged Secret Service credential lifecycle | Qualified OAuth client provisioning, catalogue completion/liked content, stream resolution/playback, provider registration, connection UI and live qualification |
+| `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player actor and finite playback session | Runtime continuous refill/feedback and service stream resolver |
+| `arinn-plugin-music-local` | Persistent catalogue/playlists, provider process/registration, snapshot paging, root settings, background scan and finite playback | Artwork extraction, native package/audio qualification and complete remote/detail UX |
+| `arinn-plugin-yandex-music` | Private HTTP/radio adapter, device-code controller, staged Secret Service lifecycle, provider registration and native account projection | Qualified deployment client, catalogue/liked content UI, stream playback, continuous runtime and live qualification |
 
-These are library crates, not installed executables. No new provider manifest is
-shipped and no daemon capability is registered. `Track` contains no filesystem
-path, stream address, token or HTTP header; provider-private catalogue records
-may contain local paths and are not a shell/wire model. Internal types are not a
-new Plugin API and do not stabilize an interface accidentally.
+The proposed [music contract](../plugin-api/music.md) and
+[ADR-0134](../adr/0134-native-music-catalogue-and-session.md) add protocol, SDK,
+daemon and native shell integration in the owner-authorized unified MR. New
+executables/manifests are included in Arch/Debian install rules. This is pending
+package validation, not a claim of installed-product qualification.
 
-The settings contract [#704](https://github.com/LimeBeck/arinn/pull/704) / #683
-has merged, clearing the earlier shared-file overlap. This provider-private
-increment changes no protocol/SDK/runtime files. It does not close the
-implementation tracker, change a phase status or claim streaming support.
+`Track` has no path, stream URL, token or header. Providers alone resolve files
+and streams. The shell browses one source while the daemon projects the active
+session independently. Native layout B uses one icon row; the Home music card
+opens the player and offers a separate pause/resume action. Search reuses the
+shell's on-screen keyboard. New Russian strings have a separate music catalogue
+to avoid the active #718 translation zone.
+
+Local settings apply on provider restart through the existing settings contract
+(#704/#683). Scan publishes an immutable view; secure playback reopening does
+not wait for a scan lock. Shutdown cancels further scan work between files;
+an in-flight bounded ffprobe may finish before exit. Unavailable/incomplete roots
+produce a degraded state while preserving last-known metadata.
+
+Yandex account registration is deliberately account-only in this slice. Native
+Connect/Cancel/Disconnect are routed through the daemon, and startup restore is
+reserved before exposing commands so it cannot invalidate a newer Connect.
+Configure the public deployment identity `ARINN_YANDEX_CLIENT_ID` in the provider's
+systemd user-manager environment. No borrowed client ID or client-secret default
+is bundled. Clients requiring a secret need separately qualified provisioning.
+An absent identity reports `unconfigured` with Connect disabled. Approval records
+and a stable non-secret device ID use provider-private state; tokens use Secret
+Service only. No live identity or account has been qualified in this environment.
+
+The settings dependency has merged. This work does not close #707, change phase
+status or claim Yandex streaming support.
 
 ## Queue invariants
 
@@ -214,8 +235,9 @@ rate limits and oversized responses. The implementation PR records actual local
 commands, toolchain wrapper failures and reruns; these command examples alone
 are not evidence that the complete project check list passed.
 
-Before completion: integrate the accepted common contract, daemon and shell;
-finish provider registration/settings/client provisioning/playback; add all format/artwork
-and package fixtures; run the full required checks and obtain final review.
+Before completion: qualify the proposed contract and daemon replacement/timeout
+coordination; finish catalogue detail/playlist editing, artwork, Yandex client
+provisioning/stream playback and continuous-session feedback; add package fixtures;
+run the full required checks and obtain current-head review.
 Live service and real-remote/HTPC qualification remain separate from synthetic
 tests and require the applicable account setup/operator authorization.

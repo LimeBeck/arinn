@@ -49,8 +49,16 @@ impl Entity {
         for value in [&self.title, &self.artist, &self.album] {
             validation::text(value)?;
         }
-        if !self.artwork.is_empty() {
-            validation::id(&self.artwork)?;
+        // An opaque asset ID: never a filesystem path or a URL the shell
+        // could load (music.md). No slash, so neither `/path` nor `scheme://`.
+        if !self.artwork.is_empty()
+            && (self.artwork.len() > 256
+                || !self
+                    .artwork
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.:".contains(&b)))
+        {
+            return Err(ErrorCode::InvalidArgument);
         }
         if self.duration_us > 31_536_000_000_000 {
             return Err(ErrorCode::InvalidArgument);
@@ -365,5 +373,27 @@ mod tests {
             expires_in: 60,
         });
         assert!(state.validate().is_err());
+    }
+    /// Review of #710: artwork accepted any ID, including paths and URLs.
+    #[test]
+    fn artwork_is_an_opaque_asset_id_never_a_path_or_url() {
+        let entity = |artwork: &str| Entity {
+            id: "track".into(),
+            kind: "track".into(),
+            artwork: artwork.into(),
+            ..Entity::default()
+        };
+        assert!(entity("").validate().is_ok());
+        assert!(entity("art:3f2a9c").validate().is_ok());
+        for bad in [
+            "/home/user/cover.jpg",
+            "file:///cover.jpg",
+            "https://cdn.example/cover.jpg",
+            "../cover",
+            "a b",
+            &"x".repeat(257),
+        ] {
+            assert!(entity(bad).validate().is_err(), "{bad}");
+        }
     }
 }

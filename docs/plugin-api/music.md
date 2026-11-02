@@ -27,7 +27,8 @@ upcoming, continuous, refill and error. Enum values and limits are validated by
 `State::validate`. An entry contains its occurrence and a metadata-only track.
 A queue retains at most 32 historical and 64 upcoming occurrences. Repeated
 finite-playlist tracks have distinct occurrence IDs. Artwork is an opaque asset
-ID, never a shell-loadable filesystem path or remote URL.
+ID of at most 256 ASCII letters, digits and `-_.:`, never a shell-loadable
+filesystem path or remote URL.
 
 `GetPage(generation, query)` takes facet, parent, search and token. Facets are
 tracks, albums, artists, playlists and selections. Pages contain generation,

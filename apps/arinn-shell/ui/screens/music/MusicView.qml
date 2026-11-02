@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Window
 import "../.." as Ui
 FocusScope {
     id: root
@@ -12,6 +13,33 @@ FocusScope {
     property string parentTitle: ""
     property string pendingPlay: ""
     property bool typing: false
+    property var rememberedFocus: null
+    readonly property var hostWindow: Window.window
+    function containsFocusItem(item) {
+        for(let current=item;current;current=current.parent)if(current===root)return true;
+        return false;
+    }
+    function recoverFocus() {
+        if(!root.visible || !root.enabled || !root.activeFocus)return;
+        const current=hostWindow ? hostWindow.activeFocusItem : null;
+        if(current && current!==root && containsFocusItem(current) && current.visible && current.enabled)return;
+        if(rememberedFocus && rememberedFocus.visible && rememberedFocus.enabled)Ui.Focus.take(rememberedFocus);
+        else focusInitial();
+    }
+    onSelectedChanged: Qt.callLater(recoverFocus)
+    Connections {
+        target: root.hostWindow
+        function onActiveFocusItemChanged() {
+            const item=root.hostWindow.activeFocusItem;
+            if(item && item!==root && root.containsFocusItem(item) && item.visible && item.enabled)root.rememberedFocus=item;
+        }
+    }
+    Connections {
+        target: root.catalog
+        ignoreUnknownSignals: true
+        function onStatusChanged(){Qt.callLater(root.recoverFocus);}
+        function onBusyChanged(){Qt.callLater(root.recoverFocus);}
+    }
     function startTyping() {typing=true;Qt.callLater(searchKeyboard.start);}
     function finishTyping() {searchKeyboard.finish();typing=false;Ui.Focus.take(search);}
     onVisibleChanged: if(!visible && typing){searchKeyboard.finish();typing=false;}

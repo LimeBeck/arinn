@@ -78,6 +78,26 @@ TestCase {
         keyClick(Qt.Key_Up);wait(0);keyClick(Qt.Key_Up);tryCompare(findChild(view,"musicSearch"),"activeFocus",true);
         keyClick(Qt.Key_Return);compare(view.typing,true);keyClick(Qt.Key_Escape);compare(view.typing,false);
     }
+    function test_account_transitions_keep_remote_focus_without_manual_restore() {
+        const catalog=createTemporaryObject(catalogFactory,suite);catalog.entries=[];
+        catalog.state={account:"disconnected",facets:[],actions:["connect"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);view.focusInitial();
+        tryCompare(findChild(view,"musicConnect"),"activeFocus",true);keyClick(Qt.Key_Return);compare(catalog.commands[0],"connect");
+        catalog.state={account:"connecting",facets:[],actions:["cancel"]};tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[1],"cancel");
+        catalog.state={account:"disconnected",facets:[],actions:["connect"]};tryCompare(findChild(view,"musicConnect"),"activeFocus",true);
+        keyClick(Qt.Key_Return);catalog.state={account:"connecting",facets:[],actions:["cancel"]};tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);
+        catalog.state={account:"connected",facets:[],actions:["disconnect"]};tryCompare(findChild(view,"musicDisconnect"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[catalog.commands.length-1],"disconnect");
+    }
+    function test_transport_busy_receipt_restores_focused_button() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();
+        const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"pause");catalog.busy=true;wait(0);
+        catalog.activeState=({session:"session",playback:"paused",current:catalog.activeState.current,actions:["resume","stop"],upcoming:[]});catalog.busy=false;
+        tryCompare(play,"activeFocus",true);keyClick(Qt.Key_Return);compare(catalog.commands[1],"resume");
+    }
     function test_music_navigation_keeps_system_actions_after_sections() {
         const home=createTemporaryObject(homeFactory,suite,{musicTitle:"Fixture music"});verify(home);
         compare(home.routes.length,6);compare(home.routes[2],"music");

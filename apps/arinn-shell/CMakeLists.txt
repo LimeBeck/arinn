@@ -300,6 +300,10 @@ add_test(NAME translations-complete COMMAND ${CMAKE_COMMAND}
     -DWORK=${CMAKE_CURRENT_BINARY_DIR}/i18n-check
     -P "${PROJECT_SOURCE_DIR}/tests/ui/check_translations.cmake")
 
+qt_add_executable(arinn-music-catalog-test music_catalog_test.cpp music_catalog.cpp music_catalog.h)
+target_link_libraries(arinn-music-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+add_test(NAME music-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-catalog-test>)
+
 # Music has its own catalogue while #718 updates the shared shell translations.
 set(ARINN_MUSIC_TS "${CMAKE_CURRENT_SOURCE_DIR}/i18n/music_ru.ts")
 set(ARINN_MUSIC_TRANSLATION_SOURCES

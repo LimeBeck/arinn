@@ -40,6 +40,7 @@ FocusScope {
         target: root.catalog
         ignoreUnknownSignals: true
         function onStatusChanged(){Qt.callLater(root.recoverFocus);}
+        function onBrowseReset(){root.parentId="";root.parentTitle="";}
         function onBusyChanged(){Qt.callLater(root.recoverFocus);}
     }
     function startTyping() {typing=true;Qt.callLater(searchKeyboard.start);}

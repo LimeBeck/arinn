@@ -174,10 +174,14 @@ Surface {
             width: 72; height: 72; cornerRadius: 36
             focusedColor: Theme.textPrimary
             visible: root.secondaryIcon.length>0
-            enabled: root.secondaryEnabled && !root.busy
+            // Never disabled while focused: a busy command must not drop
+            // focus off the button (review of #710). A press while busy is
+            // ignored instead.
+            enabled: root.secondaryEnabled || activeFocus
+            opacity: root.busy ? 0.6 : 1
             text: root.secondaryText
             contentItem: LineIcon { name: root.secondaryIcon; color: secondaryAction.activeFocus ? Theme.ink : Theme.textPrimary }
-            onActivated: root.secondaryActivated()
+            onActivated: if (!root.busy && root.secondaryEnabled) root.secondaryActivated()
             Keys.onLeftPressed: Focus.take(root)
             // Other arrows reach the enclosing row exactly as card arrows do.
             onDpadRequested: root.dpadRequested()

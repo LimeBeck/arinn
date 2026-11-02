@@ -30,7 +30,7 @@ QVariantList MusicCatalog::homeEntries()const {
   const auto track=current.value("track").toMap();const auto playback=m_active.value("playback").toString();
   const bool playing=playback==QStringLiteral("playing"),paused=playback==QStringLiteral("paused");
   const auto status=playing?tr("Playing"):paused?tr("Paused"):playback==QStringLiteral("loading")?tr("Loading…"):tr("Stopped");
-  return {QVariantMap{{"id",QStringLiteral("arinn-music-session")},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"statusText",tr("Music · %1").arg(status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"busy",m_commandBusy}}};
+  return {QVariantMap{{"id",QStringLiteral("arinn-music-session")},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"statusText",activeSourceName().isEmpty()?tr("Music · %1").arg(status):tr("%1 · %2").arg(activeSourceName(),status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"busy",m_commandBusy}}};
 }
 void MusicCatalog::fail(const QString &value){
   if(value==QStringLiteral("Conflict"))m_error=tr("The music source changed. Try again.");
@@ -59,7 +59,9 @@ void MusicCatalog::providers(const QString &token,quint64 ticket,const QString &
     }arg.endArray();arg>>next;arg.endStructure();
     if(!next.isEmpty()){providers(next,ticket,seen,rows,tokens);return;}m_registryBusy=false;
     if(m_sources!=rows){m_sources=rows;emit sourcesChanged();emit activeChanged();}
-    QString selected=m_sourceId;if(selected.isEmpty()&&!rows.isEmpty())selected=rows.first().toMap().value("id").toString();
+    // A source that disappeared falls back to the first one still offered.
+    QString selected=m_sourceId;bool present=false;for(const auto &row:rows)if(row.toMap().value("id").toString()==selected)present=true;
+    if(!present)selected=rows.isEmpty()?QString():rows.first().toMap().value("id").toString();
     choose(selected);
   });
 }
@@ -67,18 +69,25 @@ void MusicCatalog::choose(const QString &id){
   QVariantMap selected;for(const auto &row:m_sources)if(row.toMap().value("id")==id){selected=row.toMap();break;}
   const auto path=selected.value("path").toString(),generation=selected.value("generation").toString();
   if(m_sourceId==id&&m_path==path&&m_generation==generation)return;
-  ++m_epoch;++m_pageTicket;++m_stateTicket;m_pageBusy=m_stateBusy=m_activeBusy=false;m_sourceId=id;m_path=path;m_generation=generation;m_catalogueRevision=0;m_entries.clear();m_state.clear();m_next.clear();m_error.clear();m_parent.clear();
-  emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();readState();
+  ++m_epoch;++m_pageTicket;++m_stateTicket;m_pageBusy=m_stateBusy=m_activeBusy=false;m_sourceId=id;m_path=path;m_generation=generation;m_catalogueRevision=0;m_entries.clear();m_state.clear();m_next.clear();m_error.clear();m_stateError=false;m_parent.clear();
+  emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();emit browseReset();readState();
 }
 void MusicCatalog::readState(){
   if(m_path.isEmpty()||m_generation.isEmpty()||m_stateBusy||(m_commandBusy&&!m_commandWaitingRefresh))return;m_stateBusy=true;
   const auto epoch=m_epoch,ticket=++m_stateTicket;auto message=call(m_path,"org.arinn.Music1","GetState");message<<m_generation;
   auto *pending=new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message,3500),this);
   connect(pending,&QDBusPendingCallWatcher::finished,this,[this,epoch,ticket](auto *watch){const auto reply=watch->reply();watch->deleteLater();if(epoch!=m_epoch||ticket!=m_stateTicket)return;m_stateBusy=false;
-    const auto json=object(reply);if(json.isEmpty()||!json.contains("revision")||!json.value("actions").isArray()){fail(code(reply));return;}
+    const auto json=object(reply);if(json.isEmpty()||!json.contains("revision")||!json.value("actions").isArray()){fail(code(reply));m_stateError=true;return;}
+    // A transient state error clears once the state reads again.
+    if(m_stateError){m_stateError=false;m_error.clear();}
     const auto revision=json.value("catalogue_revision").toVariant().toULongLong();
     m_state=json.toVariantMap();emit stateChanged();emit statusChanged();
-    if(m_catalogueRevision!=revision){m_catalogueRevision=revision;const auto facets=json.value("facets").toArray();bool found=false;for(const auto &facet:facets)if(facet.toString()==m_facet)found=true;if(!found&&!facets.isEmpty())m_facet=facets.first().toString();readPage(false);}
+    const auto facets=json.value("facets").toArray();
+    // A source without facets (an account that is not connected, or one
+    // without a catalogue) has nothing to page: asking only yields
+    // Unsupported under the Connect prompt (review of #710).
+    if(facets.isEmpty()){m_catalogueRevision=revision;if(!m_entries.isEmpty()||!m_next.isEmpty()){m_entries.clear();m_next.clear();emit entriesChanged();emit statusChanged();}return;}
+    if(m_catalogueRevision!=revision){m_catalogueRevision=revision;bool found=false;for(const auto &facet:facets)if(facet.toString()==m_facet)found=true;if(!found)m_facet=facets.first().toString();readPage(false);}
   });
 }
 void MusicCatalog::browse(const QString &facet,const QString &parent,const QString &search){

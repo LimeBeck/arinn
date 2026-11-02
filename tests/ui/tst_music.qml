@@ -154,4 +154,15 @@ TestCase {
         keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Right);tryCompare(remove,"activeFocus",true);
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"remove");compare(catalog.occurrences[0],"next-1");
     }
+    // Review of #710: the Home card's Play/Pause was disabled while a command
+    // was busy, so focus fell off it; a press while busy is ignored instead.
+    function test_home_transport_keeps_focus_while_busy() {
+        const row=createTemporaryObject(rowFactory,suite);verify(row);wait(0);verify(row.focusIndex(0));
+        let presses=0;row.secondaryActivated.connect(()=>presses++);
+        keyClick(Qt.Key_Right);const button=findChild(row,"cardSecondaryAction");tryCompare(button,"activeFocus",true);
+        row.entries=[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause",busy:true}];wait(0);
+        compare(button.activeFocus,true);keyClick(Qt.Key_Return);compare(presses,0);
+        row.entries=[{id:"music",title:"Fixture",secondaryIcon:"play",secondaryText:"Play",busy:false}];wait(0);
+        compare(button.activeFocus,true);keyClick(Qt.Key_Return);compare(presses,1);
+    }
 }

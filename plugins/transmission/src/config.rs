@@ -6,7 +6,7 @@
 //! password (spec §11).
 
 use arinn_protocol::{
-    settings::{self, Setting},
+    settings::{self, Setting, Text, Translations},
     validation::ErrorCode,
 };
 use serde_json::{Map, Value};
@@ -136,6 +136,40 @@ pub fn schema() -> Vec<Setting> {
             enabled: true,
         },
     ]
+}
+
+/// Russian texts of the schema (ADR-0129).
+pub fn translations() -> Translations {
+    let text = |title: &str, description: &str| Text {
+        title: Some(title.into()),
+        description: Some(description.into()),
+        ..Text::default()
+    };
+    Translations::default()
+        .with(
+            "ru",
+            "endpoint",
+            text(
+                "Адрес сервиса загрузок",
+                "Адрес HTTP или HTTPS сервиса загрузок. Не указывайте в адресе пароль.",
+            ),
+        )
+        .with(
+            "ru",
+            "credential_ref",
+            text(
+                "Имя учётных данных",
+                "Имя записи в системном хранилище секретов. Оставьте пустым, если сервису не нужен пароль.",
+            ),
+        )
+        .with(
+            "ru",
+            "path_map",
+            text(
+                "Сопоставление папок",
+                "Пары из папки на сервисе загрузок и той же папки на этом компьютере в виде папка-сервиса>локальная-папка, разделённые точкой с запятой.",
+            ),
+        )
 }
 
 fn json_string(value: &str) -> String {
@@ -289,6 +323,19 @@ fn trim_dir(value: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_russian_texts_fit_the_schema() {
+        let translations = translations();
+        assert_eq!(translations.validate(&schema()), Ok(()));
+        for setting in schema() {
+            assert!(
+                translations.lookup("ru_RU", &setting.id).title.is_some(),
+                "{}",
+                setting.id
+            );
+        }
+    }
 
     #[test]
     fn schema_defaults_match_the_contract() {

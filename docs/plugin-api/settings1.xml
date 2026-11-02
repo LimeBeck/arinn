@@ -10,6 +10,11 @@ SPDX-License-Identifier: MIT OR Apache-2.0 -->
       <arg type="s" direction="out" />
       <arg type="a(sssssssb)" direction="out" />
     </method>
+    <method name="GetTranslations">
+      <arg name="provider_id" type="s" direction="in" />
+      <arg type="s" direction="out" />
+      <arg type="s" direction="out" />
+    </method>
     <method name="SetValue">
       <arg name="provider_id" type="s" direction="in" />
       <arg name="generation" type="s" direction="in" />

@@ -10,11 +10,16 @@
 //! `Apply`. Values and constraints travel as JSON so that the schema, the
 //! stored values and `ARINN_PROVIDER_SETTINGS` share one representation.
 //! Providers never supply UI (R-04): the shell renders the typed controls.
+//! A provider may add translations of its texts ([`translations`],
+//! ADR-0129).
 use crate::validation::{self, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 use zbus::zvariant::{OwnedObjectPath, Type};
+
+pub mod translations;
+pub use translations::{Text, Translations};
 
 pub const PROVIDER_INTERFACE: &str = "org.arinn.ProviderSettings1";
 pub const INTERFACE: &str = "org.arinn.Settings1";
@@ -268,6 +273,9 @@ pub mod provider {
         /// provider that can only apply them at its next start answers
         /// `Unsupported`; invalid values are `InvalidArgument`.
         fn apply(&self, generation: &str, values: &str) -> zbus::Result<()>;
+        /// Translations of the schema texts as one JSON object
+        /// (ADR-0129); `{}` when there are none.
+        fn get_translations(&self, generation: &str) -> zbus::Result<String>;
     }
 }
 pub use provider::ProviderSettingsProxy;
@@ -284,6 +292,9 @@ pub trait SettingsApi {
     fn list_providers(&self) -> zbus::Result<Vec<(String, String)>>;
     /// The provider's generation and its settings with current values.
     fn get_settings(&self, provider_id: &str) -> zbus::Result<(String, Vec<Setting>)>;
+    /// The provider's generation and the translations of its setting texts
+    /// as one JSON object (ADR-0129); `{}` when there are none.
+    fn get_translations(&self, provider_id: &str) -> zbus::Result<(String, String)>;
     /// Store a value and push it to the running provider; returns an
     /// `Operation1`.
     fn set_value(

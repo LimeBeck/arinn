@@ -7,11 +7,15 @@
 //! provider start. Paths are not logged.
 
 use crate::store::{MAX_ROOTS, normalize_root};
-use arinn_protocol::{settings::Setting, validation::ErrorCode};
+use arinn_protocol::{
+    settings::{Setting, Text, Translations},
+    validation::ErrorCode,
+};
 use serde_json::{Map, Value};
 use std::path::Path;
 
-/// Titles and descriptions are provider text, shown as sent (§5.6).
+/// English source texts; [`translations`] carries the Russian ones
+/// (ADR-0129).
 pub fn schema() -> Vec<Setting> {
     vec![
         Setting {
@@ -48,6 +52,41 @@ pub fn schema() -> Vec<Setting> {
     ]
 }
 
+/// Russian texts of the schema (ADR-0129), in the handoff's wording where it
+/// has one (se-lf-1).
+pub fn translations() -> Translations {
+    let text = |title: &str, description: &str| Text {
+        title: Some(title.into()),
+        description: Some(description.into()),
+        ..Text::default()
+    };
+    Translations::default()
+        .with(
+            "ru",
+            "roots",
+            text(
+                "Папки медиатеки",
+                "Папки с фильмами и сериалами. Удаление папки из списка не удаляет файлы.",
+            ),
+        )
+        .with(
+            "ru",
+            "autoscan",
+            text(
+                "Обновлять автоматически",
+                "Заново просматривать папки медиатеки каждые 10 минут.",
+            ),
+        )
+        .with(
+            "ru",
+            "probe",
+            text(
+                "Читать сведения о видео",
+                "Определять длительность и языки новых видеофайлов.",
+            ),
+        )
+}
+
 /// Checks complete effective values beyond the schema: every root must be a
 /// folder the provider accepts at start (ADR-0056: absolute, not `/`). A
 /// valid change applies at the next start, so the answer is `Unsupported`.
@@ -70,6 +109,19 @@ pub fn check(values: &Map<String, Value>) -> Result<(), ErrorCode> {
 mod tests {
     use super::*;
     use arinn_protocol::settings::{effective_values, validate_schema};
+
+    #[test]
+    fn the_russian_texts_fit_the_schema() {
+        let translations = translations();
+        assert_eq!(translations.validate(&schema()), Ok(()));
+        for setting in schema() {
+            assert!(
+                translations.lookup("ru_RU", &setting.id).title.is_some(),
+                "{}",
+                setting.id
+            );
+        }
+    }
 
     #[test]
     fn the_schema_is_valid_and_its_defaults_are_the_start_defaults() {

@@ -206,6 +206,29 @@ QString daemonText(const QString &providerId, const QString &text) {
     return text;
   return QCoreApplication::translate("SettingsCatalog", text.toUtf8().constData());
 }
+// A provider's translation of one setting text (ADR-0129): the entry for the
+// full locale (`ru_RU`), then for its language (`ru`), else the source text.
+// `option` picks an enum option title instead of `field`. Only a description
+// may be translated to an empty text, as the protocol allows; an empty title,
+// unit or option title is not a translation.
+QString translatedText(const QJsonObject &table, const QString &settingId,
+                       const QString &field, const QString &source,
+                       const QString &option = {}) {
+  const auto locale = QLocale().name();
+  const auto language = locale.section(QLatin1Char('_'), 0, 0);
+  for (const auto &key : {locale, language}) {
+    const auto entry = table.value(key).toObject().value(settingId).toObject();
+    const auto value =
+        option.isEmpty()
+            ? entry.value(field)
+            : entry.value(QStringLiteral("options")).toObject().value(option);
+    const auto emptyAllowed =
+        option.isEmpty() && field == QLatin1String("description");
+    if (value.isString() && (emptyAllowed || !value.toString().isEmpty()))
+      return value.toString();
+  }
+  return source;
+}
 // The ambient timeouts the daemon offers, in minutes (ADR-0112).
 constexpr int kAmbientMinutes[] = {5, 10, 15, 30, 60};
 bool categoryKnown(const QString &id) {
@@ -415,6 +438,38 @@ void SettingsCatalog::readProvider(const std::shared_ptr<Load> &load, int index)
               }
               arg.endArray();
               provider.ok = true;
+              // The daemon's own texts come from the shell's catalogue.
+              if (provider.id != QLatin1String(kDaemonProvider)) {
+                readTranslations(load, index);
+                return;
+              }
+            }
+            if (--load->remaining == 0)
+              finishLoad(load);
+          });
+}
+// ADR-0129. A daemon without GetTranslations, an error or a table from
+// another generation leaves the provider's source texts.
+void SettingsCatalog::readTranslations(const std::shared_ptr<Load> &load,
+                                       int index) {
+  auto msg = settingsCall("GetTranslations");
+  msg << load->providers.at(index).id;
+  auto pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, callMs), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, load, index](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (load->epoch != m_epoch)
+              return;
+            auto &provider = load->providers[index];
+            if (reply.type() != QDBusMessage::ErrorMessage &&
+                reply.arguments().size() >= 2 &&
+                reply.arguments().at(0).toString() == provider.generation) {
+              const auto document = QJsonDocument::fromJson(
+                  reply.arguments().at(1).toString().toUtf8());
+              if (document.isObject())
+                provider.translations = document.object();
             }
             if (--load->remaining == 0)
               finishLoad(load);
@@ -667,19 +722,35 @@ void SettingsCatalog::publish() {
           if (setting.category != categoryId)
             continue;
           auto constraints = constraintsFor(setting.kind, setting.constraints);
-          if (provider.id == QLatin1String(kDaemonProvider) &&
-              constraints.contains(QStringLiteral("options"))) {
+          const auto daemon = provider.id == QLatin1String(kDaemonProvider);
+          // The daemon's texts from the shell's catalogue (ADR-0112), a
+          // provider's from its own translations (ADR-0129).
+          const auto text = [&](const QString &field, const QString &source) {
+            return daemon ? daemonText(provider.id, source)
+                          : translatedText(provider.translations, setting.id,
+                                           field, source);
+          };
+          if (constraints.contains(QStringLiteral("options"))) {
             QVariantList options;
             for (const auto &option :
                  constraints.value(QStringLiteral("options")).toList()) {
               auto map = option.toMap();
+              const auto title = map.value(QStringLiteral("title")).toString();
               map.insert(QStringLiteral("title"),
-                         daemonText(provider.id,
-                                    map.value(QStringLiteral("title")).toString()));
+                         daemon ? daemonText(provider.id, title)
+                                : translatedText(
+                                      provider.translations, setting.id, {},
+                                      title,
+                                      map.value(QStringLiteral("value")).toString()));
               options.append(map);
             }
             constraints.insert(QStringLiteral("options"), options);
           }
+          if (!daemon && constraints.contains(QStringLiteral("unit")))
+            constraints.insert(
+                QStringLiteral("unit"),
+                text(QStringLiteral("unit"),
+                     constraints.value(QStringLiteral("unit")).toString()));
           const auto multiple =
               setting.kind == QLatin1String("path") &&
               constraints.value(QStringLiteral("multiple")).toBool();
@@ -692,9 +763,9 @@ void SettingsCatalog::publish() {
               {QStringLiteral("providerName"), provider.name},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
-              {QStringLiteral("title"), daemonText(provider.id, setting.title)},
+              {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},
               {QStringLiteral("description"),
-               daemonText(provider.id, setting.description)},
+               text(QStringLiteral("description"), setting.description)},
               {QStringLiteral("type"), setting.kind},
               {QStringLiteral("currentValue"), currentValue},
               {QStringLiteral("constraints"), constraints},

@@ -4,7 +4,7 @@
 use crate::{
     Track,
     player::{Player, Source},
-    queue::Queue,
+    queue::{MAX_UPCOMING, Queue},
 };
 use arinn_protocol::{
     music::{self, Command, Entity, QueueEntry, State},
@@ -261,13 +261,7 @@ impl Playback {
             "next" | "previous" => {
                 let token = {
                     let mut d = self.data.lock().await;
-                    refill(&mut d)?;
-                    if command.action == "next" {
-                        d.queue.advance()
-                    } else {
-                        d.queue.previous()
-                    }
-                    .map_err(|_| ErrorCode::NotFound)?;
+                    step(&mut d, command.action == "next")?;
                     d.token += 1;
                     d.position = 0;
                     d.duration = 0;
@@ -433,12 +427,32 @@ impl Playback {
         }
     }
 }
+/// Moves the finite queue one entry forward or back. The window stays within
+/// its bounds: an entry pushed out by stepping back returns to the tail.
+fn step(d: &mut Data, forward: bool) -> Result<(), ErrorCode> {
+    refill(d)?;
+    if forward {
+        d.queue.advance().map_err(|_| ErrorCode::NotFound)?;
+    } else if let Some(track) = d.queue.previous().map_err(|_| ErrorCode::NotFound)? {
+        d.tail.push_front(track);
+    }
+    Ok(())
+}
+/// Tops the loaded window up from the finite tail. The tail is drained only
+/// after the queue accepted the tracks, so a refused append loses nothing.
 fn refill(d: &mut Data) -> Result<(), ErrorCode> {
-    let count = (64 - d.queue.upcoming()).min(d.tail.len());
-    let tracks = d.tail.drain(..count).collect();
+    let count = MAX_UPCOMING
+        .saturating_sub(d.queue.upcoming())
+        .min(d.tail.len());
+    if count == 0 {
+        return Ok(());
+    }
+    let tracks: Vec<String> = d.tail.iter().take(count).cloned().collect();
     d.queue
         .append_finite(tracks)
-        .map_err(|_| ErrorCode::Internal)
+        .map_err(|_| ErrorCode::Internal)?;
+    d.tail.drain(..count);
+    Ok(())
 }
 pub fn entity(t: &Track) -> Entity {
     let mut value = Entity {
@@ -504,6 +518,44 @@ mod tests {
             state,
         };
         music::encode(&Some(envelope)).unwrap();
+    }
+    /// Review of #710: stepping back on a full 64-entry window left 65
+    /// upcoming entries (an invalid state), and the next refill underflowed
+    /// `64 - 65`, panicking in debug builds and dropping the tail in release.
+    #[test]
+    fn stepping_back_on_a_full_window_keeps_bounds_and_every_track() {
+        let ids: Vec<String> = (0..100).map(|i| format!("t{i}")).collect();
+        let mut d = Data {
+            queue: Queue::default(),
+            tracks: BTreeMap::new(),
+            tail: ids.iter().skip(65).cloned().collect(),
+            session: String::new(),
+            token: 0,
+            revision: 1,
+            position: 0,
+            duration: 0,
+            status: "stopped".into(),
+            error: None,
+            loaded: false,
+            seek_end: false,
+        };
+        d.queue
+            .start(ids.iter().take(65).cloned().collect(), None)
+            .unwrap();
+        let remaining = |d: &Data| d.queue.upcoming() + d.tail.len();
+        assert_eq!(remaining(&d), 99);
+        for forward in [true, true, false, false, true, false] {
+            step(&mut d, forward).unwrap();
+            assert!(d.queue.upcoming() <= MAX_UPCOMING);
+        }
+        assert_eq!(remaining(&d), 99, "no track was lost");
+        // Every track is still reached once, in order, without an error.
+        let mut played = Vec::new();
+        while step(&mut d, true).is_ok() {
+            assert!(d.queue.upcoming() <= MAX_UPCOMING);
+            played.push(d.queue.current().unwrap().track.clone());
+        }
+        assert_eq!(played, ids[1..].to_vec());
     }
     struct FixtureResolver;
     impl Resolver for FixtureResolver {

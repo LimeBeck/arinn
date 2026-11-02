@@ -56,7 +56,7 @@ The handoff declares colours, typography, sizes, radii, focus and motion timings
 Briefs prepared for the designer live in [`briefs/`](briefs/). They are not part of the handoff and decide nothing on their own; the designer's answer comes back as a new handoff package.
 
 - [Closing running applications](briefs/closing-running-applications/README.md) ([#205](https://github.com/LimeBeck/arinn/issues/205)): tile menu, Continue card, running list, confirmation and closing feedback. Answered by the 2026-10-01 handoff (*Closing applications*); the brief is kept unchanged except for its status line, with the variants that were not chosen.
-- [Hearth light](briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)): visual identity pass after the 2026-11-02 design review: light from below, serif content titles, shape roles, neutral monograms, the ignition, Ambient and interface sounds. Written by the agent acting as designer at the owner's request; accepted by the owner on 2026-11-02 with decisions D-1…D-10 ([ADR-0136](../adr/0136-hearth-light-visual-direction.md)).
+- [Hearth light](briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)): visual identity pass after the 2026-11-02 design review: light from below, a content-title face with a hand (Ysabeau), shape roles, neutral monograms, the ignition, Ambient and interface sounds. Written by the agent acting as designer at the owner's request; accepted by the owner on 2026-11-02 with decisions D-1…D-10 ([ADR-0136](../adr/0136-hearth-light-visual-direction.md)).
 
 ## Relation to development
 

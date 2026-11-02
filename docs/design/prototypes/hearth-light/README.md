@@ -11,7 +11,7 @@ Serve the repository root, then open the prototype:
 python -m http.server 8765 --bind 127.0.0.1
 ```
 
-[Open the prototype](http://127.0.0.1:8765/docs/design/prototypes/hearth-light/hearth-light.html). Onest loads from the repository. Literata and Source Serif 4 come from Google Fonts, so an internet connection is needed for the serif variants. Everything else is in the one HTML file: no framework, no samples, no images. The data includes the hard cases the owner's captures of the real shell showed (see *Field check* in the brief): a very long title, a long favourite name and a poster without artwork. Titles, services and artwork are synthetic: the artwork is generated abstract landscapes, the names are fictional, and nothing is launched or played.
+[Open the prototype](http://127.0.0.1:8765/docs/design/prototypes/hearth-light/hearth-light.html). Onest loads from the repository. Ysabeau, the other font-lab faces and Source Serif 4 come from Google Fonts, so an internet connection is needed for them. Everything else is in the one HTML file: no framework, no samples, no images. The data includes the hard cases the owner's captures of the real shell showed (see *Field check* in the brief): a very long title, a long favourite name and a poster without artwork. Titles, services and artwork are synthetic: the artwork is generated abstract landscapes, the names are fictional, and nothing is launched or played.
 
 ## Controls
 
@@ -44,6 +44,7 @@ The prototype and its review panel are in Russian, like the handoff. The panel (
 | `art` | `mixed`, `dark`, `bright`: placeholder artwork | `mixed` |
 | `apps` | `lit`, `tiles`, `shelf`: Applications layout (Hearth light only) | `lit` |
 | `chips` | `icons`, `letters`: letter monograms on the shelf (Hearth light only) | `icons` |
+| `font` | `ysabeau`, `literata`, `playfair`, `prata`, `cormorant`, `bona`, `brygada`, `piazzolla`, `tenor`, `jost`, `geologica`, `onest`: content-title face (font lab) | `ysabeau` |
 | `cap` | `show`, `hide`: caption of the focused Continue card (Hearth light only; D-8 keeps it shown) | `show` |
 | `clock` | `live` uses the real time instead of the fixed 22:57 | fixed |
 | `hud` | `0` hides the review panel (used for the screenshots) | shown |
@@ -55,7 +56,7 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 
 ## What to look at
 
-1. **Home, A against Current.** Switch the variant with focus on the same card. Look at the plates, the uppercase eyebrow, the pastel monograms and the glow disappearing, and at the floor light, the rim and the serif title appearing.
+1. **Home, A against Current.** Switch the variant with focus on the same card. Look at the plates, the uppercase eyebrow, the pastel monograms and the glow disappearing, and at the floor light, the rim and the Ysabeau title appearing.
 2. **Move along a row.** The pool of light follows focus along the floor with a delay. The focused row is lit and the other rows recede. Switch the artwork option to bright: the mat keeps the focus visible on light artwork.
 3. **Favourites as a shelf.** Press ↓ twice from Continue.
 4. **A series.** Open the third Continue card (or `scene=detail&item=keepers`) and press ↓ twice: the selected season, then the current episode. `item=valley` shows episodes without stills as numbered title cards.
@@ -106,11 +107,21 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 | Episodes without stills as numbered title cards | [33-episodes-title-cards](screenshots/33-episodes-title-cards.jpg) |
 | Continue scrolled: the previous card fades at the left edge | [34-home-left-edge](screenshots/34-home-left-edge.jpg) |
 
-<img src="screenshots/01-home.jpg" alt="Home in Hearth light: serif title, captions under the artwork, Ember progress lines, a favourites shelf and a warm floor light" width="480"> <img src="screenshots/20-home-current.jpg" alt="Home in the current look: plates, overlaid captions, uppercase eyebrow and pastel monograms" width="480">
+### Font lab
+
+The twelve candidates for the content-title face (D-2), cropped from the prototype; Ysabeau was chosen.
+
+| Specimen | Sheet |
+| --- | --- |
+| Home hero | [40-font-lab-home](screenshots/40-font-lab-home.jpg) |
+| A long title | [41-font-lab-long-title](screenshots/41-font-lab-long-title.jpg) |
+| Ambient clock | [42-font-lab-ambient](screenshots/42-font-lab-ambient.jpg) |
+
+<img src="screenshots/01-home.jpg" alt="Home in Hearth light: Ysabeau title, captions under the artwork, Ember progress lines, a favourites shelf and a warm floor light" width="480"> <img src="screenshots/20-home-current.jpg" alt="Home in the current look: plates, overlaid captions, uppercase eyebrow and pastel monograms" width="480">
 
 <img src="screenshots/04-navigation.jpg" alt="Navigation as an edge panel with icons and no plates at rest" width="480"> <img src="screenshots/24-navigation-current.jpg" alt="Navigation in the current look: a floating card with a plate under every item" width="480">
 
-<img src="screenshots/09-ambient.jpg" alt="Ambient: a serif clock at the lower left over a low warm light" width="480"> <img src="screenshots/06-detail.jpg" alt="Detail: serif title over the backdrop, primary pill and secondary actions without plates" width="480">
+<img src="screenshots/09-ambient.jpg" alt="Ambient: an Ysabeau clock at the lower left over a low warm light" width="480"> <img src="screenshots/06-detail.jpg" alt="Detail: Ysabeau title over the backdrop, primary pill and secondary actions without plates" width="480">
 
 ### Variants and the current look
 
@@ -128,4 +139,4 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 - All scenes were opened in headless Chromium (Playwright) at 1920 × 1080 and captured with no console errors or page errors.
 - Scripted remote paths were replayed with the key log checked: Home → detail → player and back, navigation to Library and Applications, the series rail (selected tab, current episode, season switch, Back to the action), Ambient and Startup.
 - Every interface sound was rendered offline with the prototype's own synthesis (`OfflineAudioContext`, 48 kHz). Measured peak and length: tap 0.22 / 49 ms, edge 0.25 / 69 ms, select 0.24 / 203 ms, back 0.10 / 135 ms, open 0.05 / 137 ms, close 0.07 / 128 ms, ignite 0.20 / 1.7 s, kindle 0.15 / 456 ms, error 0.16 / 277 ms. The media guard was checked: the player reports media playing, so interface sounds are suppressed.
-- **Not tested:** listening on real speakers or a TV, readability of the rim and the serif at 3 m, and performance on HTPC hardware. These need the owner (brief, decision D-7).
+- **Not tested:** listening on real speakers or a TV, readability of the rim and the title face at 3 m, and performance on HTPC hardware. These need the owner (brief, decision D-7).

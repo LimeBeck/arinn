@@ -8,7 +8,7 @@ Accepted by the owner on 2026-11-02 ([ADR-0136](../../adr/0136-hearth-light-visu
 - **§5 Interface** and the last sentence of **§15** are new: the *Hearth light* direction replaces the description of the generic TV template.
 - **§3 Ember** adds the ignition and the short ignition (*kindle*).
 - **§9** adds the generic TV template to what to avoid.
-- **§10 Typography** adds a serif for content titles.
+- **§10 Typography** adds a face for content titles.
 - **§16 Sound** is new.
 
 The interface copy is Russian. The examples in §6 and §11 are given in English here, as the source strings of the code.
@@ -62,7 +62,7 @@ This is the base palette, not the only colours allowed in the interface. Content
 
 ## 5. Interface
 
-The interface is a dark, quiet room with one warm light low in it. Content screens are lit from below: a warm floor light, and a pool of light under the item in focus. Containers stay dark until focus reaches them; the focused row is lit, the rest of the room recedes. Content titles are set in a serif, system text in a sans-serif. Colour comes from content and from the light, never from decoration. Large, readable elements, horizontal rows and an obvious focus remain.
+The interface is a dark, quiet room with one warm light low in it. Content screens are lit from below: a warm floor light, and a pool of light under the item in focus. Containers stay dark until focus reaches them; the focused row is lit, the rest of the room recedes. Content titles are set in a face with a hand, system text in a plain sans-serif. Colour comes from content and from the light, never from decoration. Large, readable elements, horizontal rows and an obvious focus remain.
 
 The room gets darker in the evening and at night, as a room with a hearth does. Arinn should feel first of all like a living-room interface, not a desktop launcher.
 
@@ -101,10 +101,10 @@ The image of the hearth is a metaphor, not an illustration.
 
 ## 10. Typography
 
-A clean, modern, highly legible family for system text, and a serif for content.
+A clean, modern, highly legible family for system text, and a warmer face with a hand for content titles.
 
 - **System text: Onest.** High legibility on a TV, good Cyrillic, an expressive semibold for headings and a calm regular for secondary text, without a techno or futuristic character.
-- **Content titles: Literata** (OFL-1.1, full Cyrillic), optical size *Display*: the hero, the detail title, the player title and the Ambient clock. A film's name set like a poster or a book spine is the single most recognisable typographic trait of Arinn.
+- **Content titles: Ysabeau** (OFL-1.1, full Cyrillic), a humanist sans-serif with calligraphic forms, weight 600, lining figures: the hero, the detail title, the player title, episode title cards and the Ambient clock. A film's name written with a hand, next to plain system text, is the most recognisable typographic trait of Arinn. Book serifs are avoided: set large they look like a printed document.
 - No uppercase letter-spaced eyebrows. Hierarchy comes from size and family, not from bold against extra bold.
 
 The wordmark Arinn uses the same visual language; a small customisation is allowed later.
@@ -133,7 +133,7 @@ A more emotional variant is "Arinn — a digital hearth for your home". *Digital
 
 ## 15. Short prompt for a designer or an AI
 
-> Design for Arinn, a modern living-room/HTPC interface. Arinn means "hearth" in Old Norse, but the visual identity must remain contemporary and minimal rather than Nordic or fantasy-inspired. The primary logo is a geometric letter A resembling a subtle hearth or shelter, with a small Ember Orange dot at its base. The interface is a dark, quiet room lit from below by a warm, low light; the item in focus stands in that light. Use warm white typography, a serif for content titles and a sans-serif for system text, and orange only as a restrained accent, never for focus. The product should feel calm, premium, domestic and effortless. Never redesign Arinn into a generic cinematic streaming service or gaming launcher, and do not fall back on the generic TV template: uniform rounded plates, uppercase eyebrows, pastel monograms or a colour glow behind content.
+> Design for Arinn, a modern living-room/HTPC interface. Arinn means "hearth" in Old Norse, but the visual identity must remain contemporary and minimal rather than Nordic or fantasy-inspired. The primary logo is a geometric letter A resembling a subtle hearth or shelter, with a small Ember Orange dot at its base. The interface is a dark, quiet room lit from below by a warm, low light; the item in focus stands in that light. Use warm white typography, a warm humanist face with calligraphic forms for content titles and a plain sans-serif for system text, and orange only as a restrained accent, never for focus. The product should feel calm, premium, domestic and effortless. Never redesign Arinn into a generic cinematic streaming service or gaming launcher, and do not fall back on the generic TV template: uniform rounded plates, uppercase eyebrows, pastel monograms or a colour glow behind content.
 
 ## 16. Sound
 

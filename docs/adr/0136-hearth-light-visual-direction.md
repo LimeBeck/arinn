@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-02
 - **Deciders:** Owner, decisions D-1…D-10 of the Hearth light brief (2026-11-02, Claude session, [#721](https://github.com/LimeBeck/arinn/issues/721)). The setting ids and the shell implementation are delegated technical choices ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)).
-- **Amends / Supersedes:** amends [ADR-0019](0019-design-handoff-contract.md) (the visual contract: content serif, focus treatment, light field) and [ADR-0112](0112-shell-preferences-as-core-settings.md) (two more core settings)
+- **Amends / Supersedes:** amends [ADR-0019](0019-design-handoff-contract.md) (the visual contract: content-title face, focus treatment, light field) and [ADR-0112](0112-shell-preferences-as-core-settings.md) (two more core settings)
 - **Amended by / Superseded by:** —
 - **Specification:** §5, §5.1, §5.5, §5.6, §5.7, §15
 
@@ -19,8 +19,8 @@ Arinn adopts the **Hearth light** visual direction (variant A of the brief). The
 
 | ID | Decision |
 | --- | --- |
-| D-1 | Variant A: light from below, the lit row, content titles in a serif, three shape roles, neutral monograms, rim-light focus, the ignition and the short ignition (*kindle*) |
-| D-2 | Literata (OFL-1.1) for content titles: hero, detail, player title, Ambient clock; Onest stays for system text |
+| D-1 | Variant A: light from below, the lit row, a content-title face with a hand, three shape roles, neutral monograms, rim-light focus, the ignition and the short ignition (*kindle*) |
+| D-2 | Ysabeau (OFL-1.1) for content titles: hero, detail, player title, episode title cards, Ambient clock; Onest stays for system text. The owner first chose Literata and revised it the same day after the prototype's font lab: Literata looked bookish |
 | D-3 | Home favourites are a shelf of names, not tiles |
 | D-4 | Interface sounds are on, at *Quiet* by default |
 | D-5 | The light follows the time of day automatically, with a setting to turn that off |
@@ -40,7 +40,7 @@ Fixed rules that the implementation must keep:
 ## Consequences
 
 - The shell implementation is split into tasks listed in the brief (*After acceptance*): tokens and typography, the light system, shape roles and focus, Home and navigation, Applications, Ambient with the ignition and kindle, and interface sounds. Each keeps the existing UI comparison (`scripts/ui-compare.py`) and updates `docs/architecture/ui-components.md`.
-- Literata becomes a bundled font. Adding the font file and its `REUSE.toml` entry is a licensing change and needs the owner's review in its pull request.
+- Ysabeau becomes a bundled font. Adding the font file and its `REUSE.toml` entry is a licensing change and needs the owner's review in its pull request.
 - `Settings1` gains two entries in the daemon's own schema; the wire contract does not change.
 - Interface sounds need pre-rendered WAV files (rendered from the prototype's synthesis), `QSoundEffect` and a media guard in the shell.
 - The music screens ([#677](https://github.com/LimeBeck/arinn/issues/677)) follow the same roles.
@@ -48,10 +48,10 @@ Fixed rules that the implementation must keep:
 
 ## Alternatives considered
 
-- **Variant B** (Hearth light without the serif): less distinctive; the serif was the most visible single difference.
+- **Variant B** (Hearth light without a separate content-title face): less distinctive; the title face was the most visible single difference.
 - **Variant C** (*Calm*: remove plates, pastel monograms and uppercase eyebrows only): a smaller step that would leave the shell recognisably generic.
 - **Keep the current look**: rejected by the owner's observation that started the review.
-- Rejected details: Source Serif 4 instead of Literata; favourites as tiles; letter monograms on the shelf; hiding the focused caption (tried in the second round; the empty space looked odd); Applications as a shelf or as plain tiles.
+- Rejected details: Literata (first choice; too bookish set large), Source Serif 4 and the other font-lab candidates (Playfair Display, Prata, Cormorant Garamond, Bona Nova, Brygada 1918, Piazzolla, Tenor Sans, Jost, Geologica); favourites as tiles; letter monograms on the shelf; hiding the focused caption (tried in the second round; the empty space looked odd); Applications as a shelf or as plain tiles.
 
 ## Verification
 

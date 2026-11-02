@@ -529,14 +529,14 @@ const PRESETS = {
 const VARIANT_NAMES = { hearth: 'A · Свет очага', 'hearth-source': 'A′ · Source Serif', 'hearth-sans': 'B · без антиквы', calm: 'C · Спокойный', current: 'Сейчас' };
 // Font lab: candidates for the content-title face. Every one is OFL-1.1 with Cyrillic.
 const FONTS = {
-  literata: { f: 'Literata', w: 500, t: '-.01em', name: 'Literata — книжная (решение D-2)' },
+  literata: { f: 'Literata', w: 500, t: '-.01em', name: 'Literata — книжная (первый выбор)' },
   playfair: { f: 'Playfair Display', w: 600, t: '-.01em', name: 'Playfair Display — контрастная, афиша' },
   prata: { f: 'Prata', w: 400, t: '0', name: 'Prata — дидона, журнал' },
   cormorant: { f: 'Cormorant Garamond', w: 600, t: '0', name: 'Cormorant Garamond — изящная' },
   bona: { f: 'Bona Nova', w: 700, t: '-.01em', name: 'Bona Nova — с характером' },
   brygada: { f: 'Brygada 1918', w: 600, t: '-.01em', name: 'Brygada 1918 — тёплая, старая школа' },
   piazzolla: { f: 'Piazzolla', w: 600, t: '.005em', name: 'Piazzolla — острая, современная' },
-  ysabeau: { f: 'Ysabeau', w: 600, t: '0', name: 'Ysabeau — гротеск с каллиграфией' },
+  ysabeau: { f: 'Ysabeau', w: 600, t: '0', name: 'Ysabeau — гротеск с каллиграфией (решение D-2)' },
   tenor: { f: 'Tenor Sans', w: 400, t: '0', name: 'Tenor Sans — контрастный гротеск' },
   jost: { f: 'Jost', w: 500, t: '-.01em', name: 'Jost — геометрия, афиши' },
   geologica: { f: 'Geologica', w: 500, t: '-.02em', name: 'Geologica — современный гротеск' },
@@ -552,7 +552,7 @@ const settings = {
   apps: ['lit', 'tiles', 'shelf'].includes(Q.get('apps')) ? Q.get('apps') : 'lit',
   chips: ['icons', 'letters'].includes(Q.get('chips')) ? Q.get('chips') : 'icons',
   cap: ['hide', 'show'].includes(Q.get('cap')) ? Q.get('cap') : 'show',
-  font: FONTS[Q.get('font')] ? Q.get('font') : 'literata',  // owner decision D-8: the caption stays
+  font: FONTS[Q.get('font')] ? Q.get('font') : 'ysabeau',  // owner decision D-2 after the font lab  // owner decision D-8: the caption stays
 };
 // The options below belong to the Hearth light variants; Calm and Current keep today's behaviour.
 const hearthish = () => P().light === 'hearth';
@@ -1005,7 +1005,7 @@ function finishStartup() {
 function applyVariant(keepFocus = true) {
   const p = P(), key = S.focused && S.focused.dataset.key;
   const e = eff();
-  const F = FONTS[settings.font], custom = hearthish() && p.serif !== 'none' && settings.font !== 'literata';
+  const F = FONTS[settings.font], custom = hearthish() && p.serif === 'literata' && settings.font !== 'literata';  // A only: A′ and B keep their own faces
   document.body.style.setProperty('--ctf', `'${F.f}'`); document.body.style.setProperty('--ctw', F.w); document.body.style.setProperty('--ctt', F.t);
   document.body.className = [custom ? 'font-custom' : '', `apps-${e.apps}`, `chips-${e.chips}`, e.cap ? 'cap-focus' : '', `light-${settings.lightOn ? p.light : 'off'}`, `serif-${p.serif}`, `shape-${p.shape}`, `mono-${p.mono}`, `eyebrow-${p.eyebrow}`, `focus-${p.focus}`, `tok-${p.tok}`, `tod-${period()}`, `motion-${settings.motion}`].join(' ');
   const navWas = S.nav; if (navWas) closeNav(true);

@@ -18,7 +18,7 @@ const MAX_FILES: usize = 100_000;
 const MAX_DEPTH: usize = 64;
 const EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "opus", "m4a", "aac", "wav"];
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Root {
     pub id: String,
     pub path: PathBuf,
@@ -48,7 +48,7 @@ struct Record {
     track: Track,
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Catalogue {
     roots: BTreeMap<String, Identity>,
     records: BTreeMap<String, Record>,
@@ -63,6 +63,15 @@ pub struct RootStatus {
 }
 
 impl Catalogue {
+    /// A restored catalogue is metadata only until its configured roots rescan.
+    pub(crate) fn invalidate(&mut self) {
+        if self.records.values().any(|r| r.track.available) {
+            for record in self.records.values_mut() {
+                record.track.available = false;
+            }
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -99,11 +108,21 @@ impl Catalogue {
     /// The caller supplies stable opaque root IDs; these never depend on labels.
     /// Missing/replaced roots and failed subtrees preserve last-known records.
     pub fn scan(&mut self, roots: &[Root], probe: &impl Probe) -> Vec<RootStatus> {
+        self.scan_bounded(roots, probe, MAX_FILES)
+    }
+
+    fn scan_bounded(
+        &mut self,
+        roots: &[Root],
+        probe: &impl Probe,
+        limit: usize,
+    ) -> Vec<RootStatus> {
         let before = self.tracks();
         for record in self.records.values_mut() {
             record.track.available = false;
         }
         let mut statuses = Vec::new();
+        let mut encountered = 0_usize;
         for root in roots {
             let identity = root
                 .path
@@ -127,9 +146,8 @@ impl Catalogue {
                 self.roots.insert(root.id.clone(), identity);
                 let mut stack = vec![(root.path.clone(), 0)];
                 let mut visited = HashSet::new();
-                let mut encountered = 0_usize;
                 while let Some((directory, depth)) = stack.pop() {
-                    if depth > MAX_DEPTH || encountered >= MAX_FILES {
+                    if depth > MAX_DEPTH || encountered >= limit {
                         status.incomplete = true;
                         break;
                     }
@@ -141,7 +159,7 @@ impl Catalogue {
                         }
                     };
                     for entry in entries {
-                        if encountered >= MAX_FILES {
+                        if encountered >= limit {
                             status.incomplete = true;
                             break;
                         }
@@ -172,7 +190,7 @@ impl Catalogue {
                         if !metadata.is_file() || !audio_candidate(&path) {
                             continue;
                         }
-                        if visited.len() >= MAX_FILES {
+                        if visited.len() >= limit {
                             status.incomplete = true;
                             break;
                         }
@@ -186,6 +204,10 @@ impl Catalogue {
                             continue;
                         };
                         let id = opaque(&[&root.id, relative_text]);
+                        if self.records.len() >= limit && !self.records.contains_key(&id) {
+                            status.incomplete = true;
+                            break;
+                        }
                         let Ok(file) = crate::paths::open_beneath(&root.path, relative, identity)
                         else {
                             status.incomplete = true;
@@ -311,6 +333,38 @@ mod tests {
                 ..Track::default()
             })
         }
+    }
+    #[test]
+    fn traversal_and_retained_record_budgets_apply_across_roots_and_rescans() {
+        let a = Fixture::new();
+        let b = Fixture::new();
+        for root in [&a.path, &b.path] {
+            for name in ["a.mp3", "b.mp3"] {
+                fs::write(root.join(name), b"fixture").unwrap();
+            }
+        }
+        let roots = [
+            Root {
+                id: "a".into(),
+                path: a.path.clone(),
+            },
+            Root {
+                id: "b".into(),
+                path: b.path.clone(),
+            },
+        ];
+        let mut catalogue = Catalogue::default();
+        let statuses = catalogue.scan_bounded(&roots, &FakeProbe(Cell::new(0)), 3);
+        assert_eq!(catalogue.tracks().len(), 3);
+        assert!(statuses.iter().any(|s| s.incomplete));
+        for root in [&a.path, &b.path] {
+            fs::remove_file(root.join("a.mp3")).unwrap();
+            fs::remove_file(root.join("b.mp3")).unwrap();
+            fs::write(root.join("new.mp3"), b"fixture").unwrap();
+        }
+        catalogue.scan_bounded(&roots, &FakeProbe(Cell::new(0)), 3);
+        assert_eq!(catalogue.tracks().len(), 3);
+        assert!(catalogue.tracks().iter().all(|t| !t.available));
     }
     #[test]
     fn stable_rescan_search_failures_and_missing_root_preserve_references() {

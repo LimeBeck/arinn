@@ -4,6 +4,7 @@
 //! Provider-private domain primitives, not a D-Bus or SDK contract.
 //! Stream URLs, headers, tokens and filesystem paths never belong in Track.
 pub mod queue;
+pub mod storage;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

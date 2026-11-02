@@ -15,9 +15,9 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 
 | Package | Implemented in this increment | Still missing |
 | --- | --- | --- |
-| `arinn-music-common` | Provider-private metadata and bounded finite/radio queue with session/request/occurrence identity | Accepted wire projection and runtime command/confirmation integration |
-| `arinn-plugin-music-local` | Audio catalogue backend, bounded ffprobe, metadata grouping, unavailable-root retention and secure descriptor reopening | Provider process/registration, persistent storage lifecycle, paged export, artwork extraction, settings and actual playback routing |
-| `arinn-plugin-yandex-music` | Private authenticated HTTP adapter for track search, track metadata, playlist listing and radio session/batch/feedback; bounded response parsing | Account acquisition/storage, catalogue completion and liked content, stream resolution/playback, provider registration, UI and live qualification |
+| `arinn-music-common` | Provider-private metadata, bounded finite/radio queue and anchored atomic state-file helper | Accepted wire projection and runtime command/confirmation integration |
+| `arinn-plugin-music-local` | Audio catalogue, bounded ffprobe, metadata grouping, persistent configured roots/catalogue/finite playlists, unavailable-root retention and secure descriptor reopening | Provider process/registration, paged export, artwork extraction, settings UI and actual playback routing |
+| `arinn-plugin-yandex-music` | Private HTTP catalogue/radio adapter, device-code connection controller and staged Secret Service credential lifecycle | Qualified OAuth client provisioning, catalogue completion/liked content, stream resolution/playback, provider registration, connection UI and live qualification |
 
 These are library crates, not installed executables. No new provider manifest is
 shipped and no daemon capability is registered. `Track` contains no filesystem
@@ -25,9 +25,9 @@ path, stream address, token or HTTP header; provider-private catalogue records
 may contain local paths and are not a shell/wire model. Internal types are not a
 new Plugin API and do not stabilize an interface accidentally.
 
-Shared protocol/SDK and runtime integration remain coordinated with the active
-settings contract [#704](https://github.com/LimeBeck/arinn/pull/704) / #683. This
-increment changes no files owned by that work. It does not close the design or
+The settings contract [#704](https://github.com/LimeBeck/arinn/pull/704) / #683
+has merged, clearing the earlier shared-file overlap. This provider-private
+increment changes no protocol/SDK/runtime files. It does not close the
 implementation tracker, change a phase status or claim streaming support.
 
 ## Queue invariants
@@ -53,8 +53,10 @@ implementation tracker, change a phase status or claim streaming support.
 The scanner reads configured absolute roots and candidates with MP3, FLAC, Ogg,
 Opus, M4A, AAC and WAV extensions. An extension alone is insufficient: ffprobe
 must report audio. Attached cover artwork is accepted; moving video is not part
-of this audio backend. Only generated WAV has been decoder-qualified in this
-increment; the other candidates still need format fixtures and packaged tests.
+of this audio backend. Synthetic format tests generate MP3, FLAC, Ogg/Vorbis, Opus, M4A/AAC, raw AAC
+and WAV using packaged FFmpeg before probing them. These fixtures do not replace
+package-install, artwork or real-library qualification; actual results are recorded
+in the implementation MR.
 
 Format and stream tags supply title, artist, album artist, album, disc/track
 numbers and duration. Unknown metadata stays unknown; a missing title falls
@@ -71,7 +73,11 @@ does not silently become an empty authoritative rescan. Configured roots need
 their first successful scan while mounted; initial-mount expectations and an
 explicit replacement-root confirmation belong to the later root-settings work.
 Incomplete scans conservatively mark unverified old records unavailable; they
-do not delete references. Persistent save/load orchestration is not implemented.
+do not delete references. The `Library` backend now orchestrates private save/load, root configuration,
+rescans and ordered finite-playlist CRUD. Repeated track references are preserved;
+unknown references are rejected, and unavailable tracks stay referenced. A
+restored catalogue is unavailable for playback until a rescan revalidates roots
+and file descriptors. Unchanged metadata can still reuse its cached probe.
 
 Cached metadata avoids repeating ffprobe for unchanged files, but reopening is
 still checked. Each path component is opened relative to an anchored directory
@@ -86,10 +92,30 @@ disable MOV external data references. Timeout/error cleanup kills only the
 owned process group and reaps its leader; exit is observed without reaping first
 so cleanup cannot race PID reuse. No real desktop processes are controlled.
 
+### Private local state
+
+`Library::open` holds an exclusive advisory writer lock for its lifetime. State
+is a versioned, bounded (32 MiB) snapshot of roots, catalogue and at most 256
+playlists with at most 10,000 references each. It uses an owned private directory
+(mode 0700), regular no-follow files (0600), anchored descriptor-relative opens,
+exclusive temporary files, atomic rename and file/directory synchronization.
+Unsafe, corrupt or unsupported snapshots fail closed and are never silently
+replaced with an empty library. A failed pre-rename commit leaves live state
+unchanged; a post-rename directory-sync error keeps memory aligned with the
+committed file and reports uncertain durability. The library revision covers
+successful root, catalogue and playlist changes, including startup invalidation.
+Traversal and retained-record limits apply across configured roots and rescans.
+
+The common state-file helper is provider-private implementation, not a D-Bus
+contract. It is also used by the Yandex nonsecret approval checkpoint below.
+State-directory selection, settings export and background scan scheduling still
+belong to provider/runtime integration.
+
 ## Yandex private adapter
 
-The API adapter requires a caller-supplied authorized token in memory. It does
-not acquire an account or provide a token-entry UI. No third-party OAuth client
+The API adapter accepts a provider-owned authorized token in memory. The new
+`DeviceAuth` controller obtains one through device-code confirmation and creates
+the API client without returning tokens to its caller. No third-party OAuth client
 registration or secret is bundled. The fixed HTTPS service origin, disabled
 redirects, sensitive authorization header, response size limit and redacted
 error enum keep service URLs/credentials out of diagnostics and shell models.
@@ -120,11 +146,37 @@ The production connection must:
 - Cover pending, success, denial, expiry, cancellation, retry, polling limits,
   restart and late-result races with synthetic tests before live qualification.
 
-This flow is a delivery requirement, **not implemented by the current token-only
-adapter**. The upstream example establishes the interaction, not official API
-support or permission to reuse a third-party application registration. Qualify
-the underlying device-auth endpoints, client identity and credential lifecycle
-before shipping it.
+The provider-private flow is implemented with `POST /device/code` and
+`POST /token` at the fixed HTTPS OAuth origin. It uses the upstream Yandex
+[device-auth request semantics](https://github.com/MarshalX/yandex-music-api/blob/main/yandex_music/_client/device_auth.py)
+(`grant_type=device_code`, `code`, client identity). Bounded responses, disabled
+redirects, an allowlisted verification origin and redacted errors keep device
+credentials and response details out of UI/logging. Polling respects the server
+interval and slowdown, with cancellation and a monotonic expiry deadline.
+Attempts bind their controller and generation; newer attempts reject older
+results, including during slow storage. Persistence/cleanup tasks remain owned
+when a caller drops its completion future. The private API client becomes
+available only after the caller acknowledges completion; dropping that lease
+revokes in-memory access synchronously before deferred cleanup.
+
+`SecretService` stores tokens only in `org.freedesktop.secrets`. It stages each
+attempt under a fresh grant nonce; existing items are updated in their actual
+collection. A separate private atomic checkpoint contains only the committed
+nonce, never token or account data. Only a matching approved grant may restore
+after restart. Cancellation/disconnect revoke that approval before fallible
+remote cleanup; a timed-out or dropped remote write can finish later but cannot
+activate the abandoned grant. Stale nonce-specific cleanup preserves a newer
+grant. Keyring calls have deadlines, cleanup is bounded, known sessions close
+on error/drop, and locked/ambiguous storage fails without opening prompts or
+falling back to plaintext credentials.
+
+The connection UI and provider process are **not integrated yet**. The controller
+requires an explicitly configured, qualified OAuth client identity (and secret
+if needed); it does not copy the upstream library's third-party registration
+credentials or bundle a shared application secret. The upstream example
+establishes the interaction, not official API support or permission to reuse that
+registration. Live account, scope, region and subscription qualification remain
+outstanding. Expired access requires reconnect; automatic refresh is not claimed.
 
 ### Radio and qualification
 
@@ -163,7 +215,7 @@ commands, toolchain wrapper failures and reruns; these command examples alone
 are not evidence that the complete project check list passed.
 
 Before completion: integrate the accepted common contract, daemon and shell;
-finish provider registration/settings/account/playback; add all format/artwork
+finish provider registration/settings/client provisioning/playback; add all format/artwork
 and package fixtures; run the full required checks and obtain final review.
 Live service and real-remote/HTPC qualification remain separate from synthetic
 tests and require the applicable account setup/operator authorization.

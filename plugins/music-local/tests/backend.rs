@@ -170,13 +170,71 @@ fn a_disguised_playlist_cannot_make_the_audio_probe_fetch_a_subordinate_url() {
         listener.local_addr().unwrap()
     );
     fs::write(&file, contents).unwrap();
-    let probe = Ffprobe {
-        timeout: Duration::from_millis(500),
-        ..Ffprobe::default()
-    };
+    // Exercise the production probe budget, including decoder startup on slow
+    // CI/toolchain runners. The owned sleeping helper above tests short limits.
+    let probe = Ffprobe::default();
     assert_eq!(probe.inspect(&file), Err(Error::Failed));
     assert_eq!(
         listener.accept().err().unwrap().kind(),
         std::io::ErrorKind::WouldBlock
     );
+}
+
+#[test]
+fn packaged_decoders_recognize_all_seven_candidate_audio_formats() {
+    let fixture = Fixture::new();
+    let source = fixture.0.join("source.wav");
+    audio(&source);
+    let probe = Ffprobe::default();
+    for (extension, encoder) in [
+        ("mp3", "libmp3lame"),
+        ("flac", "flac"),
+        ("ogg", "libvorbis"),
+        ("opus", "libopus"),
+        ("m4a", "aac"),
+        ("aac", "aac"),
+        ("wav", "pcm_s16le"),
+    ] {
+        let output = fixture.0.join(format!("Synthetic.{extension}"));
+        let status = std::process::Command::new("ffmpeg")
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-i",
+            ])
+            .arg(&source)
+            .args([
+                "-vn",
+                "-c:a",
+                encoder,
+                "-metadata",
+                "title=Synthetic title",
+                "-metadata",
+                "artist=Synthetic artist",
+                "-metadata",
+                "album=Synthetic album",
+            ])
+            .arg(&output)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("packaged ffmpeg is required for audio format qualification");
+        assert!(
+            status.success(),
+            "synthetic encoding failed for {extension}"
+        );
+        let track = probe
+            .inspect(&output)
+            .unwrap_or_else(|e| panic!("synthetic {extension} probe failed: {e:?}"));
+        assert!(track.available);
+        assert!(
+            (500_000..=3_000_000).contains(&track.duration_us),
+            "invalid duration for {extension}"
+        );
+        assert!(!track.embedded_artwork);
+    }
 }

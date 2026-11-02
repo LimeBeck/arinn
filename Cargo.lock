@@ -50,6 +50,7 @@ dependencies = [
 name = "arinn-music-common"
 version = "0.2.0"
 dependencies = [
+ "libc",
  "serde",
 ]
 
@@ -205,8 +206,11 @@ version = "0.2.0"
 dependencies = [
  "arinn-music-common",
  "reqwest 0.12.28",
+ "serde",
  "serde_json",
  "tokio",
+ "uuid",
+ "zbus",
 ]
 
 [[package]]

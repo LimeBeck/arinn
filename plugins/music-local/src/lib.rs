@@ -3,6 +3,7 @@
 
 //! Local music catalogue backend. D-Bus registration is a separate integration step.
 pub mod catalogue;
+pub mod library;
 pub mod metadata;
 mod paths;
 pub mod probe;

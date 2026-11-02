@@ -1,9 +1,12 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Provider-private API backend. Account provisioning, playback, D-Bus export
-//! and live-service qualification are not implemented by this module.
+//! Provider-private catalogue/radio and device-code connection backends.
+//! Client provisioning, playback, D-Bus export, UI and live-service qualification
+//! are not implemented by these modules.
+pub mod auth;
 mod parse;
+pub mod secrets;
 #[cfg(test)]
 mod tests;
 use arinn_music_common::Track;

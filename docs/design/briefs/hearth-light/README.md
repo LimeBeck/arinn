@@ -132,9 +132,9 @@ The room gets darker in the evening, as a room with a hearth does.
 | --- | --- | --- | --- | --- |
 | Day | 06:00–18:59 | 100 % | none | 100 % |
 | Evening | 19:00–22:59 | 85 %, floor hue 5° warmer | 6 % | 100 % |
-| Night | 23:00–05:59 | 60 %, floor hue 8° warmer | 22 % | `oklch(0.84 …)` |
+| Night | 23:00–05:59 | 60 %, floor hue 8° warmer | 22 % | raised to `oklch(0.97 …)`, `text-2` 0.84, `text-3` 0.71, so that under the veil `text-3` stays at 4.8 : 1 (calculated) |
 
-The first round only dimmed the light at night, and nobody would have noticed. The veil darkens and warms the whole picture, artwork included, so night reads as night.
+Because the veil also darkens text, the night text tokens are raised to compensate; without that, `text-3` would fall to about 3.3 : 1. The first round only dimmed the light at night, and nobody would have noticed. The veil darkens and warms the whole picture, artwork included, so night reads as night.
 
 Contrast stays within the ratios above in every period. The shell uses its own clock; no location or sunrise data is needed. A setting turns the effect off (owner decision D-5).
 
@@ -198,14 +198,14 @@ The prototype covers these. Measurements are for the 1920 × 1080 canvas.
 
 - **Top bar** (y 56): mark 36 + "Arinn" Onest 600 30, **without a pill plate**. Status on the right without plates: Ember ↓ + "82 %", Wi-Fi, clock 30/500.
 - **Hero** (x 120, y 150, fixed height 240): eyebrow "Film · 2024" or "Series · S1 E4", or Ember dot + "Running now"; title Ysabeau 96 on one line or 68 on two; meta 28 right under the title. Nothing below the hero moves when the title changes. It describes the focused item, never repeating the row label above it. The current duplicate "CONTINUE" / "Continue" disappears.
-- **Continue** (label y 404): 16:9 cards 448 × 252, r12, gap 32, caption below (title 28/600, subtitle 24/500), Ember line along the bottom of the image.
+- **Continue** (label y 404; one activity plus at most four resumable entries, spec §5.1): 16:9 cards 448 × 252, r12, gap 32, caption below (title 28/600, subtitle 24/500), Ember line along the bottom of the image.
 - **Favourites as a shelf** (label y 836): names in a line, Onest 600 32, items 88 high with 28 px side padding and a 28 px gap; provider icons in a neutral chip 56, no letter chips (D-10). At rest `text-2` and no plates. In focus a container plate with the rim, and the pool moves under it. A running application has an Ember dot after its name. It replaces the row of identical 264 × 132 tiles, reads like the names on a shelf and takes half the height (D-3).
 - **New**: posters 180 × 270, r10. Its label peeks at the bottom edge. Focusing it scrolls the page and hides the hero, as now.
 - **Home over a running application**: the receded application layer and its scale, blur and brightness stay as specified. The floor light takes the application's identity hue.
 
 ### Global navigation
 
-An **edge panel**, not a floating card: full height, 660 wide, Charcoal from 97 % to transparent at the right edge, with the screen behind at brightness 0.45 and blur 6. Items are text with line icons 36, no plates at rest, height 84. The current section has an Ember dot before its label. A hairline divides sections from the running application (application name, "Return" below it, Ember dot) and from Power at the bottom. This also fixes the current deviations from the handoff (plates and outlines at rest, no icons, Power styled like a section).
+An **edge panel**, not a floating card: full height, 660 wide, Charcoal from 97 % to transparent at the right edge, with the screen behind at brightness 0.45 and blur 6. Items are text with line icons 36, no plates at rest, height 84. The current section has an Ember dot before its label. The items follow specification §5: the five sections, a hairline, then **Open services** and **Running** with their counts; whichever holds the activity on screen carries an Ember dot, so there is no separate activity row. **Power** and **Close Arinn** sit at the bottom. This also fixes the current deviations from the handoff (plates and outlines at rest, no icons, Power styled like a section).
 
 ### Library
 

@@ -26,7 +26,7 @@ body {
   --ember: #FF8A3D; --ink: #131417; --chip: #1C1E23;
 }
 body.tok-current { --bg: #131416; --t1: #F4F5F7; --t2: #C9CBCF; --t3: #9A9DA3; }
-body.tok-hearth.tod-night { --t1: oklch(.84 .008 75); --t2: oklch(.71 .008 75); --t3: oklch(.60 .008 75); }
+body.tok-hearth.tod-night { --t1: oklch(.97 .006 75); --t2: oklch(.84 .008 75); --t3: oklch(.71 .008 75); }  /* raised so that under the 22 % veil text-3 stays at 4.8:1 */
 body.motion-reduced * { transition-duration: 1ms !important; animation: none !important; }
 
 #stage {
@@ -335,7 +335,11 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 .navi.tall { height: 104px; }
 .navi.tall .two { display: flex; flex-direction: column; }
 .navi.tall .two small { font-size: 24px; font-weight: 500; color: var(--t3); margin-top: 2px; }
-.navi.bottom { position: absolute; bottom: 64px; }
+.navi.bottom { position: absolute; bottom: 56px; }
+.navi.bottom2 { position: absolute; bottom: 148px; }
+.navi .count { margin-left: auto; font-size: 26px; font-weight: 500; color: var(--t3); }
+.navi .live { margin-left: 14px; }
+.shape-uniform .navi.bottom2 { bottom: 124px; }
 .sep { width: 452px; height: 1px; background: rgb(255 255 255 / .08); margin: 18px 0; }
 .shape-uniform .navi { width: 444px; background: rgb(255 255 255 / .04); box-shadow: inset 0 0 0 2px rgb(255 255 255 / .06); margin-bottom: 4px; }
 .shape-uniform .navi svg { display: none; }
@@ -451,6 +455,8 @@ function art(key, hue, kind = 'backdrop') {
 const I = {
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  screen: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   library: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M10 9l5 3-5 3z"/>',
   downloads: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
@@ -490,7 +496,7 @@ Object.assign(MEDIA.valley, { progress: .08, pos: 260, total: 3300, sub: 'С2 Э
 Object.assign(MEDIA.salt, { progress: .70, pos: 6720, total: 9600, sub: 'Осталось 48 мин', heroMeta: '1:52:00 из 2:40:00 · осталось 48 мин', dur: '2 ч 40 мин', genre: 'Триллер' });
 Object.assign(MEDIA.voyage, { progress: .97, pos: 6886, total: 7101, sub: 'Осталось 4 мин', heroMeta: '1:54:46 из 1:58:21 · осталось 4 мин', dur: '1 ч 58 мин', genre: 'Анимация' });
 MEDIA.orchard.noArt = true;
-const CONTINUE = ['harbor', 'voyage', 'keepers', 'valley', 'salt'];
+const CONTINUE = ['harbor', 'voyage', 'keepers', 'valley'];  // spec §5.1: one activity + at most four
 // Episodes: a series with its own stills, and one without them (the field-check case).
 const EP_TITLES = ['Туманный колокол', 'Письмо с материка', 'Смена ветра', 'Старый журнал', 'Ночной рейс', 'Последняя лампа', 'Оттепель', 'Ледоход', 'Чужая лодка', 'Возвращение', 'Долгий берег', 'Сигнальный огонь'];
 MEDIA.valley.noStills = true;
@@ -702,7 +708,7 @@ function renderDetail() {
   const act = $('.actions', s);
   const b = (key, cls, ic, label, a) => { const e = h('div', 'btn f ' + cls, icon(ic) + label); e.dataset.key = key; e.dataset.act = a; e.dataset.hue = m.hue; act.appendChild(e); };
   b('d:play', 'primary', 'play', primary, 'play');
-  if (started) b('d:restart', '', 'restart', 'С начала', 'play');
+  if (started) b('d:restart', '', 'restart', 'С начала', 'restart');
   b('d:subs', '', 'subs', 'Аудио и субтитры', 'toast');
   $('#backdrop').style.backgroundImage = art(m.key, m.hue);
   fitTitle($('.ct', s), DETAIL_STEPS);
@@ -717,7 +723,7 @@ function renderRail() {
   rail.appendChild(tabs);
   const tr = h('div', 'track');
   season.eps.forEach(ep => {
-    const c = h('div', 'card wide ep f' + (ep.progress ? ' current' : '')); c.dataset.key = `e:${season.n}:${ep.n}`; c.dataset.hue = m.hue; c.dataset.act = 'play'; c.dataset.item = m.key;
+    const c = h('div', 'card wide ep f' + (ep.progress ? ' current' : '')); c.dataset.key = `e:${season.n}:${ep.n}`; c.dataset.hue = m.hue; c.dataset.act = 'episode'; c.dataset.item = m.key; c.dataset.ep = `${season.n}:${ep.n}:${ep.dur}:${ep.progress}`;
     const still = m.noStills
       ? `<div class="art rimbox titlecard epc"><span class="num ct">${ep.n}</span><span class="tc ct">${ep.title}</span>`
       : `<div class="art rimbox" style="background-image:${art(m.key + '-s' + season.n + 'e' + ep.n, m.hue + ep.n * 9)}">`;
@@ -756,8 +762,13 @@ function renderNav() {
     if (key === cur) e.insertAdjacentHTML('afterbegin', '<span class="dot s cur"></span>'); p.appendChild(e); return e; };
   item('home', 'home', 'Главная'); item('library', 'library', 'Медиатека'); item('downloads', 'downloads', 'Загрузки', '<span class="badge">82%</span>');
   item('apps', 'apps', 'Приложения'); item('settings', 'settings', 'Настройки');
-  if (S.running) { p.appendChild(h('div', 'sep')); const r = h('div', 'navi tall rimbox f', `<span class="dot s" style="margin:0 13px"></span><span class="two">${APPS.north.name}<small>Вернуться</small></span>`); r.dataset.key = 'nav:running'; r.dataset.act = 'return'; r.dataset.hue = APPS.north.hue; p.appendChild(r); }
-  item('power', 'power', 'Питание', '', 'bottom');
+  // Spec §5: Open services and Running sit below the sections; the one with the activity on screen
+  // carries the Ember dot, so there is no separate activity row.
+  p.appendChild(h('div', 'sep'));
+  item('services', 'globe', 'Открытые сервисы', '<span class="count">3</span>');
+  item('running', 'screen', 'Запущено', S.running ? '<span class="count">1</span><span class="dot s live"></span>' : '');
+  item('power', 'power', 'Питание', '', 'bottom2');
+  item('quit', 'close', 'Закрыть Arinn', '', 'bottom');
   n.appendChild(p);
 }
 const Player = {
@@ -950,14 +961,19 @@ function activate(e) {
   if (act === 'playpause') { Player.toggle(); if (!Player.playing) Sound.play('select'); return; }
   if (act !== 'return') Sound.play('select');
   if (act === 'detail') { S.detail = item; renderDetail(); show('detail', { focusKey: 'd:play' }); }
-  else if (act === 'play') { show('player'); Player.open(MEDIA[S.detail]); setFocus($('#player [data-key="p:pp"]')); }
+  else if (act === 'play' || act === 'restart' || act === 'episode') {
+    const m = MEDIA[S.detail]; let pm = m;
+    if (act === 'restart') pm = { ...m, pos: 0 };
+    if (act === 'episode') { const [sn, en, dur, pr] = e.dataset.ep.split(':').map(Number); pm = { ...m, title: `${m.title} · С${sn} Э${en}`, total: dur * 60, pos: pr * dur * 60, key: m.key + '-s' + sn + 'e' + en, hue: m.hue + en * 9 }; }
+    show('player'); Player.open(pm); setFocus($('#player [data-key="p:pp"]'));
+  }
   else if (act === 'return') { if (S.nav) closeNav(true); kindle(); toast(`Возврат в «${APPS.north.name}»`); }
   else if (act === 'app') { toast(`«${APPS[item].name}» откроется на весь экран`); }
   else if (act === 'season') { S.season = +item; renderRail(); setFocus($(`#detail [data-key="s:${item}"]`)); }
   else if (act === 'tab') { S.tab = item; renderLibrary(); S.scope = $('#library'); setFocus($(`[data-key="tab:${item}"]`, S.scope)); }
   else if (act === 'nav') {
     if (['home', 'library', 'apps'].includes(item)) { closeNav(true); if (item !== S.scene) show(item); }
-    else toast(item === 'power' ? 'Меню питания — вне прототипа' : 'Этот экран не входит в прототип');
+    else toast(item === 'power' ? 'Меню питания — вне прототипа' : item === 'quit' ? 'Закрыть Arinn — вне прототипа' : 'Этот экран не входит в прототип');
   }
   else if (act === 'toast') toast('Не входит в прототип');
 }
@@ -1004,7 +1020,7 @@ function finishStartup() {
 /* ---------- variants ---------- */
 function applyVariant(keepFocus = true) {
   const p = P(), key = S.focused && S.focused.dataset.key;
-  const e = eff();
+  const e = eff(); S.lastPeriod = period();
   const F = FONTS[settings.font], custom = hearthish() && p.serif === 'literata' && settings.font !== 'literata';  // A only: A′ and B keep their own faces
   document.body.style.setProperty('--ctf', `'${F.f}'`); document.body.style.setProperty('--ctw', F.w); document.body.style.setProperty('--ctt', F.t);
   document.body.className = [custom ? 'font-custom' : '', `apps-${e.apps}`, `chips-${e.chips}`, e.cap ? 'cap-focus' : '', `light-${settings.lightOn ? p.light : 'off'}`, `serif-${p.serif}`, `shape-${p.shape}`, `mono-${p.mono}`, `eyebrow-${p.eyebrow}`, `focus-${p.focus}`, `tok-${p.tok}`, `tod-${period()}`, `motion-${settings.motion}`].join(' ');
@@ -1097,7 +1113,7 @@ const startScene = Q.get('scene') || 'home';
   else if (startScene === 'home-shelf') { gotoScene('home'); setFocus($('[data-key="f:harbortv"]')); }
   else if (startScene === 'home-new') { gotoScene('home'); setFocus($('[data-key="n:bay"]')); }
   else gotoScene(startScene);
-  setInterval(() => { $$('.clock').forEach(c => c.textContent = clockText()); }, 15000);
+  setInterval(() => { $$('.clock').forEach(c => c.textContent = clockText()); if (settings.tod === 'auto' && period() !== S.lastPeriod) applyVariant(); }, 15000);
   setInterval(() => { const b = $('#ambient .block'); if (b && S.scene === 'ambient' && P().tok !== 'current') b.style.transform = `translate(${Math.round(Math.random() * 48 - 24)}px, ${Math.round(Math.random() * 48 - 24)}px)`; }, 60000);
 });
 </script>

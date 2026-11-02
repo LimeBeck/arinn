@@ -20,9 +20,11 @@ TestCase {
             property bool more: false
             property var commands: []
             function choose(id) { sourceId=id; }
-            function browse(facet,parent,search) {}
+            property var browsed: []
+            property var played: []
+            function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
             function loadMore() {}
-            function command(action,id,occurrence,position) {commands=commands.concat([action]);}
+            function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
             property var positions: []
             property var occurrences: []
             function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);}
@@ -40,6 +42,23 @@ TestCase {
         tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Right);tryCompare(replace,"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Return);
         compare(view.pendingPlay,"");compare(catalog.commands.length,0);
+    }
+    // A station entry (My Wave) opened as a folder of itself instead of
+    // playing; a playlist still opens.
+    function test_a_station_plays_and_a_playlist_opens() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"",playback:"stopped",actions:[],upcoming:[]};
+        catalog.state={account:"connected",facets:["selections"],actions:["play"]};
+        catalog.entries=[{id:"station:wave",kind:"station",title:"Fixture wave",available:true},
+                         {id:"playlist:1",kind:"playlist",title:"Fixture list",available:true}];
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);view.focusInitial();
+        const entries=findChild(view,"musicEntries");tryCompare(entries,"activeFocus",true);
+        keyClick(Qt.Key_Return);
+        compare(catalog.commands,["play"]);compare(catalog.played,["station:wave"]);
+        const before=catalog.browsed.length;
+        view.mode="catalogue";wait(0);entries.currentIndex=1;Ui.Focus.take(entries);wait(0);
+        keyClick(Qt.Key_Return);
+        compare(catalog.commands,["play"]);compare(catalog.browsed.slice(before),["playlist:1"]);
     }
     function test_controls_B_fit_one_row_and_play_pause_uses_icon() {
         const catalog=createTemporaryObject(catalogFactory,suite);

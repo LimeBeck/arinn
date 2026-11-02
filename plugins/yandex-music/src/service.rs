@@ -47,8 +47,9 @@ struct Service<S: CredentialStore + 'static = SecretService> {
     auth: Option<Arc<DeviceAuth<S>>>,
     account: Arc<Mutex<Account>>,
     connected: Arc<Mutex<Option<Connected>>>,
-    /// The liked tracks last listed, so a liked track plays with the rest.
-    liked: Arc<Mutex<Vec<Track>>>,
+    /// The tracks last listed (liked, a playlist or search results), so a
+    /// track plays with the tracks listed after it.
+    listed: Arc<Mutex<Vec<Track>>>,
     playback: Arc<OnceLock<Arc<Playback>>>,
 }
 impl<S: CredentialStore + 'static> Clone for Service<S> {
@@ -57,7 +58,7 @@ impl<S: CredentialStore + 'static> Clone for Service<S> {
             auth: self.auth.clone(),
             account: self.account.clone(),
             connected: self.connected.clone(),
-            liked: self.liked.clone(),
+            listed: self.listed.clone(),
             playback: self.playback.clone(),
         }
     }
@@ -76,7 +77,7 @@ impl<S: CredentialStore + 'static> Service<S> {
         Self {
             auth,
             connected: Arc::new(Mutex::new(None)),
-            liked: Arc::new(Mutex::new(Vec::new())),
+            listed: Arc::new(Mutex::new(Vec::new())),
             playback: Arc::new(OnceLock::new()),
             account: Arc::new(Mutex::new(Account {
                 epoch: 0,
@@ -152,7 +153,7 @@ impl<S: CredentialStore + 'static> Service<S> {
     /// Forgets the account's client and stops its playback.
     async fn forget(&self) {
         *self.connected.lock().await = None;
-        self.liked.lock().await.clear();
+        self.listed.lock().await.clear();
         if let Some(playback) = self.playback.get() {
             let _ = playback.stop().await;
         }
@@ -167,19 +168,17 @@ impl<S: CredentialStore + 'static> Service<S> {
                     .contains(&search)
         };
         Ok(match (query.facet.as_str(), query.parent.as_str()) {
-            ("tracks", _) if !search.is_empty() => api
-                .search_tracks(query.search.trim(), 0)
-                .await
-                .map_err(api_error)?
-                .iter()
-                .map(entity)
-                .collect(),
+            ("tracks", _) if !search.is_empty() => {
+                let tracks = api
+                    .search_tracks(query.search.trim(), 0)
+                    .await
+                    .map_err(api_error)?;
+                self.list(tracks).await
+            }
             ("tracks", _) => {
                 let ids = api.liked_track_ids(&uid).await.map_err(api_error)?;
                 let tracks = api.tracks_batched(&ids).await.map_err(api_error)?;
-                let entries = tracks.iter().map(entity).collect();
-                *self.liked.lock().await = tracks;
-                entries
+                self.list(tracks).await
             }
             ("playlists", "") => api
                 .playlists(&uid)
@@ -199,15 +198,17 @@ impl<S: CredentialStore + 'static> Service<S> {
                 let kind = parent
                     .strip_prefix("playlist:")
                     .ok_or(ErrorCode::NotFound)?;
-                api.playlist_tracks(&uid, kind)
+                let tracks: Vec<Track> = api
+                    .playlist_tracks(&uid, kind)
                     .await
                     .map_err(api_error)?
-                    .iter()
-                    .map(entity)
-                    .filter(|e| matches(e))
-                    .collect()
+                    .into_iter()
+                    .filter(|t| matches(&entity(t)))
+                    .collect();
+                self.list(tracks).await
             }
-            ("selections", _) => [Entity {
+            // My Wave plays; it has no children.
+            ("selections", "") => [Entity {
                 id: format!("station:{MY_WAVE}"),
                 kind: "station".into(),
                 title: "My Wave".into(),
@@ -217,11 +218,18 @@ impl<S: CredentialStore + 'static> Service<S> {
             .into_iter()
             .filter(|e| matches(e))
             .collect(),
+            ("selections", _) => return Err(ErrorCode::NotFound),
             _ => return Err(ErrorCode::Unsupported),
         })
     }
+    /// Remembers listed tracks and returns their entries.
+    async fn list(&self, tracks: Vec<Track>) -> Vec<Entity> {
+        let entries = tracks.iter().map(entity).collect();
+        *self.listed.lock().await = tracks;
+        entries
+    }
     /// Starts what an entity names: a station, a playlist or a track (a
-    /// liked track plays with the liked tracks after it).
+    /// listed track plays with the tracks listed after it).
     async fn play(&self, id: &str) -> Result<(), ErrorCode> {
         let playback = self.playback.get().ok_or(ErrorCode::Unavailable)?.clone();
         if let Some(seed) = id.strip_prefix("station:") {
@@ -231,9 +239,9 @@ impl<S: CredentialStore + 'static> Service<S> {
         let tracks = if let Some(kind) = id.strip_prefix("playlist:") {
             api.playlist_tracks(&uid, kind).await.map_err(api_error)?
         } else {
-            let liked = self.liked.lock().await.clone();
-            match liked.iter().position(|t| t.id == id) {
-                Some(index) => liked[index..].to_vec(),
+            let listed = self.listed.lock().await.clone();
+            match listed.iter().position(|t| t.id == id) {
+                Some(index) => listed[index..].to_vec(),
                 None => api.tracks(&[id.to_owned()]).await.map_err(api_error)?,
             }
         };
@@ -734,6 +742,37 @@ mod tests {
             token: String::new(),
         }
     }
+    /// Gives the service a playback whose player never starts; play still
+    /// builds its queue, and resolving fails harmlessly afterwards.
+    fn with_playback(service: &Service<crate::auth::tests::MemoryStore>) -> std::path::PathBuf {
+        use std::os::unix::fs::DirBuilderExt;
+        let directory = std::env::temp_dir().join(format!(
+            "ay-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let player = Player::new(&directory, directory.join("missing-player")).unwrap();
+        let _ = service.playback.set(Playback::new(
+            player,
+            Arc::new(YandexResolver(service.clone())),
+        ));
+        directory
+    }
+    fn play(entity: &str) -> Command {
+        Command {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            action: "play".into(),
+            session: String::new(),
+            entity: entity.into(),
+            occurrence: String::new(),
+            position_us: 0,
+            replaces_provider: String::new(),
+            replaces_session: String::new(),
+        }
+    }
     fn synthetic(id: u64, album: u64) -> serde_json::Value {
         json!({"id":id,"title":format!("Synthetic {id}"),"available":true,"albums":[{"id":album}]})
     }
@@ -802,37 +841,10 @@ mod tests {
             ])),
         ])
         .await;
-        let directory = std::env::temp_dir().join(format!(
-            "ay-{}",
-            &uuid::Uuid::new_v4().simple().to_string()[..8]
-        ));
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new()
-                .mode(0o700)
-                .create(&directory)
-                .unwrap();
-        }
-        let player = Player::new(&directory, directory.join("missing-player")).unwrap();
-        let _ = service.playback.set(Playback::new(
-            player,
-            Arc::new(YandexResolver(service.clone())),
-        ));
+        let directory = with_playback(&service);
         service.catalogue(query("tracks", "")).await.unwrap();
         recorder.finish();
-        let state = service
-            .command(Command {
-                request_id: "r1".into(),
-                action: "play".into(),
-                session: String::new(),
-                entity: "12:22".into(),
-                occurrence: String::new(),
-                position_us: 0,
-                replaces_provider: String::new(),
-                replaces_session: String::new(),
-            })
-            .await
-            .unwrap();
+        let state = service.command(play("12:22")).await.unwrap();
         assert_eq!(state.current.as_ref().unwrap().track.id, "12:22");
         let upcoming: Vec<_> = state.upcoming.iter().map(|e| e.track.id.as_str()).collect();
         assert_eq!(upcoming, ["14:24"]);
@@ -841,6 +853,37 @@ mod tests {
         assert!(state.actions.contains(&"disconnect".to_owned()));
         assert_eq!(state.account, "connected");
         assert!(state.validate().is_ok());
+        service.playback.get().unwrap().stop().await.unwrap();
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+    /// Playing a track inside a playlist continues with that playlist, not
+    /// with the liked tracks listed before it.
+    #[tokio::test]
+    async fn a_playlist_track_plays_with_the_playlist() {
+        let (service, recorder) = connected(vec![
+            response(json!({"library":{"tracks":[{"id":"11","albumId":"21"}]}})),
+            response(json!([synthetic(11, 21)])),
+            response(json!({"tracks":[{"track":synthetic(11, 21)},
+                {"track":synthetic(15, 25)},{"track":synthetic(16, 26)}]})),
+        ])
+        .await;
+        let directory = with_playback(&service);
+        service.catalogue(query("tracks", "")).await.unwrap();
+        service
+            .catalogue(query("playlists", "playlist:3"))
+            .await
+            .unwrap();
+        recorder.finish();
+        let state = service.command(play("11:21")).await.unwrap();
+        let upcoming: Vec<_> = state.upcoming.iter().map(|e| e.track.id.as_str()).collect();
+        assert_eq!(upcoming, ["15:25", "16:26"]);
+        assert_eq!(
+            service
+                .catalogue(query("selections", "station:user:onyourwave"))
+                .await
+                .err(),
+            Some(ErrorCode::NotFound)
+        );
         service.playback.get().unwrap().stop().await.unwrap();
         let _ = std::fs::remove_dir_all(&directory);
     }

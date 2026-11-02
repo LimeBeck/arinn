@@ -183,7 +183,8 @@ FocusScope {
             }
             onActivated: {
                 tracks.currentIndex = index;
-                if (modelData.kind === "track") root.requestPlay(modelData.id);
+                // A station plays; it has nothing to open.
+                if (modelData.kind === "track" || modelData.kind === "station") root.requestPlay(modelData.id);
                 else { root.parentId = modelData.id; root.parentTitle = text; root.catalog.browse(root.facet, modelData.id, search.text); }
             }
         }

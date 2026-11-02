@@ -134,7 +134,7 @@ The room gets darker in the evening, as a room with a hearth does.
 | Evening | 19:00–22:59 | 85 %, floor hue 5° warmer | 6 % | 100 % |
 | Night | 23:00–05:59 | 60 %, floor hue 8° warmer | 22 % | raised to `oklch(0.97 …)`, `text-2` 0.84, `text-3` 0.71, so that under the veil `text-3` stays at 4.8 : 1 (calculated) |
 
-Because the veil also darkens text, the night text tokens are raised to compensate; without that, `text-3` would fall to about 3.3 : 1. The first round only dimmed the light at night, and nobody would have noticed. The veil darkens and warms the whole picture, artwork included, so night reads as night.
+The veil never covers video: the player shows media as it is. A change of period only updates the presentation and never rebuilds a screen, so playback position, focus and selections stay. Because the veil also darkens text, the night text tokens are raised to compensate; without that, `text-3` would fall to about 3.3 : 1. The first round only dimmed the light at night, and nobody would have noticed. The veil darkens and warms the whole picture, artwork included, so night reads as night.
 
 Contrast stays within the ratios above in every period. The shell uses its own clock; no location or sunrise data is needed. A setting turns the effect off (owner decision D-5).
 
@@ -247,7 +247,7 @@ The brand guide reserves Ember for the startup animation. The sequence takes 1.9
 | 600 ms | The A strokes and "Arinn" fade in (400 ms) |
 | 1300 ms | The lockup moves to its place at the top left (500 ms) while Home rises in (24 px, 60 ms stagger per row) |
 
-With reduced motion it is a 300 ms cross-fade.
+With reduced motion it is a 300 ms cross-fade; the *ignite* sound still plays, because sound is not motion.
 
 ### Kindle: the short ignition
 

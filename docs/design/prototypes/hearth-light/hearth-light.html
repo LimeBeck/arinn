@@ -56,6 +56,7 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 .tok-hearth.tod-evening #stage::after, .tok-hearth.tod-night #stage::after { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 40; }
 .tok-hearth.tod-evening #stage::after { background: rgb(12 7 2 / .06); }
 .tok-hearth.tod-night #stage::after { background: rgb(12 7 2 / .22); }
+#stage[data-scene="player"]::after { display: none; }  /* the veil never covers video */
 /* kindle: the short ignition on Home, wake and return */
 #kindle { position: absolute; left: 132px; top: 77px; width: 12px; height: 12px; border-radius: 50%; background: var(--ember); z-index: 45; opacity: 0; pointer-events: none; }
 #kindle.go { animation: kindle 700ms var(--ease); }
@@ -914,7 +915,7 @@ function updateLight() {
 function show(scene, { push = true, focusKey } = {}) {
   if (push && S.scene && S.scene !== scene && S.scene !== 'ambient') S.history.push(S.scene);
   if (S.scene === 'player' && scene !== 'player') Player.close();
-  S.scene = scene;
+  S.scene = scene; stage.dataset.scene = scene;
   $$('.screen').forEach(s => s.classList.toggle('on', s.id === scene));
   $('#topbar').classList.toggle('hidden', !['home', 'library', 'apps', 'detail'].includes(scene));
   $('.lockup', $('#topbar')).classList.toggle('gone', scene !== 'home');
@@ -1003,7 +1004,7 @@ function startup() {
   $$('#home .rise').forEach((e, i) => e.style.transitionDelay = (i * 60) + 'ms');
   const reduced = settings.motion === 'reduced';
   const at = (ms, fn) => stT.push(setTimeout(fn, reduced ? Math.min(ms, 300) : ms));
-  if (reduced) { at(0, () => st.classList.add('s1', 's2', 's3')); at(300, finishStartup); return; }
+  if (reduced) { at(0, () => { st.classList.add('s1', 's2', 's3'); Sound.play('ignite'); }); at(300, finishStartup); return; }  // the sound is not motion
   at(150, () => { st.classList.add('s1'); Sound.play('ignite'); });
   at(450, () => st.classList.add('s2'));
   at(600, () => st.classList.add('s3'));
@@ -1018,6 +1019,14 @@ function finishStartup() {
 }
 
 /* ---------- variants ---------- */
+// A new period changes presentation only: the period class and the light. Nothing is rebuilt,
+// so the player position, the selected season and focus stay as they are.
+function applyPeriod() {
+  S.lastPeriod = period();
+  document.body.classList.remove('tod-day', 'tod-evening', 'tod-night');
+  document.body.classList.add('tod-' + S.lastPeriod);
+  updateLight();
+}
 function applyVariant(keepFocus = true) {
   const p = P(), key = S.focused && S.focused.dataset.key;
   const e = eff(); S.lastPeriod = period();
@@ -1113,7 +1122,7 @@ const startScene = Q.get('scene') || 'home';
   else if (startScene === 'home-shelf') { gotoScene('home'); setFocus($('[data-key="f:harbortv"]')); }
   else if (startScene === 'home-new') { gotoScene('home'); setFocus($('[data-key="n:bay"]')); }
   else gotoScene(startScene);
-  setInterval(() => { $$('.clock').forEach(c => c.textContent = clockText()); if (settings.tod === 'auto' && period() !== S.lastPeriod) applyVariant(); }, 15000);
+  setInterval(() => { $$('.clock').forEach(c => c.textContent = clockText()); if (settings.tod === 'auto' && period() !== S.lastPeriod) applyPeriod(); }, 15000);
   setInterval(() => { const b = $('#ambient .block'); if (b && S.scene === 'ambient' && P().tok !== 'current') b.style.transform = `translate(${Math.round(Math.random() * 48 - 24)}px, ${Math.round(Math.random() * 48 - 24)}px)`; }, 60000);
 });
 </script>

@@ -11,6 +11,31 @@
 # needs privileges and changes no display manager configuration.
 set -u
 
+has_user_manager() {
+    systemctl --user --no-ask-password show-environment >/dev/null 2>&1
+}
+
+export_session_markers() {
+    entry=$1
+    mode_file=$2
+    if has_user_manager; then
+        systemctl --user set-environment "ARINN_SESSION_ENTRY=$entry" \
+            "ARINN_SESSION_MODE=$mode_file" || return 1
+    else
+        ARINN_SESSION_ENTRY=$entry
+        ARINN_SESSION_MODE=$mode_file
+        export ARINN_SESSION_ENTRY ARINN_SESSION_MODE
+    fi
+}
+
+clear_session_markers() {
+    if has_user_manager; then
+        systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MODE >/dev/null 2>&1
+    else
+        unset ARINN_SESSION_ENTRY ARINN_SESSION_MODE
+    fi
+}
+
 [ "$#" -eq 1 ] || set -- invalid
 case "$1" in
 plasma) desktop=startplasma-wayland ;;
@@ -59,8 +84,12 @@ if [ "$mode" = desktop ]; then
     # manager that outlived it (lingering, SDDM Relogin=true). The mode file
     # is named in both environments, so Return to Arinn writes the file this
     # login read wherever it is started from.
-    systemctl --user unset-environment ARINN_SESSION_ENTRY >/dev/null 2>&1
-    systemctl --user set-environment "ARINN_SESSION_MODE=$mode_file" >/dev/null 2>&1
+    if has_user_manager; then
+        systemctl --user unset-environment ARINN_SESSION_ENTRY >/dev/null 2>&1
+        systemctl --user set-environment "ARINN_SESSION_MODE=$mode_file" >/dev/null 2>&1
+    else
+        unset ARINN_SESSION_ENTRY
+    fi
     ARINN_SESSION_MODE=$mode_file
     export ARINN_SESSION_MODE
     unset ARINN_SESSION_ENTRY
@@ -104,10 +133,15 @@ while kill -0 "$pid" 2>/dev/null && [ "$tries" -lt 240 ]; do
         # "Switch to desktop", and names the mode file this login read, so
         # the switch writes the same file whatever XDG_STATE_HOME the user
         # manager has. Cleared when the desktop exits.
-        systemctl --user set-environment "ARINN_SESSION_ENTRY=$entry" \
-            "ARINN_SESSION_MODE=$mode_file" || break
+        export_session_markers "$entry" "$mode_file" || break
         case "$entry" in
-        plasma) systemctl --user start arinn-session.target && started=true ;;
+        plasma)
+            if has_user_manager; then
+                systemctl --user start arinn-session.target && started=true
+            else
+                echo "arinn-session: Plasma Arinn requires a systemd user manager" >&2
+            fi
+            ;;
         # The helper owns the EWMH target and stops it with the XFCE session.
         xfce)
             /usr/lib/arinn/arinn-xfce-session &
@@ -152,8 +186,8 @@ while :; do
     kill -0 "$pid" 2>/dev/null || break
 done
 trap - TERM HUP INT
-if [ "$entry" = plasma ]; then
+if [ "$entry" = plasma ] && has_user_manager; then
     systemctl --user stop arinn-session.target >/dev/null 2>&1
 fi
-systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MODE >/dev/null 2>&1
+clear_session_markers
 exit "$status"

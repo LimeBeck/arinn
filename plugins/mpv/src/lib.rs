@@ -16,7 +16,9 @@ mod thumbnail;
 
 pub use paths::{ensure_private_dir, file_path, validate_runtime};
 pub use player::{Launch, OPEN_LOAD_WAIT, Player, Settings, View};
-pub use scope::{UNIT, arguments, ensure_unit, socket_is_private};
+pub use scope::{
+    UNIT, arguments, ensure_player, ensure_unit, socket_is_private, stop_player, stop_unit,
+};
 pub use thumbnail::{Extractor, KEPT_THUMBNAILS, ThumbnailAssets, poster_due};
 
 use arinn_plugin_sdk::runtime::{
@@ -45,7 +47,7 @@ pub async fn serve(connection: Connection) -> Result<(), ErrorCode> {
         .parent()
         .map(|dir| dir.join("session"))
         .ok_or(ErrorCode::Unavailable)?;
-    let launch = player::launch_for(std::path::Path::new("/usr/bin/mpv"));
+    let launch = player::launch_for(std::path::Path::new("/usr/bin/mpv"), &connection).await;
     let backend = if matches!(launch, Launch::Missing) {
         "unavailable"
     } else {

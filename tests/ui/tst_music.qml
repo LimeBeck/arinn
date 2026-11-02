@@ -44,7 +44,7 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
         view.openPlayer();wait(0);
         const controls=findChild(view,"musicControlsB"),button=findChild(view,"musicPlayPause");verify(controls);verify(button);
-        compare(button.iconName,"pause");verify(button.x+button.width<=button.parent.width);
+        const stop=findChild(view,"musicStop");verify(stop);compare(stop.iconName,"stop");compare(stop.mapToItem(controls,0,0).y,button.parent.mapToItem(controls,0,0).y);compare(button.iconName,"pause");verify(button.x+button.width<=button.parent.width);
         verify(controls.x+controls.width<=controls.parent.width);
         Ui.Focus.take(button);keyClick(Qt.Key_Right);
         tryCompare(findChild(view,"musicNext"),"activeFocus",true);

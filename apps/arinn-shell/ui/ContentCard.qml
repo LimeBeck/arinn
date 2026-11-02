@@ -172,6 +172,7 @@ Surface {
             anchors.right: parent.right; anchors.rightMargin: 20
             anchors.bottom: parent.bottom; anchors.bottomMargin: 24
             width: 72; height: 72; cornerRadius: 36
+            focusedColor: Theme.textPrimary
             visible: root.secondaryIcon.length>0
             enabled: root.secondaryEnabled && !root.busy
             text: root.secondaryText

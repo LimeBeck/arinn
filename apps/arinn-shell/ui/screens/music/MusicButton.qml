@@ -7,6 +7,7 @@ Ui.Surface {
     property string iconName: "play"
     implicitWidth: 80; implicitHeight: 80; width: 80; height: 80
     cornerRadius: 40
+    focusedColor: Ui.Theme.textPrimary
     contentItem: MusicIcon {
         anchors.centerIn: parent
         width: 32; height: 32

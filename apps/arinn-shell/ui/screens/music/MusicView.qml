@@ -55,8 +55,8 @@ FocusScope {
         else if (event.key === Qt.Key_MediaTogglePlayPause || event.key === Qt.Key_MediaPlay || event.key === Qt.Key_MediaPause) { catalog.transport(playing ? "pause" : "resume"); event.accepted = true; }
     }
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
-    Ui.UiText { x: 120; y: 80; width: 1150; role: "page"; text: mode === "player" ? qsTr("Now playing") : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
-    Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText; role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 }
+    Ui.UiText { x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? qsTr("Now playing") : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
+    Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText || ((root.selected.error || root.player.error) ? qsTr("Unavailable") : ""); role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 }
     Row {
         x: 120; y: 180; spacing: 20; enabled: !root.pendingPlay; visible: root.mode === "catalogue"
         ComboBox {
@@ -111,7 +111,7 @@ FocusScope {
         model: root.catalog.entries
         keyNavigationEnabled: true
         delegate: Ui.Surface {
-            id: entry; required property var modelData; required property int index
+            id: entry; focusedColor: Ui.Theme.textPrimary; required property var modelData; required property int index
             width: tracks.width - 8; height: 90; focus: tracks.currentIndex === index
             text: modelData.title || qsTr("Untitled")
             contentItem: Row {
@@ -173,11 +173,11 @@ FocusScope {
             Row {
                 anchors.right: parent.right; spacing: 16
                 MusicButton { id: queueButton; objectName:"musicQueue"; KeyNavigation.left: nextButton; KeyNavigation.right: seekButton; KeyNavigation.down: stopButton; iconName: "queue"; text: qsTr("Queue"); onActivated: { root.mode = "queue"; Qt.callLater(root.focusInitial); } }
-                MusicButton { id: seekButton; KeyNavigation.left: queueButton; KeyNavigation.right: radioButton; KeyNavigation.down: stopButton; iconName: "seek"; text: qsTr("Seek"); enabled: root.supported("seek"); onActivated: Ui.Focus.take(seek) }
-                MusicButton { id: radioButton; KeyNavigation.left: seekButton; KeyNavigation.down: stopButton; iconName: "radio"; text: qsTr("Radio from this track"); visible: root.supported("radio"); onActivated: root.catalog.transport("radio", root.current.id || "") }
+                MusicButton { id: seekButton; KeyNavigation.left: queueButton; KeyNavigation.right: stopButton; KeyNavigation.down: stopButton; iconName: "seek"; text: qsTr("Seek"); enabled: root.supported("seek"); onActivated: Ui.Focus.take(seek) }
+                MusicButton { id: stopButton; objectName:"musicStop";KeyNavigation.left:seekButton;KeyNavigation.right:radioButton;KeyNavigation.up:playButton;iconName:"stop";text:qsTr("Stop");enabled:root.supported("stop") && !root.catalog.busy;onActivated:root.catalog.transport("stop") }
+                MusicButton { id: radioButton; KeyNavigation.left: stopButton; KeyNavigation.down: stopButton; iconName: "radio"; text: qsTr("Radio from this track"); visible: root.supported("radio"); onActivated: root.catalog.transport("radio", root.current.id || "") }
             }
         }
-        Ui.ActionButton { id: stopButton; KeyNavigation.up: playButton; x: 580; y: 560; text: qsTr("Stop"); enabled: root.supported("stop") && !root.catalog.busy; onActivated: root.catalog.transport("stop") }
     }
     ListView {
         id: queueList; enabled: !root.pendingPlay; x: 120; y: 230; width: 1680; height: 680; clip: true; spacing: 12; visible: root.mode === "queue"; keyNavigationEnabled: true
@@ -200,7 +200,7 @@ FocusScope {
         MouseArea {anchors.fill: parent;acceptedButtons:Qt.AllButtons}
         Column {
             x: 480; y: 360; width: 960; spacing: 40
-            Ui.UiText { width: parent.width; role: "page"; text: qsTr("Replace the current queue?") }
+            Ui.UiText { width: parent.width; role: "title"; text: qsTr("Replace the current queue?") }
             Row { spacing: 30
                 Ui.ActionButton { id: cancelReplace; objectName:"musicKeepQueue"; text: qsTr("Cancel"); onActivated: { root.pendingPlay = ""; root.focusInitial(); } }
                 Ui.ActionButton { id: confirmReplace; objectName:"musicReplaceQueue"; text: qsTr("Replace and play"); onActivated: { const id = root.pendingPlay; root.pendingPlay = ""; root.catalog.command("play", id); root.openPlayer(); } }

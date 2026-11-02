@@ -23,7 +23,9 @@ TestCase {
             function browse(facet,parent,search) {}
             function loadMore() {}
             function command(action,id,occurrence,position) {commands=commands.concat([action]);}
-            function transport(action,id,occurrence,position) {commands=commands.concat([action]);}
+            property var positions: []
+            property var occurrences: []
+            function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);}
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
@@ -110,5 +112,46 @@ TestCase {
         home.returnActivityId="activity";compare(findChild(home,"nav-7").visible,true);
         home.musicTitle="";compare(home.routes.length,5);compare(home.routes[2],"downloads");
         compare(findChild(home,"nav-5").visible,true);compare(findChild(home,"nav-6").visible,true);
+    }
+    // Review of #710: Up on the source picker must not switch the source;
+    // a source changes only when its chip is activated.
+    function test_source_chips_change_source_only_when_activated() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.sources=[{id:"local",name:"Fixture music"},{id:"other",name:"Other music"}];
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const first=findChild(view,"musicSource-0"),second=findChild(view,"musicSource-1");verify(first);verify(second);
+        Ui.Focus.take(first);tryCompare(first,"activeFocus",true);
+        keyClick(Qt.Key_Up);keyClick(Qt.Key_Up);compare(catalog.sourceId,"local");compare(first.activeFocus,true);
+        keyClick(Qt.Key_Right);tryCompare(second,"activeFocus",true);compare(catalog.sourceId,"local");
+        keyClick(Qt.Key_Return);compare(catalog.sourceId,"other");
+        keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicSearch"),"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(second,"activeFocus",true);
+    }
+    // Review of #710: a remote press seeks by 10 s, and presses before the
+    // next position report add up.
+    function test_remote_seek_moves_ten_seconds_per_press() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=({session:"session",playback:"playing",position_us:30000000,current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",duration_us:60000000}},actions:["pause","seek"],upcoming:[]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const seek=findChild(view,"musicSeek");verify(seek);Ui.Focus.take(seek);tryCompare(seek,"activeFocus",true);
+        keyClick(Qt.Key_Right);compare(catalog.commands[0],"seek");compare(catalog.positions[0],40000000);
+        keyClick(Qt.Key_Right);compare(catalog.positions[1],50000000);
+        keyClick(Qt.Key_Right);keyClick(Qt.Key_Right);compare(catalog.positions[3],60000000);
+        keyClick(Qt.Key_Left);compare(catalog.positions[4],50000000);
+        keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicPlayPause"),"activeFocus",true);
+    }
+    // Review of #710: OK on an upcoming entry asks before removing it.
+    function test_queue_entry_removal_needs_confirmation() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=({session:"session",playback:"playing",current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",duration_us:10000000}},actions:["pause","remove"],upcoming:[{occurrence:"next-1",track:{id:"track-2",title:"Next track"}}]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.mode="queue";wait(0);view.focusInitial();
+        tryCompare(findChild(view,"musicQueueList"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
+        const keep=findChild(view,"musicKeepEntry"),remove=findChild(view,"musicRemoveEntry");
+        tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
+        tryCompare(findChild(view,"musicQueueList"),"activeFocus",true);
+        keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Right);tryCompare(remove,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"remove");compare(catalog.occurrences[0],"next-1");
     }
 }

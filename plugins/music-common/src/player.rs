@@ -169,6 +169,7 @@ struct Process {
     child: Child,
     directory: PathBuf,
     reader: BufReader<UnixStream>,
+    partial: Vec<u8>,
     serial: u64,
     entry: Option<u64>,
     events: Events,
@@ -191,7 +192,29 @@ impl Process {
             .create(&directory)
             .map_err(|_| ErrorCode::Unavailable)?;
         let socket = directory.join("audio.sock");
-        let child = Command::new(executable)
+        let Some(socket_text) = socket.to_str().map(str::to_owned) else {
+            let _ = fs::remove_dir(&directory);
+            return Err(ErrorCode::InvalidArgument);
+        };
+        let parent = std::process::id() as libc::pid_t;
+        let mut command = Command::new(executable);
+        // mpv runs in its own process group, so a group kill of the provider
+        // does not reach it. Tie it to this thread's life instead: it gets
+        // SIGKILL when the provider dies, including SIGKILL (review of #710).
+        // SAFETY: prctl and getppid are async-signal-safe and touch no
+        // memory shared with the parent.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::getppid() != parent {
+                    return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
+                }
+                Ok(())
+            });
+        }
+        let child = command
             .args([
                 "--no-config",
                 "--idle=yes",
@@ -203,10 +226,7 @@ impl Process {
                 "--input-default-bindings=no",
                 "--ytdl=no",
             ])
-            .arg(format!(
-                "--input-ipc-server={}",
-                socket.to_str().ok_or(ErrorCode::InvalidArgument)?
-            ))
+            .arg(format!("--input-ipc-server={socket_text}"))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -240,6 +260,7 @@ impl Process {
             child,
             directory,
             reader: BufReader::new(stream),
+            partial: Vec::new(),
             serial: 0,
             entry: None,
             events: Events::default(),
@@ -265,9 +286,12 @@ impl Process {
             .write_all(&line)
             .map_err(|_| ErrorCode::Unavailable)?;
         let begun = Instant::now();
-        let mut line = Vec::new();
+        // A frame cut off by a timeout stays here and is completed by the
+        // next request instead of being parsed from its middle.
+        let mut line = std::mem::take(&mut self.partial);
         loop {
             if begun.elapsed() > Duration::from_secs(2) {
+                self.partial = line;
                 return Err(ErrorCode::Timeout);
             }
             // Read a bounded frame; no mpv diagnostics or source fields escape.
@@ -452,6 +476,7 @@ mod tests {
                 child: Command::new("sleep").arg("60").spawn().unwrap(),
                 directory,
                 reader: BufReader::new(client),
+                partial: Vec::new(),
                 serial: 0,
                 entry: None,
                 events: Events::default(),
@@ -462,6 +487,141 @@ mod tests {
     }
     fn source() -> Source {
         Source::File(File::open("/dev/null").unwrap())
+    }
+    /// Review of #710: after a timeout the partial frame was dropped, and the
+    /// next request parsed the rest of it from the middle and failed.
+    #[test]
+    fn a_frame_cut_off_by_a_timeout_is_completed_by_the_next_request() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-music-ipc-test-{}", uuid::Uuid::new_v4()));
+        DirBuilder::new().mode(0o700).create(&directory).unwrap();
+        let (client, server) = UnixStream::pair().unwrap();
+        client
+            .set_read_timeout(Some(Duration::from_millis(100)))
+            .unwrap();
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(server);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            let first: Value = serde_json::from_str(&line).unwrap();
+            let reply =
+                json!({"request_id":first["request_id"],"error":"success","data":1}).to_string();
+            let (head, tail) = reply.split_at(reply.len() / 2);
+            write!(reader.get_mut(), "{head}").unwrap();
+            reader.get_mut().flush().unwrap();
+            std::thread::sleep(Duration::from_millis(2300));
+            writeln!(reader.get_mut(), "{tail}").unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            let second: Value = serde_json::from_str(&line).unwrap();
+            let reply = json!({"request_id":second["request_id"],"error":"success","data":2});
+            writeln!(reader.get_mut(), "{reply}").unwrap();
+        });
+        let mut process = Process {
+            child: Command::new("sleep").arg("60").spawn().unwrap(),
+            directory,
+            reader: BufReader::new(client),
+            partial: Vec::new(),
+            serial: 0,
+            entry: None,
+            events: Events::default(),
+            file: None,
+        };
+        assert_eq!(
+            process.request(json!(["get_property", "pause"])),
+            Err(ErrorCode::Timeout)
+        );
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(
+            process.request(json!(["get_property", "pause"])),
+            Ok(json!(2))
+        );
+    }
+    /// Review of #710: mpv ran in its own process group without a parent
+    /// death signal, so a provider killed with SIGKILL left it playing. The
+    /// test runs a second copy of itself as the "provider", kills it and
+    /// checks the fixture player is gone. Like mpv, the fixture keeps running
+    /// when its IPC client disconnects.
+    #[test]
+    fn the_audio_process_dies_with_a_killed_provider() {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(directory) = std::env::var("ARINN_MUSIC_ORPHAN_PROVIDER") {
+            let directory = PathBuf::from(directory);
+            let player = Player::new(&directory, directory.join("fake-mpv")).unwrap();
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let _ = runtime.block_on(player.load(source()));
+            std::fs::write(directory.join("loaded"), b"").unwrap();
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+            }
+        }
+        // Short: the player's socket path below it must fit sun_path.
+        let directory = std::env::temp_dir().join(format!(
+            "amo-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        DirBuilder::new().mode(0o700).create(&directory).unwrap();
+        let fake = directory.join("fake-mpv");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/usr/bin/python3\nimport json,os,socket,sys,time\n\
+                 open({pid:?},'w').write(str(os.getpid()))\n\
+                 path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))\n\
+                 s=socket.socket(socket.AF_UNIX);s.bind(path);s.listen(1);c,_=s.accept()\n\
+                 f=c.makefile('rwb',buffering=0)\n\
+                 for line in f:\n \
+                 f.write((json.dumps({{'request_id':json.loads(line)['request_id'],'error':'success','data':None}})+'\\n').encode())\n\
+                 time.sleep(120)\n",
+                pid = directory.join("player.pid").to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut provider = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "player::tests::the_audio_process_dies_with_a_killed_provider",
+                "--nocapture",
+            ])
+            .env("ARINN_MUSIC_ORPHAN_PROVIDER", &directory)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let begun = Instant::now();
+        let pid = loop {
+            if let Ok(text) = std::fs::read_to_string(directory.join("player.pid"))
+                && let Ok(pid) = text.trim().parse::<libc::pid_t>()
+                && directory.join("loaded").exists()
+            {
+                break pid;
+            }
+            assert!(
+                begun.elapsed() < Duration::from_secs(10),
+                "fixture player did not start"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        // SAFETY: signals only processes this test started.
+        unsafe {
+            assert_eq!(libc::kill(pid, 0), 0, "the fixture player runs");
+            libc::kill(provider.id() as libc::pid_t, libc::SIGKILL);
+        }
+        provider.wait().unwrap();
+        let begun = Instant::now();
+        // The player is not our child: it is gone once kill(pid, 0) fails.
+        while unsafe { libc::kill(pid, 0) } == 0 {
+            if begun.elapsed() > Duration::from_secs(5) {
+                unsafe { libc::kill(pid, libc::SIGKILL) };
+                panic!("the audio process outlived its provider");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = std::fs::remove_dir_all(directory);
     }
     #[test]
     fn load_receipt_is_not_file_loaded_and_unknown_timing_is_safe() {

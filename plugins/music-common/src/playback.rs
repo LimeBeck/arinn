@@ -36,7 +36,12 @@ struct Data {
     status: String,
     error: Option<ErrorCode>,
     loaded: bool,
-    seek_end: bool,
+    /// The target of a seek to or past the reported duration. The end that
+    /// follows is not a natural end; once playback runs a second past the
+    /// target the duration was wrong and a later end is natural again.
+    seek_end: Option<u64>,
+    /// Consecutive failed polls; a single slow reply is not a stop.
+    failures: u8,
 }
 pub struct Playback {
     data: Mutex<Data>,
@@ -59,7 +64,8 @@ impl Playback {
                 status: "stopped".into(),
                 error: None,
                 loaded: false,
-                seek_end: false,
+                seek_end: None,
+                failures: 0,
             }),
             io: Mutex::new(()),
             player,
@@ -156,7 +162,7 @@ impl Playback {
             d.loaded = false;
             d.position = 0;
             d.duration = 0;
-            d.seek_end = false;
+            d.seek_end = None;
             d.error = None;
             d.revision += 1;
             d.token
@@ -230,7 +236,10 @@ impl Playback {
             d.token
         };
         let _io = self.io.lock().await;
-        self.player.stop().await?;
+        // Without a player thread no audio process is left running, so the
+        // session ends either way; the error is still reported, so a
+        // replacement start waits for a confirmed stop.
+        let stopped = self.player.stop().await;
         let mut d = self.data.lock().await;
         if d.token == token {
             d.queue.stop();
@@ -239,10 +248,11 @@ impl Playback {
             d.session.clear();
             d.status = "stopped".into();
             d.position = 0;
-            d.error = None;
+            d.error = stopped.err();
             d.revision += 1;
         }
         drop(d);
+        stopped?;
         Ok(self.state().await)
     }
     pub async fn command(self: &Arc<Self>, command: &Command) -> Result<State, ErrorCode> {
@@ -266,7 +276,7 @@ impl Playback {
                     d.position = 0;
                     d.duration = 0;
                     d.loaded = false;
-                    d.seek_end = false;
+                    d.seek_end = None;
                     d.status = "loading".into();
                     d.revision += 1;
                     d.token
@@ -295,7 +305,10 @@ impl Playback {
                     if d.token != expected {
                         return Err(ErrorCode::Conflict);
                     }
-                    command.action == "seek" && d.duration > 0 && command.position_us >= d.duration
+                    (command.action == "seek"
+                        && d.duration > 0
+                        && command.position_us >= d.duration)
+                        .then_some(command.position_us)
                 };
                 let value = if command.action == "seek" {
                     json!([
@@ -366,6 +379,12 @@ impl Playback {
             let mut acknowledge = None;
             match result {
                 Ok(snapshot) => {
+                    d.failures = 0;
+                    if d.seek_end.is_some_and(|target| {
+                        snapshot.position_us > target.saturating_add(1_000_000)
+                    }) {
+                        d.seek_end = None;
+                    }
                     d.position = snapshot.position_us;
                     if snapshot.failed {
                         d.error = Some(ErrorCode::Unavailable);
@@ -392,7 +411,7 @@ impl Playback {
                     if let Some(eof) = snapshot.eof {
                         acknowledge = Some(eof);
                         d.loaded = false;
-                        if !d.seek_end {
+                        if d.seek_end.is_none() {
                             let _ = refill(&mut d);
                             if let Some(occurrence) = d.queue.current().map(|e| e.occurrence)
                                 && d.queue.confirmed_end(occurrence).is_ok()
@@ -401,18 +420,29 @@ impl Playback {
                                 d.position = 0;
                                 d.duration = 0;
                                 d.status = "loading".into();
-                                d.seek_end = false;
+                                d.seek_end = None;
                                 d.revision += 1;
                                 advance = true;
                             }
                         }
                     }
                 }
+                // One slow or garbled reply is not a stop. After three failed
+                // polls in a row the player is stopped, so the reported
+                // "stopped" is true and no unobserved audio keeps playing.
                 Err(error) => {
-                    d.error = Some(error);
-                    d.status = "stopped".into();
-                    d.loaded = false;
-                    d.revision += 1;
+                    d.failures = d.failures.saturating_add(1);
+                    if d.failures >= 3 {
+                        d.failures = 0;
+                        d.error = Some(error);
+                        d.status = "stopped".into();
+                        d.loaded = false;
+                        d.revision += 1;
+                        drop(d);
+                        let _ = this.player.stop().await;
+                        drop(io);
+                        continue;
+                    }
                 }
             }
             let next = d.token;
@@ -537,7 +567,8 @@ mod tests {
             status: "stopped".into(),
             error: None,
             loaded: false,
-            seek_end: false,
+            seek_end: None,
+            failures: 0,
         };
         d.queue
             .start(ids.iter().take(65).cloned().collect(), None)
@@ -565,6 +596,64 @@ mod tests {
         ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
             Box::pin(async { Ok(Source::File(std::fs::File::open("/dev/null").unwrap())) })
         }
+    }
+    /// Review of #710: one poll that missed its 2-second deadline reported
+    /// "stopped" while the audio kept playing, and polling stopped for good.
+    #[tokio::test]
+    async fn a_single_slow_poll_is_not_a_stop() {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let directory = std::env::temp_dir().join(format!(
+            "am-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let executable = directory.join("fixture.py");
+        std::fs::write(&executable,r##"#!/usr/bin/python3
+import json,socket,sys,time
+path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
+server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
+connection,_=server.accept();stream=connection.makefile('rwb',buffering=0)
+positions=0
+for line in stream:
+ request=json.loads(line);command=request['command'];data=None;error='success'
+ if command[0]=='loadfile':
+  stream.write((json.dumps({'event':'start-file','playlist_entry_id':7})+'\n').encode())
+  stream.write(b'{"event":"file-loaded"}\n')
+ elif command[0]=='get_property':
+  prop=command[1]
+  if prop=='playlist/0/id':data=7
+  elif prop in ('idle-active','pause'):data=False
+  elif prop=='time-pos':
+   positions+=1;data=positions
+   if positions==3:time.sleep(2.5)
+  elif prop=='duration':data=600
+ stream.write((json.dumps({'request_id':request['request_id'],'data':data,'error':error})+'\n').encode())
+"##).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let playback = Playback::new(
+            Player::new(&directory, executable).unwrap(),
+            Arc::new(FixtureResolver),
+        );
+        playback
+            .play(vec![Track {
+                id: "one".into(),
+                available: true,
+                ..Track::default()
+            }])
+            .await
+            .unwrap();
+        // The slow reply comes on the third poll; wait well past it.
+        tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+        let state = playback.state().await;
+        assert_eq!(state.playback, "playing");
+        assert_eq!(state.error, None);
+        assert!(state.position_us >= 4_000_000, "polling continued");
+        playback.stop().await.unwrap();
+        drop(playback);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[tokio::test]
     async fn seeking_to_end_with_immediate_idle_eof_does_not_advance() {

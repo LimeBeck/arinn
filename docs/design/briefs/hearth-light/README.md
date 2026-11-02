@@ -169,6 +169,8 @@ One radius for everything is replaced by three roles:
 
 Application tiles are the one *object* role: r18, plate 3.5 % at rest, so a grid of names still reads as tiles. Each tile holds its application's identity light: a radial glow from below the tile in the identity hue, 50 % at rest and full in focus. Colour lives in light, not in a pastel square (D-9).
 
+Rows that scroll horizontally fade out over the left 24–112 px of the screen, so the previous card, kept visible by the handoff's one-item-from-the-edge rule, is not cut hard at x 0 (screenshot 34).
+
 Captions move from an overlay on a darkened gradient to below the image. Progress becomes an **Ember line**: 4 px, flush with the bottom edge of the image, no grey track. It is the Ember motif doing its documented job.
 
 ### Focus
@@ -212,6 +214,14 @@ Title Onest 600 56. Text tabs: selected = `text-1` + Ember dot under the label; 
 ### Detail
 
 Full-bleed backdrop with the current scrims; floor light at 50 %. Eyebrow, Literata 104 title, meta, a synopsis of three lines at most. Actions: primary pill "Continue from 1:13:42", secondary pills with a 7 % plate. Ember fill on a faint 360 × 4 track + "1 h 32 min left".
+
+**Series** (handoff 07): the copy sits at y 180 with the primary action "Continue · S1 E4" and the season rail below it. Rules for the rail:
+
+- Down from the action lands on the *selected* season tab, then on the *current* episode the first time, not on the first one.
+- Focusing the rail moves the page up so the rail sits at y 180, dims the copy to 0.18 and the backdrop to brightness 0.45, so episode captions stay readable over bright artwork.
+- Episode stills are 420 × 236, r12, with a check badge when watched and the Ember line on the current one.
+- **An episode without its own still is a numbered title card**: the number in Literata 76 at the top, the title in Literata 30 at the bottom, on Charcoal. The caption under it then shows only the duration, because the card already names the episode. The series image is never repeated on every card (screenshot 33).
+- Back from the rail returns to the primary action; the next Back leaves the detail.
 
 ### Applications
 
@@ -326,6 +336,8 @@ After the first prototype the designer reviewed it at sofa scale (screenshots re
 | A row of letters on the shelf | Letter chips left out on the shelf (D-10) |
 | Long titles pushed the hero into the rows | Fixed hero height with fitted title steps |
 | Night was indistinguishable from evening | The warm veil |
+| A scrolled card was cut hard at the screen edge | Rows fade out at the left edge |
+| Series rail: entry on the wrong tab and episode; captions unreadable over bright backdrops; repeated series image | Entry on the selected tab and the current episode; the backdrop steps back; numbered title cards |
 | The owner liked the startup | Kindle, the short ignition, as a motif |
 
 ## After acceptance

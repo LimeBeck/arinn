@@ -40,6 +40,8 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 #bgapp.near { transform: scale(.95); filter: blur(8px) brightness(.6); }
 #backdrop { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0; transition: opacity 500ms var(--ease); }
 #backdrop.on { opacity: 1; }
+#backdrop { transition: opacity 500ms var(--ease), filter 420ms var(--ease); }
+#backdrop.low { filter: brightness(.45); }  /* the season rail has focus: the artwork steps back */
 #backdrop::after { content: ''; position: absolute; inset: 0;
   background: linear-gradient(to right, rgb(15 17 21 / .96), rgb(15 17 21 / 0) 68%), linear-gradient(to top, rgb(15 17 21 / 1), rgb(15 17 21 / 0) 55%); }
 #light { position: absolute; inset: 0; pointer-events: none; opacity: 0;
@@ -211,7 +213,27 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 .poster.big .cap .s { font-size: 24px; color: var(--t3); }
 
 /* ---------- Detail ---------- */
-#detail .wrap { position: absolute; left: 120px; bottom: 140px; width: 1180px; }
+#detail .wrap { position: absolute; left: 120px; bottom: 140px; width: 1180px; transition: opacity 300ms var(--ease); }
+/* series detail: the copy sits at the top, the season rail below it (handoff 07) */
+#detail .dflow { position: absolute; left: 0; right: 0; top: 180px; transition: transform 420ms var(--ease); }
+#detail .dflow .wrap { position: static; margin-left: 120px; }
+#detail .wrap.dim { opacity: .18; }
+#detail .rail { margin-top: 64px; }
+#detail .rail .tabs { display: flex; gap: 8px; margin: 0 0 30px 92px; }
+.ep { width: 420px; }
+.ep .art { width: 420px; height: 236px; }
+.ep .cap .t { font-size: 26px; }
+.seen { position: absolute; top: 14px; right: 14px; width: 40px; height: 40px; border-radius: 50%; background: rgb(11 12 15 / .72); display: grid; place-items: center; color: var(--t1); }
+.seen svg { width: 24px; height: 24px; stroke-width: 2.6; }
+/* an episode without its own still: a numbered title card, not the series image again */
+.titlecard.epc { flex-direction: column; align-items: flex-start; justify-content: space-between; padding: 18px 22px 22px; }
+.titlecard.epc .num, #detail .titlecard.epc .num { font-size: 76px; line-height: 1; margin: 0; padding: 0; color: var(--t3); display: block; }
+.titlecard.epc .tc, #detail .titlecard.epc .tc { font-size: 30px; line-height: 1.15; margin: 0; padding: 0; -webkit-line-clamp: 2; }
+.lit .titlecard.epc .num { color: var(--t2); }
+/* rows fade out at the left edge: a scrolled card is not cut hard at x 0 */
+.shape-roles #home .row, .shape-roles #apps .row, .shape-roles #detail .row {
+  -webkit-mask-image: linear-gradient(to right, transparent 24px, #000 112px); mask-image: linear-gradient(to right, transparent 24px, #000 112px);
+  padding-bottom: 40px; margin-bottom: 0; }
 #detail .ct { font-size: 104px; line-height: 1.08; margin: 12px 0 14px; padding-bottom: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .tok-current #detail .ct { font-size: 96px; }
 #detail .meta { font-size: 28px; font-weight: 500; color: var(--t1); }
@@ -423,6 +445,7 @@ function art(key, hue, kind = 'backdrop') {
 /* ---------- icons ---------- */
 const I = {
   home: '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   library: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M10 9l5 3-5 3z"/>',
   downloads: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
@@ -463,6 +486,20 @@ Object.assign(MEDIA.salt, { progress: .70, pos: 6720, total: 9600, sub: 'Ост�
 Object.assign(MEDIA.voyage, { progress: .97, pos: 6886, total: 7101, sub: 'Осталось 4 мин', heroMeta: '1:54:46 из 1:58:21 · осталось 4 мин', dur: '1 ч 58 мин', genre: 'Анимация' });
 MEDIA.orchard.noArt = true;
 const CONTINUE = ['harbor', 'voyage', 'keepers', 'valley', 'salt'];
+// Episodes: a series with its own stills, and one without them (the field-check case).
+const EP_TITLES = ['Туманный колокол', 'Письмо с материка', 'Смена ветра', 'Старый журнал', 'Ночной рейс', 'Последняя лампа', 'Оттепель', 'Ледоход', 'Чужая лодка', 'Возвращение', 'Долгий берег', 'Сигнальный огонь'];
+MEDIA.valley.noStills = true;
+const CURRENT_EP = { keepers: [1, 4, .12], valley: [2, 1, .08] };
+function seasonsOf(m) {
+  if (m.kind !== 'series') return [];
+  const counts = m.key === 'keepers' ? [6, 4] : m.key === 'valley' ? [4, 5] : [5];
+  const cur = CURRENT_EP[m.key] || [1, 1, 0];
+  return counts.map((count, si) => ({ n: si + 1, eps: Array.from({ length: count }, (_, i) => {
+    const n = i + 1, s = si + 1;
+    return { n, title: EP_TITLES[(hash(m.key) + si * 5 + i) % EP_TITLES.length], dur: 52 + hash(m.key + s + n) % 9,
+      seen: s < cur[0] || (s === cur[0] && n < cur[1]), progress: s === cur[0] && n === cur[1] ? cur[2] : 0 };
+  }) }));
+}
 const NEW = ['wind', 'orchard', 'bay', 'fog', 'water', 'train', 'copper'];
 const APPS = {
   browser: { key: 'browser', name: 'Браузер', hue: 250, group: 'Онлайн', icon: 'globe' }, north: { key: 'north', name: 'Северный ветер', hue: 268, group: 'Онлайн' },
@@ -637,9 +674,10 @@ function renderDetail() {
   const kind = m.kind === 'series' ? 'Сериал' : 'Фильм';
   const started = !!m.progress;
   const primary = !started ? 'Смотреть' : m.ep ? 'Продолжить · ' + m.ep : 'Продолжить с ' + fmt(m.pos);
-  s.innerHTML = `<div class="wrap"><div class="eyebrow">${kind}</div><div class="ct">${m.title}</div>
+  const series = m.kind === 'series';
+  s.innerHTML = `${series ? '<div class="dflow">' : ''}<div class="wrap"><div class="eyebrow">${kind}</div><div class="ct">${m.title}</div>
     <div class="meta">${[m.year, m.dur || '1 ч 58 мин', '12+', m.genre || 'Драма'].join(' · ')}</div><div class="syn">${SYN}</div>
-    <div class="actions"></div>${started ? `<div class="progress"><span class="bar"><i style="width:${m.progress * 100}%"></i></span>${m.sub.startsWith('С') ? 'Осталось 51 мин' : m.sub}</div>` : ''}</div>`;
+    <div class="actions"></div>${started ? `<div class="progress"><span class="bar"><i style="width:${m.progress * 100}%"></i></span>${m.sub.startsWith('С') ? 'Осталось 51 мин' : m.sub}</div>` : ''}</div>${series ? '<div class="rail"></div></div>' : ''}`;
   const act = $('.actions', s);
   const b = (key, cls, ic, label, a) => { const e = h('div', 'btn f ' + cls, icon(ic) + label); e.dataset.key = key; e.dataset.act = a; e.dataset.hue = m.hue; act.appendChild(e); };
   b('d:play', 'primary', 'play', primary, 'play');
@@ -647,6 +685,26 @@ function renderDetail() {
   b('d:subs', '', 'subs', 'Аудио и субтитры', 'toast');
   $('#backdrop').style.backgroundImage = art(m.key, m.hue);
   fitTitle($('.ct', s), DETAIL_STEPS);
+  if (series) { S.season = (CURRENT_EP[m.key] || [1])[0]; delete S.rowMem.detaileps; renderRail(); }
+}
+function renderRail() {
+  const m = MEDIA[S.detail], rail = $('#detail .rail'); if (!rail) return;
+  const seasons = seasonsOf(m), season = seasons.find(x => x.n === S.season) || seasons[0];
+  rail.innerHTML = '';
+  const tabs = h('div', 'tabs');
+  seasons.forEach(x => { const t = h('div', 'tab f' + (x.n === season.n ? ' sel' : ''), 'Сезон ' + x.n); t.dataset.key = 's:' + x.n; t.dataset.act = 'season'; t.dataset.item = x.n; t.dataset.hue = m.hue; tabs.appendChild(t); });
+  rail.appendChild(tabs);
+  const tr = h('div', 'track');
+  season.eps.forEach(ep => {
+    const c = h('div', 'card wide ep f' + (ep.progress ? ' current' : '')); c.dataset.key = `e:${season.n}:${ep.n}`; c.dataset.hue = m.hue; c.dataset.act = 'play'; c.dataset.item = m.key;
+    const still = m.noStills
+      ? `<div class="art rimbox titlecard epc"><span class="num ct">${ep.n}</span><span class="tc ct">${ep.title}</span>`
+      : `<div class="art rimbox" style="background-image:${art(m.key + '-s' + season.n + 'e' + ep.n, m.hue + ep.n * 9)}">`;
+    c.innerHTML = `<div class="cast"></div>${still}${ep.seen ? `<span class="seen">${icon('check')}</span>` : ''}${ep.progress ? `<span class="prog-line" style="width:${ep.progress * 100}%"></span>` : ''}</div>
+      <div class="cap">${m.noStills ? '' : `<div class="t">${ep.n}. ${ep.title}</div>`}<div class="s">${ep.dur} мин</div></div>`;  // a title card already names the episode
+    tr.appendChild(c);
+  });
+  const r = h('div', 'row'); r.dataset.row = 'eps'; r.appendChild(tr); rail.appendChild(r);
 }
 function renderApps() {
   const s = $('#apps'); s.innerHTML = `<h1 class="page-title">Приложения</h1>`;
@@ -733,6 +791,13 @@ function move(dir, repeat) {
     const r = best.closest('.row'), m = r && S.rowMem[S.scene + r.dataset.row];
     if (m && m.isConnected && visible(m) && m.closest('.row') === r && r !== S.focused.closest('.row')) best = m;
   }
+  // Entering tabs lands on the selected one; entering a rail for the first time lands on the current item.
+  if (best && (dir === 'up' || dir === 'down')) {
+    const tabs = best.closest('.tabs'), sel = tabs && $('.sel', tabs);
+    if (sel && !S.focused.closest('.tabs')) best = sel;
+    const r = best.closest('.row'), cur = r && $('.current', r);
+    if (cur && !S.rowMem[S.scene + r.dataset.row] && r !== S.focused.closest('.row')) best = cur;
+  }
   if (!best) { Sound.play('edge'); return; }
   Sound.play('tap', { repeat }); setFocus(best);
 }
@@ -764,6 +829,12 @@ function screenScroll(e) {
     $('#home .hero').classList.toggle('gone', i >= 2);
   } else if (S.scene === 'library') {
     const r = e.closest('.grow'), g = $('#library .grid'); g.style.transform = r ? `translateY(${-r.offsetTop}px)` : 'none';
+  } else if (S.scene === 'detail') {
+    const flow = $('#detail .dflow'); if (!flow) return;
+    const inRail = !!e.closest('.rail');
+    flow.style.transform = inRail ? `translateY(${-$('#detail .rail').offsetTop}px)` : 'none';
+    $('#detail .wrap').classList.toggle('dim', inRail);
+    $('#backdrop').classList.toggle('low', inRail);
   }
 }
 // Fits a content title in steps: the first [size, lines] that holds the text wins; the last one clamps.
@@ -815,7 +886,7 @@ function show(scene, { push = true, focusKey } = {}) {
   $$('.screen').forEach(s => s.classList.toggle('on', s.id === scene));
   $('#topbar').classList.toggle('hidden', !['home', 'library', 'apps', 'detail'].includes(scene));
   $('.lockup', $('#topbar')).classList.toggle('gone', scene !== 'home');
-  $('#backdrop').classList.toggle('on', scene === 'detail');
+  $('#backdrop').classList.toggle('on', scene === 'detail'); $('#backdrop').classList.remove('low');
   $('#bgapp').classList.toggle('on', S.running && scene === 'home');
   S.scope = $('#' + scene);
   if (scene === 'ambient') { if (S.focused) S.focused.classList.remove('lit'); S.focused = null; updateLight(); return; }
@@ -846,6 +917,7 @@ function closeNav(silent) {
 function back() {
   if (S.nav) return closeNav();
   if (S.scene === 'player' && Player.osd && Player.playing) { Sound.play('back'); return Player.hide(); }
+  if (S.scene === 'detail' && S.focused && S.focused.closest('.rail')) { Sound.play('back'); return setFocus($('#detail [data-key="d:play"]')); }
   const prev = S.history.pop();
   if (!prev) return Sound.play('edge');
   Sound.play('back'); show(prev, { push: false });
@@ -860,6 +932,7 @@ function activate(e) {
   else if (act === 'play') { show('player'); Player.open(MEDIA[S.detail]); setFocus($('#player [data-key="p:pp"]')); }
   else if (act === 'return') { if (S.nav) closeNav(true); kindle(); toast(`Возврат в «${APPS.north.name}»`); }
   else if (act === 'app') { toast(`«${APPS[item].name}» откроется на весь экран`); }
+  else if (act === 'season') { S.season = +item; renderRail(); setFocus($(`#detail [data-key="s:${item}"]`)); }
   else if (act === 'tab') { S.tab = item; renderLibrary(); S.scope = $('#library'); setFocus($(`[data-key="tab:${item}"]`, S.scope)); }
   else if (act === 'nav') {
     if (['home', 'library', 'apps'].includes(item)) { closeNav(true); if (item !== S.scene) show(item); }
@@ -957,6 +1030,7 @@ function gotoScene(name) {
   else if (name === 'nav') { show('home', { push: false }); openNav(); }
   else if (name === 'ambient') { S.preAmbient = 'home'; show('ambient', { push: false }); }
   else if (name === 'player') { S.history = ['home', 'detail']; S.detail = 'harbor'; renderDetail(); show('player', { push: false }); Player.open(MEDIA.harbor); if (Q.get('paused') === '1') Player.toggle(); setFocus($('#player .timeline')); }
+  else if (name === 'episodes') { S.history = ['home']; S.detail = Q.get('item') && MEDIA[Q.get('item')] ? Q.get('item') : 'keepers'; renderDetail(); show('detail', { push: false }); const c = CURRENT_EP[S.detail]; setFocus($(`#detail [data-key="e:${c ? c[0] + ':' + c[1] : '1:1'}"]`) || $('#detail .ep')); }
   else if (name === 'detail') { S.history = ['home']; S.detail = Q.get('item') && MEDIA[Q.get('item')] ? Q.get('item') : 'harbor'; renderDetail(); show('detail', { push: false, focusKey: 'd:play' }); }
   else { S.history = ['home']; show(name, { push: false }); }
 }

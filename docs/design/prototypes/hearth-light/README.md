@@ -36,7 +36,7 @@ The prototype and its review panel are in Russian, like the handoff. The panel (
 | Parameter | Values | Default |
 | --- | --- | --- |
 | `variant` | `hearth` (A), `hearth-source` (A′), `hearth-sans` (B), `calm` (C), `current` | `hearth` |
-| `scene` | `home`, `home-shelf`, `home-new`, `home-long`, `running`, `nav`, `library`, `detail`, `apps`, `player`, `ambient`, `startup` | `home` |
+| `scene` | `home`, `home-shelf`, `home-new`, `home-long`, `running`, `nav`, `library`, `detail`, `episodes`, `apps`, `player`, `ambient`, `startup` | `home` |
 | `time` | `auto`, `day`, `evening`, `night` | `auto` (by the clock) |
 | `sound` | `quiet`, `normal`, `off` | `quiet` |
 | `light` | `off` turns the light field off | on |
@@ -49,7 +49,7 @@ The prototype and its review panel are in Russian, like the handoff. The panel (
 | `hud` | `0` hides the review panel (used for the screenshots) | shown |
 | `hold` | `1` keeps the player's on-screen display from hiding | hides after 4 s |
 | `paused` | `1` opens the player paused | playing |
-| `item` | A title key for `scene=detail`, for example `keepers` | `harbor` |
+| `item` | A title key for `scene=detail` or `scene=episodes`: `keepers` (series with stills), `valley` (series without stills), `voyage` (long title) | `harbor` / `keepers` |
 
 For example: `hearth-light.html?scene=home&variant=current` shows the current look, and `?scene=ambient&time=night` shows Ambient at night.
 
@@ -58,12 +58,23 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 1. **Home, A against Current.** Switch the variant with focus on the same card. Look at the plates, the uppercase eyebrow, the pastel monograms and the glow disappearing, and at the floor light, the rim and the serif title appearing.
 2. **Move along a row.** The pool of light follows focus along the floor with a delay. The focused row is lit and the other rows recede. Switch the artwork option to bright: the mat keeps the focus visible on light artwork.
 3. **Favourites as a shelf.** Press ↓ twice from Continue.
-4. **A running application.** Use the *over an app* scene (`scene=running`). The application recedes behind Home and comes closer when its card has focus.
-5. **Navigation** (M): an edge panel instead of a floating card.
-6. **Player.** Enter on a card, then Enter on *Continue*. While it plays, navigation is silent. Pause it with OK, and the sounds come back.
-7. **Ambient** (A) and the **time of day**: evening and night darken the room.
-8. **Startup** (S): ignition from the Ember dot. Then press H anywhere: the short version, *kindle*, marks Arinn coming back.
-9. **Sound.** Listen at the TV's normal level, from the sofa. *Quiet* is the proposed default.
+4. **A series.** Open the third Continue card (or `scene=detail&item=keepers`) and press ↓ twice: the selected season, then the current episode. `item=valley` shows episodes without stills as numbered title cards.
+5. **A running application.** Use the *over an app* scene (`scene=running`). The application recedes behind Home and comes closer when its card has focus.
+6. **Navigation** (M): an edge panel instead of a floating card.
+7. **Player.** Enter on a card, then Enter on *Continue*. While it plays, navigation is silent. Pause it with OK, and the sounds come back.
+8. **Ambient** (A) and the **time of day**: evening and night darken the room.
+9. **Startup** (S): ignition from the Ember dot. Then press H anywhere: the short version, *kindle*, marks Arinn coming back.
+10. **Sound.** Listen at the TV's normal level, from the sofa. *Quiet* is the proposed default.
+
+## Videos
+
+1280 × 720 recordings of the prototype in headless Chromium (no sound: the recordings capture the picture only):
+
+| File | What it shows |
+| --- | --- |
+| [home.mp4](video/home.mp4) | The startup ignition, moving along the rows with the pool following focus, the shelf, the left-edge fade and the short ignition on H |
+| [tour.mp4](video/tour.mp4) | Navigation, Library, a film detail, the player, Ambient and waking from it |
+| [series.mp4](video/series.mp4) | A series detail: the season rail, the current episode, Back to the action, Home and a long title |
 
 ## Screenshots
 
@@ -90,6 +101,10 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 | Letters on the shelf and the focused caption shown (D-8, D-10) | [17-home-letters-and-caption](screenshots/17-home-letters-and-caption.jpg) |
 | Dark placeholder artwork only | [18-home-dark-artwork](screenshots/18-home-dark-artwork.jpg) |
 | Bright placeholder artwork only | [19-home-bright-artwork](screenshots/19-home-bright-artwork.jpg) |
+| Series detail | [31-detail-series](screenshots/31-detail-series.jpg) |
+| Season rail, current episode in focus | [32-episodes](screenshots/32-episodes.jpg) |
+| Episodes without stills as numbered title cards | [33-episodes-title-cards](screenshots/33-episodes-title-cards.jpg) |
+| Continue scrolled: the previous card fades at the left edge | [34-home-left-edge](screenshots/34-home-left-edge.jpg) |
 
 <img src="screenshots/01-home.jpg" alt="Home in Hearth light: serif title, captions under the artwork, Ember progress lines, a favourites shelf and a warm floor light" width="480"> <img src="screenshots/20-home-current.jpg" alt="Home in the current look: plates, overlaid captions, uppercase eyebrow and pastel monograms" width="480">
 
@@ -111,5 +126,6 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 ## Verification
 
 - All scenes were opened in headless Chromium (Playwright) at 1920 × 1080 and captured with no console errors or page errors.
+- Scripted remote paths were replayed with the key log checked: Home → detail → player and back, navigation to Library and Applications, the series rail (selected tab, current episode, season switch, Back to the action), Ambient and Startup.
 - Every interface sound was rendered offline with the prototype's own synthesis (`OfflineAudioContext`, 48 kHz). Measured peak and length: tap 0.22 / 49 ms, edge 0.25 / 69 ms, select 0.24 / 203 ms, back 0.10 / 135 ms, open 0.05 / 137 ms, close 0.07 / 128 ms, ignite 0.20 / 1.7 s, kindle 0.15 / 456 ms, error 0.16 / 277 ms. The media guard was checked: the player reports media playing, so interface sounds are suppressed.
 - **Not tested:** listening on real speakers or a TV, readability of the rim and the serif at 3 m, and performance on HTPC hardware. These need the owner (brief, decision D-7).

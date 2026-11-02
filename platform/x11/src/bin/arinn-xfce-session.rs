@@ -4,6 +4,10 @@
 //! Opt-in XDG autostart bridge; the XFCE session manager owns its lifetime.
 #[path = "../../../lock_preflight.rs"]
 mod lock_preflight;
+#[path = "../../../session_direct.rs"]
+mod session_direct;
+#[path = "../../../user_manager.rs"]
+mod user_manager;
 use anyhow::{Result, bail, ensure};
 use std::{
     env,
@@ -40,6 +44,15 @@ const HANDOVER: Duration = Duration::from_secs(65);
 const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
 const LOCK_PROVIDER_MISSING: &str = "no lock provider: start xfce4-screensaver or light-locker";
 const LOCK_PROVIDER_UNRESPONSIVE: &str = "lock provider not responding";
+
+#[derive(Debug)]
+struct DirectStartFailed(session_direct::DirectStartError);
+impl std::fmt::Display for DirectStartFailed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0.message())
+    }
+}
+impl std::error::Error for DirectStartFailed {}
 
 #[derive(Debug)]
 struct LockProviderMissing;
@@ -225,6 +238,13 @@ async fn confirm(bus: &DBusProxy<'_>) -> Result<()> {
     Ok(())
 }
 
+async fn direct_start(connection: &Connection) -> Result<session_direct::DirectStack> {
+    let session = session_direct::SessionEnvironment::for_ewmh_login();
+    session_direct::DirectStack::start(connection, &session)
+        .await
+        .map_err(|error| DirectStartFailed(error).into())
+}
+
 async fn run() -> Result<()> {
     ensure!(
         env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()),
@@ -264,16 +284,32 @@ async fn run() -> Result<()> {
         _ = term.recv() => bail!("stopped while waiting for the launcher name"),
         _ = interrupt.recv() => bail!("stopped while waiting for the launcher name"),
     }
-    // No supported concurrent graphical sessions share this user manager.
-    for unit in [
-        "arinn-session.target",
-        TARGET,
-        "arinnd.service",
-        "arinn-shell.service",
-        "arinn-ewmh.service",
-    ] {
+    let use_systemd = if env::var_os("ARINN_XFCE_USE_SYSTEMD").as_deref() == Some("0".as_ref()) {
+        false
+    } else if env::var_os("ARINN_XFCE_USE_SYSTEMD").as_deref() == Some("1".as_ref()) {
+        true
+    } else {
+        user_manager::available(&connection).await
+    };
+    if use_systemd {
+        // No supported concurrent graphical sessions share this user manager.
+        for unit in [
+            "arinn-session.target",
+            TARGET,
+            "arinnd.service",
+            "arinn-shell.service",
+            "arinn-ewmh.service",
+        ] {
+            ensure!(
+                !systemctl(&["is-active", "--quiet", unit]).await?,
+                "an Arinn session is already running"
+            );
+        }
+    } else {
         ensure!(
-            !systemctl(&["is-active", "--quiet", unit]).await?,
+            !session_direct::arinn_running(&connection)
+                .await
+                .unwrap_or(true),
             "an Arinn session is already running"
         );
     }
@@ -286,45 +322,67 @@ async fn run() -> Result<()> {
             return Err(anyhow::Error::new(LockProviderUnresponsive));
         }
     }
-    let mut startup = Box::pin(start());
-    let outcome = tokio::select! {
-        result = &mut startup => {
-            // Confirmed only after a successful start.
-            let confirmed = match result {
-                Ok(()) => confirm(&bus).await,
-                Err(error) => Err(error),
-            };
-            match confirmed {
-                Err(error) => Err(error),
-                Ok(()) => tokio::select! {
-                    result = &mut lifetime => result,
-                    _ = term.recv() => Ok(()),
-                    _ = interrupt.recv() => Ok(()),
+    if use_systemd {
+        let mut startup = Box::pin(start());
+        let outcome = tokio::select! {
+            result = &mut startup => {
+                let confirmed = match result {
+                    Ok(()) => confirm(&bus).await,
+                    Err(error) => Err(error),
+                };
+                match confirmed {
+                    Err(error) => Err(error),
+                    Ok(()) => tokio::select! {
+                        result = &mut lifetime => result,
+                        _ = term.recv() => Ok(()),
+                        _ = interrupt.recv() => Ok(()),
+                    }
                 }
-            }
-        },
-        result = &mut lifetime => result,
-        _ = term.recv() => Ok(()),
-        _ = interrupt.recv() => Ok(()),
-    };
-    drop(startup);
-    // A failed or interrupted start can already have activated some services.
-    let stopped = systemctl(&["stop", TARGET]).await;
-    let cleared = systemctl(&[
-        "unset-environment",
-        "DISPLAY",
-        "XAUTHORITY",
-        "XDG_SESSION_TYPE",
-        "ARINN_PLATFORM_BACKEND",
-        "ARINN_SESSION_BACKEND",
-        "ARINN_LOGIN_STATE_HOME",
-        "ARINN_LOGIN_CONFIG_HOME",
-        "ARINN_LOGIN_SESSION_ID",
-    ])
-    .await;
-    outcome?;
-    ensure!(stopped? && cleared?, "session cleanup failed");
-    Ok(())
+            },
+            result = &mut lifetime => result,
+            _ = term.recv() => Ok(()),
+            _ = interrupt.recv() => Ok(()),
+        };
+        drop(startup);
+        // A failed or interrupted start can already have activated some services.
+        let stopped = systemctl(&["stop", TARGET]).await;
+        let cleared = systemctl(&[
+            "unset-environment",
+            "DISPLAY",
+            "XAUTHORITY",
+            "XDG_SESSION_TYPE",
+            "ARINN_PLATFORM_BACKEND",
+            "ARINN_SESSION_BACKEND",
+            "ARINN_LOGIN_STATE_HOME",
+            "ARINN_LOGIN_CONFIG_HOME",
+            "ARINN_LOGIN_SESSION_ID",
+        ])
+        .await;
+        outcome?;
+        ensure!(stopped? && cleared?, "session cleanup failed");
+        Ok(())
+    } else {
+        let stack_start = direct_start(&connection);
+        tokio::pin!(stack_start);
+        let stack = tokio::select! {
+            stack = &mut stack_start => stack?,
+            result = &mut lifetime => {
+                result?;
+                unreachable!();
+            },
+            _ = term.recv() => bail!("stopped while starting Arinn"),
+            _ = interrupt.recv() => bail!("stopped while starting Arinn"),
+        };
+        confirm(&bus).await?;
+        let outcome = tokio::select! {
+            result = &mut lifetime => result,
+            _ = term.recv() => Ok(()),
+            _ = interrupt.recv() => Ok(()),
+        };
+        stack.stop();
+        outcome?;
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -339,8 +397,18 @@ async fn main() {
             eprintln!("arinn-xfce-session: {LOCK_PROVIDER_UNRESPONSIVE}");
             std::process::exit(1);
         }
+        Err(error) if error.downcast_ref::<DirectStartFailed>().is_some() => {
+            eprintln!(
+                "arinn-xfce-session: {}",
+                error
+                    .downcast_ref::<DirectStartFailed>()
+                    .unwrap()
+                    .0
+                    .message()
+            );
+            std::process::exit(1);
+        }
         Err(_) => {
-            // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
             eprintln!("arinn-xfce-session: session integration failed");
             std::process::exit(1);
         }

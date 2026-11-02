@@ -59,18 +59,25 @@ pub enum Launch {
     External,
     /// Start `app-arinn-mpv.service` on Open when the socket is down.
     Systemd { binary: PathBuf },
+    /// Start mpv directly when no user manager is available.
+    Spawned { binary: PathBuf },
     /// mpv is not installed. Open returns `Unavailable`.
     Missing,
 }
 
-/// `Systemd` when `binary` exists, otherwise `Missing`.
-pub(crate) fn launch_for(binary: &Path) -> Launch {
-    if binary.is_file() {
+/// Managed launch when `binary` exists, otherwise `Missing`.
+pub(crate) async fn launch_for(binary: &Path, connection: &Connection) -> Launch {
+    if !binary.is_file() {
+        return Launch::Missing;
+    }
+    if scope::user_manager_available_for(connection).await {
         Launch::Systemd {
             binary: binary.to_path_buf(),
         }
     } else {
-        Launch::Missing
+        Launch::Spawned {
+            binary: binary.to_path_buf(),
+        }
     }
 }
 
@@ -652,13 +659,13 @@ impl Core {
         self.drop_client();
         if self.connect_socket().await.is_err() {
             match &self.launch {
-                Launch::Systemd { binary } => {
+                Launch::Systemd { binary } | Launch::Spawned { binary } => {
                     let binary = binary.clone();
                     let socket = self.socket.clone();
                     let connection = Connection::session()
                         .await
                         .map_err(|_| ErrorCode::Unavailable)?;
-                    scope::ensure_unit(&connection, &binary, &socket).await?;
+                    scope::ensure_player(&connection, &binary, &socket).await?;
                     self.owns_unit = true;
                     self.wait_for_socket().await?;
                 }
@@ -855,7 +862,7 @@ impl Core {
                 let connection = Connection::session()
                     .await
                     .map_err(|_| ErrorCode::Unavailable)?;
-                scope::stop_unit(&connection).await
+                scope::stop_player(&connection).await
             })
             .await
             .unwrap_or(Err(ErrorCode::Timeout));
@@ -1534,14 +1541,38 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_missing_binary_does_not_launch() {
+    #[tokio::test]
+    async fn a_missing_binary_does_not_launch() {
         let dir = std::env::temp_dir().join(format!("arinn-mpv-bin-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let binary = dir.join("mpv");
         std::fs::write(&binary, b"x").unwrap();
-        assert!(matches!(launch_for(&binary), Launch::Systemd { .. }));
-        assert!(matches!(launch_for(&dir.join("absent")), Launch::Missing));
+        let mut bus = std::process::Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address=1"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let mut address = String::new();
+        std::io::BufRead::read_line(
+            &mut std::io::BufReader::new(bus.stdout.take().unwrap()),
+            &mut address,
+        )
+        .unwrap();
+        let connection = zbus::connection::Builder::address(address.trim())
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
+        assert!(matches!(
+            launch_for(&binary, &connection).await,
+            Launch::Systemd { .. } | Launch::Spawned { .. }
+        ));
+        assert!(matches!(
+            launch_for(&dir.join("absent"), &connection).await,
+            Launch::Missing
+        ));
+        let _ = bus.kill();
+        let _ = bus.wait();
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

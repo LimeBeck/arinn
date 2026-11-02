@@ -288,6 +288,12 @@ jobs:
         run: |
           apt-get update
           apt-get install -y ./pkg/*.deb
+      - name: Session autostart stays opt-in
+        run: |
+          python3 tests/package/test_deb_postinst_systemd.py
+          for unit in arinn-session.target arinn-ewmh-session.target; do
+            test ! -e "/etc/systemd/user/graphical-session.target.wants/$unit"
+          done
       - name: Smoke test
         env:
           ARINN_TEST_MANAGER: ${{ github.workspace }}/pkg/private-systemd

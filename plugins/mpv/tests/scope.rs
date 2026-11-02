@@ -3,11 +3,14 @@
 
 //! The mpv unit is its own application scope and does not reference the plugin.
 
-use arinn_plugin_mpv::{UNIT, arguments, ensure_unit, socket_is_private};
+use arinn_plugin_mpv::{
+    UNIT, arguments, ensure_player, ensure_unit, socket_is_private, stop_player,
+};
 use arinn_protocol::validation::ErrorCode;
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader},
+    os::unix::fs::PermissionsExt,
     path::Path,
     process::{Command, Stdio},
     sync::{
@@ -15,6 +18,7 @@ use std::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
+use uuid::Uuid;
 use zbus::{Connection, zvariant::OwnedValue};
 
 struct Bus(std::process::Child, String);
@@ -133,6 +137,11 @@ impl Manager {
     }
 
     fn reset_failed_unit(&self, _name: &str) {}
+
+    #[zbus(property, name = "Version")]
+    fn version(&self) -> &str {
+        "252"
+    }
 }
 
 struct Unit {
@@ -204,6 +213,21 @@ async fn transient_unit_is_unreferenced_and_not_restarted_while_active() {
         .await
         .unwrap();
     assert_eq!(starts.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn ensure_player_spawns_without_user_manager() {
+    let bus = Bus::start();
+    let client = bus.connection().await;
+    let root = std::env::temp_dir().join(format!("arinn-mpv-spawn-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let player = root.join("mpv");
+    std::fs::write(&player, b"#!/bin/sh\nexec sleep 3600\n").unwrap();
+    std::fs::set_permissions(&player, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let socket = Path::new("/run/user/1000/arinn/mpv/ipc");
+    ensure_player(&client, &player, socket).await.unwrap();
+    stop_player(&client).await.unwrap();
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]

@@ -118,3 +118,7 @@ override_dh_strip:
 
 override_dh_dwz:
 	:
+
+# ADR-0042: session autostart is opt-in; do not enable user targets on install (#708).
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable

@@ -5,9 +5,16 @@
 //! The unit is not referenced by this process, so a provider crash does not
 //! stop it, and no other mpv is signalled.
 
+#[path = "../../../platform/user_manager.rs"]
+mod user_manager;
 use crate::paths::is_public_tmp;
 use arinn_protocol::validation::ErrorCode;
-use std::{path::Path, time::Duration};
+use std::{
+    path::Path,
+    process::{Command, Stdio},
+    sync::Mutex,
+    time::Duration,
+};
 use zbus::{
     Connection, Proxy,
     zvariant::{OwnedObjectPath, Value},
@@ -46,6 +53,91 @@ pub fn socket_is_private(path: &Path) -> bool {
     path.is_absolute() && !is_public_tmp(path)
 }
 
+static PLAYER: Mutex<Option<std::process::Child>> = Mutex::new(None);
+
+pub async fn user_manager_available_for(connection: &Connection) -> bool {
+    user_manager::available(connection).await
+}
+
+fn player_running() -> bool {
+    let mut guard = PLAYER.lock().unwrap_or_else(|poison| poison.into_inner());
+    if let Some(child) = guard.as_mut() {
+        match child.try_wait() {
+            Ok(None) => return true,
+            Ok(Some(_)) | Err(_) => {
+                *guard = None;
+            }
+        }
+    }
+    false
+}
+
+fn build_argv(binary: &Path, socket: &Path) -> Result<Vec<String>, ErrorCode> {
+    if !socket_is_private(socket) || !binary.is_absolute() {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    let binary_text = binary.to_str().ok_or(ErrorCode::InvalidArgument)?;
+    let mut argv = vec![binary_text.to_string()];
+    argv.extend(arguments(socket));
+    let launch = uuid::Uuid::new_v4().to_string();
+    argv.push(format!(
+        "--wayland-app-id={}",
+        arinn_protocol::media_window::app_id(&launch)?
+    ));
+    argv.push(format!(
+        "--x11-name={}",
+        arinn_protocol::media_window::app_id(&launch)?.to_lowercase()
+    ));
+    argv.push("--x11-bypass-compositor=never".into());
+    Ok(argv)
+}
+
+/// Start the Arinn-owned mpv when it is not already running.
+pub async fn ensure_player(
+    connection: &Connection,
+    binary: &Path,
+    socket: &Path,
+) -> Result<(), ErrorCode> {
+    if user_manager::available(connection).await {
+        ensure_unit(connection, binary, socket).await
+    } else {
+        ensure_process(binary, socket).await
+    }
+}
+
+async fn ensure_process(binary: &Path, socket: &Path) -> Result<(), ErrorCode> {
+    if player_running() {
+        return Ok(());
+    }
+    let argv = build_argv(binary, socket)?;
+    let mut command = Command::new(&argv[0]);
+    command
+        .args(&argv[1..])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let child = command.spawn().map_err(|_| ErrorCode::Unavailable)?;
+    *PLAYER.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(child);
+    Ok(())
+}
+
+/// Stop exactly the Arinn-owned mpv instance.
+pub async fn stop_player(connection: &Connection) -> Result<(), ErrorCode> {
+    if user_manager::available(connection).await {
+        stop_unit(connection).await
+    } else {
+        stop_process().await
+    }
+}
+
+async fn stop_process() -> Result<(), ErrorCode> {
+    let mut guard = PLAYER.lock().unwrap_or_else(|poison| poison.into_inner());
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    Ok(())
+}
+
 /// Start `app-arinn-mpv.service` when it is not already active.
 /// An active unit is left alone.
 pub async fn ensure_unit(
@@ -68,20 +160,8 @@ pub async fn ensure_unit(
         return Ok(());
     }
     let _: Result<(), zbus::Error> = manager.call("ResetFailedUnit", &(UNIT,)).await;
+    let argv = build_argv(binary, socket)?;
     let binary_text = binary.to_str().ok_or(ErrorCode::InvalidArgument)?;
-    let mut argv = vec![binary_text.to_string()];
-    argv.extend(arguments(socket));
-    let launch = uuid::Uuid::new_v4().to_string();
-    argv.push(format!(
-        "--wayland-app-id={}",
-        arinn_protocol::media_window::app_id(&launch)?
-    ));
-    argv.push(format!(
-        "--x11-name={}",
-        arinn_protocol::media_window::app_id(&launch)?.to_lowercase()
-    ));
-    // A transparent input/OSD layer requires compositing on X11.
-    argv.push("--x11-bypass-compositor=never".into());
     let command = vec![(
         binary_text.to_string(),
         argv,

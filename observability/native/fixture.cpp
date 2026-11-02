@@ -58,6 +58,13 @@ int main(int argc, char **argv) {
   FlowTrace::Flow unknown;
   unknown.start("private-token-fixture");
   unknown.finish("ok");
+  // Qt passes window activation to every item in a window: only a window's own
+  // copy is a breadcrumb, so these leave none.
+  QObject item;
+  for (int i = 0; i < 3; ++i) {
+    QEvent activate(QEvent::WindowActivate);
+    QCoreApplication::sendEvent(&item, &activate);
+  }
   qDebug("private-token-fixture https://private.invalid/page Private tab");
   qInfo("private-token-fixture");
   // Templates keep the QML location and drop quoted text, URLs, paths and numbers.

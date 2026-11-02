@@ -4,7 +4,11 @@ Status: **in progress; not a usable music provider yet**. Task
 [#707](https://github.com/LimeBeck/arinn/issues/707), parent
 [#677](https://github.com/LimeBeck/arinn/issues/677). The owner authorized one
 implementation MR for local music, Yandex and their common API/UI on 2026-11-01.
-The selected design is layout B in [design PR #700](https://github.com/LimeBeck/arinn/pull/700).
+On 2026-11-02 the owner clarified that the design must be included in the same
+MR. [#710](https://github.com/LimeBeck/arinn/pull/710) now carries the
+[visual prototype](../design/prototypes/music/README.md), owner-selected layout
+B, review captures and backend implementation together. Design PR #700 is
+superseded; no separate design merge is required.
 The [research](music-discovery.md) remains the source for feasibility limits.
 
 ## Current code boundary

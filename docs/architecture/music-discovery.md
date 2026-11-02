@@ -109,11 +109,46 @@ The following IDs are local proposal references, not new MVP AC identifiers.
 | MU-08 | Connection is cancellable; expired/revoked access explains recovery; disconnect removes local credentials/cache as required | No tokens in QML models, URLs in logs, analytics or diagnostic payloads |
 | MU-09 | Service failure is isolated and never presented as an empty library | Distinguish loading, empty, unsupported, account-required, unavailable, quota-limited and error |
 | MU-10 | Remote-only access and predictable Back/Home focus restoration | Screen/sheet focus, keyboard return, paging and list changes at 1080p/4K |
+| MU-11 | Browse provider-owned personal selections and stations, including My Wave and personal mixes where supported | Distinguish finite playlists from continuous stations; no local recommendation engine or assumed feature parity |
+| MU-12 | Start radio from a provider-defined station or track seed; pin supported stations | Seed/session identity remains opaque to core/QML; unsupported sources expose no successful start action |
+| MU-13 | A continuous queue replenishes before exhaustion and labels the loaded window rather than a fictional total | Bounded upcoming/history windows, duplicate suppression, append versus replace, concurrent refill, cancellation and stale-session replies |
+| MU-14 | Like/dislike and playback feedback follow each provider's capabilities | Confirmed account feedback, clear like/dislike distinction, skip versus natural end, no fabricated success or assumed identical provider semantics |
+| MU-15 | Station loading, exhausted-buffer and refill-failure states preserve current playback and offer recovery | Retry does not restart the station or cut off the current track; stopping/replacing a station rejects late batches |
 
 Capability flags, pagination, account states, assets, command confirmation and
 queue revision ownership need a separate contract-change task. Reuse existing
 generation/revision and asynchronous-operation principles; this report does not
 allocate a new capability name or extend an existing interface.
+
+### CloudMus functionality reference
+
+Owner-requested comparison on 2026-11-01: inspected
+[CloudMus at d8f5c6d](https://github.com/cloudmus/cloudmus/tree/d8f5c6dad9818a1f3bfe5935437f97ddf138818e),
+not a live account session. Its
+[protocol](https://github.com/cloudmus/cloudmus/blob/d8f5c6dad9818a1f3bfe5935437f97ddf138818e/docs/protocol.md)
+distinguishes ordinary playlists, liked tracks and radio stations; a radio starts
+with an initial batch and receives more tracks later. Its backend-defined seed
+and station identifiers are a useful reference for keeping service names out of
+core routing.
+
+The [Yandex radio implementation](https://github.com/cloudmus/cloudmus/blob/d8f5c6dad9818a1f3bfe5935437f97ddf138818e/backends/yandex-music/cloudmus_backend_yandex/radio.py)
+reports start/end/skip feedback, tracks its session/batch and replenishes upcoming
+tracks. A skip can replace unplayed recommendations; completion normally appends
+when the buffer is low. It also filters recent/played entries and rejects a
+response superseded by another replacement. The
+[YouTube radio implementation](https://github.com/cloudmus/cloudmus/blob/d8f5c6dad9818a1f3bfe5935437f97ddf138818e/backends/youtube-music/cloudmus_backend_ytmusic/radio.py)
+uses watch-playlist batches and listening-history feedback rather than the same
+Yandex mechanism. A common interface must preserve those differences.
+
+For Arinn this expands design scope beyond album selection: personal selections
+and pinned stations on source landing, track-seeded radio, capability-dependent
+feedback and continuous queue states. Personal playlists are not automatically
+endless. The future contract task must settle queue ownership and generation,
+station lifecycle, continuation, append/replace semantics, buffering limits,
+feedback acknowledgement and safe retry. Names here describe requirements, not
+approved D-Bus method names. A third-party implementation demonstrates a route
+worth investigating; it does not resolve Arinn's service permission/access
+blockers or authorize copying its credentials, branding or implementation.
 
 ## Proposed local-library requirements
 

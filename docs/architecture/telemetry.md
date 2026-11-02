@@ -4,7 +4,8 @@
 <!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
 
 Specification §13–14; R-01–R-05, R-09, R-10;
-[ADR-0082](../adr/0082-opt-in-sentry.md), [ADR-0093](../adr/0093-structured-sentry-diagnostics.md);
+[ADR-0082](../adr/0082-opt-in-sentry.md), [ADR-0093](../adr/0093-structured-sentry-diagnostics.md),
+[ADR-0133](../adr/0133-sentry-noise-and-stable-grouping.md);
 tasks [#301](https://github.com/LimeBeck/arinn/issues/301) and
 [#370](https://github.com/LimeBeck/arinn/issues/370).
 
@@ -62,7 +63,7 @@ consent UI or verify the remote project settings.
   - Qt warnings and critical/fatal messages as templates;
   - native fatal signals;
   - debug/info messages as breadcrumbs;
-  - application lifecycle, window visibility, activation, focus and input event kinds as breadcrumbs.
+  - application lifecycle, window visibility, activation, focus and input event kinds as breadcrumbs: one per event a window receives, not per item Qt passes it on to, and no key autorepeat (ADR-0133).
 
   No key code, pointer position, window identity or title is recorded.
 - Component, release (`arinn@<build id>`, ADR-0097), level, timestamp, bounded operation/error codes,
@@ -105,7 +106,7 @@ Metric attributes are `kind`, `operation`, `outcome` and `error` only. Operation
 
 A span description is a kind, `media.open`, `browser.launch`, `browser.open_url` or `browser.show_window`. A library launch has the spans `provider.call library.launch` and `provider.call media.open`. A Present has `platform.wait media.present`. A URL open (`browse.open`, `shortcut.open`) names the chosen browser plugin and has `provider.call browser.launch` (when the browser was closed), `provider.call browser.open_url` and `platform.wait browser.show_window`. A span cut short by the operation deadline, or still running when the operation ends, has status `cancelled`.
 
-**Daemon events.** A failed operation produces one event titled `<kind> failed: <error> (<reason>)`.
+**Daemon events.** A failed operation produces one event titled `<kind> failed: <error> (<reason>)`, except a `Cancelled` one: a superseded or abandoned operation keeps its transaction, metrics and breadcrumb but raises no issue (ADR-0133).
 
 - Fingerprint: `["arinnd", kind, error, reason or "-"]`.
 - Level: `error` for `Timeout`, `Unavailable` and `Internal`, otherwise `warning`.
@@ -117,9 +118,9 @@ The completion log line on stderr carries the same `kind` and `reason`.
 - **`qt.location` tag.** The Arinn source name and line (`HomeView.qml:42`), from a `qrc:` QML prefix or the compile-time `.cpp`/`.h` context. It is never derived from `file:` URLs, absolute paths or C++ file names inside message text.
 - **`qt.category` tag.** The Qt logging category, for example `qml` or `qt.qpa.wayland`.
 - **Exception value.** The template: the message with non-ASCII text, quoted text, URLs, paths, addresses, file names and numbers replaced by `<text>`, `<str>`, `<url>`, `<path>`, `<file>` and `<n>`. Any `scheme:value` token is a URL, any dotted name is a file name, any token with a slash or backslash is a path whatever precedes it, and a token still holding a query or address separator becomes `<str>`; each of these replaces the whole whitespace-delimited token, brackets included. A final allowlist keeps only words, C++ scopes, placeholders and punctuation; any other token becomes `<str>`. Both privacy boundaries accept `qt.location` only as `<name>.<qml|js|mjs|cpp|h>[:<line>]`. It is at most 160 characters. A template that still holds a digit, quote, slash or query character becomes `Qt message`.
-- **Fingerprint.** `["arinn-shell", type, location, template]`, rebuilt from the cleaned fields at both boundaries. The transport filter templates a Qt exception value again, so a raw or cached envelope cannot pass its own text off as a template.
+- **Fingerprint.** `["arinn-shell", type, file, template]`, where `file` is `qt.location` without its line (`Main.qml`) or `unknown.location`, so an edit that moves the line keeps the issue (ADR-0133). It is rebuilt from the cleaned fields at both boundaries. The transport filter templates a Qt exception value again, so a raw or cached envelope cannot pass its own text off as a template.
 - **Rate limit.** One event per template per 10 minutes, with at most 256 templates tracked. Repeats count in `arinn.shell.messages.suppressed`. Fatal messages are never suppressed.
-- **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable` and `QWaylandDataOffer` never become events. They count in `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.
+- **Known noise.** `Icon is unavailable`, `Site icon is unavailable`, `Artwork is unavailable`, `QWaylandDataOffer` and Qt's `Failed to register with host portal` never become events. They count in `arinn.shell.messages.benign` and leave one `qt.noise` breadcrumb per template window.
 
 **Shell flows.** A user-visible shell flow is one transaction with the trace op `shell.flow`, a status, an `outcome` tag and up to 8 child spans with the op `shell.step`. The lists live in `observability/native/flows.h`. The shell models record a flow with `apps/arinn-shell/flow_trace.h`, which does nothing unless the telemetry startup hook installs its sink, so builds and tests without telemetry are unaffected. Nothing else is recorded: no IDs, titles, URLs or paths.
 

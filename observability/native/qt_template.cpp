@@ -102,6 +102,9 @@ QString scrub(QString text) {
 bool benign(const QString &text, const QByteArray &category) {
   return text.contains(QLatin1String("icon is unavailable"), Qt::CaseInsensitive) ||
     text.contains(QLatin1String("Artwork is unavailable")) ||
+    // Qt registers the application with the portal itself; outside a sandbox
+    // a portal without the registry refuses, which changes nothing for Arinn.
+    text.contains(QLatin1String("Failed to register with host portal")) ||
     text.contains(QLatin1String("QWaylandDataOffer")) || category.contains("QWaylandDataOffer");
 }
 QMutex limiterLock;
@@ -184,6 +187,17 @@ bool safeLocation(const char *text) {
     if (++digits > 6) return false;
   }
   return digits > 0 && *c == '\0';
+}
+bool locationFile(const char *location, char *out, size_t size) {
+  if (!out || size == 0) return false;
+  out[0] = '\0';
+  if (!safeLocation(location)) return false;
+  size_t length = 0;
+  while (location[length] && location[length] != ':') ++length;
+  if (length >= size) return false;
+  std::memcpy(out, location, length);
+  out[length] = '\0';
+  return true;
 }
 bool safeCategory(const char *text) {
   if (!text || !*text) return false;

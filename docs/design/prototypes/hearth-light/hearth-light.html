@@ -28,6 +28,7 @@ body {
 body.tok-current { --bg: #131416; --t1: #F4F5F7; --t2: #C9CBCF; --t3: #9A9DA3; }
 body.tok-hearth.tod-night { --t1: oklch(.97 .006 75); --t2: oklch(.84 .008 75); --t3: oklch(.71 .008 75); }  /* raised so that under the 22 % veil text-3 stays at 4.8:1 */
 body.motion-reduced * { transition-duration: 1ms !important; animation: none !important; }
+body.motion-reduced #startup { transition: opacity 300ms linear !important; }  /* reduced motion keeps a cross-fade */
 
 #stage {
   position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; overflow: hidden;
@@ -692,7 +693,8 @@ function renderLibrary() {
   for (let i = 0; i < list.length; i += 7) {
     const r = h('div', 'row grow'); r.dataset.row = 'g' + i;
     list.slice(i, i + 7).forEach(m => { const c = h('div', 'card poster big f'); c.dataset.key = 'lib:' + m.key; c.dataset.hue = m.hue; c.dataset.act = 'detail'; c.dataset.item = m.key;
-      c.innerHTML = `<div class="cast"></div><div class="art rimbox" style="background-image:${art(m.key, m.hue, 'poster')}"></div><div class="cap"><div class="t">${m.title}</div><div class="s">${m.year}</div></div>`; r.appendChild(c); });
+      const still = m.noArt ? `<div class="art rimbox titlecard"><span class="tc ct">${m.title}</span></div>` : `<div class="art rimbox" style="background-image:${art(m.key, m.hue, 'poster')}"></div>`;
+      c.innerHTML = `<div class="cast"></div>${still}<div class="cap"><div class="t">${m.title}</div><div class="s">${m.year}</div></div>`; r.appendChild(c); });
     grid.appendChild(r);
   }
   const clip = h('div', 'clip'); clip.appendChild(grid); s.appendChild(clip);
@@ -1004,7 +1006,7 @@ function startup() {
   $$('#home .rise').forEach((e, i) => e.style.transitionDelay = (i * 60) + 'ms');
   const reduced = settings.motion === 'reduced';
   const at = (ms, fn) => stT.push(setTimeout(fn, reduced ? Math.min(ms, 300) : ms));
-  if (reduced) { at(0, () => { st.classList.add('s1', 's2', 's3'); Sound.play('ignite'); }); at(300, finishStartup); return; }  // the sound is not motion
+  if (reduced) { at(0, () => { st.classList.add('s1', 's2', 's3'); stage.classList.remove('rising'); Sound.play('ignite'); }); at(30, () => st.classList.add('s5')); stT.push(setTimeout(finishStartup, 340)); return; }  // a 300 ms cross-fade; the sound is not motion
   at(150, () => { st.classList.add('s1'); Sound.play('ignite'); });
   at(450, () => st.classList.add('s2'));
   at(600, () => st.classList.add('s3'));
@@ -1035,7 +1037,7 @@ function applyVariant(keepFocus = true) {
   document.body.className = [custom ? 'font-custom' : '', `apps-${e.apps}`, `chips-${e.chips}`, e.cap ? 'cap-focus' : '', `light-${settings.lightOn ? p.light : 'off'}`, `serif-${p.serif}`, `shape-${p.shape}`, `mono-${p.mono}`, `eyebrow-${p.eyebrow}`, `focus-${p.focus}`, `tok-${p.tok}`, `tod-${period()}`, `motion-${settings.motion}`].join(' ');
   const navWas = S.nav; if (navWas) closeNav(true);
   renderAll();
-  if (S.scene === 'player' && Player.m) { Player.open(Player.m); }
+  // The player is not rebuilt by renderAll, so a review-panel change keeps its position and state.
   show(S.scene, { push: false, focusKey: keepFocus ? key : undefined });
   if (navWas) openNav();
   hud();
@@ -1063,7 +1065,7 @@ function hud() {
   $$('select', el).forEach(s => s.onchange = () => {
     const v = s.value, id = s.dataset.id;
     if (id === 'light') settings.lightOn = v === 'on'; else settings[id] = v;
-    Sound.arm(); Sound.level(); applyVariant(); s.blur(); Sound.play('select');
+    Sound.arm(); Sound.level(); if (id === 'tod') applyPeriod(); else applyVariant(); s.blur(); Sound.play('select');
   });
   $$('button[data-scene]', el).forEach(b => b.onclick = () => { Sound.arm(); gotoScene(b.dataset.scene); b.blur(); });
   $$('button[data-sound]', el).forEach(b => b.onclick = () => { Sound.arm(); if (settings.sound === 'off') toast('Звуки выключены'); Sound.play(b.dataset.sound); b.blur(); });

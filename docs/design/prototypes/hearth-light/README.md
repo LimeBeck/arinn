@@ -21,13 +21,13 @@ python -m http.server 8765 --bind 127.0.0.1
 | Enter / Space | OK |
 | Esc / Backspace | Back |
 | M | Global navigation |
-| H | Home |
+| H | Home, with the short ignition (kindle) |
 | A | Ambient; any key wakes |
 | S | Replay the startup ignition |
 | D | Show or hide the review panel |
 | Mouse | Hover moves focus, click is OK |
 
-The prototype and its review panel are in Russian, like the handoff. The panel (top right) switches the variant, the time of day, the sound level, the light field and reduced motion, jumps to any scene, and plays each interface sound on its own.
+The prototype and its review panel are in Russian, like the handoff. The panel (top right) switches the variant, the time of day, the sound level, the light field, reduced motion, the placeholder artwork, the Applications layout, letters on the shelf and the caption in focus, jumps to any scene, and plays each interface sound on its own.
 
 **Sound starts after the first key press or click**, because browsers do not allow audio before a user gesture. The sound of the first startup on page load is therefore silent; press S to hear the ignition.
 
@@ -41,6 +41,10 @@ The prototype and its review panel are in Russian, like the handoff. The panel (
 | `sound` | `quiet`, `normal`, `off` | `quiet` |
 | `light` | `off` turns the light field off | on |
 | `motion` | `reduced` | full |
+| `art` | `mixed`, `dark`, `bright`: placeholder artwork | `mixed` |
+| `apps` | `lit`, `tiles`, `shelf`: Applications layout (Hearth light only) | `lit` |
+| `chips` | `icons`, `letters`: letter monograms on the shelf (Hearth light only) | `icons` |
+| `cap` | `hide`, `show`: caption of the focused Continue card (Hearth light only) | `hide` |
 | `clock` | `live` uses the real time instead of the fixed 22:57 | fixed |
 | `hud` | `0` hides the review panel (used for the screenshots) | shown |
 | `hold` | `1` keeps the player's on-screen display from hiding | hides after 4 s |
@@ -52,18 +56,18 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 ## What to look at
 
 1. **Home, A against Current.** Switch the variant with focus on the same card. Look at the plates, the uppercase eyebrow, the pastel monograms and the glow disappearing, and at the floor light, the rim and the serif title appearing.
-2. **Move along a row.** The pool of light follows focus along the floor with a delay. The focused row is lit and the other rows recede.
+2. **Move along a row.** The pool of light follows focus along the floor with a delay. The focused row is lit and the other rows recede. Switch the artwork option to bright: the mat keeps the focus visible on light artwork.
 3. **Favourites as a shelf.** Press ↓ twice from Continue.
 4. **A running application.** Use the *over an app* scene (`scene=running`). The application recedes behind Home and comes closer when its card has focus.
 5. **Navigation** (M): an edge panel instead of a floating card.
 6. **Player.** Enter on a card, then Enter on *Continue*. While it plays, navigation is silent. Pause it with OK, and the sounds come back.
 7. **Ambient** (A) and the **time of day**: evening and night darken the room.
-8. **Startup** (S): ignition from the Ember dot.
+8. **Startup** (S): ignition from the Ember dot. Then press H anywhere: the short version, *kindle*, marks Arinn coming back.
 9. **Sound.** Listen at the TV's normal level, from the sofa. *Quiet* is the proposed default.
 
 ## Screenshots
 
-1920 × 1080 Chromium captures of the prototype with the review panel hidden, the clock fixed at 22:57 (evening) and quiet sound.
+1920 × 1080 Chromium captures of the second-round prototype with the review panel hidden, mixed placeholder artwork, the clock fixed at 22:57 (evening) and quiet sound.
 
 | Scene | Hearth light (A) |
 | --- | --- |
@@ -81,6 +85,11 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 | Home, a long title in two lines | [12-home-long-title](screenshots/12-home-long-title.jpg) |
 | New, a poster without artwork as a title card | [13-home-new-no-artwork](screenshots/13-home-new-no-artwork.jpg) |
 | Detail, a long title | [14-detail-long-title](screenshots/14-detail-long-title.jpg) |
+| Applications as shelves (D-9) | [15-applications-shelf](screenshots/15-applications-shelf.jpg) |
+| Applications as plain tiles (D-9) | [16-applications-plain-tiles](screenshots/16-applications-plain-tiles.jpg) |
+| Letters on the shelf and the focused caption shown (D-8, D-10) | [17-home-letters-and-caption](screenshots/17-home-letters-and-caption.jpg) |
+| Dark placeholder artwork only | [18-home-dark-artwork](screenshots/18-home-dark-artwork.jpg) |
+| Bright placeholder artwork only | [19-home-bright-artwork](screenshots/19-home-bright-artwork.jpg) |
 
 <img src="screenshots/01-home.jpg" alt="Home in Hearth light: serif title, captions under the artwork, Ember progress lines, a favourites shelf and a warm floor light" width="480"> <img src="screenshots/20-home-current.jpg" alt="Home in the current look: plates, overlaid captions, uppercase eyebrow and pastel monograms" width="480">
 
@@ -102,5 +111,5 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 ## Verification
 
 - All scenes were opened in headless Chromium (Playwright) at 1920 × 1080 and captured with no console errors or page errors.
-- Every interface sound was rendered offline with the prototype's own synthesis (`OfflineAudioContext`, 48 kHz). Measured peak and length: tap 0.22 / 49 ms, edge 0.25 / 69 ms, select 0.24 / 203 ms, back 0.10 / 135 ms, open 0.05 / 137 ms, close 0.07 / 128 ms, ignite 0.20 / 1.7 s, error 0.16 / 277 ms. The media guard was checked: the player reports media playing, so interface sounds are suppressed.
+- Every interface sound was rendered offline with the prototype's own synthesis (`OfflineAudioContext`, 48 kHz). Measured peak and length: tap 0.22 / 49 ms, edge 0.25 / 69 ms, select 0.24 / 203 ms, back 0.10 / 135 ms, open 0.05 / 137 ms, close 0.07 / 128 ms, ignite 0.20 / 1.7 s, kindle 0.15 / 456 ms, error 0.16 / 277 ms. The media guard was checked: the player reports media playing, so interface sounds are suppressed.
 - **Not tested:** listening on real speakers or a TV, readability of the rim and the serif at 3 m, and performance on HTPC hardware. These need the owner (brief, decision D-7).

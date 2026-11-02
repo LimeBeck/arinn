@@ -30,8 +30,18 @@ struct Lease {
     offset: usize,
     expires: Instant,
     cached: Option<Page>,
+    /// Encoded size of `cached`, counted toward the retained budget.
+    cached_bytes: usize,
     bytes: usize,
 }
+/// A lease lives this long after it is issued; each continuation gets its
+/// own full period, so slow paging does not fail 30 s after page one.
+const LEASE: Duration = Duration::from_secs(30);
+/// The longest a handler command or reset may take. The daemon gives up
+/// after 5 s; this only bounds a handler that never returns.
+const HANDLER: Duration = Duration::from_secs(10);
+/// Retained snapshot and cached page data across all leases.
+const RETAINED: usize = 16 * 1024 * 1024;
 struct MusicData {
     owner: String,
     generation: String,
@@ -114,8 +124,9 @@ impl MusicService {
                 revision: catalogue.revision,
                 entries: Arc::new(catalogue.entries),
                 offset: 0,
-                expires: now + Duration::from_secs(30),
+                expires: now + LEASE,
                 cached: None,
+                cached_bytes: 0,
                 bytes,
             }
         } else {
@@ -160,6 +171,8 @@ impl MusicService {
         d.leases.retain(|_, v| v.expires > now);
         if offset < lease.entries.len() {
             // Snapshot vectors are shared by continuation leases, not copied.
+            // The lease being served is never evicted: a retry of its token
+            // must still return its cached page.
             loop {
                 let mut seen = HashSet::new();
                 let total: usize = d
@@ -167,19 +180,20 @@ impl MusicService {
                     .values()
                     .filter(|l| seen.insert(Arc::as_ptr(&l.entries)))
                     .map(|l| l.bytes)
-                    .sum();
+                    .sum::<usize>()
+                    + d.leases.values().map(|l| l.cached_bytes).sum::<usize>();
                 let present = d
                     .leases
                     .values()
                     .any(|l| Arc::ptr_eq(&l.entries, &lease.entries));
-                if d.leases.len() < 32
-                    && total + if present { 0 } else { lease.bytes } <= 16 * 1024 * 1024
+                if d.leases.len() < 32 && total + if present { 0 } else { lease.bytes } <= RETAINED
                 {
                     break;
                 }
                 let Some(key) = d
                     .leases
                     .iter()
+                    .filter(|(k, _)| **k != query.token)
                     .min_by_key(|(_, v)| v.expires)
                     .map(|(k, _)| k.clone())
                 else {
@@ -192,16 +206,19 @@ impl MusicService {
                 page.next_token.clone(),
                 Lease {
                     offset,
+                    expires: now + LEASE,
                     cached: None,
+                    cached_bytes: 0,
                     ..lease.clone()
                 },
             );
         }
+        page.validate()?;
+        let encoded = music::encode(&page)?.len();
         if let Some(saved) = d.leases.get_mut(&query.token) {
             saved.cached = Some(page.clone());
+            saved.cached_bytes = encoded;
         }
-        page.validate()?;
-        music::encode(&page)?;
         Ok(page)
     }
 }
@@ -263,13 +280,24 @@ impl MusicService {
             }
             return result.clone().map_err(Into::into);
         }
-        let result = async {
+        // Bounded, so a hung handler cannot hold `serial` forever and block
+        // `clear()` and the endpoint loop behind it (review of #710).
+        let result = match tokio::time::timeout(HANDLER, async {
             let state = self.handler.command(command.clone()).await?;
             state.validate()?;
             music::encode(&state)
-        }
-        .await;
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(ErrorCode::Timeout),
+        };
         self.ready(generation, &h).await?;
+        // A timeout is an uncertain outcome, not a receipt: a retry with the
+        // same request ID runs again instead of repeating "Timeout".
+        if result == Err(ErrorCode::Timeout) {
+            return Err(ErrorCode::Timeout.into());
+        }
         let mut d = self.data.lock().await;
         d.commands
             .push_back((client.into(), command, result.clone()));
@@ -298,7 +326,7 @@ impl Endpoint for MusicService {
     }
     async fn clear(&self) {
         let _serial = self.serial.lock().await;
-        self.handler.reset().await;
+        let _ = tokio::time::timeout(HANDLER, self.handler.reset()).await;
         let mut d = self.data.lock().await;
         d.generation.clear();
         d.owner.clear();
@@ -329,4 +357,109 @@ pub async fn run_music_on(
     service: MusicService,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     run_endpoint(connection, service).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct Catalogue;
+    impl MusicHandler for Catalogue {
+        fn state(&self) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>> {
+            Box::pin(async { Ok(State::default()) })
+        }
+        fn catalogue(
+            &self,
+            _query: Query,
+        ) -> Pin<Box<dyn Future<Output = Result<MusicCatalogue, ErrorCode>> + Send + '_>> {
+            Box::pin(async {
+                Ok(MusicCatalogue {
+                    revision: 1,
+                    entries: (0..350)
+                        .map(|i| Entity {
+                            id: format!("track-{i}"),
+                            kind: "track".into(),
+                            title: format!("Track {i}"),
+                            available: true,
+                            ..Entity::default()
+                        })
+                        .collect(),
+                })
+            })
+        }
+        fn command(
+            &self,
+            _command: Command,
+        ) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>> {
+            Box::pin(async { Err(ErrorCode::Unsupported) })
+        }
+        fn reset(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+            Box::pin(async {})
+        }
+    }
+    fn query(token: &str) -> Query {
+        Query {
+            facet: "tracks".into(),
+            parent: String::new(),
+            search: String::new(),
+            token: token.into(),
+        }
+    }
+    /// Review of #710: continuation leases copied the first page's expiry, so
+    /// every cursor of a listing died 30 s after page one, however recently
+    /// the previous page was read.
+    #[tokio::test]
+    async fn each_continuation_lease_gets_a_full_lifetime() {
+        let service = MusicService::new(Catalogue);
+        service.data.lock().await.generation = "g".into();
+        let first = service.page("g", ":1.7", query("")).await.unwrap();
+        assert_eq!(first.entries.len(), 100);
+        // Page one was read 29 s ago: its lease is about to expire.
+        let soon = Instant::now() + Duration::from_secs(1);
+        for lease in service.data.lock().await.leases.values_mut() {
+            lease.expires = soon;
+        }
+        let second = service
+            .page("g", ":1.7", query(&first.next_token))
+            .await
+            .unwrap();
+        let expires = service.data.lock().await.leases[&second.next_token].expires;
+        assert!(expires > Instant::now() + Duration::from_secs(25));
+        // A retry of the served token returns its cached page.
+        let retried = service
+            .page("g", ":1.7", query(&first.next_token))
+            .await
+            .unwrap();
+        assert_eq!(retried.next_token, second.next_token);
+    }
+    /// Review of #710: when 32 leases were held, eviction could drop the lease
+    /// being served, so a retry of that token failed with Conflict.
+    #[tokio::test]
+    async fn a_full_lease_table_never_evicts_the_lease_being_served() {
+        let service = MusicService::new(Catalogue);
+        service.data.lock().await.generation = "g".into();
+        let first = service.page("g", ":1.7", query("")).await.unwrap();
+        // Fill the table with leases that expire before the served one.
+        {
+            let mut d = service.data.lock().await;
+            let template = d.leases[&first.next_token].clone();
+            let earlier = Instant::now() + Duration::from_secs(5);
+            d.leases.get_mut(&first.next_token).unwrap().expires = earlier;
+            for i in 0..31 {
+                let mut lease = template.clone();
+                lease.expires = earlier + Duration::from_secs(1 + i);
+                d.leases.insert(format!("other-{i}"), lease);
+            }
+        }
+        let second = service
+            .page("g", ":1.7", query(&first.next_token))
+            .await
+            .unwrap();
+        assert!(!second.next_token.is_empty());
+        let retried = service
+            .page("g", ":1.7", query(&first.next_token))
+            .await
+            .unwrap();
+        assert_eq!(retried.next_token, second.next_token);
+        assert!(service.data.lock().await.leases.len() <= 32);
+    }
 }

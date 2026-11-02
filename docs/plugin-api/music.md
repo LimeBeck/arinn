@@ -28,10 +28,12 @@ ID, never a shell-loadable filesystem path or remote URL.
 `GetPage(generation, query)` takes facet, parent, search and token. Facets are
 tracks, albums, artists, playlists and selections. Pages contain generation,
 revision, entries (at most 100) and next_token. A token binds the original query,
-verified calling connection, generation and immutable catalogue snapshot. Leases
-expire after 30 seconds, at most 32 leases and 16 MiB of distinct snapshot data
-are retained, and at most two initial materializations run concurrently. Retrying
-a continuation reads its cached page; a different caller/query cannot reuse it.
+verified calling connection, generation and immutable catalogue snapshot. A
+lease expires 30 seconds after it is issued; each continuation lease gets its
+own 30 seconds. At most 32 leases and 16 MiB of distinct snapshot data and
+cached pages are retained, the lease being served is never evicted, and at most
+two initial materializations run concurrently. Retrying a continuation reads
+its cached page; a different caller/query cannot reuse it.
 Snapshots contain at most 100,000 unique entities. Search is at most 1024 bytes.
 
 `Command(generation, command)` takes request_id (UUID), action, session, entity,
@@ -42,7 +44,9 @@ pin, connect, cancel, disconnect and scan; providers advertise only implemented
 actions. Removal addresses an upcoming occurrence. Times are microseconds.
 The last 32 command receipts are retained per endpoint, keyed by verified caller,
 generation and UUID. Retrying the same payload returns its receipt; reusing the
-UUID with another payload returns Conflict. Admission is bounded to 32 commands.
+UUID with another payload returns Conflict. A timeout is an uncertain outcome,
+not a receipt: it is not recorded, and a retry with the same UUID runs again.
+A provider handler is bounded to 10 seconds. Admission is bounded to 32 commands.
 
 Starting play/radio while a music session is loading, playing or paused requires
 matching replaces_provider/replaces_session from the confirmation screen. The

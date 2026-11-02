@@ -5,6 +5,8 @@
 //! The unit is not referenced by this process, so a provider crash does not
 //! stop it, and no other mpv is signalled.
 
+#[path = "../../../platform/user_manager.rs"]
+mod user_manager;
 use crate::paths::is_public_tmp;
 use arinn_protocol::validation::ErrorCode;
 use std::{
@@ -53,30 +55,8 @@ pub fn socket_is_private(path: &Path) -> bool {
 
 static PLAYER: Mutex<Option<std::process::Child>> = Mutex::new(None);
 
-async fn user_manager_available(connection: &Connection) -> bool {
-    let bus = match zbus::fdo::DBusProxy::new(connection).await {
-        Ok(bus) => bus,
-        Err(_) => return false,
-    };
-    let systemd = match "org.freedesktop.systemd1".try_into() {
-        Ok(name) => name,
-        Err(_) => return false,
-    };
-    if !bus.name_has_owner(systemd).await.unwrap_or(false) {
-        return false;
-    }
-    zbus::Proxy::new(
-        connection,
-        "org.freedesktop.systemd1",
-        "/org/freedesktop/systemd1",
-        "org.freedesktop.systemd1.Manager",
-    )
-    .await
-    .is_ok()
-}
-
 pub async fn user_manager_available_for(connection: &Connection) -> bool {
-    user_manager_available(connection).await
+    user_manager::available(connection).await
 }
 
 fn player_running() -> bool {
@@ -118,7 +98,7 @@ pub async fn ensure_player(
     binary: &Path,
     socket: &Path,
 ) -> Result<(), ErrorCode> {
-    if user_manager_available(connection).await {
+    if user_manager::available(connection).await {
         ensure_unit(connection, binary, socket).await
     } else {
         ensure_process(binary, socket).await
@@ -144,7 +124,7 @@ async fn ensure_process(binary: &Path, socket: &Path) -> Result<(), ErrorCode> {
 
 /// Stop exactly the Arinn-owned mpv instance.
 pub async fn stop_player(connection: &Connection) -> Result<(), ErrorCode> {
-    if user_manager_available(connection).await {
+    if user_manager::available(connection).await {
         stop_unit(connection).await
     } else {
         stop_process().await

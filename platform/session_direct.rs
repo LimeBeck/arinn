@@ -20,6 +20,31 @@ const DAEMON: &str = "ARINN_DAEMON";
 const PLATFORM_BIN: &str = "ARINN_PLATFORM_X11";
 const SHELL_LAUNCH: &str = "ARINN_SHELL_LAUNCH";
 
+pub const BINARY_NOT_FOUND: &str = "binary not found";
+pub const DAEMON_BUS: &str = "arinnd did not start on the session bus";
+pub const PLATFORM_BUS: &str = "platform adapter did not start on the session bus";
+pub const SHELL_BUS: &str = "shell did not start on the session bus";
+
+/// Fixed direct-start failure; [`message`](Self::message) is the only user-visible text.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DirectStartError {
+    BinaryNotFound,
+    DaemonBus,
+    PlatformBus,
+    ShellBus,
+}
+
+impl DirectStartError {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::BinaryNotFound => BINARY_NOT_FOUND,
+            Self::DaemonBus => DAEMON_BUS,
+            Self::PlatformBus => PLATFORM_BUS,
+            Self::ShellBus => SHELL_BUS,
+        }
+    }
+}
+
 /// Session variables the EWMH bridge would import into a user manager.
 #[derive(Clone, Debug)]
 pub struct SessionEnvironment {
@@ -29,11 +54,12 @@ pub struct SessionEnvironment {
 
 impl SessionEnvironment {
     /// Build the EWMH session environment from the login process.
-    pub fn for_ewmh_login() -> Result<Self, String> {
+    pub fn for_ewmh_login() -> Self {
         let mut values = HashMap::from([
             ("XDG_SESSION_TYPE".into(), "x11".into()),
             ("ARINN_PLATFORM_BACKEND".into(), "ewmh".into()),
             ("ARINN_SESSION_BACKEND".into(), "x11".into()),
+            ("QT_QPA_PLATFORM".into(), "xcb".into()),
         ]);
         let mut unset = Vec::new();
         if env::var_os("XAUTHORITY").is_some_and(|value| !value.is_empty()) {
@@ -74,7 +100,7 @@ impl SessionEnvironment {
         } else {
             unset.push("ARINN_LOGIN_SESSION_ID".into());
         }
-        Ok(Self { values, unset })
+        Self { values, unset }
     }
 
     pub fn apply_to(&self, command: &mut Command) {
@@ -98,6 +124,19 @@ fn login_folder(variable: &str, fallback: &str) -> Option<String> {
                 .map(|home| home.join(fallback))
         })
         .and_then(|path| path.into_os_string().into_string().ok())
+}
+
+fn spawn_stack_binary(path: &Path, session: &SessionEnvironment) -> Result<std::process::Child, DirectStartError> {
+    if !path.is_absolute() || !path.exists() {
+        return Err(DirectStartError::BinaryNotFound);
+    }
+    let mut command = Command::new(path);
+    session.apply_to(&mut command);
+    command
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .map_err(|_| DirectStartError::BinaryNotFound)
 }
 
 fn resolve(env_var: &str, default: &str) -> PathBuf {
@@ -128,52 +167,22 @@ impl DirectStack {
     pub async fn start(
         connection: &Connection,
         session: &SessionEnvironment,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, DirectStartError> {
         let daemon_bin = resolve(DAEMON, "/usr/bin/arinnd");
         let platform_bin = resolve(PLATFORM_BIN, "/usr/bin/arinn-platform-x11");
         let shell_launch = resolve(SHELL_LAUNCH, "/usr/lib/arinn/arinn-shell-launch");
-        for (label, path) in [
-            ("arinnd", &daemon_bin),
-            ("platform adapter", &platform_bin),
-            ("shell launcher", &shell_launch),
-        ] {
-            if !path.is_absolute() || !path.exists() {
-                return Err(format!("{label} not found"));
-            }
-        }
-        let mut daemon_cmd = Command::new(&daemon_bin);
-        session.apply_to(&mut daemon_cmd);
-        daemon_cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let daemon = Child(
-            daemon_cmd
-                .spawn()
-                .map_err(|error| format!("arinnd failed to start: {error}"))?,
-        );
+        let daemon = Child(spawn_stack_binary(&daemon_bin, session)?);
         wait_for_name(connection, production::SERVICE, START_TIMEOUT)
             .await
-            .map_err(|_| "arinnd did not start on the session bus".to_string())?;
-        let mut platform_cmd = Command::new(&platform_bin);
-        session.apply_to(&mut platform_cmd);
-        platform_cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let platform = Child(
-            platform_cmd
-                .spawn()
-                .map_err(|error| format!("platform adapter failed to start: {error}"))?,
-        );
+            .map_err(|_| DirectStartError::DaemonBus)?;
+        let platform = Child(spawn_stack_binary(&platform_bin, session)?);
         wait_for_name(connection, PLATFORM, START_TIMEOUT)
             .await
-            .map_err(|_| "platform adapter did not start on the session bus".to_string())?;
-        let mut shell_cmd = Command::new(&shell_launch);
-        session.apply_to(&mut shell_cmd);
-        shell_cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let shell = Child(
-            shell_cmd
-                .spawn()
-                .map_err(|error| format!("shell failed to start: {error}"))?,
-        );
+            .map_err(|_| DirectStartError::PlatformBus)?;
+        let shell = Child(spawn_stack_binary(&shell_launch, session)?);
         wait_for_name(connection, SHELL, START_TIMEOUT)
             .await
-            .map_err(|_| "shell did not start on the session bus".to_string())?;
+            .map_err(|_| DirectStartError::ShellBus)?;
         Ok(Self {
             daemon,
             platform,
@@ -251,9 +260,10 @@ mod tests {
 
     #[test]
     fn login_environment_mirrors_systemd_imports() {
-        let session = SessionEnvironment::for_ewmh_login().unwrap();
+        let session = SessionEnvironment::for_ewmh_login();
         assert_eq!(session.values["XDG_SESSION_TYPE"], "x11");
         assert_eq!(session.values["ARINN_PLATFORM_BACKEND"], "ewmh");
+        assert_eq!(session.values["QT_QPA_PLATFORM"], "xcb");
         assert!(session.unset.iter().any(|key| key == "ARINN_SESSION_ENTRY"));
         let root = std::env::temp_dir().join("arinn-session-env-test");
         std::fs::create_dir_all(&root).unwrap();
@@ -263,7 +273,7 @@ mod tests {
             env::set_var("XDG_STATE_HOME", "/login/state");
             env::set_var("XDG_CONFIG_HOME", "/login/config");
         }
-        let session = SessionEnvironment::for_ewmh_login().unwrap();
+        let session = SessionEnvironment::for_ewmh_login();
         assert_eq!(session.values["ARINN_LOGIN_STATE_HOME"], "/login/state");
         assert_eq!(session.values["ARINN_LOGIN_CONFIG_HOME"], "/login/config");
         unsafe {

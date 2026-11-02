@@ -186,7 +186,7 @@ class XfceSessionWithoutUserManager(XfceSession):
         _, stderr = child.communicate(timeout=5)
         self.assertEqual(child.returncode, 1)
         self.assertEqual(self.log.read_text(), "")
-        self.assertIn("arinnd not found", stderr.strip())
+        self.assertIn("binary not found", stderr.strip())
 
 
 class XfceSessionWithLockProvider(XfceSession):

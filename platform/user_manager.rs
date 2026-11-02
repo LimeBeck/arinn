@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Whether the session bus exposes a working systemd user manager.
-use zbus::Connection;
+use zbus::{Connection, Proxy};
 
-/// `true` when `org.freedesktop.systemd1` is owned and its Manager object answers.
+/// `true` when `org.freedesktop.systemd1` is owned and its Manager answers.
 pub async fn available(connection: &Connection) -> bool {
     let bus = match zbus::fdo::DBusProxy::new(connection).await {
         Ok(bus) => bus,
@@ -17,14 +17,21 @@ pub async fn available(connection: &Connection) -> bool {
     if !bus.name_has_owner(systemd).await.unwrap_or(false) {
         return false;
     }
-    zbus::Proxy::new(
+    let manager = match Proxy::new(
         connection,
         "org.freedesktop.systemd1",
         "/org/freedesktop/systemd1",
         "org.freedesktop.systemd1.Manager",
     )
     .await
-    .is_ok()
+    {
+        Ok(manager) => manager,
+        Err(_) => return false,
+    };
+    manager
+        .get_property::<String>("Version")
+        .await
+        .is_ok_and(|version| !version.is_empty())
 }
 
 #[cfg(test)]
@@ -88,6 +95,9 @@ mod tests {
     struct ManagerImpl;
     #[zbus::interface(name = "org.freedesktop.systemd1.Manager")]
     impl ManagerImpl {
-        fn noop(&self) {}
+        #[zbus(property, name = "Version")]
+        fn version(&self) -> &str {
+            "252"
+        }
     }
 }

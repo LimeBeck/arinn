@@ -46,6 +46,15 @@ const LOCK_PROVIDER_MISSING: &str = "no lock provider: start xfce4-screensaver o
 const LOCK_PROVIDER_UNRESPONSIVE: &str = "lock provider not responding";
 
 #[derive(Debug)]
+struct DirectStartFailed(session_direct::DirectStartError);
+impl std::fmt::Display for DirectStartFailed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.0.message())
+    }
+}
+impl std::error::Error for DirectStartFailed {}
+
+#[derive(Debug)]
 struct LockProviderMissing;
 impl std::fmt::Display for LockProviderMissing {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -230,11 +239,10 @@ async fn confirm(bus: &DBusProxy<'_>) -> Result<()> {
 }
 
 async fn direct_start(connection: &Connection) -> Result<session_direct::DirectStack> {
-    let session = session_direct::SessionEnvironment::for_ewmh_login()
-        .map_err(anyhow::Error::msg)?;
+    let session = session_direct::SessionEnvironment::for_ewmh_login();
     session_direct::DirectStack::start(connection, &session)
         .await
-        .map_err(anyhow::Error::msg)
+        .map_err(|error| DirectStartFailed(error).into())
 }
 
 async fn run() -> Result<()> {
@@ -389,8 +397,15 @@ async fn main() {
             eprintln!("arinn-xfce-session: {LOCK_PROVIDER_UNRESPONSIVE}");
             std::process::exit(1);
         }
-        Err(error) => {
-            eprintln!("arinn-xfce-session: {error}");
+        Err(error) if error.downcast_ref::<DirectStartFailed>().is_some() => {
+            eprintln!(
+                "arinn-xfce-session: {}",
+                error.downcast_ref::<DirectStartFailed>().unwrap().0.message()
+            );
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("arinn-xfce-session: session integration failed");
             std::process::exit(1);
         }
     }

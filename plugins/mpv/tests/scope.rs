@@ -135,6 +135,11 @@ impl Manager {
     }
 
     fn reset_failed_unit(&self, _name: &str) {}
+
+    #[zbus(property, name = "Version")]
+    fn version(&self) -> &str {
+        "252"
+    }
 }
 
 struct Unit {
@@ -218,7 +223,7 @@ async fn ensure_player_spawns_without_user_manager() {
     std::fs::write(&player, b"#!/bin/sh\nexec sleep 3600\n").unwrap();
     std::fs::set_permissions(&player, std::fs::Permissions::from_mode(0o755)).unwrap();
     let socket = Path::new("/run/user/1000/arinn/mpv/ipc");
-    ensure_player(&client, &player, &socket).await.unwrap();
+    ensure_player(&client, &player, socket).await.unwrap();
     stop_player(&client).await.unwrap();
     let _ = std::fs::remove_dir_all(root);
 }

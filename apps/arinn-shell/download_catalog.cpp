@@ -108,11 +108,12 @@ QString failureText(const QString &code) {
     return QObject::tr("Not allowed");
   return QObject::tr("Something went wrong");
 }
-// The error of a download in the `error` state, from its normalized code
-// (rows with another code are dropped). The provider's English
-// `error_message` is not shown: the screen speaks the shell's language
-// (§15).
-QString jobErrorText(const QString &code) {
+// The error of a download in the `error` state. The provider's message is
+// shown as delivered (spec §15); without one, the shell's translated text
+// for the normalized code (rows with another code are dropped).
+QString jobErrorText(const QString &code, const QString &message) {
+  if (!message.isEmpty())
+    return message;
   if (code == QLatin1String("Internal"))
     return QObject::tr("The download stopped");
   if (code == QLatin1String("Unsupported"))
@@ -336,7 +337,7 @@ void DownloadCatalog::publish() {
       statusText = failure.message;
     QString errorText;
     if (row.state == QLatin1String("error"))
-      errorText = jobErrorText(row.errorCode);
+      errorText = jobErrorText(row.errorCode, row.errorMessage);
     // The view reads progress below 0 as an unknown size.
     const auto progress = row.hasProgress && std::isfinite(row.progress)
                               ? row.progress

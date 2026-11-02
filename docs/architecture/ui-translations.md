@@ -20,8 +20,9 @@ The shell interface is Russian through Qt translations
     - an error code (`Internal`, `NotFound`, an `org.arinn.Error1` name) or a
       failed operation state becomes translated text on each screen, and an
       unknown code reads as a generic failure;
-    - a failed download shows the shell's text for its normalized code, not
-      the provider's English `error_message`;
+    - a failed download without a provider message shows the shell's text
+      for its normalized code (a provider's `error_message` is shown as
+      delivered, §15);
     - sizes, rates and durations take their unit from the catalogue and
       their number from `QLocale` (a decimal comma under `ru_RU`);
     - a track's language tag becomes a language name: the common languages

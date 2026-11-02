@@ -9,14 +9,14 @@ use std::{
     thread,
 };
 
-struct Mock {
-    api: Api,
+pub(crate) struct Mock {
+    pub(crate) api: Api,
     requests: Arc<Mutex<Vec<(String, Value)>>>,
     worker: Option<thread::JoinHandle<()>>,
 }
 
 impl Mock {
-    fn new(responses: Vec<(u16, String)>) -> Self {
+    pub(crate) fn new(responses: Vec<(u16, String)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -99,13 +99,33 @@ impl Mock {
             worker: Some(worker),
         }
     }
-    fn finish(mut self) -> Vec<(String, Value)> {
+    pub(crate) fn finish(mut self) -> Vec<(String, Value)> {
+        self.worker.take().unwrap().join().unwrap();
+        self.requests.lock().unwrap().clone()
+    }
+    /// The client as a shared one, and what finishes the fixture.
+    pub(crate) fn split(self) -> (std::sync::Arc<Api>, Recorder) {
+        let Mock {
+            api,
+            requests,
+            worker,
+        } = self;
+        (std::sync::Arc::new(api), Recorder { requests, worker })
+    }
+}
+
+pub(crate) struct Recorder {
+    requests: Arc<Mutex<Vec<(String, Value)>>>,
+    worker: Option<thread::JoinHandle<()>>,
+}
+impl Recorder {
+    pub(crate) fn finish(mut self) -> Vec<(String, Value)> {
         self.worker.take().unwrap().join().unwrap();
         self.requests.lock().unwrap().clone()
     }
 }
 
-fn response(value: Value) -> (u16, String) {
+pub(crate) fn response(value: Value) -> (u16, String) {
     (200, json!({"result":value}).to_string())
 }
 

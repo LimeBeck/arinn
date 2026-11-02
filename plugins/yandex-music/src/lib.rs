@@ -9,7 +9,7 @@ mod parse;
 pub mod secrets;
 pub mod service;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 use arinn_music_common::Track;
 pub use parse::{Batch, Collection};
 use reqwest::{

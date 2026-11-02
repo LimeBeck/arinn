@@ -62,6 +62,7 @@ impl SettingsHandler for Handler {
 
 struct Fixture {
     bus: Child,
+    address: String,
     folder: PathBuf,
     _core: Core,
     client: Connection,
@@ -195,6 +196,7 @@ impl Fixture {
         served(&client, &plain).await;
         Self {
             bus,
+            address,
             folder,
             _core: core,
             client,
@@ -508,6 +510,55 @@ async fn translations_are_passed_through() {
         error_name(api.get_translations("nobody").await),
         "org.arinn.Error1.NotFound"
     );
+}
+
+/// A provider that answers GetSchema late and never answers
+/// GetTranslations.
+struct Slow;
+#[zbus::interface(name = "org.arinn.ProviderSettings1")]
+impl Slow {
+    async fn get_schema(&self, _generation: &str) -> Vec<Setting> {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        schema()
+    }
+    async fn get_translations(&self, _generation: &str) -> String {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        "{}".into()
+    }
+}
+
+/// ADR-0129: the schema and the translations share one SCHEMA_TIMEOUT
+/// deadline. Two serial deadlines let one fetch take almost 4 s, past the
+/// shell's 3 s call timeout, and the whole Settings load failed.
+#[tokio::test]
+async fn schema_and_translations_share_one_deadline() {
+    let f = Fixture::new().await;
+    let slow = connect(&f.address).await;
+    slow.object_server()
+        .at("/org/arinn/Provider1", Slow)
+        .await
+        .unwrap();
+    served(&f.client, &slow).await;
+    {
+        let mut state = f._core.state.lock().await;
+        state.providers.insert(
+            "slow".into(),
+            provider("slow", &slow, &f.generation, &f.folder),
+        );
+    }
+    let api = f.api().await;
+    let started = Instant::now();
+    let (generation, json) = api.get_translations("slow").await.unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(generation, f.generation);
+    assert_eq!(json, "{}");
+    assert!(
+        elapsed < SCHEMA_TIMEOUT + Duration::from_millis(500),
+        "{elapsed:?}"
+    );
+    // The schema answered in time and is kept.
+    let (_, settings) = api.get_settings("slow").await.unwrap();
+    assert_eq!(settings.len(), 1);
 }
 
 /// The daemon's own schema obeys the same rules as a provider schema, so

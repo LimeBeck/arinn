@@ -180,8 +180,11 @@ impl Core {
             .build()
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        let schema = match tokio::time::timeout(SCHEMA_TIMEOUT, proxy.get_schema(&generation)).await
-        {
+        // One deadline for the schema and the translations together, so a
+        // fetch never takes longer than SCHEMA_TIMEOUT and stays within the
+        // clients' call timeout (the shell waits 3 s).
+        let deadline = tokio::time::Instant::now() + SCHEMA_TIMEOUT;
+        let schema = match tokio::time::timeout_at(deadline, proxy.get_schema(&generation)).await {
             Err(_) => return Err(ErrorCode::Timeout),
             Ok(Err(error)) if missing_interface(&error) => Vec::new(),
             Ok(Err(error)) => return Err(normalize_error(error)),
@@ -199,7 +202,7 @@ impl Core {
         let translations = if schema.is_empty() {
             "{}".to_owned()
         } else {
-            match tokio::time::timeout(SCHEMA_TIMEOUT, proxy.get_translations(&generation)).await {
+            match tokio::time::timeout_at(deadline, proxy.get_translations(&generation)).await {
                 Ok(Ok(json)) => settings::Translations::from_json(&json)
                     .ok()
                     .filter(|t| t.validate(&schema).is_ok())

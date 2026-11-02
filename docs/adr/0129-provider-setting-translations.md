@@ -78,7 +78,9 @@ shows.
 - **Daemon side.** `org.arinn.Settings1` gains
   `GetTranslations(provider_id) → (generation s, translations s)`. The
   daemon fetches the table once per registration generation, with the
-  schema. It returns `{}` for:
+  schema and within the schema's deadline, so the two calls together never
+  take longer than the schema call alone may. It returns `{}` for:
+    - a table that arrives after that deadline;
     - a provider without the method;
     - a table that fails validation;
     - the reserved `arinn` source, whose texts the shell still translates
@@ -129,4 +131,6 @@ shows.
 - **Daemon test:**
     - `Settings1.GetTranslations` passes the provider's table through;
     - it answers `{}` for a provider without the method and for `arinn`;
+    - a provider that answers the schema late and never the translations
+      is answered within the schema's deadline, with its schema and `{}`;
     - the export matches `settings1.xml`.

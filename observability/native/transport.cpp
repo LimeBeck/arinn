@@ -89,8 +89,11 @@ QJsonObject event(const QJsonObject &original) {
   // Grouping is rebuilt from the clean fields, never copied from the payload.
   const auto first = exceptions.isEmpty() ? QJsonObject() : exceptions.first().toObject();
   if (first.value("type").toString().startsWith("Qt")) {
+    char file[80];
+    const auto kept = cleanTags.value("qt.location").toString().toLatin1();
     clean.insert("fingerprint", QJsonArray{"arinn-shell", first.value("type"),
-      cleanTags.value("qt.location").toString(QStringLiteral("unknown.location")), first.value("value")});
+      ArinnTelemetry::locationFile(kept.constData(), file, sizeof file)
+        ? QString::fromLatin1(file) : QStringLiteral("unknown.location"), first.value("value")});
   }
   if (original.contains("stacktrace")) clean.insert("stacktrace", frames(original.value("stacktrace").toObject()));
   QJsonArray crumbs;

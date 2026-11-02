@@ -38,6 +38,10 @@ QByteArray scrubTemplate(const QString &text);
 // Crash-safe checks shared by the SDK callback and the transport filter.
 bool safeTemplateText(const char *text);
 bool safeLocation(const char *text);
+// The file part of a safe location ("Main.qml" for "Main.qml:529") for the
+// fingerprint: a line moves between builds, the file does not (ADR-0133).
+// Writes an empty string and returns false for an unsafe location.
+bool locationFile(const char *location, char *out, size_t size);
 bool safeCategory(const char *text);
 // Bounded per-template limiter: true when this template may be reported now.
 bool admitTemplate(const QByteArray &key, qint64 nowMs);

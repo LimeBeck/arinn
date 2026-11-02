@@ -82,7 +82,7 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
       sentry_value_set_by_key(exception, "stacktrace", safeFrames(stack));
     sentry_value_append(exceptions, exception);
   }
-  // Grouping is rebuilt from the clean fields (type, location, template),
+  // Grouping is rebuilt from the clean fields (type, source file, template),
   // never copied from the payload.
   auto first = sentry_value_get_by_index(exceptions, 0);
   const char *firstType = sentry_value_as_string(sentry_value_get_by_key(first, "type"));
@@ -91,7 +91,9 @@ sentry_value_t sanitize(sentry_value_t event, sentry_hint_t *, void *) {
     auto print = sentry_value_new_list();
     sentry_value_append(print, sentry_value_new_string("arinn-shell"));
     sentry_value_append(print, sentry_value_new_string(firstType));
-    sentry_value_append(print, sentry_value_new_string(ArinnTelemetry::safeLocation(location) ? location : "unknown.location"));
+    char file[80];
+    sentry_value_append(print, sentry_value_new_string(
+      ArinnTelemetry::locationFile(location, file, sizeof file) ? file : "unknown.location"));
     sentry_value_append(print, sentry_value_new_string(firstValue));
     sentry_value_set_by_key(clean, "fingerprint", print);
   }
@@ -368,9 +370,11 @@ void qtMessage(QtMsgType type, const QMessageLogContext &context, const QString 
   if (!shape.location.isEmpty()) sentry_value_set_by_key(tags, "qt.location", sentry_value_new_string(shape.location.constData()));
   if (!shape.category.isEmpty()) sentry_value_set_by_key(tags, "qt.category", sentry_value_new_string(shape.category.constData()));
   sentry_value_set_by_key(event, "tags", tags);
+  char file[80];
   auto print = sentry_value_new_list();
   for (const QByteArray &part : {QByteArray("arinn-shell"), QByteArray(name),
-                                 shape.location.isEmpty() ? QByteArray("unknown.location") : shape.location, shape.text})
+                                 ArinnTelemetry::locationFile(shape.location.constData(), file, sizeof file)
+                                   ? QByteArray(file) : QByteArray("unknown.location"), shape.text})
     sentry_value_append(print, sentry_value_new_string(part.constData()));
   sentry_value_set_by_key(event, "fingerprint", print);
   sentry_capture_event(event);

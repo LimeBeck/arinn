@@ -87,6 +87,9 @@ private slots:
                          "qrc:/qt/qml/Arinn/ui/Card.qml:9:5: QML Image: Site icon is unavailable",
                          "QWaylandDataOffer: timeout reading from pipe"})
       QVERIFY2(ArinnTelemetry::qtTemplate(none, QString::fromLatin1(message)).benign, message);
+    QMessageLogContext services(nullptr, 0, nullptr, "qt.qpa.services");
+    QVERIFY(ArinnTelemetry::qtTemplate(services, QStringLiteral(
+      "Failed to register with host portal QDBusError(\"org.freedesktop.portal.Error.Failed\", \"Could not register app ID\")")).benign);
     QVERIFY(!ArinnTelemetry::qtTemplate(none, QStringLiteral("Binding loop detected")).benign);
   }
   void identicalTemplatesAreRateLimited() {
@@ -111,10 +114,28 @@ private slots:
       "\"value\":\"Open /home/private-fixture/a.mkv 'Private' urn:x:Private 42\"}]}}\n";
     const auto clean = ArinnTelemetry::filterEnvelope(raw);
     QVERIFY(!clean.isEmpty());
+    // The release carries the commit hash, which may itself contain "42".
+    QByteArray scanned = clean;
+    scanned.replace(QByteArray("\"release\":\"" ARINN_RELEASE "\""), QByteArray());
     for (auto marker : {"private-fixture", "private-token-fixture", "Private", "a.mkv", "urn", "42", "desktop"})
-      QVERIFY2(!clean.contains(marker), clean.constData());
+      QVERIFY2(!scanned.contains(marker), clean.constData());
     QVERIFY2(clean.contains("\"fingerprint\":[\"arinn-shell\",\"QtWarning\",\"unknown.location\",\"Open <path> <str> <url> <n>\"]"),
              clean.constData());
+  }
+  void transportGroupsBySourceFile() {
+    // The line moves between builds; the issue must not (ADR-0133).
+    const auto raw = [](const char *location) {
+      return QByteArray("{}\n{\"type\":\"event\"}\n"
+        "{\"event_id\":\"0123456789abcdef0123456789abcdef\","
+        "\"tags\":{\"qt.location\":\"") + location + "\"},"
+        "\"exception\":{\"values\":[{\"type\":\"QtWarning\",\"value\":\"Focus fell to the window root\"}]}}\n";
+    };
+    for (auto location : {"Main.qml:515", "Main.qml:529"}) {
+      const auto clean = ArinnTelemetry::filterEnvelope(raw(location));
+      QVERIFY2(clean.contains("\"fingerprint\":[\"arinn-shell\",\"QtWarning\",\"Main.qml\",\"Focus fell to the window root\"]"),
+               clean.constData());
+      QVERIFY2(clean.contains(QByteArray("\"qt.location\":\"") + location + '"'), clean.constData());
+    }
   }
   void transportRejectsEmbeddedNuls() {
     const QByteArray raw =
@@ -176,6 +197,20 @@ private slots:
     for (auto location : {"/home/x.qml", "Main", "Private.desktop:42", "Private.desktop", "Main.qml:",
                           "Main.qml:x", "Main.qmlx", "Main.jsx:1", ".qml", "Main.qml:1234567"})
       QVERIFY2(!ArinnTelemetry::safeLocation(location), location);
+    char file[80] = "stale";
+    QVERIFY(ArinnTelemetry::locationFile("Main.qml:529", file, sizeof file));
+    QCOMPARE(QByteArray(file), QByteArray("Main.qml"));
+    QVERIFY(ArinnTelemetry::locationFile("backend.cpp", file, sizeof file));
+    QCOMPARE(QByteArray(file), QByteArray("backend.cpp"));
+    QVERIFY(ArinnTelemetry::locationFile("unknown.location", file, sizeof file));
+    QCOMPARE(QByteArray(file), QByteArray("unknown.location"));
+    for (auto location : {"Private.desktop:42", "/home/x.qml:1", "Main.qml:", static_cast<const char *>(nullptr)}) {
+      QVERIFY2(!ArinnTelemetry::locationFile(location, file, sizeof file), location ? location : "null");
+      QCOMPARE(file[0], '\0');
+    }
+    char tiny[4];
+    QVERIFY(!ArinnTelemetry::locationFile("Main.qml:1", tiny, sizeof tiny));
+    QCOMPARE(tiny[0], '\0');
     QVERIFY(ArinnTelemetry::safeCategory("qt.qpa.wayland"));
     QVERIFY(!ArinnTelemetry::safeCategory("Private Title"));
   }

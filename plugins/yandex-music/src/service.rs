@@ -248,15 +248,30 @@ impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
     }
 }
 
+/// Yandex Music Android client identity (upstream yandex-music-api).
+const DEFAULT_CLIENT_ID: &str = "23cabbbdc6cd418abb4b39c32c41195d";
+const DEFAULT_CLIENT_SECRET: &str = "53bc75238f0c4d08a118e51fe9203300";
+
 pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     let provider = std::env::var("ARINN_PROVIDER_ID").map_err(|_| ErrorCode::InvalidArgument)?;
-    // Client ID is a public deployment identity, never a user token or a
-    // borrowed third-party application identity. Secret-requiring clients need
-    // separately qualified provisioning before being supported here.
-    let client_id = std::env::var("ARINN_YANDEX_CLIENT_ID")
-        .ok()
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty());
+    // The OAuth client identity of Yandex Music's Android app, as published
+    // by the upstream yandex-music-api library, is bundled by owner decision
+    // (ADR-0134, 2026-11-02). A deployment may set its own identity with
+    // ARINN_YANDEX_CLIENT_ID and ARINN_YANDEX_CLIENT_SECRET.
+    let configured = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+    };
+    let (client_id, client_secret) = match configured("ARINN_YANDEX_CLIENT_ID") {
+        Some(id) => (id, configured("ARINN_YANDEX_CLIENT_SECRET")),
+        None => (
+            DEFAULT_CLIENT_ID.to_owned(),
+            Some(DEFAULT_CLIENT_SECRET.to_owned()),
+        ),
+    };
+    let client_id = Some(client_id);
     let bus = connection.clone();
     let auth = tokio::task::spawn_blocking(move || {
         let Some(client_id) = client_id else {
@@ -278,7 +293,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         let reference = paths::group("account", &provider).replace(':', "-");
         let store = SecretService::new(bus, &reference, &directory.join("oauth-approval"))
             .map_err(normalize)?;
-        DeviceAuth::new(&client_id, None, &device, store)
+        DeviceAuth::new(&client_id, client_secret.as_deref(), &device, store)
             .map(|auth| Some(Arc::new(auth)))
             .map_err(normalize)
     })

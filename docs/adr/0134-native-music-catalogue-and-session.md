@@ -36,10 +36,17 @@ only a confirmed stop permits the new start. Browsing another source does not
 change the active session. `MusicController1.GetActive` projects that session
 independently from the catalogue selection.
 
-Yandex uses device-code authorization and Secret Service. A public qualified
-client identity is deployment configuration. No third-party client defaults are
-bundled. Missing provisioning disables Connect rather than accepting a pasted
-user token. This ADR does not claim live provisioning or streaming qualification.
+Yandex uses device-code authorization and Secret Service. By owner decision on
+2026-11-02 (Claude session, review of #710), the provider bundles the public
+client identity and stream-link signing salt that Yandex Music's own clients
+use, as published by the upstream yandex-music-api library, so that sign-in
+and playback work after installation. They are third-party values, not
+project-owned credentials: a deployment can replace them with
+`ARINN_YANDEX_CLIENT_ID`, `ARINN_YANDEX_CLIENT_SECRET` and
+`ARINN_YANDEX_SIGN_SALT`, and Yandex can change or revoke them at any time.
+They never leave the provider process. A pasted user token is still never
+accepted. This ADR does not claim live provisioning or streaming
+qualification, or that Yandex permits this use.
 
 ## Consequences
 
@@ -65,3 +72,5 @@ fixtures must cover missing mounts and duplicate finite-playlist tracks. Native
 QML tests must cover source selection, layout B, focus and account states.
 Live authorization, package installation and actual audio playback require
 separate recorded qualification; accepting this ADR does not imply they passed.
+The stream link is checked against the upstream signing recipe with a
+synthetic download-info document, not against the live service.

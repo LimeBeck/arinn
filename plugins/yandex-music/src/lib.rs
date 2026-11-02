@@ -19,7 +19,16 @@ use reqwest::{
 use serde_json::{Value, json};
 use std::time::Duration;
 
-const MAX_RESPONSE: usize = 1024 * 1024;
+/// Liked-track lists and playlists of several thousand tracks fit.
+const MAX_RESPONSE: usize = 8 * 1024 * 1024;
+/// The bounded download-info XML of one track.
+const MAX_DOWNLOAD_INFO: usize = 64 * 1024;
+/// The stream-link signing salt of Yandex's own clients, as published by the
+/// upstream yandex-music-api library. Bundled by owner decision (ADR-0134,
+/// 2026-11-02); `ARINN_YANDEX_SIGN_SALT` overrides it.
+pub const DEFAULT_SIGN_SALT: &str = "XGRlBW9FXlekgbPrRHuSiA";
+/// Upper bound on liked tracks read for the catalogue.
+const MAX_LIKED: usize = 10_000;
 
 /// Errors deliberately contain no request URL, token, query or response body.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +47,7 @@ pub enum Error {
 pub struct Api {
     client: Client,
     origin: Url,
+    salt: String,
 }
 
 fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
@@ -67,6 +77,13 @@ impl Api {
         Ok(Self {
             client,
             origin: Url::parse("https://api.music.yandex.net/").map_err(|_| Error::InvalidInput)?,
+            salt: std::env::var("ARINN_YANDEX_SIGN_SALT")
+                .ok()
+                .map(|s| s.trim().to_owned())
+                .filter(|s| {
+                    !s.is_empty() && s.len() <= 256 && s.bytes().all(|b| b.is_ascii_graphic())
+                })
+                .unwrap_or_else(|| DEFAULT_SIGN_SALT.to_owned()),
         })
     }
 
@@ -128,6 +145,137 @@ impl Api {
             return Err(Error::Unavailable);
         }
         value.get("result").cloned().ok_or(Error::InvalidResponse)
+    }
+
+    /// The account's numeric user ID.
+    pub async fn account_uid(&self) -> Result<String, Error> {
+        let result = self
+            .request(Method::GET, &["account", "status"], &[])
+            .await?;
+        let uid = result
+            .pointer("/account/uid")
+            .and_then(|v| {
+                v.as_u64()
+                    .map(|n| n.to_string())
+                    .or_else(|| v.as_str().map(str::to_owned))
+            })
+            .ok_or(Error::InvalidResponse)?;
+        if !parse::digits(&uid) {
+            return Err(Error::InvalidResponse);
+        }
+        Ok(uid)
+    }
+
+    /// The account's liked track IDs, most recent first (`id:albumId`).
+    pub async fn liked_track_ids(&self, uid: &str) -> Result<Vec<String>, Error> {
+        if !parse::digits(uid) {
+            return Err(Error::InvalidInput);
+        }
+        let result = self
+            .request(Method::GET, &["users", uid, "likes", "tracks"], &[])
+            .await?;
+        let items = result
+            .pointer("/library/tracks")
+            .and_then(Value::as_array)
+            .ok_or(Error::InvalidResponse)?;
+        Ok(items
+            .iter()
+            .filter_map(|item| {
+                let id = item.get("id").and_then(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .or_else(|| v.as_u64().map(|n| n.to_string()))
+                })?;
+                let album = item.get("albumId").and_then(|v| {
+                    v.as_str()
+                        .map(str::to_owned)
+                        .or_else(|| v.as_u64().map(|n| n.to_string()))
+                });
+                let id = match album {
+                    Some(album) if !album.is_empty() => format!("{id}:{album}"),
+                    _ => id,
+                };
+                parse::track_id(&id).then_some(id)
+            })
+            .take(MAX_LIKED)
+            .collect())
+    }
+
+    /// Track metadata for any number of IDs, read in batches of 100.
+    pub async fn tracks_batched(&self, ids: &[String]) -> Result<Vec<Track>, Error> {
+        let mut tracks = Vec::with_capacity(ids.len());
+        for chunk in ids.chunks(100) {
+            tracks.extend(self.tracks(chunk).await?);
+        }
+        Ok(tracks)
+    }
+
+    /// The tracks of one of the user's playlists.
+    pub async fn playlist_tracks(&self, uid: &str, kind: &str) -> Result<Vec<Track>, Error> {
+        if !parse::digits(uid) || !parse::digits(kind) {
+            return Err(Error::InvalidInput);
+        }
+        let result = self
+            .request(Method::GET, &["users", uid, "playlists", kind], &[])
+            .await?;
+        parse::tracks_bounded(
+            result.get("tracks").ok_or(Error::InvalidResponse)?,
+            MAX_LIKED,
+        )
+    }
+
+    /// Records a like or a dislike for a track with the service.
+    pub async fn rate(&self, uid: &str, track: &str, like: bool) -> Result<(), Error> {
+        if !parse::digits(uid) || !parse::track_id(track) {
+            return Err(Error::InvalidInput);
+        }
+        let list = if like { "likes" } else { "dislikes" };
+        self.request(
+            Method::POST,
+            &["users", uid, list, "tracks", "add-multiple"],
+            &[("track-ids", track.to_owned())],
+        )
+        .await
+        .map(|_| ())
+    }
+
+    /// A time-limited HTTPS link to the track's audio. The link and the
+    /// steps that build it never leave this process.
+    pub async fn stream_url(&self, track: &str) -> Result<String, Error> {
+        if !parse::track_id(track) {
+            return Err(Error::InvalidInput);
+        }
+        let result = self
+            .request(Method::GET, &["tracks", track, "download-info"], &[])
+            .await?;
+        let info = parse::download_info(&result)?;
+        let xml = self.fetch_download_info(&info).await?;
+        parse::direct_link(&xml, &self.salt)
+    }
+
+    /// Reads the download-info document from Yandex's storage host only.
+    async fn fetch_download_info(&self, url: &str) -> Result<String, Error> {
+        let url = Url::parse(url).map_err(|_| Error::InvalidResponse)?;
+        if !parse::storage_host(&url) {
+            return Err(Error::InvalidResponse);
+        }
+        let mut response = self
+            .client
+            .get(url)
+            .send()
+            .await
+            .map_err(|_| Error::Transport)?;
+        if !response.status().is_success() {
+            return Err(Error::Unavailable);
+        }
+        let mut body = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| Error::Transport)? {
+            if chunk.len() > MAX_DOWNLOAD_INFO.saturating_sub(body.len()) {
+                return Err(Error::TooLarge);
+            }
+            body.extend_from_slice(&chunk);
+        }
+        String::from_utf8(body).map_err(|_| Error::InvalidResponse)
     }
 
     pub async fn search_tracks(&self, query: &str, page: u32) -> Result<Vec<Track>, Error> {

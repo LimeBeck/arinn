@@ -63,6 +63,11 @@ impl Mock {
                     headers[..header_end].lines().next().unwrap().to_owned(),
                     value,
                 ));
+                // A client that refuses an oversized body stops reading;
+                // the fixture must not block on it.
+                socket
+                    .set_write_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
                 let _ = write!(
                     socket,
                     "HTTP/1.1 {status} Fixture\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -86,6 +91,7 @@ impl Mock {
         let api = Api {
             client,
             origin: Url::parse(&origin).unwrap(),
+            salt: DEFAULT_SIGN_SALT.into(),
         };
         Self {
             api,

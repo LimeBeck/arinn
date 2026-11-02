@@ -113,8 +113,7 @@ impl Attempt {
     }
 }
 
-/// No borrowed registrations or application secret defaults are bundled.
-/// Configure a client identity qualified for the intended Yandex integration.
+/// The caller supplies the client identity; the controller bundles none.
 pub struct DeviceAuth<S> {
     client: Client,
     origin: Url,

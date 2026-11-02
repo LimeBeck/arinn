@@ -71,8 +71,11 @@ pub(crate) fn station_seed(value: &str) -> Result<String, Error> {
 /// is skipped instead of failing the whole page; only a list where every
 /// entry is unusable is an invalid response (review of #710).
 pub(crate) fn tracks(value: &Value) -> Result<Vec<Track>, Error> {
+    tracks_bounded(value, 200)
+}
+pub(crate) fn tracks_bounded(value: &Value, limit: usize) -> Result<Vec<Track>, Error> {
     let items = value.as_array().ok_or(Error::InvalidResponse)?;
-    if items.len() > 200 {
+    if items.len() > limit {
         return Err(Error::TooLarge);
     }
     let mut tracks = Vec::with_capacity(items.len());
@@ -182,6 +185,84 @@ pub(crate) fn batch(value: &Value) -> Result<Batch, Error> {
     })
 }
 
+/// The download-info URL of the best non-preview MP3 variant.
+pub(crate) fn download_info(value: &Value) -> Result<String, Error> {
+    let items = value.as_array().ok_or(Error::InvalidResponse)?;
+    if items.len() > 32 {
+        return Err(Error::TooLarge);
+    }
+    items
+        .iter()
+        .filter(|v| v.get("codec").and_then(Value::as_str) == Some("mp3"))
+        .filter(|v| v.get("preview").and_then(Value::as_bool) != Some(true))
+        .max_by_key(|v| v.get("bitrateInKbps").and_then(Value::as_u64).unwrap_or(0))
+        .and_then(|v| v.get("downloadInfoUrl").and_then(Value::as_str))
+        .filter(|url| url.len() <= 4096)
+        .map(str::to_owned)
+        .ok_or(Error::Unavailable)
+}
+
+/// Download-info documents and audio come from Yandex's storage hosts.
+pub(crate) fn storage_host(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.port().is_none()
+        && url
+            .host_str()
+            .is_some_and(|host| host.ends_with(".yandex.net") || host.ends_with(".yandex.ru"))
+}
+
+fn element<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
+    let open = format!("<{name}>");
+    let start = xml.find(&open)? + open.len();
+    let end = start + xml[start..].find(&format!("</{name}>"))?;
+    Some(xml[start..end].trim())
+}
+
+/// Builds the signed direct link from a download-info document:
+/// `https://{host}/get-mp3/{md5(salt + path[1..] + s)}/{ts}{path}`.
+pub(crate) fn direct_link(xml: &str, salt: &str) -> Result<String, Error> {
+    use md5::{Digest, Md5};
+    let host = element(xml, "host").ok_or(Error::InvalidResponse)?;
+    let path = element(xml, "path").ok_or(Error::InvalidResponse)?;
+    let ts = element(xml, "ts").ok_or(Error::InvalidResponse)?;
+    let s = element(xml, "s").ok_or(Error::InvalidResponse)?;
+    let token = |v: &str| {
+        !v.is_empty()
+            && v.len() <= 1024
+            && v.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"-_.=/%".contains(&b))
+    };
+    if !token(path)
+        || !path.starts_with('/')
+        || path.contains("..")
+        || !token(ts)
+        || ts.contains('/')
+        || !token(s)
+        || !host
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-.".contains(&b))
+    {
+        return Err(Error::InvalidResponse);
+    }
+    let mut digest = Md5::new();
+    digest.update(salt.as_bytes());
+    digest.update(&path.as_bytes()[1..]);
+    digest.update(s.as_bytes());
+    let sign: String = digest
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let link = format!("https://{host}/get-mp3/{sign}/{ts}{path}");
+    let url = reqwest::Url::parse(&link).map_err(|_| Error::InvalidResponse)?;
+    if !storage_host(&url) {
+        return Err(Error::InvalidResponse);
+    }
+    Ok(link)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -227,5 +308,50 @@ mod tests {
         assert_eq!(titles, ["First", "Second"]);
         assert_eq!(tracks(&json!([{"id": "bad"}])), Err(Error::InvalidResponse));
         assert_eq!(tracks(&json!([])), Ok(vec![]));
+    }
+    /// The signed direct link matches the upstream recipe:
+    /// md5(salt + path without its leading slash + s).
+    #[test]
+    fn the_direct_link_is_signed_like_the_upstream_client() {
+        let xml = "<?xml version=\"1.0\"?><download-info><host>s123vla.storage.yandex.net</host>\
+                   <path>/rmusic/U2FsdGVkX1/abc/def</path><ts>0005f1e2d3c4b5a6</ts>\
+                   <region>-1</region><s>0123456789abcdef</s></download-info>";
+        assert_eq!(
+            direct_link(xml, "XGRlBW9FXlekgbPrRHuSiA").unwrap(),
+            "https://s123vla.storage.yandex.net/get-mp3/531e032aa3ad30bf518f6dbdf32fedfb/0005f1e2d3c4b5a6/rmusic/U2FsdGVkX1/abc/def"
+        );
+        // A document pointing anywhere but Yandex storage is refused.
+        let foreign = xml.replace("s123vla.storage.yandex.net", "evil.example");
+        assert_eq!(direct_link(&foreign, "salt"), Err(Error::InvalidResponse));
+        let traversal = xml.replace("/rmusic/U2FsdGVkX1/abc/def", "/rmusic/../x");
+        assert_eq!(direct_link(&traversal, "salt"), Err(Error::InvalidResponse));
+        assert_eq!(
+            direct_link("<host>a</host>", "salt"),
+            Err(Error::InvalidResponse)
+        );
+    }
+    #[test]
+    fn download_info_picks_the_best_full_mp3() {
+        let info = json!([
+            {"codec":"aac","bitrateInKbps":256,"preview":false,"downloadInfoUrl":"https://a.storage.yandex.net/aac"},
+            {"codec":"mp3","bitrateInKbps":320,"preview":true,"downloadInfoUrl":"https://a.storage.yandex.net/preview"},
+            {"codec":"mp3","bitrateInKbps":192,"preview":false,"downloadInfoUrl":"https://a.storage.yandex.net/192"},
+            {"codec":"mp3","bitrateInKbps":320,"preview":false,"downloadInfoUrl":"https://a.storage.yandex.net/320"}
+        ]);
+        assert_eq!(
+            download_info(&info).unwrap(),
+            "https://a.storage.yandex.net/320"
+        );
+        assert_eq!(download_info(&json!([])), Err(Error::Unavailable));
+        let good = reqwest::Url::parse("https://s1.storage.yandex.net/x").unwrap();
+        assert!(storage_host(&good));
+        for bad in [
+            "http://s1.storage.yandex.net/x",
+            "https://storage.yandex.net.evil.example/x",
+            "https://user@s1.storage.yandex.net/x",
+            "https://s1.storage.yandex.net:8443/x",
+        ] {
+            assert!(!storage_host(&reqwest::Url::parse(bad).unwrap()), "{bad}");
+        }
     }
 }

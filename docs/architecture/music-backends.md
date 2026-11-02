@@ -41,12 +41,15 @@ produce a degraded state while preserving last-known metadata.
 Yandex account registration is deliberately account-only in this slice. Native
 Connect/Cancel/Disconnect are routed through the daemon, and startup restore is
 reserved before exposing commands so it cannot invalidate a newer Connect.
-Configure the public deployment identity `ARINN_YANDEX_CLIENT_ID` in the provider's
-systemd user-manager environment. No borrowed client ID or client-secret default
-is bundled. Clients requiring a secret need separately qualified provisioning.
-An absent identity reports `unconfigured` with Connect disabled. Approval records
-and a stable non-secret device ID use provider-private state; tokens use Secret
-Service only. No live identity or account has been qualified in this environment.
+By owner decision (ADR-0134, 2026-11-02) the provider bundles the public client
+identity and the stream-link signing salt that Yandex Music's own clients use,
+as published by the upstream yandex-music-api library. A deployment can set its
+own with `ARINN_YANDEX_CLIENT_ID`, `ARINN_YANDEX_CLIENT_SECRET` and
+`ARINN_YANDEX_SIGN_SALT` in the provider's environment. These are third-party
+values that Yandex can change or revoke; they never leave the provider process.
+Approval records and a stable non-secret device ID use provider-private state;
+tokens use Secret Service only. No live identity or account has been qualified
+in this environment.
 
 The settings dependency has merged. This work does not close #707, change phase
 status or claim Yandex streaming support.
@@ -151,8 +154,8 @@ belong to provider/runtime integration.
 
 The API adapter accepts a provider-owned authorized token in memory. The new
 `DeviceAuth` controller obtains one through device-code confirmation and creates
-the API client without returning tokens to its caller. No third-party OAuth client
-registration or secret is bundled. The fixed HTTPS service origin, disabled
+the API client without returning tokens to its caller. The controller itself
+bundles no client identity; the provider passes it in. The fixed HTTPS service origin, disabled
 redirects, sensitive authorization header, response size limit and redacted
 error enum keep service URLs/credentials out of diagnostics and shell models.
 
@@ -216,13 +219,12 @@ reported as an unavailable backend instead of ending the provider; the
 journal is still never reset silently. A malformed entry in a search page or
 radio batch is skipped; only a list without any usable entry is an error.
 
-The connection UI and provider process are **not integrated yet**. The controller
-requires an explicitly configured, qualified OAuth client identity (and secret
-if needed); it does not copy the upstream library's third-party registration
-credentials or bundle a shared application secret. The upstream example
-establishes the interaction, not official API support or permission to reuse that
-registration. Live account, scope, region and subscription qualification remain
-outstanding. Expired access requires reconnect; automatic refresh is not claimed.
+The controller takes the client identity (and secret) from the provider, which
+uses the bundled upstream identity unless the deployment configures its own
+(see above). The upstream example establishes the interaction, not official API
+support or permission to reuse that registration. Live account, scope, region
+and subscription qualification remain outstanding. Expired access requires
+reconnect; automatic refresh is not claimed.
 
 ### Radio and qualification
 

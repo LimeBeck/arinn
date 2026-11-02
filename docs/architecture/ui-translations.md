@@ -16,6 +16,17 @@ The shell interface is Russian through Qt translations
   resources under `:/i18n/`.
 - **Loading.** At start the shell installs a `QTranslator` for the system locale
   (`QLocale()`). A Russian locale gets Russian; any other locale keeps English.
+- **Codes, units and languages.** No wire token reaches the screen as is:
+    - an error code (`Internal`, `NotFound`, an `org.arinn.Error1` name) or a
+      failed operation state becomes translated text on each screen, and an
+      unknown code reads as a generic failure;
+    - a failed download shows the shell's text for its normalized code, not
+      the provider's English `error_message`;
+    - sizes, rates and durations take their unit from the catalogue and
+      their number from `QLocale` (a decimal comma under `ru_RU`);
+    - a track's language tag becomes a language name: the common languages
+      come from the catalogue, another language Qt knows gets its own name,
+      and an unknown tag stays as sent.
 - **Provider text.** Titles and messages that come from providers are shown as
   delivered; translating them is the provider's concern. Provider setting texts
   (title, description, option titles, unit) can come with a translation table

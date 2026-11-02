@@ -33,6 +33,15 @@ private slots:
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Series"), QStringLiteral("Сериалы"));
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Other"), QStringLiteral("Другое"));
+    // Error codes, units and track languages (#712).
+    QCOMPARE(QCoreApplication::translate("Backend", "Something went wrong"),
+             QStringLiteral("Что-то пошло не так"));
+    QCOMPARE(QCoreApplication::translate("LibraryCatalog", "%1 min").arg(40),
+             QStringLiteral("40 мин"));
+    QCOMPARE(QCoreApplication::translate("QObject", "%1 GB").arg(QStringLiteral("1,5")),
+             QStringLiteral("1,5 ГБ"));
+    QCOMPARE(QCoreApplication::translate("MediaCatalog", "English"),
+             QStringLiteral("Английский"));
     QCOMPARE(QCoreApplication::translate("DownloadCatalog", "%1 is ready to watch")
                  .arg(QStringLiteral("X")),
              QStringLiteral("X загружен — можно смотреть"));

@@ -558,7 +558,8 @@ private slots:
         QTRY_COMPARE(daemon.invokedId, QString("first"));
         QCOMPARE(daemon.launches, 1);
         QCOMPARE(daemon.opens, 0);
-        QTRY_COMPARE(backend.message(), QString("fixture operation failure"));
+        // A failed request shows translated text, not the D-Bus error text.
+        QTRY_COMPARE(backend.message(), QString("Something went wrong"));
         // Return is a KWin internalId UUID, not an inventory
         // generation:counter.
         daemon.returnedWindow = "{aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}";
@@ -881,7 +882,7 @@ private slots:
       QVERIFY(!QUuid::fromString(daemon.openRequestId).isNull());
       QTRY_VERIFY(backend.busyEntryIds().contains(id));
       daemon.operationDone = true;
-      QTRY_COMPARE(backend.message(), QString("Unavailable"));
+      QTRY_COMPARE(backend.message(), QString("Not available right now"));
       QTRY_VERIFY(backend.busyEntryIds().isEmpty());
 
       daemon.operationSuccess = true;
@@ -1158,6 +1159,28 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  // Every daemon error code reaches the Home message as translated text;
+  // an unknown code reads as a generic failure, never as the code (§15).
+  void errorCodesAreTranslated() {
+    QuotingTranslator translator;
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    const QStringList codes = {"NotFound",        "Unavailable", "Unsupported",
+                               "PermissionDenied", "Timeout",     "InvalidArgument",
+                               "Conflict",        "Cancelled",   "Internal",
+                               "SomethingNew",    ""};
+    QSet<QString> texts;
+    for (const auto &code : codes) {
+      const auto text = Backend::errorText(code);
+      QVERIFY2(text.startsWith(QStringLiteral("«")) && text.endsWith(QStringLiteral("»")),
+               qPrintable(code + QStringLiteral(": ") + text));
+      texts.insert(text);
+    }
+    // Each known code has its own text; unknown codes share Internal's.
+    QCOMPARE(texts.size(), 9);
+    QCOMPARE(Backend::errorText(QStringLiteral("SomethingNew")),
+             Backend::errorText(QStringLiteral("Internal")));
+    QCoreApplication::removeTranslator(&translator);
+  }
   void operationResultSurvivesStatusRefresh() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -1170,12 +1193,12 @@ private slots:
     QTRY_COMPARE(backend.message(), QString("KWin adapter is not connected"));
     QTRY_VERIFY(!backend.items().isEmpty());
     backend.activate(backend.items().at(0).toMap().value("id").toString());
-    QTRY_COMPARE(backend.message(), QString("Timeout"));
+    QTRY_COMPARE(backend.message(), QString("Arinn did not reply. Try again."));
     const auto polls = daemon.providerCalls;
     backend.refresh();
     QTRY_VERIFY(daemon.providerCalls > polls);
     QTest::qWait(200);
-    QCOMPARE(backend.message(), QString("Timeout"));
+    QCOMPARE(backend.message(), QString("Arinn did not reply. Try again."));
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }

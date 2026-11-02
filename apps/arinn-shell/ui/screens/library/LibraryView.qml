@@ -80,7 +80,12 @@ FocusScope {
             return qsTr("That title is not in the library.");
         if (operationState === "Conflict")
             return qsTr("The library changed. Try again.");
-        return operationState;
+        if (operationState === "PermissionDenied")
+            return qsTr("That is not allowed.");
+        if (operationState === "Cancelled" || operationState === "cancelled")
+            return qsTr("Cancelled.");
+        // Internal, a failed state or a code this shell does not know (§15).
+        return qsTr("Something went wrong. Try again.");
     }
     // Suppresses hover focus while the grid is scrolling. Local to this screen.
     readonly property int hoverDelayMs: 500

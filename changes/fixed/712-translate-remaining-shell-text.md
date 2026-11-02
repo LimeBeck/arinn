@@ -1,0 +1,1 @@
+- On a Russian system the shell no longer shows raw error codes, English download errors, English size and time units or raw track language tags; the "Return to Arinn" desktop entry has a Russian name ([#712](https://github.com/LimeBeck/arinn/issues/712)).

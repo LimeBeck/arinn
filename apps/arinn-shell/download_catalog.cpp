@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "download_catalog.h"
+#include <QLocale>
 #include <QDeadlineTimer>
 #include <QUuid>
 #include <QtDBus>
@@ -61,8 +62,9 @@ const char *method(const QString &action) {
     return "Retry";
   return nullptr;
 }
+// A size in the shell's language: the unit through tr() and the number in
+// the locale's format (a decimal comma under ru_RU, §15).
 QString size(quint64 bytes) {
-  static const char *units[] = {"B", "KB", "MB", "GB", "TB"};
   auto value = static_cast<double>(bytes);
   int unit = 0;
   while (value >= 1000 && unit < 4) {
@@ -70,8 +72,19 @@ QString size(quint64 bytes) {
     ++unit;
   }
   const auto digits = unit == 0 || value >= 100 ? 0 : 1;
-  return QString::number(value, 'f', digits) + QLatin1Char(' ') +
-         QLatin1String(units[unit]);
+  const auto number = QLocale().toString(value, 'f', digits);
+  switch (unit) {
+  case 0:
+    return QObject::tr("%1 B").arg(number);
+  case 1:
+    return QObject::tr("%1 KB").arg(number);
+  case 2:
+    return QObject::tr("%1 MB").arg(number);
+  case 3:
+    return QObject::tr("%1 GB").arg(number);
+  default:
+    return QObject::tr("%1 TB").arg(number);
+  }
 }
 QString remaining(qint64 seconds) {
   if (seconds < 60)
@@ -94,6 +107,21 @@ QString failureText(const QString &code) {
   if (code == QLatin1String("PermissionDenied"))
     return QObject::tr("Not allowed");
   return QObject::tr("Something went wrong");
+}
+// The error of a download in the `error` state, from its normalized code
+// (rows with another code are dropped). The provider's English
+// `error_message` is not shown: the screen speaks the shell's language
+// (§15).
+QString jobErrorText(const QString &code) {
+  if (code == QLatin1String("Internal"))
+    return QObject::tr("The download stopped");
+  if (code == QLatin1String("Unsupported"))
+    return QObject::tr("This download is not supported");
+  if (code == QLatin1String("InvalidArgument"))
+    return QObject::tr("The download is not valid");
+  if (code == QLatin1String("Cancelled"))
+    return QObject::tr("The download was cancelled");
+  return failureText(code);
 }
 QString actionTitle(const QString &action) {
   if (action == QLatin1String("pause"))
@@ -290,7 +318,7 @@ void DownloadCatalog::publish() {
       details.append(size(row.completedBytes));
     if (row.state == QLatin1String("downloading")) {
       if (row.rate > 0)
-        details.append(size(row.rate) + QStringLiteral("/s"));
+        details.append(tr("%1/s").arg(size(row.rate)));
       if (row.eta >= 0)
         details.append(remaining(row.eta));
     }
@@ -308,8 +336,7 @@ void DownloadCatalog::publish() {
       statusText = failure.message;
     QString errorText;
     if (row.state == QLatin1String("error"))
-      errorText = row.errorMessage.isEmpty() ? failureText(row.errorCode)
-                                             : row.errorMessage;
+      errorText = jobErrorText(row.errorCode);
     // The view reads progress below 0 as an unknown size.
     const auto progress = row.hasProgress && std::isfinite(row.progress)
                               ? row.progress

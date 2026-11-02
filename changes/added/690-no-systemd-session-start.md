@@ -1,0 +1,1 @@
+- Without a systemd user manager, `arinn-xfce-session` and `arinn-session` start `arinnd`, the X11 platform adapter and the shell directly on the session bus; the mpv provider spawns its player process instead of using a transient unit ([#690](https://github.com/LimeBeck/arinn/issues/690)).

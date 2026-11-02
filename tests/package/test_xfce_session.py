@@ -67,6 +67,7 @@ exit 0
         self.env = {**os.environ, "DBUS_SESSION_BUS_ADDRESS": address,
                     "DISPLAY": ":987", "XDG_SESSION_TYPE": "x11",
                     "XAUTHORITY": str(self.root / "synthetic-authority"),
+                    "ARINN_XFCE_USE_SYSTEMD": "1",
                     "PATH": f"{self.root}:{os.environ['PATH']}", "CALL_LOG": str(self.log)}
         for name in ("ARINN_SESSION_ENTRY", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_SESSION_ID"):
             self.env.pop(name, None)
@@ -175,6 +176,17 @@ class XfceSessionLateLockProvider(XfceSession):
             self.fail("startup timed out after a late screensaver")
         self.close_owner()
         self.assertEqual(child.wait(timeout=5), 0)
+
+
+class XfceSessionWithoutUserManager(XfceSession):
+    """Private bus without org.freedesktop.systemd1: direct stack, no systemctl."""
+
+    def test_direct_start_never_calls_systemctl(self):
+        child = self.launch(ARINN_DAEMON="/nonexistent/arinnd", ARINN_XFCE_USE_SYSTEMD="0")
+        _, stderr = child.communicate(timeout=5)
+        self.assertEqual(child.returncode, 1)
+        self.assertEqual(self.log.read_text(), "")
+        self.assertIn("arinnd not found", stderr.strip())
 
 
 class XfceSessionWithLockProvider(XfceSession):

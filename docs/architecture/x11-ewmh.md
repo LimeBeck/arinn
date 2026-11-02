@@ -329,6 +329,23 @@ systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_LOGIN_STATE_HOME AR
 systemctl --user start arinn-ewmh-session.target
 ```
 
+When the session has **no systemd user manager**, use the same start order on
+the session bus instead of user units: `arinnd`, then `arinn-platform-x11`,
+then `/usr/lib/arinn/arinn-shell-launch`. `arinn-xfce-session` and the
+`arinn-session xfce` entry do this automatically once
+`org.freedesktop.systemd1` is absent. For a **dev build** with the packaged
+provider catalogue, build the workspace and run:
+
+```sh
+cargo build --workspace --locked
+./scripts/dev-ewmh-stack.sh
+```
+
+The script points `XDG_DATA_DIRS` at workspace plugin manifests and sets
+`ARINN_DAEMON`, `ARINN_PLATFORM_X11` and `ARINN_SHELL_LAUNCH` to the
+`target/debug` binaries. Use it only inside an X11 session with a lock
+provider (`xfce4-screensaver` or `light-locker`) on the bus.
+
 Clearing `ARINN_SESSION_ENTRY` drops a dedicated-session marker a killed
 `arinn-session` may have left in a lingering user manager, so a manual trial is
 never taken for the dedicated Arinn XFCE session ([ADR-0111](../adr/0111-power-key.md)).

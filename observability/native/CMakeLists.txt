@@ -37,13 +37,14 @@ target_compile_definitions(arinn-telemetry PRIVATE ARINN_RELEASE="arinn@${ARINN_
     ARINN_DEFAULT_SENTRY_DSN="${ARINN_DEFAULT_DSN}")
 add_executable(arinn-telemetry-config-test config_test.cpp)
 target_link_libraries(arinn-telemetry-config-test PRIVATE arinn-telemetry Qt6::Test)
-target_compile_definitions(arinn-telemetry-config-test PRIVATE ARINN_DSN_SOURCE="${CMAKE_SOURCE_DIR}/observability/sentry-default-dsn.txt")
+target_compile_definitions(arinn-telemetry-config-test PRIVATE ARINN_DSN_SOURCE="${CMAKE_SOURCE_DIR}/observability/sentry-default-dsn.txt"
+    ARINN_RELEASE="arinn@${ARINN_BUILD_ID}")
 add_test(NAME sentry-configuration COMMAND arinn-telemetry-config-test)
 # Attach the startup hook directly so its object cannot be dropped by the linker.
 target_sources(arinn-shell PRIVATE qt_startup.cpp)
 target_link_libraries(arinn-shell PRIVATE arinn-telemetry)
 add_executable(arinn-telemetry-fixture fixture.cpp qt_startup.cpp)
-target_link_libraries(arinn-telemetry-fixture PRIVATE arinn-telemetry)
+target_link_libraries(arinn-telemetry-fixture PRIVATE arinn-telemetry Qt6::Gui)
 add_test(NAME sentry-isolated COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_SOURCE_DIR}/tests/integration/sentry.py
     $<TARGET_FILE:arinn-telemetry-fixture>

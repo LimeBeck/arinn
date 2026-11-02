@@ -5,16 +5,24 @@
 #include <QCoreApplication>
 #include <algorithm>
 #include <QEvent>
+#include <QKeyEvent>
 #include <cstdio>
 namespace {
 QtMessageHandler previous = nullptr;
 class Recorder final : public QObject {
 public:
   using QObject::QObject;
-  bool eventFilter(QObject *, QEvent *event) override {
+  // Qt hands one input or focus event on to every item along its delivery
+  // path, and window activation to every item in the window: only the window's
+  // own copy is a breadcrumb, so one key press leaves one crumb (ADR-0133).
+  bool eventFilter(QObject *receiver, QEvent *event) override {
+    if (!receiver->isWindowType()) return false;
     const char *operation = nullptr;
     switch (event->type()) {
-    case QEvent::KeyPress: operation = "input.key"; break;
+    case QEvent::KeyPress:
+      // A held key would fill the trail with its repeats.
+      if (!static_cast<QKeyEvent *>(event)->isAutoRepeat()) operation = "input.key";
+      break;
     case QEvent::MouseButtonPress: operation = "input.pointer"; break;
     case QEvent::FocusIn: operation = "focus.in"; break;
     case QEvent::FocusOut: operation = "focus.out"; break;

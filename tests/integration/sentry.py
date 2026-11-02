@@ -140,8 +140,11 @@ def run(binary, configuration, crash=False, expected=True, dsn=None, cached=Fals
                   if event.get("tags", {}).get("qt.location") == "HomeView.qml:42"]
             assert len(qt) == 1, captured  # The repeated warning is rate-limited.
             assert qt[0]["exception"]["values"][0]["value"] == "QML Image: Cannot open: <url>", qt
-            assert qt[0]["fingerprint"] == ["arinn-shell", "QtWarning", "HomeView.qml:42",
+            # The tag keeps the line; grouping uses the file, which survives edits.
+            assert qt[0]["fingerprint"] == ["arinn-shell", "QtWarning", "HomeView.qml",
                                             "QML Image: Cannot open: <url>"], qt
+            crumbs = [crumb["message"] for event in event_payloads for crumb in event.get("breadcrumbs", [])]
+            assert "window.activate" not in crumbs, crumbs
             assert "Icon is unavailable" not in encoded, captured
             assert any(kind == "metric" and payload["name"] == "arinn.shell.messages.benign"
                        for kind, payload in captured), captured

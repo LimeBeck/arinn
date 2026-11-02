@@ -3,7 +3,7 @@
 
 # Hearth light prototype
 
-The interactive answer to the [Hearth light brief](../../briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)). It shows the proposed visual direction next to the current look, with synthesised interface sounds. It is a design reference: it does not change the shell, the specification or the historical handoff, and it decides nothing the brief leaves to the owner.
+The interactive answer to the [Hearth light brief](../../briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)). The owner accepted the direction on 2026-11-02 ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)); the defaults are the owner's decisions, and the review panel keeps the rejected alternatives for comparison. It shows the accepted visual direction next to the current look, with synthesised interface sounds. It is a design reference for the shell implementation, not shell code; the historical handoff stays unchanged.
 
 Serve the repository root, then open the prototype:
 
@@ -44,7 +44,7 @@ The prototype and its review panel are in Russian, like the handoff. The panel (
 | `art` | `mixed`, `dark`, `bright`: placeholder artwork | `mixed` |
 | `apps` | `lit`, `tiles`, `shelf`: Applications layout (Hearth light only) | `lit` |
 | `chips` | `icons`, `letters`: letter monograms on the shelf (Hearth light only) | `icons` |
-| `cap` | `hide`, `show`: caption of the focused Continue card (Hearth light only) | `hide` |
+| `cap` | `show`, `hide`: caption of the focused Continue card (Hearth light only; D-8 keeps it shown) | `show` |
 | `clock` | `live` uses the real time instead of the fixed 22:57 | fixed |
 | `hud` | `0` hides the review panel (used for the screenshots) | shown |
 | `hold` | `1` keeps the player's on-screen display from hiding | hides after 4 s |
@@ -98,7 +98,7 @@ For example: `hearth-light.html?scene=home&variant=current` shows the current lo
 | Detail, a long title | [14-detail-long-title](screenshots/14-detail-long-title.jpg) |
 | Applications as shelves (D-9) | [15-applications-shelf](screenshots/15-applications-shelf.jpg) |
 | Applications as plain tiles (D-9) | [16-applications-plain-tiles](screenshots/16-applications-plain-tiles.jpg) |
-| Letters on the shelf and the focused caption shown (D-8, D-10) | [17-home-letters-and-caption](screenshots/17-home-letters-and-caption.jpg) |
+| Letters on the shelf and the focused caption hidden: the rejected alternatives of D-10 and D-8 | [17-home-letters-and-caption](screenshots/17-home-letters-and-caption.jpg) |
 | Dark placeholder artwork only | [18-home-dark-artwork](screenshots/18-home-dark-artwork.jpg) |
 | Bright placeholder artwork only | [19-home-bright-artwork](screenshots/19-home-bright-artwork.jpg) |
 | Series detail | [31-detail-series](screenshots/31-detail-series.jpg) |

@@ -162,7 +162,7 @@ Global navigation also lists **Open services** directly below the top-level sect
 
 Directly below Open services, global navigation lists **Running applications** (short label *Running*). It is the screen of running application windows, one row per window, each with a close action ([§5.5](#55-applications)). It is a separate screen from Open services and never lists browser windows. The Open services item takes the place of the bottom activity row while a web service is on screen, and the Running item takes it while an application is on screen, so navigation has no separate activity row. The item stays when nothing runs; its count is then hidden. Owner decision on 2026-10-01 ([#205](https://github.com/LimeBeck/arinn/issues/205)).
 
-Home is both the main screen and the main overlay. Layout, sizes and visuals of every screen are defined by the [design handoff](../design/handoff/README.md) ([§15](#15-design-contract)).
+Home is both the main screen and the main overlay. Layout, sizes and visuals of every screen are defined by the [design handoff](../design/handoff/README.md) as amended by the *Hearth light* brief ([§15](#15-design-contract)).
 
 ### 5.1. Home
 
@@ -240,6 +240,8 @@ Owner decisions of 2026-09-30:
 - A library folder that is unavailable is shown as unavailable only when the library provider reports it.
 
 Owner decision of 2026-11-01 ([#566](https://github.com/LimeBeck/arinn/issues/566)): for the MVP, a `path` setting with several folders is edited as an inline list of text fields with Add and Remove in its settings category. The handoff's separate Library folders screen and the folder picker (LF, PK) are not part of the MVP.
+
+**Presentation settings.** Besides *Light field* and the ambient timeout ([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), the daemon's own settings include *Sound › Interface sounds* (Off, Quiet, Normal; default Quiet) and *Appearance › Light follows the time of day* (on by default). Interface sounds accompany focus moves, OK, Back, panels, the startup and Arinn coming back. They never play while video or music plays, OSD navigation included; error sounds are the only exception. They follow the system output and its mute and never delay the action they accompany. The time-of-day light changes only presentation (evening from 19:00, night from 23:00 by the shell's clock) and keeps text contrast. Owner decision on 2026-11-02 ([#721](https://github.com/LimeBeck/arinn/issues/721), [ADR-0136](../adr/0136-hearth-light-visual-direction.md)).
 
 Removing a folder removes its items from the library and never deletes files. Arinn never mounts or browses network shares; when the folder picker is built, mounted folders appear as its start points.
 
@@ -761,17 +763,19 @@ required consent, refusal or withdrawal controls.
 
 ## 15. Design contract
 
-The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content": the shell is calm and lets content be the main visual object. It does not imitate Android TV, Apple TV, Steam Big Picture or a desktop launcher. The [design handoff](../design/handoff/README.md) refines this as direction **2a "Depth with Light"** and is the source of all visual parameters ([ADR-0019](../adr/0019-design-handoff-contract.md)):
+The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content": the shell is calm and lets content be the main visual object. It does not imitate Android TV, Apple TV, Steam Big Picture or a desktop launcher. The [design handoff](../design/handoff/README.md) refines this as direction **2a "Depth with Light"** and is the source of all visual parameters ([ADR-0019](../adr/0019-design-handoff-contract.md)). The **Hearth light** direction amends it: the [Hearth light brief](../design/briefs/hearth-light/README.md) and its [prototype](../design/prototypes/hearth-light/README.md) define every visual parameter they cover, and the handoff the rest. Owner decision on 2026-11-02 ([#721](https://github.com/LimeBeck/arinn/issues/721), [ADR-0136](../adr/0136-hearth-light-visual-direction.md)):
 
 - logical canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area from the handoff;
-- Onest and Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer;
+- Onest for system text and Literata for content titles (hero, detail, player title, Ambient clock); Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer; no uppercase eyebrows;
 - interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, error messages from plugins) is shown as delivered, except setting texts for which the provider ships a translation for the shell's locale (§5.6, [ADR-0129](../adr/0129-provider-setting-translations.md));
-- Ember `#FF8A3D` marks status, progress and brand only, never focus;
-- light field keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens;
-- all tokens, radii, elevation and motion timings as in the handoff and Design System v2;
+- Ember `#FF8A3D` marks status, progress, the startup ignition and *kindle* (Arinn coming back) and the brand only, never focus. Focus is light: a rim light from below with a dark mat around artwork, the lift from the bottom edge and the lit row;
+- favourites on Home are a shelf of names with provider icons and no letter monograms; Applications tiles hold their application's identity light; the focused Continue card keeps its caption;
+- the light field is a warm floor light with a pool under the focused item, keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens; it follows the time of day unless that is turned off (§5.6);
+- interface sounds as in the brief, under the rules of §5.6;
+- all tokens, radii, elevation and motion timings as in the Hearth light brief, otherwise as in the handoff and Design System v2;
 - loading, empty, error, disabled, pressed and focus states per the design system and the 22 screenshots.
 
-The handoff's JavaScript state model demonstrates behaviour only; it never becomes a shell backend. Conflicts between the handoff and this document are resolved in the [integration review](../design/integration-review.md); where they differ, this document applies. Brand: [brand](../design/brand/README.md).
+The handoff's JavaScript state model demonstrates behaviour only; it never becomes a shell backend. Conflicts between the handoff and this document are resolved in the [integration review](../design/integration-review.md); where they differ, this document applies. Brand: [Brand Guide v0.2](../design/brand/brand-guide-v0.2.md) ([brand materials](../design/brand/README.md)).
 
 ---
 

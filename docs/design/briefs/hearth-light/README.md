@@ -5,7 +5,7 @@
 
 A visual identity pass that makes Arinn recognisable without giving up anything a living-room interface needs. Issue [#721](https://github.com/LimeBeck/arinn/issues/721).
 
-**Status:** proposed, 2026-11-02. On 2026-11-02 the owner reviewed the design review below, approved every proposal and asked the agent to act as the designer. This brief and the [Hearth light prototype](../../prototypes/hearth-light/README.md) are the designer's answer. They are waiting for the owner decisions in [*Owner decisions*](#owner-decisions). A second round on 2026-11-02 followed the designer's own review of the first prototype (see [*Second round*](#second-round)); the owner's first reaction was that the startup animation works. Nothing here changes the shell, the specification, the historical handoff or the brand guide. An accepted answer comes back as a handoff amendment, an amendment to the brand guide, specification text and a non-technical ADR, all owner-gated ([ADR-0019](../../../adr/0019-design-handoff-contract.md), [ADR-0037](../../../adr/0037-agent-autonomy-and-owner-gated-decisions.md)).
+**Status:** accepted by the owner on 2026-11-02 (decisions D-1…D-10 below; [ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)). Proposed earlier the same day. On 2026-11-02 the owner reviewed the design review below, approved every proposal and asked the agent to act as the designer. This brief and the [Hearth light prototype](../../prototypes/hearth-light/README.md) are the designer's answer. The owner's answers are recorded in [*Owner decisions*](#owner-decisions). A second round on 2026-11-02 followed the designer's own review of the first prototype (see [*Second round*](#second-round)); the owner's first reaction was that the startup animation works. The historical handoff and Brand Guide v0.1 stay unchanged. With the owner's acceptance this brief and the prototype amend the handoff as the visual contract ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md), amending [ADR-0019](../../../adr/0019-design-handoff-contract.md)); [Brand Guide v0.2](../../brand/brand-guide-v0.2.md) and [specification §15](../../../specifications/arinn-specification.md#15-design-contract) carry the decisions. The shell is changed by separate implementation tasks.
 
 ## Problem
 
@@ -184,7 +184,7 @@ Captions move from an overlay on a darkened gradient to below the image. Progres
 
 The rim is a full outline, brightest where the light comes from. The mat separates it from the artwork: without it a light rim disappears on light artwork, which the owner's real library has plenty of. Focus must stay obvious at 3 m on dark and bright artwork alike; this needs a TV check with the owner (D-7).
 
-On Home the caption of the focused Continue card gives way to the hero, which already names the item (D-8). The other cards keep their captions.
+The caption of the focused Continue card stays visible (D-8: the owner found the empty space under the card odd). The prototype keeps the alternative behind a switch.
 
 ### Monograms
 
@@ -296,20 +296,20 @@ Unchanged; it is already right. The only change is the case of the eyebrows.
 
 ## Owner decisions
 
-The agent does not decide these ([ADR-0037](../../../adr/0037-agent-autonomy-and-owner-gated-decisions.md)). The recommendation comes first.
+The agent does not decide these ([ADR-0037](../../../adr/0037-agent-autonomy-and-owner-gated-decisions.md)). The owner answered all ten on 2026-11-02 ([#721](https://github.com/LimeBeck/arinn/issues/721)); the last column is the decision.
 
-| ID | Decision | Options | Recommendation |
-| --- | --- | --- | --- |
-| D-1 | Visual direction | A Hearth light · B Hearth light, sans · C Calm · keep current | **A**. C if a smaller step is preferred first |
-| D-2 | Serif for content titles | Literata · Source Serif 4 · none | **Literata**: warmer, built for screens, larger x-height |
-| D-3 | Favourites | Text shelf · tiles | **Shelf** |
-| D-4 | Interface sounds | On, Quiet by default · off by default | **On, Quiet** |
-| D-5 | Time-of-day light | Automatic by clock, with a setting to turn it off · off | **Automatic** |
-| D-6 | Brand guide | Amend §5 and §15 as below as Brand Guide v0.2 · keep v0.1 | **Amend** |
-| D-7 | Rim light instead of the white ring | Accept after a TV check · keep the ring | **Accept after the check** on the owner's TV at 3 m, with dark and bright artwork |
-| D-8 | Caption of the focused Continue card | Gives way to the hero · always shown | **Gives way**; keep shown if the empty space under the focused card feels like something is missing |
-| D-9 | Applications | Tiles with identity light · shelf · plain tiles | **Tiles with identity light** |
-| D-10 | Letter monograms on the favourites shelf | Provider icons only · letters too | **Icons only** |
+| ID | Decision | Options | Recommendation | Owner decision |
+| --- | --- | --- | --- | --- |
+| D-1 | Visual direction | A Hearth light · B Hearth light, sans · C Calm · keep current | **A**. C if a smaller step is preferred first | **A** |
+| D-2 | Serif for content titles | Literata · Source Serif 4 · none | **Literata**: warmer, built for screens, larger x-height | **Literata** |
+| D-3 | Favourites | Text shelf · tiles | **Shelf** | **Shelf** |
+| D-4 | Interface sounds | On, Quiet by default · off by default | **On, Quiet** | **On, Quiet** |
+| D-5 | Time-of-day light | Automatic by clock, with a setting to turn it off · off | **Automatic** | **Automatic** |
+| D-6 | Brand guide | Amend §5 and §15 as below as Brand Guide v0.2 · keep v0.1 | **Amend** | **Brand Guide v0.2** |
+| D-7 | Rim light instead of the white ring | Accept after a TV check · keep the ring | **Accept after the check** on the owner's TV at 3 m, with dark and bright artwork | **Rim light** (the TV check stays a verification step) |
+| D-8 | Caption of the focused Continue card | Gives way to the hero · always shown | **Gives way**; keep shown if the empty space under the focused card feels like something is missing | **Always shown**: the empty space looks odd |
+| D-9 | Applications | Tiles with identity light · shelf · plain tiles | **Tiles with identity light** | **Tiles with identity light** |
+| D-10 | Letter monograms on the favourites shelf | Provider icons only · letters too | **Icons only** | **Icons only** |
 
 ### Proposed brand guide text (D-6)
 
@@ -330,7 +330,7 @@ After the first prototype the designer reviewed it at sofa scale (screenshots re
 | The floor light and the pool vanished at a distance | A dark ceiling, a brighter floor and a tighter pool; the focused row now visibly stands on a lit floor |
 | All placeholder artwork was dark, unlike the owner's real library | Bright, busy placeholder artwork (`art=bright`, mixed by default) |
 | A light rim disappears on light artwork | The 5 px Charcoal mat between artwork and rim |
-| The focused title appeared twice, in two families | The focused card's caption gives way to the hero (D-8) |
+| The focused title appeared twice, in two families | Tried: the focused card's caption gives way to the hero. Rejected by the owner (D-8): the caption stays |
 | Applications was the most generic screen | Identity light inside each tile, and the shelf as an alternative (D-9) |
 | Secondary actions read as text from the sofa | Actions keep a faint plate |
 | A row of letters on the shelf | Letter chips left out on the shelf (D-10) |
@@ -342,8 +342,8 @@ After the first prototype the designer reviewed it at sofa scale (screenshots re
 
 ## After acceptance
 
-1. The owner records D-1…D-7. The agent writes the non-technical ADR and the brand guide v0.2 for owner merge.
-2. A handoff amendment: this brief and the prototype become the visual contract, with the specification updated (§5, §6.5, Ambient, a new *Interface sounds* requirement in Settings › Sound).
+1. Done in [#721](https://github.com/LimeBeck/arinn/issues/721): the owner's decisions above, [ADR-0136](../../../adr/0136-hearth-light-visual-direction.md), [Brand Guide v0.2](../../brand/brand-guide-v0.2.md) and the specification (§5, §5.6, §15).
+2. This brief and the prototype are the visual contract for the areas they cover; the historical handoff applies to everything else.
 3. Implementation tasks, each with its own issue and the existing UI comparison (`scripts/ui-compare.py`):
     - tokens and typography (`Theme.qml`, `UiText.qml`, Literata as a resource, `REUSE.toml` entry, owner-gated);
     - the light system (`AmbientGlow.qml` → floor + pool + cast);

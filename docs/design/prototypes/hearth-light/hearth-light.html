@@ -531,7 +531,7 @@ const settings = {
   art: ['mixed', 'dark', 'bright'].includes(Q.get('art')) ? Q.get('art') : 'mixed',
   apps: ['lit', 'tiles', 'shelf'].includes(Q.get('apps')) ? Q.get('apps') : 'lit',
   chips: ['icons', 'letters'].includes(Q.get('chips')) ? Q.get('chips') : 'icons',
-  cap: ['hide', 'show'].includes(Q.get('cap')) ? Q.get('cap') : 'hide',
+  cap: ['hide', 'show'].includes(Q.get('cap')) ? Q.get('cap') : 'show',  // owner decision D-8: the caption stays
 };
 // The options below belong to the Hearth light variants; Calm and Current keep today's behaviour.
 const hearthish = () => P().light === 'hearth';
@@ -1007,7 +1007,7 @@ function hud() {
     ${sel('art', 'Обложки', { mixed: 'Смешанные', dark: 'Тёмные', bright: 'Яркие' }, settings.art)}
     ${sel('apps', 'Приложения', { lit: 'Плитки со светом', tiles: 'Плитки', shelf: 'Полка' }, settings.apps)}
     ${sel('chips', 'Буквы на полке', { icons: 'Только иконки', letters: 'Показывать' }, settings.chips)}
-    ${sel('cap', 'Подпись в фокусе', { hide: 'Скрывать', show: 'Показывать' }, settings.cap)}
+    ${sel('cap', 'Подпись в фокусе', { show: 'Показывать', hide: 'Скрывать' }, settings.cap)}
     <div class="scenes">${[['home', 'Главная'], ['running', 'Поверх прил.'], ['nav', 'Меню'], ['library', 'Медиатека'], ['apps', 'Приложения'], ['player', 'Плеер'], ['ambient', 'Заставка'], ['startup', 'Запуск']].map(([k, n]) => `<button data-scene="${k}">${n}</button>`).join('')}</div>
     <div class="scenes">${[['tap', 'шаг'], ['edge', 'край'], ['select', 'OK'], ['back', 'назад'], ['open', 'панель'], ['close', 'закрыть'], ['ignite', 'запуск'], ['kindle', 'разгорание'], ['error', 'ошибка']].map(([k, n]) => `<button data-sound="${k}">♪ ${n}</button>`).join('')}</div>
     <div class="keys">Варианты обложек, приложений и полки действуют в «Свете очага». Стрелки, Enter, Esc — назад · M — меню · H — главная (с разгоранием) · A — заставка · S — запуск · D — эта панель. Звук включается после первого нажатия.</div>`;

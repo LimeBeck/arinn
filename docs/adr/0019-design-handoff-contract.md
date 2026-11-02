@@ -4,7 +4,7 @@
 - **Date:** 2026-09-27 (proposed); accepted 2026-09-27 by [ADR-0028](0028-documentation-governance.md)
 - **Deciders:** project owner (design handoff 2026-09-27)
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** [ADR-0022](0022-state-and-interaction-baseline.md) (ownership of prototype state), [ADR-0023](0023-mvp-product-clarifications.md) (Back on Home, Sleep), [ADR-0027](0027-activity-background-snapshot.md) (Activity background)
+- **Amended by / Superseded by:** [ADR-0022](0022-state-and-interaction-baseline.md) (ownership of prototype state), [ADR-0023](0023-mvp-product-clarifications.md) (Back on Home, Sleep), [ADR-0027](0027-activity-background-snapshot.md) (Activity background), [ADR-0136](0136-hearth-light-visual-direction.md) (Hearth light visual direction)
 - **Specification:** [§15](../specifications/arinn-specification.md)
 
 ## Context

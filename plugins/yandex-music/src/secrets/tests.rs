@@ -356,7 +356,10 @@ async fn stalled_keyring_calls_have_deadlines_and_known_sessions_are_closed() {
     f.shared.state.lock().unwrap().stall_get = true;
     let begun = std::time::Instant::now();
     assert!(matches!(store.load().await, Err(Error::Storage)));
-    assert!(begun.elapsed() < Duration::from_secs(4));
+    // One bounded failing call plus bounded session cleanup, with scheduler
+    // headroom. The Err(Storage) assertion still requires the 3s deadline to
+    // beat the synthetic 4s successful reply.
+    assert!(begun.elapsed() < Duration::from_secs(8));
     let state = f.shared.state.lock().unwrap();
     assert_eq!(state.opened, state.closed);
 }

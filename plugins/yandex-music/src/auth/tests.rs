@@ -112,22 +112,32 @@ impl Mock {
         }
     }
     fn client<S: CredentialStore + 'static>(&self, store: S) -> DeviceAuth<S> {
-        let mut client = DeviceAuth::new(
-            "synthetic-client",
-            Some("synthetic-secret"),
-            "synthetic-device",
-            store,
-        )
-        .unwrap();
-        client.origin = self.origin.clone();
-        client.client = Client::builder()
+        // Loopback fixtures do not perform TLS or load the host CA store.
+        // Building production clients here spent the listener's setup budget
+        // loading native roots repeatedly under parallel/proot test runners.
+        let client = Client::builder()
             .no_proxy()
+            .tls_built_in_root_certs(false)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(3))
             .build()
             .unwrap();
-        client
+        let (generation, _) = watch::channel(0);
+        DeviceAuth {
+            client,
+            origin: self.origin.clone(),
+            client_id: "synthetic-client".into(),
+            client_secret: Some("synthetic-secret".into()),
+            device_id: "synthetic-device".into(),
+            owner: Arc::new(()),
+            session: Arc::new(Session {
+                generation,
+                gate: Mutex::new(None),
+                store,
+            }),
+        }
     }
+
     fn finish(self) -> Vec<Request> {
         self.worker.join().unwrap();
         self.records.lock().unwrap().clone()

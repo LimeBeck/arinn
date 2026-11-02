@@ -70,20 +70,23 @@ impl Mock {
                 );
             }
         });
-        let mut api = Api::new("synthetic-test-token").unwrap();
-        api.origin = Url::parse(&origin).unwrap();
         // Test traffic is loopback only; no session proxy or real credentials.
         let mut token = HeaderValue::from_static("OAuth synthetic-test-token");
         token.set_sensitive(true);
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, token);
-        api.client = Client::builder()
+        let client = Client::builder()
             .no_proxy()
+            .tls_built_in_root_certs(false)
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(3))
             .build()
             .unwrap();
+        let api = Api {
+            client,
+            origin: Url::parse(&origin).unwrap(),
+        };
         Self {
             api,
             requests,

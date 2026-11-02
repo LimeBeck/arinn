@@ -14,8 +14,12 @@ The shell never calls the provider process or a third-party service directly.
 Methods return UTF-8 JSON strings bounded to 256 KiB. Shared Rust types live in
 `arinn_protocol::music`; unknown fields are rejected. Errors use `ErrorCode`.
 State queries have a three-second provider deadline; pages and commands have a
-five-second daemon deadline. A timeout is an uncertain result, not permission to
-start another session. Refresh confirmed state before another transport action.
+five-second daemon deadline. A command waits at most two seconds behind other
+commands; a command that could not be forwarded in that time is refused with
+Unavailable, so forwarding keeps at least three seconds. A timeout after
+forwarding is an uncertain result, not permission to start another session:
+the daemon treats that provider as active and reads its state again before it
+admits another start. Refresh confirmed state before another transport action.
 
 `GetState(generation)` returns revision, catalogue_revision, backend, account,
 prompt, facets, actions, session, playback, position_us, current, history,
@@ -49,11 +53,17 @@ not a receipt: it is not recorded, and a retry with the same UUID runs again.
 A provider handler is bounded to 10 seconds. Admission is bounded to 32 commands.
 
 Starting play/radio while a music session is loading, playing or paused requires
-matching replaces_provider/replaces_session from the confirmation screen. The
+matching replaces_provider/replaces_session from the confirmation screen. So do
+next, previous, resume and retry on a provider other than the one that is
+audible, since they can start audio there. A retry of a start that timed out,
+with the same caller and request ID, goes to the provider, whose receipt holds
+the real outcome. The
 daemon confirms the previous provider stopped and cleared its current entry
 before forwarding the new start. Failures leave the new source unstarted.
-`GetActive` returns JSON null or {provider_id,generation,state}; it is independent
-of the source currently browsed. Owner loss invalidates cached sessions.
+`GetActive` returns JSON null or {provider_id,generation,state}: a confirmed
+loading, playing or paused session first, otherwise the last started provider's
+session that still has a current entry. It is independent of the source
+currently browsed. Owner loss invalidates cached sessions.
 
 ## Account and playback boundaries
 

@@ -17,6 +17,26 @@ struct Registry {
     active: Option<String>,
     states: BTreeMap<String, Cached>,
     ledger: std::collections::VecDeque<Receipt>,
+    /// Providers whose start timed out: they may be playing. Their state is
+    /// read again before another start is admitted.
+    uncertain: std::collections::BTreeSet<String>,
+    /// The (caller, request ID) whose start timed out, per provider. Its
+    /// retry goes to the provider, whose receipt holds the real outcome.
+    retries: BTreeMap<String, (String, String)>,
+}
+/// Receipts retained per provider endpoint (music.md).
+const RECEIPTS: usize = 32;
+/// A command's whole budget, and the longest it may wait behind others;
+/// forwarding always keeps the rest (at least 3 s) of the budget.
+const COMMAND: Duration = Duration::from_secs(5);
+const QUEUED: Duration = Duration::from_secs(2);
+/// Actions that start audio. Play and radio replace any audible session;
+/// the others only resume or move the session they address, so they are
+/// fenced only while another provider is audible.
+const STARTS: [&str; 2] = ["play", "radio"];
+const RESUMES: [&str; 4] = ["next", "previous", "retry", "resume"];
+fn audible(state: &MusicState) -> bool {
+    ["playing", "paused", "loading"].contains(&state.playback.as_str())
 }
 pub(super) struct Coordinator {
     gate: Mutex<()>,
@@ -36,6 +56,8 @@ impl Coordinator {
     pub(super) async fn forget(&self, id: &str) {
         let mut r = self.registry.lock().await;
         r.states.remove(id);
+        r.uncertain.remove(id);
+        r.retries.remove(id);
         if r.active.as_deref() == Some(id) {
             r.active = None;
         }
@@ -80,6 +102,10 @@ impl Controller {
 }
 
 impl Core {
+    /// The session the shell shows and transport addresses: a confirmed
+    /// loading/playing/paused session first, preferring the last started
+    /// provider; otherwise the last started provider's session with a
+    /// current entry (for example an ended one).
     async fn active_music(&self) -> Option<music::Active> {
         let candidates = {
             let r = self.music.registry.lock().await;
@@ -88,7 +114,12 @@ impl Core {
                 .iter()
                 .map(|(id, value)| (id.clone(), value.clone()))
                 .collect();
-            values.sort_by_key(|(id, _)| Some(id.as_str()) != r.active.as_deref());
+            values.sort_by_key(|(id, cached)| {
+                (
+                    !audible(&cached.state),
+                    Some(id.as_str()) != r.active.as_deref(),
+                )
+            });
             values
         };
         for (id, cached) in candidates {
@@ -154,6 +185,45 @@ impl Core {
             return Err(ErrorCode::Unavailable);
         }
         Ok(p.owner.clone())
+    }
+    /// Reads a provider's state again and caches it (after an uncertain start).
+    async fn refresh_music(&self, id: &str) -> Result<(), ErrorCode> {
+        let generation = {
+            let r = self.music.registry.lock().await;
+            r.states.get(id).map(|c| c.generation.clone())
+        };
+        let generation = match generation {
+            Some(generation) => generation,
+            None => {
+                let state = self.state.lock().await;
+                state
+                    .providers
+                    .get(id)
+                    .ok_or(ErrorCode::NotFound)?
+                    .info
+                    .generation
+                    .clone()
+            }
+        };
+        let owner = self.music_identity(id, &generation).await?;
+        let proxy = MusicProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .and_then(|b| b.path(production::PROVIDER_PATH))
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(normalize_error)?;
+        let json = tokio::time::timeout(Duration::from_secs(2), proxy.get_state(&generation))
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(normalize_error)?;
+        let snapshot: MusicState = music::decode(&json)?;
+        snapshot.validate()?;
+        if self.music_identity(id, &generation).await? != owner {
+            return Err(ErrorCode::Conflict);
+        }
+        self.music.cache(id, &generation, &owner, snapshot).await;
+        Ok(())
     }
     pub(super) async fn watch_music(&self, id: String, owner: String, generation: String) {
         let Ok(proxy) = MusicProviderProxy::builder(&self.connection)
@@ -280,16 +350,19 @@ impl MusicEndpoint {
         let command: Command = music::decode(command)?;
         command.validate()?;
         let client = sender(&h)?;
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let begun = tokio::time::Instant::now();
+        let deadline = begun + COMMAND;
         let _slot = self
             .core
             .music
             .slots
             .try_acquire()
             .map_err(|_| ErrorCode::Unavailable)?;
-        let _serial = tokio::time::timeout_at(deadline, self.core.music.gate.lock())
+        // Not forwarded yet: a long queue is a definite refusal, not an
+        // uncertain timeout, and forwarding keeps at least 3 s.
+        let _serial = tokio::time::timeout_at(begun + QUEUED, self.core.music.gate.lock())
             .await
-            .map_err(|_| ErrorCode::Timeout)?;
+            .map_err(|_| ErrorCode::Unavailable)?;
         self.core.music_identity(&self.id, generation).await?;
         {
             let registry = self.core.music.registry.lock().await;
@@ -307,10 +380,34 @@ impl MusicEndpoint {
                 return result.clone().map_err(Into::into);
             }
         }
+        let action = command.action.as_str();
+        let starts = STARTS.contains(&action);
+        let resumes = RESUMES.contains(&action);
         let result = async {
-            if ["play", "radio"].contains(&command.action.as_str())
+            if starts || resumes {
+                // A start that timed out may still be playing: confirm it.
+                let uncertain: Vec<String> = self
+                    .core
+                    .music
+                    .registry
+                    .lock()
+                    .await
+                    .uncertain
+                    .iter()
+                    .cloned()
+                    .collect();
+                for id in uncertain {
+                    self.core.refresh_music(&id).await?;
+                    self.core.music.registry.lock().await.uncertain.remove(&id);
+                }
+            }
+            let retry = self.core.music.registry.lock().await.retries.get(&self.id)
+                == Some(&(client.clone(), command.request_id.clone()));
+            if (starts || resumes)
+                && !retry
                 && let Some(active) = self.core.active_music().await
-                && ["playing", "paused", "loading"].contains(&active.state.playback.as_str())
+                && audible(&active.state)
+                && (starts || active.provider_id != self.id)
             {
                 if command.replaces_provider != active.provider_id
                     || command.replaces_session != active.state.session
@@ -341,16 +438,38 @@ impl MusicEndpoint {
                     return Err(ErrorCode::Conflict);
                 }
             }
-            let snapshot = self
+            let forwarded = self
                 .core
                 .forward_music(&self.id, generation, &client, &command, deadline)
-                .await?;
-            if ["play", "radio"].contains(&command.action.as_str()) {
-                self.core.music.registry.lock().await.active = Some(self.id.clone());
+                .await;
+            if starts || resumes {
+                let mut registry = self.core.music.registry.lock().await;
+                match &forwarded {
+                    Ok(_) => {
+                        registry.active = Some(self.id.clone());
+                        registry.retries.remove(&self.id);
+                    }
+                    // The provider may have started: it becomes the active
+                    // provider and is confirmed before the next start.
+                    Err(ErrorCode::Timeout) => {
+                        registry.active = Some(self.id.clone());
+                        registry.uncertain.insert(self.id.clone());
+                        registry.retries.insert(
+                            self.id.clone(),
+                            (client.clone(), command.request_id.clone()),
+                        );
+                    }
+                    Err(_) => {}
+                }
             }
-            music::encode(&snapshot)
+            music::encode(&forwarded?)
         }
         .await;
+        // A timeout is an uncertain outcome, not a receipt: a retry runs again
+        // and reaches the provider, whose own receipt holds the real result.
+        if result == Err(ErrorCode::Timeout) {
+            return Err(ErrorCode::Timeout.into());
+        }
         let mut registry = self.core.music.registry.lock().await;
         registry.ledger.push_back((
             client,
@@ -359,50 +478,25 @@ impl MusicEndpoint {
             command,
             result.clone(),
         ));
-        while registry.ledger.len() > 32 {
-            registry.ledger.pop_front();
+        // At most RECEIPTS per provider endpoint: another endpoint's traffic
+        // never evicts this one's receipts.
+        if registry
+            .ledger
+            .iter()
+            .filter(|(_, id, _, _, _)| id == &self.id)
+            .count()
+            > RECEIPTS
+            && let Some(oldest) = registry
+                .ledger
+                .iter()
+                .position(|(_, id, _, _, _)| id == &self.id)
+        {
+            registry.ledger.remove(oldest);
         }
         result.map_err(Into::into)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[tokio::test]
-    async fn delayed_poll_cannot_replace_a_newer_command_snapshot() {
-        let coordinator = Coordinator::default();
-        coordinator
-            .cache(
-                "provider",
-                "generation",
-                "owner",
-                MusicState {
-                    revision: 5,
-                    playback: "paused".into(),
-                    ..MusicState::default()
-                },
-            )
-            .await;
-        coordinator
-            .cache(
-                "provider",
-                "generation",
-                "owner",
-                MusicState {
-                    revision: 4,
-                    playback: "playing".into(),
-                    ..MusicState::default()
-                },
-            )
-            .await;
-        assert_eq!(
-            coordinator.registry.lock().await.states["provider"]
-                .state
-                .playback,
-            "paused"
-        );
-        coordinator.forget("provider").await;
-        assert!(coordinator.registry.lock().await.states.is_empty());
-    }
-}
+#[path = "music_tests.rs"]
+mod tests;

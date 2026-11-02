@@ -3,7 +3,7 @@
 
 //! Native account lifecycle. Credential-bearing operations stay in this process.
 use crate::{
-    auth::{self, DeviceAuth},
+    auth::{self, CredentialStore, DeviceAuth},
     secrets::SecretService,
 };
 use arinn_music_common::{paths, storage::Storage};
@@ -15,18 +15,24 @@ use arinn_protocol::{
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 
-type Auth = DeviceAuth<SecretService>;
 struct Account {
     state: State,
     epoch: u64,
 }
-#[derive(Clone)]
-struct Service {
-    auth: Option<Arc<Auth>>,
+struct Service<S: CredentialStore + 'static = SecretService> {
+    auth: Option<Arc<DeviceAuth<S>>>,
     account: Arc<Mutex<Account>>,
 }
-impl Service {
-    fn new(auth: Option<Arc<Auth>>) -> Self {
+impl<S: CredentialStore + 'static> Clone for Service<S> {
+    fn clone(&self) -> Self {
+        Self {
+            auth: self.auth.clone(),
+            account: self.account.clone(),
+        }
+    }
+}
+impl<S: CredentialStore + 'static> Service<S> {
+    fn new(auth: Option<Arc<DeviceAuth<S>>>) -> Self {
         let configured = auth.is_some();
         Self {
             auth,
@@ -58,6 +64,24 @@ impl Service {
     async fn snapshot(&self) -> State {
         self.account.lock().await.state.clone()
     }
+    /// An attempt can be accepted in the instant before a Cancel, reset or
+    /// newer state change hides it (review of #710). Whenever the account is
+    /// not shown as connected or connecting, an accepted session is removed
+    /// again, so the UI never says "disconnected" over a stored token.
+    async fn reconcile(&self) {
+        let Some(auth) = &self.auth else {
+            return;
+        };
+        let shown = self.account.lock().await.state.account.clone();
+        if shown == "connected" || shown == "connecting" || auth.api().await.is_err() {
+            return;
+        }
+        if let Err(error) = auth.disconnect().await {
+            let mut a = self.account.lock().await;
+            a.state.error = Some(normalize(error));
+            a.state.revision += 1;
+        }
+    }
     async fn restore(&self, start: Option<auth::Start>) {
         let Some(auth) = &self.auth else {
             return;
@@ -68,6 +92,10 @@ impl Service {
         let result = auth.restore_prepared(start).await;
         let mut account = self.account.lock().await;
         if account.epoch != 0 {
+            drop(account);
+            if result == Ok(true) {
+                self.reconcile().await;
+            }
             return;
         }
         match result {
@@ -117,6 +145,10 @@ impl Service {
             .await;
             let mut a = this.account.lock().await;
             if a.epoch != epoch {
+                drop(a);
+                if result.is_ok() {
+                    this.reconcile().await;
+                }
                 return;
             }
             a.state.prompt = None;
@@ -138,6 +170,9 @@ impl Service {
                     a.state.error = Some(normalize(error));
                 }
             }
+            // A failed newer attempt must not leave an older accepted one.
+            drop(a);
+            this.reconcile().await;
         });
         Ok(())
     }
@@ -165,7 +200,7 @@ fn normalize(error: auth::Error) -> ErrorCode {
         _ => ErrorCode::Unavailable,
     }
 }
-impl MusicHandler for Service {
+impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
     fn state(&self) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>> {
         Box::pin(async move { Ok(self.snapshot().await) })
     }
@@ -195,7 +230,9 @@ impl MusicHandler for Service {
                         a.state.revision += 1;
                     }
                     if let Err(error) = auth.disconnect().await {
-                        self.account.lock().await.state.error = Some(normalize(error));
+                        let mut a = self.account.lock().await;
+                        a.state.error = Some(normalize(error));
+                        a.state.revision += 1;
                         return Err(normalize(error));
                     }
                 }
@@ -218,7 +255,8 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     // separately qualified provisioning before being supported here.
     let client_id = std::env::var("ARINN_YANDEX_CLIENT_ID")
         .ok()
-        .filter(|s| !s.trim().is_empty());
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
     let bus = connection.clone();
     let auth = tokio::task::spawn_blocking(move || {
         let Some(client_id) = client_id else {
@@ -245,8 +283,21 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             .map_err(normalize)
     })
     .await
-    .map_err(|_| ErrorCode::Internal)??;
-    let handler = Service::new(auth);
+    .map_err(|_| ErrorCode::Internal)?;
+    // Invalid local configuration or state is reported, not fatal: the
+    // provider still registers and shows why it cannot connect (review of
+    // #710). A corrupt approval journal is still never reset silently.
+    let (auth, failure) = match auth {
+        Ok(auth) => (auth, None),
+        Err(error) => (None, Some(error)),
+    };
+    let handler: Service = Service::new(auth);
+    if let Some(error) = failure {
+        let mut a = handler.account.lock().await;
+        a.state.backend = "unavailable".into();
+        a.state.error = Some(error);
+        a.state.revision += 1;
+    }
     let restore_start = handler.auth.as_ref().map(|auth| auth.prepare());
     let restore = handler.clone();
     tokio::spawn(async move {
@@ -265,7 +316,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn missing_client_identity_has_no_connect_action_or_secret_prompt() {
-        let service = Service::new(None);
+        let service: Service = Service::new(None);
         service.restore(None).await;
         service.cancel().await;
         let state = service.snapshot().await;
@@ -274,5 +325,41 @@ mod tests {
         assert!(state.prompt.is_none());
         assert!(state.validate().is_ok());
         assert_eq!(service.connect().await, Err(ErrorCode::Unsupported));
+    }
+    /// Review of #710: an attempt accepted in the instant before Cancel left
+    /// the token stored and the session active while the screen said
+    /// "disconnected"; later connects then failed. The hidden session is now
+    /// removed again.
+    #[tokio::test]
+    async fn an_accepted_session_hidden_by_a_cancel_is_removed_again() {
+        use crate::auth::tests::{MemoryStore, Mock, code, reply, token};
+        let mock = Mock::new(vec![reply(200, code()), reply(200, token())]);
+        let store = MemoryStore::default();
+        let service = Service::new(Some(Arc::new(mock.client(store.clone()))));
+        service.connect().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while service.snapshot().await.account != "connected" {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let auth = service.auth.clone().unwrap();
+        assert!(auth.api().await.is_ok());
+        assert!(store.bytes.lock().unwrap().is_some());
+        // What a Cancel landing just after acceptance used to leave behind.
+        {
+            let mut a = service.account.lock().await;
+            a.epoch += 1;
+            a.state.account = "disconnected".into();
+            a.state.actions = vec!["connect".into()];
+        }
+        service.reconcile().await;
+        assert!(auth.api().await.is_err());
+        assert!(store.bytes.lock().unwrap().is_none());
+        // A shown connection is left alone.
+        let state = service.snapshot().await;
+        assert_eq!(state.account, "disconnected");
+        mock.finish();
     }
 }

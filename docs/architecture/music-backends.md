@@ -204,7 +204,17 @@ remote cleanup; a timed-out or dropped remote write can finish later but cannot
 activate the abandoned grant. Stale nonce-specific cleanup preserves a newer
 grant. Keyring calls have deadlines, cleanup is bounded, known sessions close
 on error/drop, and locked/ambiguous storage fails without opening prompts or
-falling back to plaintext credentials.
+falling back to plaintext credentials. The Secret Service session uses the
+`plain` algorithm: the token crosses the user's session bus unencrypted, which
+adds no exposure beyond the same-user processes that can already read an
+unlocked item with `GetSecret`. A failed checkpoint commit removes the staged
+token again. If an attempt is accepted in the instant before a Cancel, reset
+or newer attempt hides it, the provider removes that session again, so the
+screen never shows "disconnected" over a stored token. Invalid local
+configuration (client ID, device identity or a corrupt approval journal) is
+reported as an unavailable backend instead of ending the provider; the
+journal is still never reset silently. A malformed entry in a search page or
+radio batch is skipped; only a list without any usable entry is an error.
 
 The connection UI and provider process are **not integrated yet**. The controller
 requires an explicitly configured, qualified OAuth client identity (and secret

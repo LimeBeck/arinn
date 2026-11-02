@@ -25,6 +25,7 @@ pub mod session_lock;
 #[path = "../../../platform/shell_ready.rs"]
 pub mod shell_ready;
 pub mod shortcuts;
+pub mod signal;
 #[path = "../../../platform/status_sources.rs"]
 pub mod status_sources;
 pub mod storage;

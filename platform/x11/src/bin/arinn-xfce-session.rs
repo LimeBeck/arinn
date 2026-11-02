@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Opt-in XDG autostart bridge; the XFCE session manager owns its lifetime.
+#[path = "../../../lock_preflight.rs"]
+mod lock_preflight;
 use anyhow::{Result, bail, ensure};
 use std::{
     env,
@@ -36,6 +38,26 @@ const SYSTEMCTL_TIMEOUT: Duration = Duration::from_secs(30);
 /// start Arinn then anyway, and the session entry logs its fixed line.
 const HANDOVER: Duration = Duration::from_secs(65);
 const _: () = assert!(HANDOVER.as_secs() > 2 * SYSTEMCTL_TIMEOUT.as_secs());
+const LOCK_PROVIDER_MISSING: &str = "no lock provider: start xfce4-screensaver or light-locker";
+const LOCK_PROVIDER_UNRESPONSIVE: &str = "lock provider not responding";
+
+#[derive(Debug)]
+struct LockProviderMissing;
+impl std::fmt::Display for LockProviderMissing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(LOCK_PROVIDER_MISSING)
+    }
+}
+impl std::error::Error for LockProviderMissing {}
+
+#[derive(Debug)]
+struct LockProviderUnresponsive;
+impl std::fmt::Display for LockProviderUnresponsive {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(LOCK_PROVIDER_UNRESPONSIVE)
+    }
+}
+impl std::error::Error for LockProviderUnresponsive {}
 
 struct Child(std::process::Child);
 impl Drop for Child {
@@ -255,6 +277,15 @@ async fn run() -> Result<()> {
             "an Arinn session is already running"
         );
     }
+    match lock_preflight::wait_for_provider(&connection).await {
+        lock_preflight::ProviderWaitOutcome::Ready => {}
+        lock_preflight::ProviderWaitOutcome::Missing => {
+            return Err(anyhow::Error::new(LockProviderMissing));
+        }
+        lock_preflight::ProviderWaitOutcome::Unresponsive { service: _ } => {
+            return Err(anyhow::Error::new(LockProviderUnresponsive));
+        }
+    }
     let mut startup = Box::pin(start());
     let outcome = tokio::select! {
         result = &mut startup => {
@@ -298,10 +329,21 @@ async fn run() -> Result<()> {
 
 #[tokio::main]
 async fn main() {
-    if run().await.is_err() {
-        // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
-        eprintln!("arinn-xfce-session: session integration failed");
-        std::process::exit(1);
+    match run().await {
+        Ok(()) => {}
+        Err(error) if error.downcast_ref::<LockProviderMissing>().is_some() => {
+            eprintln!("arinn-xfce-session: {LOCK_PROVIDER_MISSING}");
+            std::process::exit(1);
+        }
+        Err(error) if error.downcast_ref::<LockProviderUnresponsive>().is_some() => {
+            eprintln!("arinn-xfce-session: {LOCK_PROVIDER_UNRESPONSIVE}");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            // Fixed diagnostic: never disclose DISPLAY, authority paths or bus errors.
+            eprintln!("arinn-xfce-session: session integration failed");
+            std::process::exit(1);
+        }
     }
 }
 

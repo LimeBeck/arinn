@@ -7,6 +7,23 @@ publish.workspace = true
 edition.workspace = true
 license = "GPL-3.0-or-later"
 repository.workspace = true
+
+[features]
+test-support = []
+
+[[bin]]
+name = "arinn-platform-x11"
+path = "src/main.rs"
+
+[[bin]]
+name = "arinn-xfce-session"
+path = "src/bin/arinn-xfce-session.rs"
+
+[[bin]]
+name = "arinn-xfce-test-screensaver"
+path = "src/bin/arinn-xfce-test-screensaver.rs"
+required-features = ["test-support"]
+
 [dependencies]
 anyhow.workspace = true
 futures-util.workspace = true

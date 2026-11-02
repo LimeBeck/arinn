@@ -152,11 +152,10 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
         "{}",
         serde_json::json!({"level":"info","component":"arinnd","provider_id":null,"request_id":null,"operation":"ready","error":null,"duration_ms":0})
     );
-    tokio::signal::ctrl_c()
-        .await
-        .map_err(|_| ErrorCode::Internal)?;
+    arinnd::signal::wait_for_stop_signal().await?;
     core.shutdown_supervision().await;
     arinnd::telemetry::record("shutdown", None, 0);
+    eprintln!("{}", arinnd::signal::shutdown_log_json());
     Ok(())
 }
 #[tokio::main]

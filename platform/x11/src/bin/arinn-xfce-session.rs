@@ -4,10 +4,10 @@
 //! Opt-in XDG autostart bridge; the XFCE session manager owns its lifetime.
 #[path = "../../../lock_preflight.rs"]
 mod lock_preflight;
-#[path = "../../../user_manager.rs"]
-mod user_manager;
 #[path = "../../../session_direct.rs"]
 mod session_direct;
+#[path = "../../../user_manager.rs"]
+mod user_manager;
 use anyhow::{Result, bail, ensure};
 use std::{
     env,
@@ -400,7 +400,11 @@ async fn main() {
         Err(error) if error.downcast_ref::<DirectStartFailed>().is_some() => {
             eprintln!(
                 "arinn-xfce-session: {}",
-                error.downcast_ref::<DirectStartFailed>().unwrap().0.message()
+                error
+                    .downcast_ref::<DirectStartFailed>()
+                    .unwrap()
+                    .0
+                    .message()
             );
             std::process::exit(1);
         }

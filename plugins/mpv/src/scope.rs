@@ -115,9 +115,7 @@ async fn ensure_process(binary: &Path, socket: &Path) -> Result<(), ErrorCode> {
         .args(&argv[1..])
         .stdout(Stdio::null())
         .stderr(Stdio::null());
-    let child = command
-        .spawn()
-        .map_err(|_| ErrorCode::Unavailable)?;
+    let child = command.spawn().map_err(|_| ErrorCode::Unavailable)?;
     *PLAYER.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(child);
     Ok(())
 }

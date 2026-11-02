@@ -3,7 +3,9 @@
 
 //! The mpv unit is its own application scope and does not reference the plugin.
 
-use arinn_plugin_mpv::{UNIT, arguments, ensure_player, ensure_unit, socket_is_private, stop_player};
+use arinn_plugin_mpv::{
+    UNIT, arguments, ensure_player, ensure_unit, socket_is_private, stop_player,
+};
 use arinn_protocol::validation::ErrorCode;
 use std::{
     collections::HashMap,

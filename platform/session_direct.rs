@@ -10,8 +10,8 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-use zbus::fdo::DBusProxy;
 use zbus::Connection;
+use zbus::fdo::DBusProxy;
 
 const PLATFORM: &str = "org.arinn.X11";
 const SHELL: &str = "org.arinn.Shell1";
@@ -126,7 +126,10 @@ fn login_folder(variable: &str, fallback: &str) -> Option<String> {
         .and_then(|path| path.into_os_string().into_string().ok())
 }
 
-fn spawn_stack_binary(path: &Path, session: &SessionEnvironment) -> Result<std::process::Child, DirectStartError> {
+fn spawn_stack_binary(
+    path: &Path,
+    session: &SessionEnvironment,
+) -> Result<std::process::Child, DirectStartError> {
     if !path.is_absolute() || !path.exists() {
         return Err(DirectStartError::BinaryNotFound);
     }
@@ -214,9 +217,7 @@ fn run_poststop(binary: &Path, args: &[&str]) {
 
 pub async fn arinn_running(connection: &Connection) -> Result<bool, zbus::Error> {
     let bus = DBusProxy::new(connection).await?;
-    Ok(bus
-        .name_has_owner(production::SERVICE.try_into()?)
-        .await?)
+    Ok(bus.name_has_owner(production::SERVICE.try_into()?).await?)
 }
 
 async fn wait_for_name(connection: &Connection, name: &str, timeout: Duration) -> Result<(), ()> {
@@ -246,7 +247,11 @@ async fn wait_for_name(connection: &Connection, name: &str, timeout: Duration) -
             Err(_) => return Err(()),
             Ok(None) => return Err(()),
             Ok(Some(change)) => {
-                if change.args().ok().is_some_and(|args| args.new_owner().is_some()) {
+                if change
+                    .args()
+                    .ok()
+                    .is_some_and(|args| args.new_owner().is_some())
+                {
                     return Ok(());
                 }
             }

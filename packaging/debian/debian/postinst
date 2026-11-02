@@ -25,4 +25,11 @@ esac
 
 #DEBHELPER#
 
+# Upgrades from <=0.2.0-1 auto-enabled both session targets (#708, ADR-0042).
+# Run after the debhelper block so deb-systemd-helper does not re-enable legacy state.
+if [ "$1" = "configure" ] && [ -n "${2:-}" ] && dpkg --compare-versions "$2" le-nl 0.2.0-1; then
+  deb-systemd-helper --user disable arinn-session.target || true
+  deb-systemd-helper --user disable arinn-ewmh-session.target || true
+fi
+
 exit 0

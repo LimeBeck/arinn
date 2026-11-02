@@ -1,0 +1,1 @@
+- The Debian package no longer enables `arinn-session.target` or `arinn-ewmh-session.target` on install. Upgrades from `0.2.0-1` and earlier remove symlinks that prior packages created under `/etc/systemd/user/` ([#708](https://github.com/LimeBeck/arinn/issues/708)).

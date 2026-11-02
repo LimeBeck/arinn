@@ -286,6 +286,11 @@ fn level(error: ErrorCode) -> Level {
         _ => Level::Warning,
     }
 }
+/// A cancelled operation was superseded or abandoned on purpose: it stays in
+/// metrics, its transaction and its breadcrumb, but is not an issue (ADR-0133).
+fn reported(error: ErrorCode) -> bool {
+    error != ErrorCode::Cancelled
+}
 /// One failure is one Sentry issue: component + operation + error code + reason.
 fn fingerprint(tags: &sentry::protocol::Map<String, String>) -> Vec<String> {
     let Some(error) = tags.get("error") else {
@@ -608,7 +613,8 @@ pub fn record(operation: &'static str, error: Option<ErrorCode>, duration_ms: u6
     }
 }
 /// A completed daemon operation: one transaction with its provider and platform
-/// spans, metrics by kind and, on failure, one event grouped by kind, error and reason.
+/// spans, metrics by kind and, on a reported failure, one event grouped by kind,
+/// error and reason.
 pub fn operation(completion: &Completion<'_>) {
     if !enabled() {
         return;
@@ -700,7 +706,7 @@ pub fn operation(completion: &Completion<'_>) {
         }
     }
     sentry::add_breadcrumb(crumb);
-    if let Some(error) = completion.error {
+    if let Some(error) = completion.error.filter(|error| reported(*error)) {
         let mut event = Event {
             level: level(error),
             ..Default::default()
@@ -851,6 +857,14 @@ mod tests {
         text
     }
     fn failed(kind: &'static str, plugin: &str, reason: Option<&'static str>) -> String {
+        ended(kind, plugin, ErrorCode::Timeout, reason)
+    }
+    fn ended(
+        kind: &'static str,
+        plugin: &str,
+        error: ErrorCode,
+        reason: Option<&'static str>,
+    ) -> String {
         let start = SystemTime::now();
         let phases = [Phase {
             op: "platform.wait",
@@ -864,7 +878,7 @@ mod tests {
                 kind,
                 capability: "media",
                 plugin,
-                error: Some(ErrorCode::Timeout),
+                error: Some(error),
                 reason,
                 started: start,
                 duration_ms: 5000,
@@ -928,6 +942,36 @@ mod tests {
         assert_eq!(duration["attributes"]["kind"]["value"], "media.present");
         assert_eq!(duration["attributes"]["outcome"]["value"], "failed");
         assert_eq!(duration["attributes"]["error"]["value"], "Timeout");
+    }
+    #[test]
+    fn cancelled_operations_are_measured_but_raise_no_issue() {
+        let text = ended(
+            "media.release",
+            "mpv",
+            ErrorCode::Cancelled,
+            Some("platform_cancelled"),
+        );
+        assert!(items(&text, "event").is_empty(), "{text}");
+        let transactions = items(&text, "transaction");
+        assert_eq!(transactions.len(), 1, "{text}");
+        assert_eq!(transactions[0]["contexts"]["trace"]["status"], "cancelled");
+        let errors: Vec<_> = items(&text, "trace_metric")
+            .iter()
+            .flat_map(|batch| batch["items"].as_array().cloned().unwrap_or_default())
+            .filter(|metric| metric["name"] == "arinn.daemon.errors")
+            .collect();
+        assert_eq!(errors.len(), 1, "{text}");
+        assert_eq!(errors[0]["attributes"]["error"]["value"], "Cancelled");
+        // Every other code is still an issue, a caller-side one as a warning.
+        let text = ended(
+            "media.command:thumbnail",
+            "mpv",
+            ErrorCode::Unsupported,
+            None,
+        );
+        let events = items(&text, "event");
+        assert_eq!(events.len(), 1, "{text}");
+        assert_eq!(events[0]["level"], "warning");
     }
     #[test]
     fn startup_failures_count_with_their_lifecycle_label() {

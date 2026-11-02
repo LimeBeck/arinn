@@ -27,6 +27,9 @@ UNSET = "systemctl --user unset-environment ARINN_SESSION_ENTRY ARINN_SESSION_MO
 INT_QUIT = (1 << 1) | (1 << 2)
 
 SYSTEMCTL = """#!/bin/sh
+case "$*" in
+*"show-environment"*) exit 0 ;;
+esac
 echo "systemctl $*" >> "$FAKE_LOG"
 case "$*" in
 *"is-active --quiet graphical-session.target"*)

@@ -1,0 +1,311 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
+<!-- SPDX-License-Identifier: CC-BY-SA-4.0 -->
+
+# Design brief: Hearth light
+
+A visual identity pass that makes Arinn recognisable without giving up anything a living-room interface needs. Issue [#721](https://github.com/LimeBeck/arinn/issues/721).
+
+**Status:** proposed, 2026-11-02. On 2026-11-02 the owner reviewed the design review below, approved every proposal and asked the agent to act as the designer. This brief and the [Hearth light prototype](../../prototypes/hearth-light/README.md) are the designer's answer. They are waiting for the owner decisions in [*Owner decisions*](#owner-decisions). Nothing here changes the shell, the specification, the historical handoff or the brand guide. An accepted answer comes back as a handoff amendment, an amendment to the brand guide, specification text and a non-technical ADR, all owner-gated ([ADR-0019](../../../adr/0019-design-handoff-contract.md), [ADR-0037](../../../adr/0037-agent-autonomy-and-owner-gated-decisions.md)).
+
+## Problem
+
+The owner observed that Arinn looks like most TV shells. The review traced the likeness to a shared template, not to any one mistake. Every item below is in the current shell ([current captures](../../current-ui/README.md)), and almost every item is also in other TV launchers, media-centre skins and generated "TV UI" mock-ups:
+
+| Template element | In Arinn |
+| --- | --- |
+| Near-black background | `#131416` |
+| Top-left hero: uppercase, letter-spaced eyebrow, large bold title, meta line | Home hero (`eyebrow: [24, 600, 1.92]`) |
+| Horizontal rows of cards with one radius everywhere | `cardRadius: 26`; radii 26–30 on cards, tiles, rows, menus and buttons |
+| A grey translucent plate under every element | `plate: rgba(255,255,255,0.06)` on cards, navigation items, settings rows, favourites and buttons |
+| Focus as scale + white ring + drop shadow | scale 1.06, ring 45 % white |
+| A floating rounded side drawer for navigation | global navigation |
+| Letter monograms on hashed pastel colours | `identityColors`, six colours chosen by a string hash |
+| A dominant-colour radial glow behind content | `AmbientGlow`, centred upper right |
+| A neutral geometric grotesque for everything | Onest |
+
+The brand guide itself asks for this template. Section 5 lists "almost-black background, large white typography, horizontal content rows, soft cards". The designer prompt in section 15 repeats it. The result is accurate to the brief and average by construction.
+
+Part of the template is not style but function, and stays: large type, a safe area, horizontal rows for the D-pad, an obvious focus, one action per OK and calm motion. The identity has to come from layers that do not cost usability: light, type, shape, motion, the idle screen and sound.
+
+### What is already Arinn's own
+
+- **Focus is light, not colour.** The handoff direction is "2a Depth with Light", and Ember is never a focus colour ([handoff](../../handoff/README.md), *Colours*). For a brand named "hearth" this is the right seed. The implementation reduced it to the same centred colour glow other shells use.
+- **The running application recedes behind Arinn** (scale, blur, brightness). Few TV shells sit over real desktop applications this way.
+- **The words.** "Return", "Running now", "… is paused" (Russian UI strings) are simple and warm.
+- **Ambient** already knows what is paused, but visually it is a clock on black.
+
+## Field check against the running shell
+
+On 2026-11-02 the owner shared captures of the shell on their own machine with a real library: Home, a film detail, a series detail with its episode rail, and Settings. The captures are not stored in the repository: they show real titles, third-party artwork and service logos, and a personal path. Only the findings are recorded here.
+
+They confirm the diagnosis and add constraints that synthetic fixtures hide:
+
+| Finding in the real shell | Consequence for this direction |
+| --- | --- |
+| Real artwork is bright, saturated and busy (animation, illustrated posters). Captions overlaid on a gradient become hard to read on light artwork. | Captions go **below** the image (shape roles). The Ember line gets a 2 px Charcoal band above it, so it stays visible on light artwork. The row light (other rows at 0.62) keeps bright artwork from competing with the focused item. |
+| The colour light field turns the whole screen one hue (a green cast across Home). | The floor light stays low and capped in chroma; the room keeps its warm floor under any artwork. |
+| Long titles are common. The Home hero cuts them to one line with an ellipsis, and the detail title is cut after two lines. | Content titles wrap to **two lines**. A title longer than about 22 characters uses the smaller size: hero 64, detail 80 (three lines at most). The prototype shows both (screenshots 12 and 14). |
+| A poster without artwork shows a letter monogram on a plate. | A missing poster becomes a **title card**: the title in Literata on a Charcoal card (screenshot 13). It reads as a deliberate book cover, not a broken image. |
+| Episodes without their own stills repeat the series image on every card. | When episode stills are missing, the rail uses title cards with the episode number, not the same image repeated. |
+| Favourites mix provider icons, letter monograms and a search glyph; long names wrap to two lines inside tiles. | Every icon sits in the same neutral chip. On the shelf, a name is one line, at most 360 px, with an ellipsis (the prototype has one such name). |
+| Metadata is often sparse: a year and a synopsis, no runtime, rating or genre. | Layouts must not depend on the meta line being full. The serif title and the light carry the screen when the meta line is short. |
+| Settings values that are long (paths, mappings) wrap into three lines in the value column. | Long values move under the label and truncate in the middle; the value column is for short values. |
+
+Deviations from the existing handoff and specification seen in the same captures are implementation bugs, independent of the owner decisions below. Each needs its own task (some may already be covered by open work, such as the translation pull requests):
+
+- the uppercase "Continue" eyebrow above the hero duplicates the row label;
+- a series detail eyebrow uses the plural category name instead of the item kind;
+- detail progress is a percentage instead of the remaining time, and the primary action has no position ("Continue" instead of "Continue from …"); "Start over" is missing for a started item;
+- the episode duration and several provider setting texts appear in English in the Russian interface;
+- the whole interface looks uniformly dimmed in the captures (titles render mid-grey). This may come from the capture method; if it is the real output, it is a contrast defect to check on the device.
+
+## Direction: Hearth light
+
+> Arinn is a dark, quiet room with one warm light low in it. What you are about to choose stands in that light.
+
+In the A1 mark the Ember dot sits at the base of the letter. The light of a hearth comes from below, warm and low, and leaves the rest of the room in shadow. Arinn's light currently does the opposite: a cool 1 px highlight on the *top* edge of every plate and a colour glow in the *upper right*. The direction turns it over:
+
+1. **Light from below.** A low, warm floor light is the atmosphere of every content screen. The focused item stands in a pool of that light, which follows focus along the floor.
+2. **The lit row, the dark room.** The row in focus is in the light, the other rows recede. The rest of the screen is not covered with plates. Containers are dark until focus reaches them.
+3. **Content in serif, system in sans.** Film and series titles are set like a poster or a book spine. Menus, settings and labels stay in Onest.
+4. **Colour belongs to content and light.** Artwork brings colour. An application without artwork gives its identity hue to the light, not to a pastel square.
+5. **One Ember.** Orange stays rare: running, progress, current section, done, toggle on, and the startup ignition. It is never a fill and never a focus colour.
+
+The guide's prohibitions still hold: no literal flame, fireplace or house, no Nordic or Viking styling, no red-yellow fire palette, no strong glow, no RGB gaming look. The light is a matter of luminance and temperature, not of orange.
+
+## Variants for the owner
+
+The [prototype](../../prototypes/hearth-light/README.md) switches between these live; `?variant=` selects one.
+
+| Variant | Light | Content titles | Shapes and plates | Monograms | Focus | Favourites |
+| --- | --- | --- | --- | --- | --- | --- |
+| **A. Hearth light** (recommended) | Floor light + pool | Literata | Three roles, no rest plates on containers | Neutral | Rim light from below | Text shelf |
+| A′. Hearth light, Source Serif | as A | Source Serif 4 | as A | as A | as A | as A |
+| B. Hearth light, sans | as A | Onest 600 | as A | as A | as A | as A |
+| C. Calm (conservative) | Current glow | Onest 700 | Three roles, no rest plates | Neutral | White ring | Tiles |
+| Current | Current glow | Onest 700 | Uniform r26 plates | Hashed colours | White ring | Tiles |
+
+C is the minimum de-templating: it removes the plates, the pastel monograms and the uppercase eyebrows, and keeps everything else. A adds the parts that make Arinn recognisable at a glance.
+
+## Design system changes
+
+Tokens below are the proposal for variant A. Unlisted handoff tokens (safe area, grid, spacing, focus timings, input modes, spatial navigation) stay as they are.
+
+### Colour
+
+| Token | Current | Proposed | Use |
+| --- | --- | --- | --- |
+| `bg` | `#131416` | `#0F1115` (brand Charcoal) | Every screen |
+| `text-1` | `#F4F5F7` (cool) | `oklch(0.95 0.008 75)` ≈ `#F2EEE8` (warm white) | Titles; fill of focused pills |
+| `text-2` | `#C9CBCF` | `oklch(0.80 0.008 75)` ≈ `#C6C1BB` | Secondary text |
+| `text-3` | `#9A9DA3` | `oklch(0.66 0.008 75)` ≈ `#9A958F` | Hints, years, disabled |
+| `ember` | `#FF8A3D` | unchanged | Running, progress, current, done, toggle on, ignition |
+| `hearth` | — | `oklch(0.30 0.05 55)` at the floor | Base floor light |
+| `pool` | — | `oklch(0.40 c′ h)` | Light under the focused item |
+| `rim` | — | `oklch(0.97 0.03 70)`, 95 % at the bottom edge → 10 % at the top | Focus edge |
+| `chip` | six hashed colours | `#1C1E23` + hairline `rgba(255,255,255,.06)` | Neutral monogram |
+
+`h` is the hue of the focused item's artwork, or its identity hue. Its chroma `c′` is 0.085, reduced towards 0.055 for cool hues (full reduction at 240°, none beyond ±70° of it), so a blue film tints the floor without making the room cold. The warm `hearth` floor always stays underneath. (Turning the hue towards orange was tried and rejected: blue hues pass through green on the way.) Light under text stays at or below L 0.48 (an existing handoff rule). `text-3` on `bg` stays above 4.5 : 1.
+
+### Light
+
+| Layer | Geometry | Behaviour |
+| --- | --- | --- |
+| Floor | Ellipse 90 % × 55 % of the screen, centred 18 % below the bottom edge | Always on content screens; absent on system screens (Settings, Downloads), as the current light field is |
+| Pool | Ellipse 34 % × 46 %, centred 12 % below the bottom edge, x = centre of the focused item | Follows focus horizontally and changes hue with a 900 ms cross-fade after the current settle delay, so fast scrolling does not flicker (spec §6.5) |
+| Cast | Blurred ellipse under the focused object's image (not under its caption), 84 % of its width, 34 px high, 20 px blur, pool hue at 45 % | Appears and disappears with focus (220 ms) |
+| Rows | Focused row: other items at brightness 0.82. Other rows: 0.62 | 220 ms |
+
+*Settings › Appearance › Light field* keeps turning the floor and the pool off. Focus then keeps the rim and the lift, and the screen is flat Charcoal.
+
+The floor and the pool are two gradients painted into a small texture and scaled up. They cost less than the current per-hue three-layer field, and no full-resolution artwork is blurred.
+
+### Time of day
+
+The room gets darker in the evening, as a room with a hearth does.
+
+| Period | Default hours | Light | `text-1` |
+| --- | --- | --- | --- |
+| Day | 06:00–18:59 | 100 % | 100 % |
+| Evening | 19:00–22:59 | 80 %, floor hue 5° warmer | 100 % |
+| Night | 23:00–05:59 | 55 %, floor hue 8° warmer | 88 % |
+
+Contrast stays within the ratios above in every period. The shell uses its own clock; no location or sunrise data is needed. A setting turns the effect off (owner decision D-5).
+
+### Typography
+
+- **Content titles** (hero, detail, player title, Ambient clock): **Literata**, optical size *Display*, weight 500, tracking −1 %, sentence case. Literata is a screen serif with full Cyrillic, licensed OFL-1.1, and holds up at 3 m. **Source Serif 4** (also OFL, also Cyrillic) is the alternative. Both are variable fonts; the shell needs the same `wght`-axis handling as Onest (#546).
+- **System text** stays **Onest**. Page titles of system screens (Library, Applications, Settings) are Onest 600 at 56 with no negative tracking, so they stop looking heavier than the hero.
+- **No uppercase eyebrows.** The eyebrow becomes sentence case, Onest 500 26, `text-2`, and carries an Ember dot only when something is running.
+- Hierarchy comes from size and family, not from bold versus extra bold.
+
+| Role | Family | Size / weight / tracking |
+| --- | --- | --- |
+| display (Ambient clock) | Literata | 220 / 400 / −2 % |
+| hero | Literata | 96 / 500 / −1 % |
+| detail title | Literata | 104 / 500 / −1 % |
+| page title | Onest | 56 / 600 / 0 |
+| section | Onest | 30 / 600 / 0 |
+| body, control | Onest | 30 / 400 or 600 / 0 |
+| meta | Onest | 26–28 / 500 / 0 |
+| eyebrow | Onest | 26 / 500 / 0 |
+| caption | Onest | 24 / 500 / 0 |
+
+### Shape roles
+
+One radius for everything is replaced by three roles:
+
+| Role | Members | Shape | At rest | In focus |
+| --- | --- | --- | --- | --- |
+| Content | Posters, stills, backdrops, Continue cards | r10 posters, r12 stills | Artwork, no plate, caption *below* the image | Lift, rim, cast, row light |
+| Action | Buttons, tabs, chips | Pill | Text and icon, plate only for the primary action | White fill + ink (unchanged) |
+| Container | Navigation items, settings rows, list rows, favourites | r20 | **No plate**, `text-2` | Plate 8 % + rim |
+
+Application tiles are the one *object* role: r18, plate 3.5 % at rest, so a grid of names still reads as tiles.
+
+Captions move from an overlay on a darkened gradient to below the image. Progress becomes an **Ember line**: 4 px, flush with the bottom edge of the image, no grey track. It is the Ember motif doing its documented job.
+
+### Focus
+
+| | Current | Hearth light |
+| --- | --- | --- |
+| Lift | scale 1.06, −6 px, from the centre | scale 1.04, −8 px, **from the bottom edge**: the object rises out of its light |
+| Edge | ring 3 px, 45 % white, all round | rim 2 px, bright at the bottom, fading towards the top, plus a faint warm bounce inside the bottom edge of the image |
+| Shadow / glow | black drop shadow + colour glow around | cast light under the object, none around it |
+| Context | — | the rest of the row at 0.82, other rows at 0.62 |
+
+The rim is a full outline, brightest where the light comes from, so focus stays obvious at 3 m. This needs a TV check with the owner (D-7).
+
+### Monograms
+
+An application or service without an icon gets a neutral chip: Charcoal `#1C1E23`, hairline, letter in Onest 600 `text-2` (`text-1` in focus). Its identity hue colours the floor pool when it has focus, so applications stay distinguishable without six pastel squares in a row. Provider icons are still shown as they are (ADR-0059, ADR-0075).
+
+## Screens
+
+The prototype covers these. Measurements are for the 1920 × 1080 canvas.
+
+### Home
+
+- **Top bar** (y 56): mark 36 + "Arinn" Onest 600 30, **without a pill plate**. Status on the right without plates: Ember ↓ + "82 %", Wi-Fi, clock 30/500.
+- **Hero** (x 120, y 150): eyebrow "Film · 2024" or "Series · S1 E4", or Ember dot + "Running now"; title Literata 96; meta 28. It describes the focused item, never repeating the row label above it. The current duplicate "CONTINUE" / "Continue" disappears.
+- **Continue** (label y 404): 16:9 cards 448 × 252, r12, gap 32, caption below (title 28/600, subtitle 24/500), Ember line along the bottom of the image.
+- **Favourites as a shelf** (label y 836): names in a line, Onest 600 32, items 88 high with 28 px side padding and a 20 px gap, each with its neutral chip 56. At rest `text-2` and no plates. In focus a container plate with the rim, and the pool moves under it. A running application has an Ember dot after its name. It replaces the row of identical 264 × 132 tiles, reads like the names on a shelf and takes half the height (D-3).
+- **New**: posters 180 × 270, r10. Its label peeks at the bottom edge. Focusing it scrolls the page and hides the hero, as now.
+- **Home over a running application**: the receded application layer and its scale, blur and brightness stay as specified. The floor light takes the application's identity hue.
+
+### Global navigation
+
+An **edge panel**, not a floating card: full height, 660 wide, Charcoal from 97 % to transparent at the right edge, with the screen behind at brightness 0.45 and blur 6. Items are text with line icons 36, no plates at rest, height 84. The current section has an Ember dot before its label. A hairline divides sections from the running application (application name, "Return" below it, Ember dot) and from Power at the bottom. This also fixes the current deviations from the handoff (plates and outlines at rest, no icons, Power styled like a section).
+
+### Library
+
+Title Onest 600 56. Text tabs: selected = `text-1` + Ember dot under the label; focused = white pill + ink. Poster grid as in the handoff with r10 posters and captions in `text-2` (`text-1` in focus). Floor light at 60 %.
+
+### Detail
+
+Full-bleed backdrop with the current scrims; floor light at 50 %. Eyebrow, Literata 104 title, meta, a synopsis of three lines at most. Actions: primary pill "Continue from 1:13:42", secondary pills without plates until focus. Ember fill on a faint 360 × 4 track + "1 h 32 min left".
+
+### Applications
+
+Groups as rows of object tiles 300 × 168 (r18, chip 64, name 30/600). "Add application" is an action pill with a plus, not a dashed card. The hint line at the bottom stays.
+
+### Player OSD
+
+Literata title top left. Timeline: 4 px track at 20 % white, Ember fill, knob only in focus. **One play/pause control**, previous and next as round icon buttons, then the subtitle and audio chips. The current capability-dump row (Play, Pause, Play/Pause, Seek, …) is an implementation deviation to fix separately. While media plays, navigating the OSD is silent (see *Sound*).
+
+### Ambient
+
+The signature screen. Black (`#07080A`), a very low hearth light at the lower left that breathes over 14 s (opacity 0.85 ↔ 1, under the threshold of noticing). Literata 220 clock at the lower left, the date in Onest 30, Ember dot + "<application> is paused". The block drifts by up to 24 px every minute against burn-in. At night everything sits at 55 %.
+
+### Startup: ignition
+
+The brand guide reserves Ember for the startup animation. The sequence takes 1.9 s and any key skips it:
+
+| Time | Event |
+| --- | --- |
+| 0 ms | Charcoal |
+| 150 ms | The Ember dot appears where it sits in the mark (scale 0 → 1, 300 ms, slight overshoot); *ignite* sound |
+| 450 ms | Light rises from the dot to the floor (1000 ms) |
+| 600 ms | The A strokes and "Arinn" fade in (400 ms) |
+| 1300 ms | The lockup moves to its place at the top left (500 ms) while Home rises in (24 px, 60 ms stagger per row) |
+
+With reduced motion it is a 300 ms cross-fade.
+
+## Motion signature: kindle
+
+Focus does not just scale. The rim and the cast light rise from the bottom edge (220 ms, the existing ease-out `cubic-bezier(.2,.8,.2,1)`), the object lifts from its bottom edge, and the pool follows along the floor 900 ms later. Leaving focus reverses it in 200 ms. Durations are the existing ones; only the origin and the order are new. Screen changes stay cross-fades with a short rise, never lateral slides.
+
+## Sound
+
+Arinn has no interface sounds today. A small palette gives the shell a physical feel and is one of the cheapest ways to make it recognisable.
+
+**Character:** wood and warmth. Soft, low, short; no beeps, no chimes, no sci-fi sweeps, and no crackling fire (it would be a literal flame).
+
+| Sound | Event | Design (synthesised) | Length |
+| --- | --- | --- | --- |
+| tap | Focus moves | Sine 560 Hz falling to 420 Hz + a 2.2 kHz band-passed noise tick; ±3 % random pitch so long runs do not sound mechanical | 60 ms |
+| edge | Focus cannot move further | Duller tap: sine 190 → 150 Hz + low-passed noise | 90 ms |
+| select | OK | Warm pluck: G4 + D5, triangle and sine, the second partial 18 ms later | 220 ms |
+| back | Back | The same pluck reversed and quieter | 160 ms |
+| open | A panel, sheet or navigation opens | Air: noise through a band-pass sweeping 500 → 1600 Hz | 180 ms |
+| close | It closes | The sweep reversed | 180 ms |
+| ignite | Startup; returning to a running application | A slow warm A major swell (A2 E3 A3 C♯4, slight detune) with a soft spark at the start | 1.8 s |
+| error | An action failed | Two low notes, E4 → C4 | 320 ms |
+
+Rules:
+
+- **Never over media.** No interface sound plays while video or music plays, including OSD navigation. Error sounds are the only exception and stay quiet.
+- Levels: *Off*, *Quiet* (default), *Normal* in Settings › Sound › Interface sounds (D-4). The level follows the system output and its mute.
+- Held keys: repeated taps at least 40 ms apart and at half gain.
+- Interface sounds never use the remote's microphone and never delay an action: the action happens first, the sound accompanies it.
+- In the shell the sounds are pre-rendered 48 kHz WAV files played with `QSoundEffect`, rendered from the same synthesis as the prototype. They are original works under the repository's documentation or asset licence; no third-party samples.
+
+## Copy
+
+Unchanged; it is already right. The only change is the case of the eyebrows.
+
+## What is not changing
+
+- The information architecture, screens, navigation rules, input modes and spatial navigation.
+- Safe area, grid, spacing, D-pad behaviour and focus timings.
+- The A1 mark and the brand palette.
+- The rule that Ember is never a focus colour.
+
+## Owner decisions
+
+The agent does not decide these ([ADR-0037](../../../adr/0037-agent-autonomy-and-owner-gated-decisions.md)). The recommendation comes first.
+
+| ID | Decision | Options | Recommendation |
+| --- | --- | --- | --- |
+| D-1 | Visual direction | A Hearth light · B Hearth light, sans · C Calm · keep current | **A**. C if a smaller step is preferred first |
+| D-2 | Serif for content titles | Literata · Source Serif 4 · none | **Literata**: warmer, built for screens, larger x-height |
+| D-3 | Favourites | Text shelf · tiles | **Shelf** |
+| D-4 | Interface sounds | On, Quiet by default · off by default | **On, Quiet** |
+| D-5 | Time-of-day light | Automatic by clock, with a setting to turn it off · off | **Automatic** |
+| D-6 | Brand guide | Amend §5 and §15 as below as Brand Guide v0.2 · keep v0.1 | **Amend** |
+| D-7 | Rim light instead of the white ring | Accept after a TV check · keep the ring | **Accept after the check** on the owner's TV at 3 m |
+
+### Proposed brand guide text (D-6)
+
+Brand Guide v0.1 is a historical source and is not edited. An accepted D-6 adds a v0.2 next to it, replacing section 5 with:
+
+> The interface is a dark, quiet room with one warm light low in it. Content screens are lit from below: a warm floor light, and a pool of light under the item in focus. Containers stay dark until focus reaches them; the focused row is lit, the rest of the room recedes. Content titles are set in a serif, system text in a sans-serif. Colour comes from content and from the light, never from decoration. Large, readable elements, horizontal rows and an obvious focus remain.
+
+and the last sentence of section 15 with:
+
+> Never redesign Arinn into a generic cinematic streaming service or gaming launcher, and do not fall back on the generic TV template: uniform rounded plates, uppercase eyebrows, pastel monograms or a colour glow behind content.
+
+## After acceptance
+
+1. The owner records D-1…D-7. The agent writes the non-technical ADR and the brand guide v0.2 for owner merge.
+2. A handoff amendment: this brief and the prototype become the visual contract, with the specification updated (§5, §6.5, Ambient, a new *Interface sounds* requirement in Settings › Sound).
+3. Implementation tasks, each with its own issue and the existing UI comparison (`scripts/ui-compare.py`):
+    - tokens and typography (`Theme.qml`, `UiText.qml`, Literata as a resource, `REUSE.toml` entry, owner-gated);
+    - the light system (`AmbientGlow.qml` → floor + pool + cast);
+    - shape roles, captions below the image, the Ember line;
+    - focus: rim, lift from the bottom edge, row light;
+    - Home shelf, navigation edge panel, Ambient, ignition;
+    - interface sounds: the WAV render script, `QSoundEffect`, the setting and the media guard.
+4. The music screens ([#677](https://github.com/LimeBeck/arinn/issues/677), [#710](https://github.com/LimeBeck/arinn/pull/710)) adopt the same roles.
+
+The deviations from the current handoff found in the review (navigation plates at rest, the duplicated Applications subtitle, the capability-dump transport buttons, the duplicated Continue eyebrow, page title weight) do not depend on these decisions and are fixed in separate tasks.

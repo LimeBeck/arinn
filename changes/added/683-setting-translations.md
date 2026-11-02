@@ -1,0 +1,1 @@
+- Plugin API: a provider can ship translations of its setting texts per locale through `ProviderSettings1.GetTranslations`, and clients read them through `Settings1.GetTranslations` ([ADR-0129](docs/adr/0129-provider-setting-translations.md), [#683](https://github.com/LimeBeck/arinn/issues/683)).

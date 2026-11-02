@@ -16,8 +16,14 @@ The shell interface is Russian through Qt translations
   resources under `:/i18n/`.
 - **Loading.** At start the shell installs a `QTranslator` for the system locale
   (`QLocale()`). A Russian locale gets Russian; any other locale keeps English.
-- **Provider text.** Titles, setting names and messages that come from providers
-  are shown as delivered; translating them is the provider's concern.
+- **Provider text.** Titles and messages that come from providers are shown as
+  delivered; translating them is the provider's concern. Provider setting texts
+  (title, description, option titles, unit) can come with a translation table
+  ([ADR-0129](../adr/0129-provider-setting-translations.md)): the Settings screen
+  looks each text up by the full locale (`ru_RU`), then the language (`ru`),
+  and otherwise shows the provider's English source text. The daemon's own
+  setting texts are still translated from this catalogue
+  ([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)).
 
 ## Adding or changing strings
 

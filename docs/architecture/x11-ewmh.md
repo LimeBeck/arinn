@@ -363,7 +363,21 @@ explicit non-X11 session type. LightDM's missing session type is supplied as
 `x11`. Before starting the target it imports `DISPLAY` and, when present,
 `XAUTHORITY`; absent authority clears a stale manager value so Xlib can use its
 default. It sets the two Arinn backend selectors before starting the shared
-daemon. The existing shell startup path requests Home (AC-01).
+daemon. A real session lock provider must own one of the ScreenSaver
+endpoints the adapter probes (`org.freedesktop.ScreenSaver` at
+`/org/freedesktop/ScreenSaver`, the same service at `/ScreenSaver`, then
+`org.xfce.ScreenSaver` at `/org/xfce/ScreenSaver`); install and run
+`xfce4-screensaver` or `light-locker` before opt-in. Stubs that answer
+`GetActive=false` are for automated frame capture only, not for daily
+sessions. The helper waits up to 20 s for one of those names to appear on
+the session bus (re-probing on ScreenSaver `NameOwnerChanged`, then
+`GetActive`), so a lock provider started by XFCE autostart in parallel can
+still be found. After that bound with no answering provider it exits with
+`arinn-xfce-session: no lock provider: start xfce4-screensaver or
+light-locker`; if a name is owned but `GetActive` times out or is malformed,
+it exits with `arinn-xfce-session: lock provider not responding`. In both
+cases it does not start the EWMH target. The existing shell
+requests Home (AC-01).
 
 The helper remains in the desktop autostart session, owning
 `org.arinn.XfceSession`. Only that name's owner starts and stops the EWMH
@@ -415,6 +429,7 @@ and repeated login qualification remains **not run** and needs owner permission.
 
 ```sh
 cargo test -p arinn-platform-x11
+cargo build -p arinn-platform-x11 --features test-support
 ARINN_XFCE_SESSION="$PWD/target/debug/arinn-xfce-session" python tests/package/test_xfce_session.py
 ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-ignored
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend

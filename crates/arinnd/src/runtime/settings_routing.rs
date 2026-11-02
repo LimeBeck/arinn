@@ -131,8 +131,35 @@ impl Core {
     /// The provider's generation and schema; an empty schema when the
     /// provider has no settings. Cached per registration generation.
     async fn settings_schema(&self, id: &str) -> Result<(String, Vec<Setting>), ErrorCode> {
+        self.provider_settings(id)
+            .await
+            .map(|(generation, schema, _)| (generation, schema))
+    }
+
+    /// The provider's generation and the JSON translations of its setting
+    /// texts (ADR-0129); `{}` when it has none. The shell translates the
+    /// daemon's own texts from its catalogue (ADR-0112).
+    pub(super) async fn settings_translations(
+        &self,
+        id: &str,
+    ) -> Result<(String, String), ErrorCode> {
+        self.provider_settings(id)
+            .await
+            .map(|(generation, _, translations)| (generation, translations))
+    }
+
+    /// Generation, schema and translations, fetched together once per
+    /// registration generation.
+    async fn provider_settings(
+        &self,
+        id: &str,
+    ) -> Result<(String, Vec<Setting>, String), ErrorCode> {
         if id == DAEMON_PROVIDER_ID {
-            return Ok((self.epoch.clone(), daemon_schema(&self.search_engines)));
+            return Ok((
+                self.epoch.clone(),
+                daemon_schema(&self.search_engines),
+                "{}".to_owned(),
+            ));
         }
         let (owner, generation) = {
             let state = self.state.lock().await;
@@ -140,10 +167,10 @@ impl Core {
             if p.info.runtime_state != "ready" || p.owner.is_empty() {
                 return Err(ErrorCode::Unavailable);
             }
-            if let Some((cached, schema)) = &p.settings_schema
+            if let Some((cached, schema, translations)) = &p.settings_schema
                 && *cached == p.info.generation
             {
-                return Ok((cached.clone(), schema.clone()));
+                return Ok((cached.clone(), schema.clone(), translations.clone()));
             }
             (p.owner.clone(), p.info.generation.clone())
         };
@@ -153,8 +180,11 @@ impl Core {
             .build()
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        let schema = match tokio::time::timeout(SCHEMA_TIMEOUT, proxy.get_schema(&generation)).await
-        {
+        // One deadline for the schema and the translations together, so a
+        // fetch never takes longer than SCHEMA_TIMEOUT and stays within the
+        // clients' call timeout (the shell waits 3 s).
+        let deadline = tokio::time::Instant::now() + SCHEMA_TIMEOUT;
+        let schema = match tokio::time::timeout_at(deadline, proxy.get_schema(&generation)).await {
             Err(_) => return Err(ErrorCode::Timeout),
             Ok(Err(error)) if missing_interface(&error) => Vec::new(),
             Ok(Err(error)) => return Err(normalize_error(error)),
@@ -167,13 +197,26 @@ impl Core {
                 }
             }
         };
+        // Translations that are missing, late or do not fit the schema
+        // leave the source texts.
+        let translations = if schema.is_empty() {
+            "{}".to_owned()
+        } else {
+            match tokio::time::timeout_at(deadline, proxy.get_translations(&generation)).await {
+                Ok(Ok(json)) => settings::Translations::from_json(&json)
+                    .ok()
+                    .filter(|t| t.validate(&schema).is_ok())
+                    .map_or_else(|| "{}".to_owned(), |t| t.to_json()),
+                _ => "{}".to_owned(),
+            }
+        };
         let mut state = self.state.lock().await;
         if let Some(p) = state.providers.get_mut(id)
             && p.info.generation == generation
         {
-            p.settings_schema = Some((generation.clone(), schema.clone()));
+            p.settings_schema = Some((generation.clone(), schema.clone(), translations.clone()));
         }
-        Ok((generation, schema))
+        Ok((generation, schema, translations))
     }
 
     async fn settings_providers(&self) -> Vec<(String, String)> {
@@ -388,6 +431,9 @@ impl SettingsEndpoint {
     }
     async fn get_settings(&self, provider_id: &str) -> production::Result<(String, Vec<Setting>)> {
         Ok(self.core.current_settings(provider_id).await?)
+    }
+    async fn get_translations(&self, provider_id: &str) -> production::Result<(String, String)> {
+        Ok(self.core.settings_translations(provider_id).await?)
     }
     async fn set_value(
         &self,

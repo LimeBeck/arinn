@@ -102,6 +102,9 @@ class SettingsDaemon : public QDBusVirtualObject {
 public:
   QList<ProviderWire> providers;
   QHash<QString, QList<SettingWire>> settings;
+  // GetTranslations tables (ADR-0129); a provider without one gets the
+  // NotSupported reply of an older daemon.
+  QHash<QString, QString> translations;
   bool rejectList = false;
   bool holdOperation = false;
   QString operationState = QStringLiteral("succeeded");
@@ -193,6 +196,15 @@ public:
       reply << generationOf(id) << QVariant::fromValue(body);
       bus.send(reply);
       return true;
+    }
+    if (message.member() == QLatin1String("GetTranslations")) {
+      const auto id = message.arguments().value(0).toString();
+      if (translations.contains(id)) {
+        auto reply = message.createReply();
+        reply << generationOf(id) << translations.value(id);
+        bus.send(reply);
+        return true;
+      }
     }
     if (message.member() == QLatin1String("SetValue")) {
       Call call;
@@ -609,6 +621,100 @@ private slots:
                      .value(QStringLiteral("currentValue"))
                      .toBool(),
                  true);
+  }
+  // ADR-0129: provider texts in the shell's language, field by field, from
+  // the full locale, then the language, else the source text.
+  void providerTextsFollowTheLocale() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")},
+                        {QStringLiteral("beta"), QStringLiteral("Beta")}};
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("decoding"), QStringLiteral("playback"),
+                 QStringLiteral("enum"), QStringLiteral("\"no\""),
+                 QStringLiteral(
+                     R"({"options":[{"value":"auto","title":"Automatic"},{"value":"no","title":"Software"}]})"),
+                 true),
+         setting(QStringLiteral("delay"), QStringLiteral("playback"),
+                 QStringLiteral("integer"), QStringLiteral("5"),
+                 QStringLiteral(R"({"min":0,"max":60,"unit":"s"})"), true),
+         setting(QStringLiteral("scan"), QStringLiteral("media"),
+                 QStringLiteral("boolean"), QStringLiteral("true"), QString(),
+                 true)});
+    daemon.settings.insert(
+        QStringLiteral("beta"),
+        {setting(QStringLiteral("other"), QStringLiteral("media"),
+                 QStringLiteral("boolean"), QStringLiteral("true"), QString(),
+                 true)});
+    daemon.translations.insert(
+        QStringLiteral("alpha"),
+        QStringLiteral(
+            R"({"ru":{"decoding":{"title":"Декодирование","options":{"auto":"Автоматически"}},"delay":{"unit":"с","description":""}},"ru_RU":{"scan":{"title":"Сканировать","description":"Искать новые файлы"}}})"));
+    QVERIFY(registerBus(daemon));
+    const auto previous = QLocale();
+    const auto options = [](const QVariantMap &row) {
+      QStringList titles;
+      for (const auto &option : row.value(QStringLiteral("constraints"))
+                                    .toMap()
+                                    .value(QStringLiteral("options"))
+                                    .toList())
+        titles.append(option.toMap().value(QStringLiteral("title")).toString());
+      return titles;
+    };
+    QLocale::setDefault(QLocale(QStringLiteral("ru_RU")));
+    {
+      SettingsCatalog catalog;
+      QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+      const auto decoding =
+          rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("decoding"));
+      QCOMPARE(decoding.value(QStringLiteral("title")).toString(),
+               QStringLiteral("Декодирование"));
+      // No translated description: the source text.
+      QCOMPARE(decoding.value(QStringLiteral("description")).toString(),
+               QStringLiteral("detail"));
+      QCOMPARE(options(decoding),
+               QStringList({QStringLiteral("Автоматически"),
+                            QStringLiteral("Software")}));
+      QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                   .value(QStringLiteral("constraints"))
+                   .toMap()
+                   .value(QStringLiteral("unit"))
+                   .toString(),
+               QStringLiteral("с"));
+      // A description translated to an empty text stays empty.
+      QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                   .value(QStringLiteral("description"))
+                   .toString(),
+               QString());
+      const auto scan = rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("scan"));
+      QCOMPARE(scan.value(QStringLiteral("title")).toString(),
+               QStringLiteral("Сканировать"));
+      QCOMPARE(scan.value(QStringLiteral("description")).toString(),
+               QStringLiteral("Искать новые файлы"));
+      // A provider without translations keeps its texts.
+      QCOMPARE(rowAt(catalog, QStringLiteral("beta"), QStringLiteral("other"))
+                   .value(QStringLiteral("title"))
+                   .toString(),
+               QStringLiteral("other"));
+    }
+    QLocale::setDefault(QLocale(QStringLiteral("en_US")));
+    {
+      SettingsCatalog catalog;
+      QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+      const auto decoding =
+          rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("decoding"));
+      QCOMPARE(decoding.value(QStringLiteral("title")).toString(),
+               QStringLiteral("decoding"));
+      QCOMPARE(options(decoding),
+               QStringList({QStringLiteral("Automatic"), QStringLiteral("Software")}));
+      QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("delay"))
+                   .value(QStringLiteral("constraints"))
+                   .toMap()
+                   .value(QStringLiteral("unit"))
+                   .toString(),
+               QStringLiteral("s"));
+    }
+    QLocale::setDefault(previous);
   }
   void unchangedReloadDoesNotNotify() {
     // Every ProvidersChanged reloads the catalog. An unchanged reload must not

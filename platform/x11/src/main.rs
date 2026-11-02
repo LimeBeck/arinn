@@ -489,23 +489,9 @@ impl Actor {
         }
     }
 }
-const LOCK_ENDPOINTS: [(&str, &str, &str); 3] = [
-    (
-        "org.freedesktop.ScreenSaver",
-        "/org/freedesktop/ScreenSaver",
-        "org.freedesktop.ScreenSaver",
-    ),
-    (
-        "org.freedesktop.ScreenSaver",
-        "/ScreenSaver",
-        "org.freedesktop.ScreenSaver",
-    ),
-    (
-        "org.xfce.ScreenSaver",
-        "/org/xfce/ScreenSaver",
-        "org.xfce.ScreenSaver",
-    ),
-];
+#[path = "../../lock_endpoints.rs"]
+mod lock_endpoints;
+use lock_endpoints::LOCK_ENDPOINTS;
 async fn unlocked(c: &Connection) -> bool {
     tokio::time::timeout(Duration::from_secs(1), async {
         let bus = zbus::fdo::DBusProxy::new(c).await.ok()?;

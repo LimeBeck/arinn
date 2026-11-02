@@ -224,3 +224,157 @@ fn integer_unit_is_short_display_text_on_integers_only() {
         Err(ErrorCode::InvalidArgument)
     );
 }
+
+fn translated_schema() -> Vec<Setting> {
+    vec![
+        roots(),
+        setting(
+            "decoding",
+            KIND_ENUM,
+            r#""no""#,
+            r#"{"options":[{"value":"auto","title":"Automatic"},{"value":"no","title":"Software"}]}"#,
+        ),
+        setting(
+            "delay",
+            KIND_INTEGER,
+            "5",
+            r#"{"min":0,"max":60,"unit":"s"}"#,
+        ),
+        setting("count", KIND_INTEGER, "5", r#"{"min":0,"max":60}"#),
+    ]
+}
+fn title(text: &str) -> Text {
+    Text {
+        title: Some(text.into()),
+        ..Text::default()
+    }
+}
+
+/// ADR-0129: a table round-trips as JSON and validates against its schema.
+#[test]
+fn translations_round_trip_and_validate() {
+    let table = Translations::default()
+        .with("ru", "roots", title("Папки медиатеки"))
+        .with(
+            "ru",
+            "decoding",
+            Text {
+                description: Some("Как декодировать видео".into()),
+                options: [("auto".to_owned(), "Автоматически".to_owned())].into(),
+                ..Text::default()
+            },
+        )
+        .with(
+            "ru",
+            "delay",
+            Text {
+                unit: Some("с".into()),
+                ..Text::default()
+            },
+        )
+        .with("pt_BR", "roots", title("Pastas da biblioteca"));
+    assert_eq!(table.validate(&translated_schema()), Ok(()));
+    assert_eq!(Translations::from_json(&table.to_json()).unwrap(), table);
+    assert_eq!(Translations::default().to_json(), "{}");
+    assert!(Translations::default().is_empty());
+}
+
+#[test]
+fn translations_that_do_not_fit_the_schema_are_rejected() {
+    let schema = translated_schema();
+    let bad = [
+        // Unknown setting, option value, field and locale key.
+        r#"{"ru":{"missing":{"title":"Нет"}}}"#,
+        r#"{"ru":{"decoding":{"options":{"vaapi":"VA-API"}}}}"#,
+        r#"{"ru":{"roots":{"label":"Папки"}}}"#,
+        r#"{"russian":{"roots":{"title":"Папки"}}}"#,
+        r#"{"RU":{"roots":{"title":"Папки"}}}"#,
+        r#"{"ru_ru":{"roots":{"title":"Папки"}}}"#,
+        r#"{"ru-RU":{"roots":{"title":"Папки"}}}"#,
+        // A unit only where the integer has one; options only on an enum.
+        r#"{"ru":{"count":{"unit":"шт"}}}"#,
+        r#"{"ru":{"roots":{"unit":"шт"}}}"#,
+        r#"{"ru":{"roots":{"options":{"auto":"Авто"}}}}"#,
+        r#"{"ru":{"delay":{"unit":" с"}}}"#,
+        // No empty titles, no NUL.
+        r#"{"ru":{"roots":{"title":""}}}"#,
+        r#"{"ru":{"decoding":{"options":{"auto":""}}}}"#,
+        "{\"ru\":{\"roots\":{\"title\":\"a\\u0000b\"}}}",
+        // Not a table.
+        r#"["ru"]"#,
+        "not json",
+    ];
+    for json in bad {
+        let checked = Translations::from_json(json).and_then(|t| t.validate(&schema));
+        assert_eq!(checked, Err(ErrorCode::InvalidArgument), "{json}");
+    }
+    let mut many = Translations::default();
+    for i in 0..=translations::MAX_LOCALES {
+        let key = format!(
+            "{}{}",
+            (b'a' + (i / 26) as u8) as char,
+            (b'a' + (i % 26) as u8) as char
+        );
+        many = many.with(&key, "roots", title("x"));
+    }
+    assert_eq!(many.validate(&schema), Err(ErrorCode::InvalidArgument));
+    let huge = "x".repeat(translations::MAX_TRANSLATION_BYTES + 1);
+    assert_eq!(
+        Translations::from_json(&huge),
+        Err(ErrorCode::InvalidArgument)
+    );
+}
+
+/// Each field comes from the full locale, then its language; what neither
+/// has stays absent so the caller shows the source text.
+#[test]
+fn lookup_falls_back_from_territory_to_language_to_source() {
+    let table = Translations::default()
+        .with(
+            "pt",
+            "decoding",
+            Text {
+                title: Some("Decodificação".into()),
+                description: Some("Como decodificar".into()),
+                options: [
+                    ("auto".to_owned(), "Automático".to_owned()),
+                    ("no".to_owned(), "Software".to_owned()),
+                ]
+                .into(),
+                ..Text::default()
+            },
+        )
+        .with(
+            "pt_BR",
+            "decoding",
+            Text {
+                title: Some("Decodificação de vídeo".into()),
+                options: [("auto".to_owned(), "Automática".to_owned())].into(),
+                ..Text::default()
+            },
+        );
+    let brazil = table.lookup("pt_BR", "decoding");
+    assert_eq!(brazil.title.as_deref(), Some("Decodificação de vídeo"));
+    assert_eq!(brazil.description.as_deref(), Some("Como decodificar"));
+    assert_eq!(brazil.options["auto"], "Automática");
+    assert_eq!(brazil.options["no"], "Software");
+    assert_eq!(
+        table.lookup("pt_PT", "decoding").title.as_deref(),
+        Some("Decodificação")
+    );
+    assert_eq!(table.lookup("pt", "decoding").options["auto"], "Automático");
+    assert_eq!(table.lookup("ru_RU", "decoding"), Text::default());
+    assert_eq!(table.lookup("pt_BR", "roots"), Text::default());
+}
+
+#[test]
+fn locale_keys() {
+    for good in ["ru", "en", "fil", "pt_BR", "ru_RU"] {
+        assert!(translations::locale(good), "{good}");
+    }
+    for bad in [
+        "", "r", "russ", "RU", "ru_", "ru_R", "ru_RUS", "ru-RU", "ru_ru", "ru.UTF-8", "C",
+    ] {
+        assert!(!translations::locale(bad), "{bad}");
+    }
+}

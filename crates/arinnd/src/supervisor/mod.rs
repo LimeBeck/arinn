@@ -501,7 +501,7 @@ mod tests {
         }
         assert_eq!(supervisor.state(unit).await.unwrap(), "failed");
         // StartLimitBurst=5: the first start and four restarts, then failed,
-        // as systemd counts them (#602).
+        // as systemd counts them (#602, fixed on master in #699).
         assert_eq!(supervisor.restarts(unit).await.unwrap(), 4);
         assert!(
             supervisor
@@ -525,6 +525,51 @@ mod tests {
             .unwrap();
         assert_eq!(supervisor.state(unit).await.unwrap(), "active");
         supervisor.stop(unit).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn daemon_provider_stderr_is_observable() {
+        use std::os::unix::fs::PermissionsExt;
+        let bus = session_bus().await;
+        let connection = session_connection(&bus.1).await;
+        let supervision = Arc::new(Supervision::bootstrap(&connection).await);
+        let supervisor = Supervisor::new(&connection, supervision);
+        let unit = "arinn-provider-stderr.service";
+        let script = bus.2.join("stderr-fixture.sh");
+        fs::write(
+            &script,
+            "#!/bin/sh\necho arinn-provider-stderr-marker >&2\nexit 1\n",
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).unwrap();
+        let log = bus.2.join("provider-stderr.log");
+        unsafe {
+            std::env::set_var("ARINN_TEST_PROVIDER_STDERR_LOG", &log);
+        }
+        supervisor
+            .start(unit, &manifest(script, Vec::new()), Vec::new())
+            .await
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if fs::read_to_string(&log)
+                .map(|text| text.contains("arinn-provider-stderr-marker"))
+                .unwrap_or(false)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(
+            fs::read_to_string(&log)
+                .unwrap_or_default()
+                .contains("arinn-provider-stderr-marker"),
+            "provider stderr must reach the daemon stream"
+        );
+        supervisor.stop(unit).await.unwrap();
+        unsafe {
+            std::env::remove_var("ARINN_TEST_PROVIDER_STDERR_LOG");
+        }
     }
 
     #[tokio::test]

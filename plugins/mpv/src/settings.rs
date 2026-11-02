@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Managed playback preferences through the existing provider settings contract.
-use arinn_protocol::{settings::Setting, validation::ErrorCode};
+use arinn_protocol::{
+    settings::{Setting, Text, Translations},
+    validation::ErrorCode,
+};
 use serde_json::{Map, Value, json};
 
 pub fn schema() -> Vec<Setting> {
@@ -21,6 +24,27 @@ pub fn schema() -> Vec<Setting> {
     }]
 }
 
+/// Russian texts of the schema (ADR-0129).
+pub fn translations() -> Translations {
+    Translations::default().with(
+        "ru",
+        "hardware_decoding",
+        Text {
+            title: Some("Декодирование видео".into()),
+            description: Some(
+                "Автоматическое аппаратное или программное декодирование. Применяется к следующему открытому видео."
+                    .into(),
+            ),
+            options: [
+                ("auto".to_owned(), "Автоматически (аппаратно, если доступно)".to_owned()),
+                ("no".to_owned(), "Программно".to_owned()),
+            ]
+            .into(),
+            ..Text::default()
+        },
+    )
+}
+
 pub fn hardware_decoding(values: &Map<String, Value>) -> Result<bool, ErrorCode> {
     match values.get("hardware_decoding").and_then(Value::as_str) {
         Some("auto") => Ok(true),
@@ -34,6 +58,13 @@ mod tests {
     use super::*;
     use arinn_plugin_sdk::runtime::settings_from_json;
     use arinn_protocol::settings::validate_schema;
+
+    #[test]
+    fn the_russian_texts_fit_the_schema() {
+        assert_eq!(translations().validate(&schema()), Ok(()));
+        let text = translations().lookup("ru_RU", "hardware_decoding");
+        assert_eq!(text.options.len(), 2);
+    }
 
     #[test]
     fn validated_settings_preserve_software_default_and_sanitize_startup() {

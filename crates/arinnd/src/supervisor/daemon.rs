@@ -326,7 +326,8 @@ fn spawn_unit(unit: &mut Unit) -> Result<(), ErrorCode> {
             command.env(key, value);
         }
     }
-    command.stdout(Stdio::null()).stderr(Stdio::null());
+    command.stdout(Stdio::null());
+    command.stderr(provider_stderr_stdio());
     // Never invoke a shell: the manifest executable is started directly.
     command.process_group(0);
     unsafe {
@@ -336,10 +337,50 @@ fn spawn_unit(unit: &mut Unit) -> Result<(), ErrorCode> {
             Ok(())
         });
     }
-    unit.child = Some(command.spawn().map_err(|_| ErrorCode::Unavailable)?);
+    #[cfg_attr(not(test), allow(unused_mut))]
+    let mut child = command.spawn().map_err(|_| ErrorCode::Unavailable)?;
+    #[cfg(test)]
+    if let Some(stderr) = child.stderr.take() {
+        let log_path = std::env::var_os("ARINN_TEST_PROVIDER_STDERR_LOG").map(PathBuf::from);
+        std::thread::spawn(move || forward_provider_stderr(stderr, log_path));
+    }
+    unit.child = Some(child);
     unit.state = "active".into();
     unit.retry_at = None;
     Ok(())
+}
+
+#[cfg(not(test))]
+fn provider_stderr_stdio() -> Stdio {
+    Stdio::inherit()
+}
+
+#[cfg(test)]
+fn provider_stderr_stdio() -> Stdio {
+    if std::env::var_os("ARINN_TEST_PROVIDER_STDERR_LOG").is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::inherit()
+    }
+}
+
+#[cfg(test)]
+fn forward_provider_stderr(stderr: impl std::io::Read + Send + 'static, log_path: Option<PathBuf>) {
+    use std::io::{BufRead, BufReader, Write};
+    for line in BufReader::new(stderr).lines() {
+        let Ok(line) = line else {
+            break;
+        };
+        let _ = writeln!(std::io::stderr(), "{line}");
+        if let Some(path) = &log_path
+            && let Ok(mut file) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+        {
+            let _ = writeln!(file, "{line}");
+        }
+    }
 }
 
 fn record_test_artifacts(unit: &Unit) {

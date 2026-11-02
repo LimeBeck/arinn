@@ -83,7 +83,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0062](0062-asset-contract.md) | Fetching assets by id | Accepted | — |
 | [0063](0063-ended-session-state.md) | The `ended` session state | Accepted | — |
 | [0064](0064-provider-settings-in-config.md) | Provider settings in config.toml and their delivery | Accepted | — |
-| [0065](0065-provider-settings-contract.md) | Provider settings contract (ProviderSettings1, Settings1) | Accepted | 0071 |
+| [0065](0065-provider-settings-contract.md) | Provider settings contract (ProviderSettings1, Settings1) | Accepted | 0071, 0129 |
 | [0066](0066-address-and-search-contract.md) | Address and search wire contract (Browse1) | Accepted | — |
 | [0067](0067-download-wire-contract.md) | Download wire contract | Accepted | — |
 | [0068](0068-agent-instruction-clarifications.md) | Agent task scope, verification and coordination | Proposed | — |
@@ -129,7 +129,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 | [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
 | [0111](0111-power-key.md) | The remote's power key opens Arinn's power menu | Accepted | — |
-| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | — |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | 0129 |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
@@ -146,4 +146,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0126](0126-delegated-media-process.md) | Verified application identity behind a media proxy | Accepted | — |
 | [0127](0127-configurable-video-decoding.md) | Configurable decoding for managed video | Accepted | — |
 | [0128](0128-configurable-library-recognition.md) | Configurable season and episode recognition rules in the library | Accepted | — |
+| [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 <!-- register:end -->

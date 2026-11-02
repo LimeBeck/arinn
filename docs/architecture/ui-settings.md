@@ -34,7 +34,15 @@ same source lists `browser_application` and, when search engines are
 packaged, `search_engine` under Applications. The daemon checks its own schema
 with the same rules as a provider schema, so every row has a category the
 screen knows (#682). The titles, descriptions and option titles of the `arinn`
-source are shown translated; provider texts are shown as sent.
+source are shown translated from the shell's catalogue. For every other
+provider `SettingsCatalog` reads `Settings1.GetTranslations` after
+`GetSettings` and shows each title, description, option title and integer
+unit from the provider's table for `QLocale().name()` (`ru_RU`), then for its
+language (`ru`), else the provider's English source text
+([ADR-0129](../adr/0129-provider-setting-translations.md)). A daemon without
+the method, an error or a table from another generation leaves the source
+texts. The library, managed player and Transmission providers ship Russian
+texts.
 
 ## What the view receives
 

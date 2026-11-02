@@ -26,6 +26,17 @@ fn schema() -> Vec<Setting> {
     }]
 }
 
+fn translations() -> settings::Translations {
+    settings::Translations::default().with(
+        "ru",
+        "roots",
+        settings::Text {
+            title: Some("Папки медиатеки".into()),
+            ..settings::Text::default()
+        },
+    )
+}
+
 #[derive(Clone)]
 struct Handler {
     applied: Arc<StdMutex<Vec<Map<String, Value>>>>,
@@ -34,6 +45,9 @@ struct Handler {
 impl SettingsHandler for Handler {
     fn schema(&self) -> Vec<Setting> {
         schema()
+    }
+    fn translations(&self) -> settings::Translations {
+        translations()
     }
     fn apply(
         &self,
@@ -48,6 +62,7 @@ impl SettingsHandler for Handler {
 
 struct Fixture {
     bus: Child,
+    address: String,
     folder: PathBuf,
     _core: Core,
     client: Connection,
@@ -175,8 +190,13 @@ impl Fixture {
         // right after their first exports (#528).
         served(&client, &server).await;
         served(&client, &library).await;
+        // `plain` serves no ProviderSettings1, but its object server must
+        // run to answer UnknownInterface rather than leave calls unanswered.
+        let _ = plain.object_server();
+        served(&client, &plain).await;
         Self {
             bus,
+            address,
             folder,
             _core: core,
             client,
@@ -466,7 +486,79 @@ async fn the_daemon_export_matches_the_published_settings1_xml() {
     live.sort();
     file.sort();
     assert_eq!(live, file);
-    assert_eq!(file.len(), 3);
+    assert_eq!(file.len(), 4);
+}
+
+/// ADR-0129: the provider's table is passed through with its generation;
+/// the daemon's own source and an unknown provider have none to give.
+#[tokio::test]
+async fn translations_are_passed_through() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, json) = api.get_translations("library").await.unwrap();
+    assert_eq!(generation, f.generation);
+    assert_eq!(
+        settings::Translations::from_json(&json).unwrap(),
+        translations()
+    );
+    let (_, json) = api.get_translations("arinn").await.unwrap();
+    assert_eq!(json, "{}");
+    // A provider without ProviderSettings1.
+    let (_, json) = api.get_translations("plain").await.unwrap();
+    assert_eq!(json, "{}");
+    assert_eq!(
+        error_name(api.get_translations("nobody").await),
+        "org.arinn.Error1.NotFound"
+    );
+}
+
+/// A provider that answers GetSchema late and never answers
+/// GetTranslations.
+struct Slow;
+#[zbus::interface(name = "org.arinn.ProviderSettings1")]
+impl Slow {
+    async fn get_schema(&self, _generation: &str) -> Vec<Setting> {
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        schema()
+    }
+    async fn get_translations(&self, _generation: &str) -> String {
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        "{}".into()
+    }
+}
+
+/// ADR-0129: the schema and the translations share one SCHEMA_TIMEOUT
+/// deadline. Two serial deadlines let one fetch take almost 4 s, past the
+/// shell's 3 s call timeout, and the whole Settings load failed.
+#[tokio::test]
+async fn schema_and_translations_share_one_deadline() {
+    let f = Fixture::new().await;
+    let slow = connect(&f.address).await;
+    slow.object_server()
+        .at("/org/arinn/Provider1", Slow)
+        .await
+        .unwrap();
+    served(&f.client, &slow).await;
+    {
+        let mut state = f._core.state.lock().await;
+        state.providers.insert(
+            "slow".into(),
+            provider("slow", &slow, &f.generation, &f.folder),
+        );
+    }
+    let api = f.api().await;
+    let started = Instant::now();
+    let (generation, json) = api.get_translations("slow").await.unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(generation, f.generation);
+    assert_eq!(json, "{}");
+    assert!(
+        elapsed < SCHEMA_TIMEOUT + Duration::from_millis(500),
+        "{elapsed:?}"
+    );
+    // The schema answered in time and is kept.
+    let (_, settings) = api.get_settings("slow").await.unwrap();
+    assert_eq!(settings.len(), 1);
 }
 
 /// The daemon's own schema obeys the same rules as a provider schema, so

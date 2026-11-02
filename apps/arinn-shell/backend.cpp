@@ -1417,7 +1417,8 @@ void Backend::mutateShortcut(const char *method, const QVariantList &args) {
                        "local service.")
               : code == "NoReply" || code == "Timeout"
                   ? tr("No reply. Check the shortcut list before trying again.")
-                  : tr("The shortcut could not be saved (%1).").arg(code);
+                  // Any other code: generic text, never the code (§15).
+                  : tr("The shortcut could not be saved. Try again.");
         } else if ((adding && (reply.signature() != "s" ||
                                reply.arguments().at(0).toString().isEmpty())) ||
                    (!adding && !reply.signature().isEmpty())) {

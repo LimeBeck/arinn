@@ -86,10 +86,6 @@
         <translation>Нет ответа. Проверьте список ярлыков, прежде чем повторить.</translation>
     </message>
     <message>
-        <source>The shortcut could not be saved (%1).</source>
-        <translation>Не удалось сохранить ярлык (%1).</translation>
-    </message>
-    <message>
         <source>Invalid reply. Check the shortcut list before trying again.</source>
         <translation>Некорректный ответ. Проверьте список ярлыков, прежде чем повторить.</translation>
     </message>
@@ -144,6 +140,10 @@
     <message>
         <source>Something went wrong</source>
         <translation>Что-то пошло не так</translation>
+    </message>
+    <message>
+        <source>The shortcut could not be saved. Try again.</source>
+        <translation>Не удалось сохранить ярлык. Повторите попытку.</translation>
     </message>
 </context>
 <context>

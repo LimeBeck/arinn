@@ -121,7 +121,7 @@ RU = {
     "Shortcuts changed. Close and reopen the editor before saving.": "Ярлыки изменились. Закройте и снова откройте редактор перед сохранением.",
     "Check the title and address. Use HTTPS, or HTTP for a local service.": "Проверьте название и адрес. Используйте HTTPS или HTTP для локального сервиса.",
     "No reply. Check the shortcut list before trying again.": "Нет ответа. Проверьте список ярлыков, прежде чем повторить.",
-    "The shortcut could not be saved (%1).": "Не удалось сохранить ярлык (%1).",
+    "The shortcut could not be saved. Try again.": "Не удалось сохранить ярлык. Повторите попытку.",
     "Invalid reply. Check the shortcut list before trying again.": "Некорректный ответ. Проверьте список ярлыков, прежде чем повторить.",
     "Favorites unavailable. Refresh the list before editing.": "Избранное недоступно. Обновите список перед изменением.",
     "Favorites changed. Refresh before trying again.": "Избранное изменилось. Обновите список и попробуйте снова.",

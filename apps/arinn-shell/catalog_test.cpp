@@ -671,15 +671,24 @@ private slots:
       QVERIFY(!backend.shortcutError().contains("payload"));
       backend.closeShortcutEditor();
       backend.editShortcut("one");
-      daemon.mutationError.clear();
+      // Another code reads as generic text, never as the code (§15).
+      daemon.mutationError = "Internal";
       backend.removeShortcut();
       QTRY_COMPARE(daemon.mutations, 3);
+      QTRY_VERIFY(!backend.shortcutSaving());
+      QCOMPARE(backend.shortcutError(),
+               QString("The shortcut could not be saved. Try again."));
+      backend.closeShortcutEditor();
+      backend.editShortcut("one");
+      daemon.mutationError.clear();
+      backend.removeShortcut();
+      QTRY_COMPARE(daemon.mutations, 4);
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QCOMPARE(daemon.mutationArgs.at(1).toULongLong(), qulonglong(3));
       backend.editShortcut();
       // An empty name saves the host (KB-3, DR-43).
       backend.saveShortcut(" ", "https://example.test:8443/new");
-      QTRY_COMPARE(daemon.mutations, 4);
+      QTRY_COMPARE(daemon.mutations, 5);
       QTRY_VERIFY(backend.shortcutEditor().isEmpty());
       QCOMPARE(daemon.mutationMethod, QString("Add"));
       QCOMPARE(daemon.mutationArgs.at(0).toString(), QString("example.test:8443"));

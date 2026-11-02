@@ -9,6 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,300..700&family=Source+Serif+4:opsz,wght@8..60,300..700&display=swap" rel="stylesheet">
+<!-- candidates for the content-title face (font lab, 2026-11-02): all OFL with Cyrillic -->
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&family=Cormorant+Garamond:wght@300..700&family=Prata&family=Bona+Nova:wght@400;700&family=Ysabeau:wght@100..1000&family=Piazzolla:opsz,wght@8..30,100..900&family=Brygada+1918:wght@400..700&family=Tenor+Sans&family=Jost:wght@100..900&family=Geologica:wght@100..900&display=swap" rel="stylesheet">
 <style>
 @font-face { font-family: Onest; src: url('../../../../apps/arinn-shell/ui/fonts/Onest.ttf') format('truetype'); font-weight: 100 900; }
 @property --pool-x { syntax: '<length>'; inherits: false; initial-value: 960px; }
@@ -88,6 +90,9 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 .ct { font-family: Onest, sans-serif; font-weight: 700; letter-spacing: -.025em; }
 .serif-literata .ct { font-family: Literata, Georgia, serif; font-weight: 500; letter-spacing: -.01em; font-optical-sizing: auto; }
 .serif-source .ct { font-family: 'Source Serif 4', Georgia, serif; font-weight: 600; letter-spacing: -.01em; font-optical-sizing: auto; }
+/* font lab: the content-title face chosen in the review panel */
+.font-custom .ct, .font-custom .ct * { font-variant-numeric: lining-nums; }
+.font-custom .ct { font-family: var(--ctf), Georgia, serif !important; font-weight: var(--ctw) !important; letter-spacing: var(--ctt) !important; }
 .eyebrow { font-size: 26px; font-weight: 500; color: var(--t2); display: flex; align-items: center; gap: 12px; height: 34px; }
 .eyebrow-caps .eyebrow { font-size: 24px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--ember); flex: none; }
@@ -302,7 +307,7 @@ svg.i { width: 36px; height: 36px; fill: none; stroke: currentColor; stroke-widt
 #ambient .glow { position: absolute; inset: 0; background: radial-gradient(ellipse 66% 58% at 20% 118%, oklch(.33 .065 52 / .95), oklch(.30 .06 52 / .55) 30%, oklch(.28 .05 52 / .22) 55%, oklch(.26 .04 52 / .06) 78%, transparent 100%); animation: breathe 14s ease-in-out infinite alternate; }
 @keyframes breathe { from { opacity: .85; } to { opacity: 1; } }
 #ambient .block { position: absolute; left: 160px; bottom: 150px; transition: transform 2s var(--ease); }
-#ambient .clock { font-size: 220px; line-height: 1; color: oklch(.86 .01 70); font-variant-numeric: tabular-nums; font-weight: 300; letter-spacing: -.02em; }
+#ambient .clock { font-size: 220px; line-height: 1.1; color: oklch(.86 .01 70); font-variant-numeric: lining-nums tabular-nums; font-weight: 300; letter-spacing: -.02em; }
 .serif-literata #ambient .clock, .serif-source #ambient .clock { font-weight: 400; }
 #ambient .date { font-size: 32px; font-weight: 500; color: var(--t2); margin-top: 24px; }
 #ambient .st { font-size: 26px; color: var(--t3); display: flex; gap: 12px; align-items: center; margin-top: 14px; }
@@ -522,6 +527,21 @@ const PRESETS = {
   current: { light: 'glow', serif: 'none', shape: 'uniform', mono: 'color', eyebrow: 'caps', focus: 'ring', fav: 'tiles', tok: 'current' },
 };
 const VARIANT_NAMES = { hearth: 'A · Свет очага', 'hearth-source': 'A′ · Source Serif', 'hearth-sans': 'B · без антиквы', calm: 'C · Спокойный', current: 'Сейчас' };
+// Font lab: candidates for the content-title face. Every one is OFL-1.1 with Cyrillic.
+const FONTS = {
+  literata: { f: 'Literata', w: 500, t: '-.01em', name: 'Literata — книжная (решение D-2)' },
+  playfair: { f: 'Playfair Display', w: 600, t: '-.01em', name: 'Playfair Display — контрастная, афиша' },
+  prata: { f: 'Prata', w: 400, t: '0', name: 'Prata — дидона, журнал' },
+  cormorant: { f: 'Cormorant Garamond', w: 600, t: '0', name: 'Cormorant Garamond — изящная' },
+  bona: { f: 'Bona Nova', w: 700, t: '-.01em', name: 'Bona Nova — с характером' },
+  brygada: { f: 'Brygada 1918', w: 600, t: '-.01em', name: 'Brygada 1918 — тёплая, старая школа' },
+  piazzolla: { f: 'Piazzolla', w: 600, t: '.005em', name: 'Piazzolla — острая, современная' },
+  ysabeau: { f: 'Ysabeau', w: 600, t: '0', name: 'Ysabeau — гротеск с каллиграфией' },
+  tenor: { f: 'Tenor Sans', w: 400, t: '0', name: 'Tenor Sans — контрастный гротеск' },
+  jost: { f: 'Jost', w: 500, t: '-.01em', name: 'Jost — геометрия, афиши' },
+  geologica: { f: 'Geologica', w: 500, t: '-.02em', name: 'Geologica — современный гротеск' },
+  onest: { f: 'Onest', w: 600, t: '-.02em', name: 'Onest — системный (вариант B)' },
+};
 const settings = {
   variant: PRESETS[Q.get('variant')] ? Q.get('variant') : 'hearth',
   tod: ['auto', 'day', 'evening', 'night'].includes(Q.get('time')) ? Q.get('time') : 'auto',
@@ -531,7 +551,8 @@ const settings = {
   art: ['mixed', 'dark', 'bright'].includes(Q.get('art')) ? Q.get('art') : 'mixed',
   apps: ['lit', 'tiles', 'shelf'].includes(Q.get('apps')) ? Q.get('apps') : 'lit',
   chips: ['icons', 'letters'].includes(Q.get('chips')) ? Q.get('chips') : 'icons',
-  cap: ['hide', 'show'].includes(Q.get('cap')) ? Q.get('cap') : 'show',  // owner decision D-8: the caption stays
+  cap: ['hide', 'show'].includes(Q.get('cap')) ? Q.get('cap') : 'show',
+  font: FONTS[Q.get('font')] ? Q.get('font') : 'literata',  // owner decision D-8: the caption stays
 };
 // The options below belong to the Hearth light variants; Calm and Current keep today's behaviour.
 const hearthish = () => P().light === 'hearth';
@@ -984,7 +1005,9 @@ function finishStartup() {
 function applyVariant(keepFocus = true) {
   const p = P(), key = S.focused && S.focused.dataset.key;
   const e = eff();
-  document.body.className = [`apps-${e.apps}`, `chips-${e.chips}`, e.cap ? 'cap-focus' : '', `light-${settings.lightOn ? p.light : 'off'}`, `serif-${p.serif}`, `shape-${p.shape}`, `mono-${p.mono}`, `eyebrow-${p.eyebrow}`, `focus-${p.focus}`, `tok-${p.tok}`, `tod-${period()}`, `motion-${settings.motion}`].join(' ');
+  const F = FONTS[settings.font], custom = hearthish() && p.serif !== 'none' && settings.font !== 'literata';
+  document.body.style.setProperty('--ctf', `'${F.f}'`); document.body.style.setProperty('--ctw', F.w); document.body.style.setProperty('--ctt', F.t);
+  document.body.className = [custom ? 'font-custom' : '', `apps-${e.apps}`, `chips-${e.chips}`, e.cap ? 'cap-focus' : '', `light-${settings.lightOn ? p.light : 'off'}`, `serif-${p.serif}`, `shape-${p.shape}`, `mono-${p.mono}`, `eyebrow-${p.eyebrow}`, `focus-${p.focus}`, `tok-${p.tok}`, `tod-${period()}`, `motion-${settings.motion}`].join(' ');
   const navWas = S.nav; if (navWas) closeNav(true);
   renderAll();
   if (S.scene === 'player' && Player.m) { Player.open(Player.m); }
@@ -1004,6 +1027,7 @@ function hud() {
     ${sel('sound', 'Звуки', { quiet: 'Тихо', normal: 'Обычно', off: 'Выкл.' }, settings.sound)}
     ${sel('light', 'Световой фон', { on: 'Вкл.', off: 'Выкл.' }, settings.lightOn ? 'on' : 'off')}
     ${sel('motion', 'Движение', { full: 'Полное', reduced: 'Уменьшенное' }, settings.motion)}
+    ${sel('font', 'Шрифт названий', Object.fromEntries(Object.entries(FONTS).map(([k, v]) => [k, v.name])), settings.font)}
     ${sel('art', 'Обложки', { mixed: 'Смешанные', dark: 'Тёмные', bright: 'Яркие' }, settings.art)}
     ${sel('apps', 'Приложения', { lit: 'Плитки со светом', tiles: 'Плитки', shelf: 'Полка' }, settings.apps)}
     ${sel('chips', 'Буквы на полке', { icons: 'Только иконки', letters: 'Показывать' }, settings.chips)}
@@ -1063,6 +1087,8 @@ stage.addEventListener('click', ev => {
 /* ---------- boot ---------- */
 function fit() { const s = Math.min(innerWidth / 1920, innerHeight / 1080); stage.style.transform = `translate(-50%, -50%) scale(${s})`; scheduleLight(); }
 addEventListener('resize', fit); fit();
+// A title face that arrives late changes the measured title steps: fit again.
+if (document.fonts) document.fonts.addEventListener('loadingdone', () => { if (S.focused && S.scene === 'home') heroFor(S.focused); if (S.scene === 'detail') fitTitle($('#detail .ct'), DETAIL_STEPS); });
 S.scope = $('#home');
 applyVariant(false);
 const startScene = Q.get('scene') || 'home';

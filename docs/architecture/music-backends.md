@@ -15,9 +15,9 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 
 | Package | Implemented in this increment | Still missing |
 | --- | --- | --- |
-| `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player actor and finite playback session | Runtime continuous refill/feedback and service stream resolver |
-| `arinn-plugin-music-local` | Persistent catalogue/playlists, provider process/registration, snapshot paging, root settings, background scan and finite playback | Artwork extraction, native package/audio qualification and complete remote/detail UX |
-| `arinn-plugin-yandex-music` | Private HTTP/radio adapter, device-code controller, staged Secret Service lifecycle, provider registration and native account projection | Qualified deployment client, catalogue/liked content UI, stream playback, continuous runtime and live qualification |
+| `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player actor, finite playback session, continuous station sessions with refill/feedback, and a resolver interface for files, streams and ratings | Native package/audio qualification |
+| `arinn-plugin-music-local` | Persistent catalogue/playlists, provider process/registration, snapshot paging, root settings, background scan and finite playback | Artwork extraction and an artwork asset method, playlist editing, native package/audio qualification |
+| `arinn-plugin-yandex-music` | Private HTTP/radio adapter, device-code controller, staged Secret Service lifecycle, provider registration, native account projection, liked tracks/playlists/My Wave catalogue, signed stream playback, likes/dislikes and rotor stations with per-batch feedback | Artwork, albums/artists facets, token refresh and live account/audio qualification |
 
 The proposed [music contract](../plugin-api/music.md) and
 [ADR-0134](../adr/0134-native-music-catalogue-and-session.md) add protocol, SDK,
@@ -38,7 +38,10 @@ not wait for a scan lock. Shutdown cancels further scan work between files;
 an in-flight bounded ffprobe may finish before exit. Unavailable/incomplete roots
 produce a degraded state while preserving last-known metadata.
 
-Yandex account registration is deliberately account-only in this slice. Native
+A connected Yandex account lists its liked tracks (or search results), its
+playlists and their tracks, and My Wave under *For you*. A listed track plays
+with the tracks listed after it; a playlist plays whole; a station plays as a
+continuous session. Native
 Connect/Cancel/Disconnect are routed through the daemon, and startup restore is
 reserved before exposing commands so it cannot invalidate a newer Connect.
 By owner decision (ADR-0134, 2026-11-02) the provider bundles the public client
@@ -51,8 +54,9 @@ Approval records and a stable non-secret device ID use provider-private state;
 tokens use Secret Service only. No live identity or account has been qualified
 in this environment.
 
-The settings dependency has merged. This work does not close #707, change phase
-status or claim Yandex streaming support.
+The settings dependency has merged. This work does not close #707 or change
+phase status. Yandex streaming is implemented against synthetic fixtures only;
+it is not qualified with a live account.
 
 ## Queue invariants
 
@@ -61,6 +65,11 @@ status or claim Yandex streaming support.
 - A request binds its queue instance, session and request sequence. Stop, source
   replacement or feedback replacement invalidates outstanding work. An append
   request cannot silently replace the upcoming tail.
+- A station session asks its station for more tracks whenever fewer than
+  three remain after the current one, and reports to it a confirmed start, a
+  natural end and a skip with the position reached. The refill state (idle,
+  loading, failed, exhausted) is part of the music state; a failed refill can
+  be retried with the retry action.
 - The loaded end never loops automatically. A failed refill leaves the current
   entry and loaded tail unchanged; a new request can retry. An initially empty
   station can receive its first batch without inventing a current track.
@@ -230,9 +239,20 @@ reconnect; automatic refresh is not claimed.
 
 The radio adapter uses session JSON requests with an explicit originating batch
 for each feedback call. Fetching batch B must not relabel the finish/skip of a
-track still playing from batch A. Track-seeded sessions normalize an
+track still playing from batch A; the provider keeps the last eight batches
+to find the batch of a reported track. Track-seeded sessions normalize an
 album-qualified track ID before making a station seed. Service recommendations
 remain provider-owned; this is not an Arinn recommendation engine.
+
+### Stream playback
+
+The provider reads a track's download-info list, picks the best non-preview
+MP3 variant, reads its download-info document from a Yandex storage host
+(HTTPS, `*.yandex.net` or `*.yandex.ru`, no credentials or port in the URL),
+and builds the time-limited direct link with the signing salt. The link goes
+straight to the provider's own player and never leaves the provider: it is
+not in the music state, logs or receipts. Likes and dislikes are recorded with
+the account.
 
 This route is based on the upstream evidence cited in the research and is not
 an assertion of official API support. Access, subscription, region, credential
@@ -263,8 +283,8 @@ commands, toolchain wrapper failures and reruns; these command examples alone
 are not evidence that the complete project check list passed.
 
 Before completion: qualify the proposed contract and daemon replacement/timeout
-coordination; finish catalogue detail/playlist editing, artwork, Yandex client
-provisioning/stream playback and continuous-session feedback; add package fixtures;
-run the full required checks and obtain current-head review.
+coordination; add artwork (an asset method is a separate contract change),
+playlist editing and package fixtures; run the full required checks and obtain
+current-head review.
 Live service and real-remote/HTPC qualification remain separate from synthetic
 tests and require the applicable account setup/operator authorization.

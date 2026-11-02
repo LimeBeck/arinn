@@ -75,6 +75,11 @@ tokens private. Connect/Cancel/Disconnect run through the same verified command
 route. Configured client identity and live-service eligibility are deployment
 qualification, not an inference from a successful synthetic device-flow test.
 
+A continuous (station) session sets continuous. Its refill is idle, loading,
+failed or exhausted; retry asks the station again after a failure. Entities of
+kind station are played, not opened; radio takes a track or station entity.
+Like and dislike are advertised only by a provider that records ratings.
+
 Playback states are stopped, loading, playing, paused and ended. A load receipt
 means loading; only a native file-loaded observation confirms readiness. A native
 end-file error is not natural EOF. Transport polls must not consume EOF; it is

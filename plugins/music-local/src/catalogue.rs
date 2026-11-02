@@ -39,20 +39,170 @@ struct Fingerprint {
     inode: u64,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq)]
 struct Record {
     root: String,
-    root_path: PathBuf,
     relative: PathBuf,
     fingerprint: Fingerprint,
     track: Track,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+/// The persisted catalogue is compact: a record carries no root path (one
+/// per root in `paths`), its track ID is the map key and its album ID is
+/// derived again on load. Field names are one letter. A 100,000-track
+/// library then fits the library's storage budget (review of #710).
+#[derive(Clone, Default, PartialEq)]
 pub struct Catalogue {
     roots: BTreeMap<String, Identity>,
+    paths: BTreeMap<String, PathBuf>,
     records: BTreeMap<String, Record>,
     revision: u64,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredCatalogue {
+    roots: BTreeMap<String, Identity>,
+    paths: BTreeMap<String, PathBuf>,
+    records: BTreeMap<String, StoredRecord>,
+    revision: u64,
+}
+
+fn empty(value: &str) -> bool {
+    value.is_empty()
+}
+fn zero32(value: &u32) -> bool {
+    *value == 0
+}
+fn zero64(value: &u64) -> bool {
+    *value == 0
+}
+fn no(value: &bool) -> bool {
+    !*value
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredRecord {
+    r: String,
+    p: PathBuf,
+    /// length, mtime seconds, mtime nanoseconds, device, inode
+    f: (u64, i64, i64, u64, u64),
+    #[serde(default, skip_serializing_if = "empty")]
+    t: String,
+    #[serde(default, skip_serializing_if = "empty")]
+    a: String,
+    #[serde(default, skip_serializing_if = "empty")]
+    b: String,
+    #[serde(default, skip_serializing_if = "empty")]
+    c: String,
+    #[serde(default, skip_serializing_if = "zero32")]
+    d: u32,
+    #[serde(default, skip_serializing_if = "zero32")]
+    n: u32,
+    #[serde(default, skip_serializing_if = "zero64")]
+    u: u64,
+    #[serde(default, skip_serializing_if = "no")]
+    v: bool,
+    #[serde(default, skip_serializing_if = "no")]
+    w: bool,
+}
+
+impl Serialize for Catalogue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let records = self
+            .records
+            .iter()
+            .map(|(id, r)| {
+                let f = &r.fingerprint;
+                let t = &r.track;
+                (
+                    id.clone(),
+                    StoredRecord {
+                        r: r.root.clone(),
+                        p: r.relative.clone(),
+                        f: (f.length, f.modified, f.nanos, f.device, f.inode),
+                        t: t.title.clone(),
+                        a: t.artist.clone(),
+                        b: t.album.clone(),
+                        c: t.album_artist.clone(),
+                        d: t.disc,
+                        n: t.number,
+                        u: t.duration_us,
+                        v: t.available,
+                        w: t.embedded_artwork,
+                    },
+                )
+            })
+            .collect();
+        StoredCatalogue {
+            roots: self.roots.clone(),
+            paths: self.paths.clone(),
+            records,
+            revision: self.revision,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Catalogue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let stored = StoredCatalogue::deserialize(deserializer)?;
+        let records = stored
+            .records
+            .into_iter()
+            .map(|(id, r)| {
+                let mut track = Track {
+                    id: id.clone(),
+                    title: r.t,
+                    artist: r.a,
+                    album: r.b,
+                    album_artist: r.c,
+                    disc: r.d,
+                    number: r.n,
+                    duration_us: r.u,
+                    available: r.v,
+                    embedded_artwork: r.w,
+                    ..Track::default()
+                };
+                track.album_id = album_id(&r.r, &r.p, &track);
+                let (length, modified, nanos, device, inode) = r.f;
+                (
+                    id,
+                    Record {
+                        root: r.r,
+                        relative: r.p,
+                        fingerprint: Fingerprint {
+                            length,
+                            modified,
+                            nanos,
+                            device,
+                            inode,
+                        },
+                        track,
+                    },
+                )
+            })
+            .collect();
+        Ok(Self {
+            roots: stored.roots,
+            paths: stored.paths,
+            records,
+            revision: stored.revision,
+        })
+    }
+}
+
+/// An album is identified by its root, its folder (disc folders share their
+/// parent) and the explicit album-artist and album tags. A track's own
+/// artist is not part of it, so a compilation without an album-artist tag
+/// stays one album (review of #710).
+fn album_id(root: &str, relative: &Path, track: &Track) -> String {
+    opaque(&[
+        root,
+        &album_folder(relative),
+        &track.album_artist,
+        &track.album,
+    ])
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +224,19 @@ impl Catalogue {
     }
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    /// Forgets roots that are no longer configured, with their records,
+    /// except records a playlist still refers to (those stay unavailable).
+    pub(crate) fn retain_roots(&mut self, keep: &HashSet<&str>, referenced: &HashSet<&str>) {
+        self.roots.retain(|id, _| keep.contains(id.as_str()));
+        self.paths.retain(|id, _| keep.contains(id.as_str()));
+        let before = self.records.len();
+        self.records.retain(|id, record| {
+            keep.contains(record.root.as_str()) || referenced.contains(id.as_str())
+        });
+        if self.records.len() != before {
+            self.revision = self.revision.saturating_add(1);
+        }
     }
     pub fn tracks(&self) -> Vec<Track> {
         self.records.values().map(|r| r.track.clone()).collect()
@@ -102,7 +265,11 @@ impl Catalogue {
             .roots
             .get(&record.root)
             .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
-        crate::paths::open_beneath(&record.root_path, &record.relative, *identity)
+        let path = self
+            .paths
+            .get(&record.root)
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        crate::paths::open_beneath(path, &record.relative, *identity)
     }
 
     /// The caller supplies stable opaque root IDs; these never depend on labels.
@@ -157,15 +324,21 @@ impl Catalogue {
             };
             if let Some(identity) = identity.filter(|_| valid) {
                 self.roots.insert(root.id.clone(), identity);
+                self.paths.insert(root.id.clone(), root.path.clone());
                 let mut stack = vec![(root.path.clone(), 0)];
                 let mut visited = HashSet::new();
                 while let Some((directory, depth)) = stack.pop() {
                     if cancelled() {
                         return None;
                     }
-                    if depth > MAX_DEPTH || encountered >= limit {
+                    if encountered >= limit {
                         status.incomplete = true;
                         break;
+                    }
+                    // Too deep: skip this subtree, keep scanning its siblings.
+                    if depth > MAX_DEPTH {
+                        status.incomplete = true;
+                        continue;
                     }
                     let entries = match fs::read_dir(&directory) {
                         Ok(v) => v,
@@ -249,7 +422,6 @@ impl Catalogue {
                             .get_mut(&id)
                             .filter(|r| r.fingerprint == fingerprint)
                         {
-                            record.root_path = root.path.clone();
                             record.track.available = true;
                             continue;
                         }
@@ -258,14 +430,11 @@ impl Catalogue {
                             continue;
                         };
                         track.id = id.clone();
-                        let folder = album_folder(relative);
-                        track.album_id =
-                            opaque(&[&root.id, &folder, &track.album_artist, &track.album]);
+                        track.album_id = album_id(&root.id, relative, &track);
                         self.records.insert(
                             id,
                             Record {
                                 root: root.id.clone(),
-                                root_path: root.path.clone(),
                                 relative: relative.to_path_buf(),
                                 fingerprint,
                                 track,
@@ -446,5 +615,116 @@ mod tests {
         };
         assert_eq!(album("a"), album("b"));
         assert_ne!(album("a"), album("c"));
+    }
+    fn synthetic(i: usize) -> (String, Record) {
+        let relative = PathBuf::from(format!(
+            "Artist Name {}/Album Name {:04}/{:02} - Track Title Number {i}.flac",
+            i % 500,
+            i / 12,
+            i % 12 + 1
+        ));
+        let mut track = Track {
+            title: format!("Track Title Number {i}"),
+            artist: format!("Artist Name {}", i % 500),
+            album: format!("Album Name {:04}", i / 12),
+            album_artist: format!("Artist Name {}", i % 500),
+            disc: 1,
+            number: (i % 12 + 1) as u32,
+            duration_us: 241_000_000,
+            available: true,
+            ..Track::default()
+        };
+        let root = "2b0f6f0e-5d0c-4a59-9a3b-1c1e8d7f6a52".to_owned();
+        let id = opaque(&[&root, relative.to_str().unwrap()]);
+        track.id = id.clone();
+        track.album_id = album_id(&root, &relative, &track);
+        let record = Record {
+            root,
+            relative,
+            fingerprint: Fingerprint {
+                length: 31_456_789,
+                modified: 1_761_998_400,
+                nanos: 123_456_789,
+                device: 66_305,
+                inode: 9_876_543 + i as u64,
+            },
+            track,
+        };
+        (id, record)
+    }
+    /// Review of #710: about 700 bytes per record filled the 32 MiB state at
+    /// roughly 46,000 tracks, below the 100,000-track scan limit. The compact
+    /// format must hold the scan limit with typical tags and round-trip.
+    #[test]
+    fn a_full_compact_catalogue_fits_the_library_budget_and_round_trips() {
+        let mut catalogue = Catalogue::default();
+        catalogue.roots.insert(
+            "2b0f6f0e-5d0c-4a59-9a3b-1c1e8d7f6a52".into(),
+            Identity {
+                device: 66_305,
+                inode: 2,
+            },
+        );
+        catalogue.paths.insert(
+            "2b0f6f0e-5d0c-4a59-9a3b-1c1e8d7f6a52".into(),
+            PathBuf::from("/srv/music"),
+        );
+        catalogue.records = (0..MAX_FILES).map(synthetic).collect();
+        catalogue.revision = 7;
+        let bytes = serde_json::to_vec(&catalogue).unwrap();
+        let per_record = bytes.len() / MAX_FILES;
+        assert!(per_record < 420, "{per_record} bytes per record");
+        assert!(bytes.len() < 64 * 1024 * 1024, "{} bytes", bytes.len());
+        let restored: Catalogue = serde_json::from_slice(&bytes).unwrap();
+        assert!(restored == catalogue, "the compact form loses nothing");
+    }
+    /// Review of #710: a compilation without an album-artist tag split into
+    /// one album per track artist.
+    #[test]
+    fn a_compilation_without_an_album_artist_stays_one_album() {
+        let relative = |name: &str| PathBuf::from(format!("Soundtrack/{name}.flac"));
+        let track = |artist: &str| Track {
+            album: "Soundtrack".into(),
+            artist: artist.into(),
+            ..Track::default()
+        };
+        assert_eq!(
+            album_id("root", &relative("a"), &track("One")),
+            album_id("root", &relative("b"), &track("Two"))
+        );
+        // The explicit tag still separates albums with the same title.
+        let mut tagged = track("One");
+        tagged.album_artist = "Various".into();
+        assert_ne!(
+            album_id("root", &relative("a"), &tagged),
+            album_id("root", &relative("b"), &track("Two"))
+        );
+    }
+    /// Review of #710: one directory past the depth limit stopped the scan
+    /// of every sibling subtree still waiting on the stack.
+    #[test]
+    fn a_too_deep_directory_does_not_stop_its_siblings() {
+        let fixture = Fixture::new();
+        let mut deep = fixture.path.join("a");
+        for _ in 0..=MAX_DEPTH {
+            deep = deep.join("d");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(deep.join("hidden.flac"), b"fixture").unwrap();
+        fs::create_dir(fixture.path.join("z")).unwrap();
+        fs::write(fixture.path.join("z/visible.flac"), b"fixture").unwrap();
+        fs::write(fixture.path.join("a/shallow.flac"), b"fixture").unwrap();
+        let mut catalogue = Catalogue::default();
+        let statuses = catalogue.scan(
+            &[Root {
+                id: "root".into(),
+                path: fixture.path.clone(),
+            }],
+            &FakeProbe(Cell::new(0)),
+        );
+        assert!(statuses[0].incomplete);
+        let mut titles: Vec<String> = catalogue.tracks().into_iter().map(|t| t.title).collect();
+        titles.sort();
+        assert_eq!(titles, ["shallow", "visible"]);
     }
 }

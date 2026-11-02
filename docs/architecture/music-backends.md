@@ -81,14 +81,19 @@ in the implementation MR.
 
 Format and stream tags supply title, artist, album artist, album, disc/track
 numbers and duration. Unknown metadata stays unknown; a missing title falls
-back to the filename. Album identity includes root, album directory and tags;
-recognized CD/Disc/Disk-number folders share their album parent. Identical titles
-in different album directories do not merge. Move/rename policy within a root
+back to the filename. Album identity includes root, album directory and the
+explicit album and album-artist tags; a track's own artist is not part of it,
+so a compilation without an album-artist tag stays one album (the album row
+then shows the track artist). Recognized CD/Disc/Disk-number folders share
+their album parent. Identical titles in different album directories do not merge. Move/rename policy within a root
 is path-based: it leaves an unavailable old reference and creates a new entry.
 Renaming the configured root itself while keeping its ID preserves track IDs.
 
-Scans skip symlinks and cap traversal count/depth. Errors are isolated per file
-or subtree. A missing or replaced root preserves last-known records, marks them
+Scans skip symlinks and cap traversal count and depth; a subtree past the
+depth limit is skipped while its siblings are still scanned. Errors are
+isolated per file or subtree. Configured roots are normalized (`/m` and `/m/`
+are one root) and a root inside another configured root is dropped, so files
+are never scanned twice. A missing or replaced root preserves last-known records, marks them
 unavailable and prevents playback opening. A different device/inode at the root
 does not silently become an empty authoritative rescan. Configured roots need
 their first successful scan while mounted; initial-mount expectations and an
@@ -116,14 +121,24 @@ so cleanup cannot race PID reuse. No real desktop processes are controlled.
 ### Private local state
 
 `Library::open` holds an exclusive advisory writer lock for its lifetime. State
-is a versioned, bounded (32 MiB) snapshot of roots, catalogue and at most 256
-playlists with at most 10,000 references each. It uses an owned private directory
+is a versioned, bounded (96 MiB) snapshot of roots, catalogue and at most 256
+playlists with at most 10,000 references each. The catalogue is stored
+compactly: one path per root, the track ID only as the map key, the album ID
+derived again on load and one-letter field names. With typical tags a track
+takes about 370 bytes, so the 100,000-track scan limit fits. A scan that does
+not change the catalogue writes nothing and keeps the revision, so the shell's
+paging survives the periodic rescan. A scan whose snapshot cannot be written
+is still published from memory and the provider reports a degraded backend.
+Removing a root forgets its tracks except those a playlist still refers to.
+Version-1 state from earlier commits of this branch keeps its roots; the next
+scan rebuilds the catalogue with the same track IDs. It uses an owned private directory
 (mode 0700), regular no-follow files (0600), anchored descriptor-relative opens,
 exclusive temporary files, atomic rename and file/directory synchronization.
 Unsafe, corrupt or unsupported snapshots fail closed and are never silently
 replaced with an empty library. A failed pre-rename commit leaves live state
 unchanged; a post-rename directory-sync error keeps memory aligned with the
-committed file and reports uncertain durability. The library revision covers
+committed file and reports uncertain durability. Temporary files left by a
+crash before the rename are removed when the writer lock is next taken. The library revision covers
 successful root, catalogue and playlist changes, including startup invalidation.
 Traversal and retained-record limits apply across configured roots and rescans.
 

@@ -63,11 +63,9 @@ pub fn parse(value: &Value, fallback: &str) -> Option<Track> {
             title
         },
         album: tag(&["album"]),
-        album_artist: if album_artist.is_empty() {
-            artist.clone()
-        } else {
-            album_artist
-        },
+        // Only the explicit tag: a compilation without one must not split
+        // into one album per track artist. Display falls back to `artist`.
+        album_artist,
         artist,
         disc: number(&tag(&["disc", "discnumber"])),
         number: number(&tag(&["track", "tracknumber"])),

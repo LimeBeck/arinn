@@ -18,12 +18,41 @@ use std::{
     sync::{Arc, Weak},
 };
 use tokio::sync::Mutex;
+type Reply<'a, T> = Pin<Box<dyn Future<Output = Result<T, ErrorCode>> + Send + 'a>>;
 pub trait Resolver: Send + Sync + 'static {
-    fn resolve(
-        &self,
-        id: String,
-    ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>>;
+    fn resolve(&self, id: String) -> Reply<'_, Source>;
+    /// Whether the provider records likes and dislikes for its tracks.
+    fn rates(&self) -> bool {
+        false
+    }
+    /// Records a like (true) or dislike (false) with the service. A reply is
+    /// the service's confirmation; nothing is recorded locally.
+    fn rate(&self, _id: String, _like: bool) -> Reply<'_, ()> {
+        Box::pin(async { Err(ErrorCode::Unsupported) })
+    }
 }
+/// Playback events a continuous source reports back to its service.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StationEvent {
+    /// The player confirmed the track is playing.
+    Started(String),
+    /// A natural end; microseconds played.
+    Finished(String, u64),
+    /// The listener moved on; microseconds played.
+    Skipped(String, u64),
+}
+/// A provider-owned continuous source (a station or radio). Its seed,
+/// session and batch identity stay inside the provider.
+pub trait Station: Send + Sync + 'static {
+    /// The next tracks, after the last one the listener reached (if any).
+    /// An empty list means the station has nothing more right now.
+    fn next(&self, after: Option<String>) -> Reply<'_, Vec<Track>>;
+    /// Best-effort playback feedback; a failure never stops playback.
+    fn feedback(&self, event: StationEvent) -> Reply<'_, ()>;
+}
+/// A continuous queue asks for more tracks when fewer than this many are
+/// loaded after the current one.
+const LOW_WATER: usize = 3;
 struct Data {
     queue: Queue,
     tracks: BTreeMap<String, Track>,
@@ -42,6 +71,12 @@ struct Data {
     seek_end: Option<u64>,
     /// Consecutive failed polls; a single slow reply is not a stop.
     failures: u8,
+    /// The continuous source of a station session; None for a finite queue.
+    station: Option<Arc<dyn Station>>,
+    /// Refill state of a station session (protocol `refill`).
+    refill: &'static str,
+    /// The occurrence whose start the player confirmed and was reported.
+    started: Option<u64>,
 }
 pub struct Playback {
     data: Mutex<Data>,
@@ -66,6 +101,9 @@ impl Playback {
                 loaded: false,
                 seek_end: None,
                 failures: 0,
+                station: None,
+                refill: "idle",
+                started: None,
             }),
             io: Mutex::new(()),
             player,
@@ -109,7 +147,16 @@ impl Playback {
             }
             if d.queue.upcoming() > 0 || !d.tail.is_empty() {
                 actions.push("next".into());
-                actions.push("remove".into());
+                if d.station.is_none() {
+                    actions.push("remove".into());
+                }
+            }
+            if d.station.is_some() && d.refill == "failed" {
+                actions.push("retry".into());
+            }
+            if self.resolver.rates() {
+                actions.push("like".into());
+                actions.push("dislike".into());
             }
         }
         State {
@@ -141,6 +188,8 @@ impl Playback {
                 .skip(index + 1)
                 .filter_map(entry)
                 .collect(),
+            continuous: d.station.is_some(),
+            refill: d.refill.into(),
             error: d.error,
             ..State::default()
         }
@@ -158,6 +207,8 @@ impl Playback {
                 .start(tracks.iter().take(65).map(|t| t.id.clone()).collect(), None)
                 .map_err(|_| ErrorCode::InvalidArgument)?;
             d.tracks = tracks.into_iter().map(|t| (t.id.clone(), t)).collect();
+            d.station = None;
+            d.refill = "idle";
             d.status = "loading".into();
             d.loaded = false;
             d.position = 0;
@@ -172,6 +223,120 @@ impl Playback {
             owner.load_current(token).await;
         });
         Ok(self.state().await)
+    }
+    /// Starts a continuous session from its first tracks. More are asked
+    /// for whenever fewer than LOW_WATER remain after the current one.
+    pub async fn play_station(
+        self: &Arc<Self>,
+        label: String,
+        first: Vec<Track>,
+        station: Arc<dyn Station>,
+    ) -> Result<State, ErrorCode> {
+        if first.is_empty() || first.len() > crate::queue::MAX_UPCOMING + 1 || label.is_empty() {
+            return Err(ErrorCode::NotFound);
+        }
+        let token = {
+            let mut d = self.data.lock().await;
+            d.token = d.token.checked_add(1).ok_or(ErrorCode::Internal)?;
+            d.session = uuid::Uuid::new_v4().to_string();
+            d.tail.clear();
+            d.queue
+                .start(first.iter().map(|t| t.id.clone()).collect(), Some(label))
+                .map_err(|_| ErrorCode::InvalidArgument)?;
+            d.tracks = first.into_iter().map(|t| (t.id.clone(), t)).collect();
+            d.station = Some(station);
+            d.refill = "idle";
+            d.status = "loading".into();
+            d.loaded = false;
+            d.position = 0;
+            d.duration = 0;
+            d.seek_end = None;
+            d.error = None;
+            d.revision += 1;
+            d.token
+        };
+        let owner = self.clone();
+        tokio::spawn(async move {
+            owner.load_current(token).await;
+        });
+        self.top_up();
+        Ok(self.state().await)
+    }
+    /// Asks a station for more tracks when the loaded window runs low. A
+    /// reply for a stopped or replaced session is ignored; an ended session
+    /// resumes with the first new track.
+    fn top_up(self: &Arc<Self>) {
+        let owner = self.clone();
+        tokio::spawn(async move {
+            let (station, request, after, session) = {
+                let mut d = owner.data.lock().await;
+                let Some(station) = d.station.clone() else {
+                    return;
+                };
+                if d.queue.upcoming() >= LOW_WATER || d.queue.pending() {
+                    return;
+                }
+                let Ok(request) = d.queue.begin_refill() else {
+                    return;
+                };
+                d.refill = "loading";
+                d.revision += 1;
+                let after = d.queue.entries().back().map(|e| e.track.clone());
+                (station, request, after, d.session.clone())
+            };
+            let result = station.next(after).await;
+            let mut d = owner.data.lock().await;
+            if d.session != session {
+                return;
+            }
+            match result {
+                Ok(tracks) => {
+                    let ids: Vec<String> = tracks.iter().map(|t| t.id.clone()).collect();
+                    for track in tracks {
+                        d.tracks.entry(track.id.clone()).or_insert(track);
+                    }
+                    d.refill = match d.queue.complete_refill(request, ids, false) {
+                        Ok(()) => "idle",
+                        Err(crate::queue::Error::Empty) => "exhausted",
+                        Err(crate::queue::Error::Stale) => return,
+                        Err(_) => "failed",
+                    };
+                }
+                Err(_) => {
+                    if d.queue.fail_refill(request).is_err() {
+                        return;
+                    }
+                    d.refill = "failed";
+                }
+            }
+            d.revision += 1;
+            // The current track already ended while the batch was loading.
+            if d.status == "ended" && d.seek_end.is_none() && d.queue.advance().is_ok() {
+                d.token += 1;
+                d.position = 0;
+                d.duration = 0;
+                d.status = "loading".into();
+                let token = d.token;
+                drop(d);
+                owner.load_current(token).await;
+                owner.top_up();
+            }
+        });
+    }
+    async fn current_track(&self) -> Result<String, ErrorCode> {
+        let d = self.data.lock().await;
+        d.queue
+            .current()
+            .map(|e| e.track.clone())
+            .ok_or(ErrorCode::NotFound)
+    }
+    /// Sends best-effort feedback for a station session.
+    fn report(station: Option<Arc<dyn Station>>, event: StationEvent) {
+        if let Some(station) = station {
+            tokio::spawn(async move {
+                let _ = station.feedback(event).await;
+            });
+        }
     }
     async fn load_current(self: &Arc<Self>, token: u64) {
         let id = {
@@ -199,7 +364,7 @@ impl Playback {
                 return;
             }
         }
-        let source = self.resolver.resolve(id).await;
+        let source = self.resolver.resolve(id.clone()).await;
         let _io = self.io.lock().await;
         if self.data.lock().await.token != token {
             return;
@@ -246,6 +411,8 @@ impl Playback {
             d.tail.clear();
             d.tracks.clear();
             d.session.clear();
+            d.station = None;
+            d.refill = "idle";
             d.status = "stopped".into();
             d.position = 0;
             d.error = stopped.err();
@@ -268,10 +435,29 @@ impl Playback {
         };
         match command.action.as_str() {
             "stop" => return self.stop().await,
-            "next" | "previous" => {
+            "like" => {
+                let id = self.current_track().await?;
+                self.resolver.rate(id, true).await?;
+            }
+            "retry" => {
+                if self.data.lock().await.refill != "failed" {
+                    return Err(ErrorCode::Unsupported);
+                }
+                self.top_up();
+            }
+            "next" | "previous" | "dislike" => {
+                // A dislike is recorded first; it then moves on like Next.
+                if command.action == "dislike" {
+                    let id = self.current_track().await?;
+                    self.resolver.rate(id, false).await?;
+                }
+                let forward = command.action != "previous";
                 let token = {
                     let mut d = self.data.lock().await;
-                    step(&mut d, command.action == "next")?;
+                    if forward && let Some(track) = d.queue.current().map(|e| e.track.clone()) {
+                        Self::report(d.station.clone(), StationEvent::Skipped(track, d.position));
+                    }
+                    step(&mut d, forward)?;
                     d.token += 1;
                     d.position = 0;
                     d.duration = 0;
@@ -285,6 +471,7 @@ impl Playback {
                 tokio::spawn(async move {
                     owner.load_current(token).await;
                 });
+                self.top_up();
             }
             "remove" => {
                 let mut d = self.data.lock().await;
@@ -408,11 +595,27 @@ impl Playback {
                         d.status = status.into();
                         d.revision += 1;
                     }
+                    // Only the player's confirmation counts as a start.
+                    let current = d.queue.current().map(|e| (e.occurrence, e.track.clone()));
+                    if status == "playing"
+                        && let Some((occurrence, track)) = current
+                        && d.started != Some(occurrence)
+                    {
+                        d.started = Some(occurrence);
+                        Self::report(d.station.clone(), StationEvent::Started(track));
+                    }
                     if let Some(eof) = snapshot.eof {
                         acknowledge = Some(eof);
                         d.loaded = false;
                         if d.seek_end.is_none() {
                             let _ = refill(&mut d);
+                            if let Some(track) = d.queue.current().map(|e| e.track.clone()) {
+                                let played = d.duration.max(d.position);
+                                Self::report(
+                                    d.station.clone(),
+                                    StationEvent::Finished(track, played),
+                                );
+                            }
                             if let Some(occurrence) = d.queue.current().map(|e| e.occurrence)
                                 && d.queue.confirmed_end(occurrence).is_ok()
                             {
@@ -453,6 +656,9 @@ impl Playback {
             drop(io);
             if advance {
                 this.load_current(next).await;
+            }
+            if acknowledge.is_some() {
+                this.top_up();
             }
         }
     }
@@ -569,6 +775,9 @@ mod tests {
             loaded: false,
             seek_end: None,
             failures: 0,
+            station: None,
+            refill: "idle",
+            started: None,
         };
         d.queue
             .start(ids.iter().take(65).cloned().collect(), None)
@@ -587,6 +796,203 @@ mod tests {
             played.push(d.queue.current().unwrap().track.clone());
         }
         assert_eq!(played, ids[1..].to_vec());
+    }
+    /// A player fixture where every loaded file ends by itself after two
+    /// position polls, as a short track would.
+    fn ending_player(directory: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let executable = directory.join("fixture.py");
+        std::fs::write(&executable, r##"#!/usr/bin/python3
+import json,socket,sys
+path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
+server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
+connection,_=server.accept();stream=connection.makefile('rwb',buffering=0)
+idle=False;polls=0
+for line in stream:
+ request=json.loads(line);command=request['command'];data=None;error='success'
+ if command[0]=='loadfile':
+  idle=False;polls=0
+  stream.write(b'{"event":"start-file","playlist_entry_id":7}\n')
+  stream.write(b'{"event":"file-loaded"}\n')
+ elif command[0]=='get_property':
+  prop=command[1]
+  if prop=='playlist/0/id':data=7
+  elif prop=='idle-active':data=idle
+  elif prop=='pause':data=False
+  elif prop=='time-pos':
+   polls+=1;data=polls
+   if polls==2 and not idle:
+    idle=True;stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"eof"}\n')
+  elif prop=='duration':data=3
+ stream.write((json.dumps({'request_id':request['request_id'],'data':data,'error':error})+'\n').encode())
+"##).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        executable
+    }
+    fn track(id: &str) -> Track {
+        Track {
+            id: id.into(),
+            title: id.into(),
+            available: true,
+            ..Track::default()
+        }
+    }
+    #[derive(Default)]
+    struct FixtureStation {
+        events: std::sync::Mutex<Vec<StationEvent>>,
+        batches: std::sync::Mutex<VecDeque<Vec<Track>>>,
+        asked: std::sync::Mutex<Vec<Option<String>>>,
+    }
+    impl Station for FixtureStation {
+        fn next(&self, after: Option<String>) -> Reply<'_, Vec<Track>> {
+            self.asked.lock().unwrap().push(after);
+            let batch = self.batches.lock().unwrap().pop_front().unwrap_or_default();
+            Box::pin(async move { Ok(batch) })
+        }
+        fn feedback(&self, event: StationEvent) -> Reply<'_, ()> {
+            self.events.lock().unwrap().push(event);
+            Box::pin(async { Ok(()) })
+        }
+    }
+    async fn until(playback: &Arc<Playback>, check: impl Fn(&State) -> bool) -> State {
+        tokio::time::timeout(std::time::Duration::from_secs(20), async {
+            loop {
+                let state = playback.state().await;
+                if check(&state) {
+                    break state;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("state reached")
+    }
+    /// A station session refills before its window runs out, keeps playing
+    /// across batches, reports confirmed starts, natural ends and skips, and
+    /// ends cleanly once the station has nothing more.
+    #[tokio::test]
+    async fn a_station_refills_continues_and_reports_feedback() {
+        use std::os::unix::fs::DirBuilderExt;
+        let directory = std::env::temp_dir().join(format!(
+            "am-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let playback = Playback::new(
+            Player::new(&directory, ending_player(&directory)).unwrap(),
+            Arc::new(FixtureResolver),
+        );
+        let station = Arc::new(FixtureStation::default());
+        station
+            .batches
+            .lock()
+            .unwrap()
+            .extend([vec![track("s2"), track("s3")], vec![track("s4")]]);
+        let state = playback
+            .play_station("wave".into(), vec![track("s1")], station.clone())
+            .await
+            .unwrap();
+        assert!(state.continuous);
+        // It plays through both batches by itself, then ends.
+        let ended = until(&playback, |s| {
+            s.playback == "ended" && s.current.as_ref().is_some_and(|c| c.track.id == "s4")
+        })
+        .await;
+        assert!(ended.continuous);
+        let state = until(&playback, |s| s.refill == "exhausted").await;
+        assert!(!state.actions.contains(&"remove".to_owned()));
+        let events = station.events.lock().unwrap().clone();
+        for id in ["s1", "s2", "s3", "s4"] {
+            assert!(
+                events.contains(&StationEvent::Started(id.into())),
+                "{id}: {events:?}"
+            );
+            assert!(
+                events
+                    .iter()
+                    .any(|e| matches!(e, StationEvent::Finished(t, _) if t == id)),
+                "{id}: {events:?}"
+            );
+        }
+        let asked = station.asked.lock().unwrap().clone();
+        assert_eq!(asked.first(), Some(&Some("s1".into())));
+        playback.stop().await.unwrap();
+        assert!(!playback.state().await.continuous);
+        drop(playback);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    struct RatingResolver(std::sync::Mutex<Vec<(String, bool)>>);
+    impl Resolver for RatingResolver {
+        fn resolve(&self, _id: String) -> Reply<'_, Source> {
+            Box::pin(async { Ok(Source::File(std::fs::File::open("/dev/null").unwrap())) })
+        }
+        fn rates(&self) -> bool {
+            true
+        }
+        fn rate(&self, id: String, like: bool) -> Reply<'_, ()> {
+            self.0.lock().unwrap().push((id, like));
+            Box::pin(async { Ok(()) })
+        }
+    }
+    /// Like records the current track; dislike records it and moves on,
+    /// reporting a skip to the station.
+    #[tokio::test]
+    async fn like_and_dislike_reach_the_service_and_dislike_moves_on() {
+        use std::os::unix::fs::DirBuilderExt;
+        let directory = std::env::temp_dir().join(format!(
+            "am-{}",
+            &uuid::Uuid::new_v4().simple().to_string()[..8]
+        ));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let resolver = Arc::new(RatingResolver(Default::default()));
+        let playback = Playback::new(
+            Player::new(&directory, directory.join("missing-player")).unwrap(),
+            resolver.clone(),
+        );
+        let station = Arc::new(FixtureStation::default());
+        let state = playback
+            .play_station(
+                "wave".into(),
+                vec![track("a"), track("b"), track("c"), track("d")],
+                station.clone(),
+            )
+            .await
+            .unwrap();
+        assert!(state.actions.contains(&"like".to_owned()));
+        let command = |action: &str| Command {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            action: action.into(),
+            session: state.session.clone(),
+            entity: String::new(),
+            occurrence: String::new(),
+            position_us: 0,
+            replaces_provider: String::new(),
+            replaces_session: String::new(),
+        };
+        playback.command(&command("like")).await.unwrap();
+        let after = playback.command(&command("dislike")).await.unwrap();
+        assert_eq!(after.current.unwrap().track.id, "b");
+        assert_eq!(
+            *resolver.0.lock().unwrap(),
+            [("a".to_owned(), true), ("a".to_owned(), false)]
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            station
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| matches!(e, StationEvent::Skipped(t, _) if t == "a"))
+        );
+        drop(playback);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     struct FixtureResolver;
     impl Resolver for FixtureResolver {

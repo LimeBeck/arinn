@@ -1,0 +1,3 @@
+- Fix in-process provider supervisor start-limit accounting so each restart counts once (Closes [#602](https://github.com/LimeBeck/arinn/issues/602); start budget fixed on master in [#699](https://github.com/LimeBeck/arinn/pull/699)).
+- Forward supervised provider stderr to the daemon stream instead of discarding it (Closes [#603](https://github.com/LimeBeck/arinn/issues/603)).
+- Handle SIGTERM in the daemon shutdown path, not only SIGINT, and emit a JSON `shutdown` log line like `ready` (Closes [#604](https://github.com/LimeBeck/arinn/issues/604)).

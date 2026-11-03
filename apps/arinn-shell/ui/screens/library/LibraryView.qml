@@ -1308,7 +1308,9 @@ FocusScope {
                     text: root.detailEntry ? (root.detailEntry.title || "") : ""
                     // 104 on up to two lines, 80 on up to three (ADR-0136).
                     fitSteps: [[104, 2], [80, 3]]
-                    lineHeight: 1.06
+                    // Every line 1.07 em high (Ysabeau's own spacing is 1.34 em).
+                    lineHeightMode: Text.FixedHeight
+                    lineHeight: Math.round(font.pixelSize * 1.07)
                     elide: Text.ElideRight
                 }
                 Ui.UiText {

@@ -830,10 +830,13 @@ FocusScope {
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
                 // A fixed hero box: the title fits in steps (96 on one line,
-                // 68 on two) so nothing below it moves (ADR-0136).
+                // 68 on two) so nothing below it moves (ADR-0136). Lines are 1.07 em
+                // apart; Qt keeps the last line at Ysabeau's own 1.34 em, whose
+                // descent space is the gap to the meta line. Two lines at 68 and
+                // the meta line end above the Continue row (test_hero_long_title_…).
                 Column {
                     objectName: "heroBox"
-                    x: 120; y: 120; width: 1300; height: 240; spacing: 10
+                    x: 120; y: 128; width: 1300; height: 244; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
                     Row {
                         spacing: 12
@@ -845,7 +848,7 @@ FocusScope {
                         }
                         UiText { objectName: "heroEyebrow"; role: "eyebrow"; text: root.hero.eyebrow; color: Theme.textSecondary }
                     }
-                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; fitSteps: [[96, 1], [68, 2]]; lineHeight: 1.08; elide: Text.ElideRight }
+                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; fitSteps: [[96, 1], [68, 2]]; lineHeightMode: Text.FixedHeight; lineHeight: Math.round(font.pixelSize * 1.07); elide: Text.ElideRight }
                     UiText { objectName: "heroMeta"; width: parent.width; role: "meta"; font.pixelSize: 28; text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
                 }
                 HomeRow {

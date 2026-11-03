@@ -676,6 +676,26 @@ TestCase {
         compare(child("entry-x").subtitle, "");
     }
     // #364: the hero describes the focused item and what OK does.
+    // #722, ADR-0136: a long title moves to the two-line step and the hero
+    // box, meta line included, stays above the Continue row.
+    function test_hero_long_title_fits_above_continue() {
+        home.continueEntries = [
+            {id: "short", title: "Film", kind: "media", positionUs: 0, durationUs: 2220e6},
+            {id: "long", title: "A journey to the far edge of a long night and all the way back home again", kind: "media", positionUs: 0, durationUs: 2220e6}
+        ];
+        child("entry-short").forceActiveFocus(); focused("entry-short");
+        tryCompare(child("heroTitle"), "fitStep", 0);
+        compare(child("heroTitle").font.pixelSize, 96);
+        compare(child("heroTitle").font.family, Ui.Theme.contentFontFamily);
+        keyClick(Qt.Key_Right); focused("entry-long");
+        tryCompare(child("heroTitle"), "fitStep", 1);
+        compare(child("heroTitle").font.pixelSize, 68);
+        const meta = child("heroMeta");
+        const bottom = meta.mapToItem(home, 0, meta.height).y;
+        const rowTop = child("continue").mapToItem(home, 0, 0).y;
+        verify(bottom <= rowTop, "hero bottom " + bottom + " is above the Continue row at " + rowTop);
+    }
+
     function test_hero_describes_the_focused_item() {
         home.continueEntries = [
             {id: "a", title: "Player", running: true},

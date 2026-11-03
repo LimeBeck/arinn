@@ -5,6 +5,13 @@
 // MusicCatalog against a scripted daemon on the session bus (ADR-0134).
 // Synthetic providers and tracks only.
 #include "music_catalog.h"
+#include <QFile>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQmlPropertyMap>
+#include <QRegularExpression>
+#include <memory>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -170,6 +177,39 @@ private slots:
     QTRY_COMPARE(catalog.state().value("account").toString(),QStringLiteral("connected"));
     const auto before=daemon.commands.size();catalog.command(QStringLiteral("radio"),QStringLiteral("station:wave"));
     QTRY_COMPARE(daemon.commands.size(),before+1);QCOMPARE(daemon.commands.last(),QStringLiteral("radio"));
+  }
+  void nativeMusicControlsTheProductionInterfaceSoundBinding() {
+    daemon.providers={{"local","Fixture music","g1"}};
+    daemon.states.insert("local",state({"tracks"}));
+    MusicCatalog catalog;
+    QQmlEngine engine;
+    QQmlPropertyMap media, browser, player;
+    media.insert("continueEntries",QVariantList{});browser.insert("tabs",QVariantList{});player.insert("playing",false);
+    engine.rootContext()->setContextProperty("musicCatalog",&catalog);
+    engine.rootContext()->setContextProperty("mediaCatalog",&media);
+    engine.rootContext()->setContextProperty("browserCatalog",&browser);
+    engine.rootContext()->setContextProperty("playerView",&player);
+    engine.rootContext()->setContextProperty("playerOpen",false);
+    QQmlComponent ambient(&engine);
+    ambient.setData("import QtQml\nQtObject { function playing(media,browser,localPlayer) {return false;} }",QUrl());
+    std::unique_ptr<QObject> idle(ambient.create());QVERIFY2(idle!=nullptr,qPrintable(ambient.errorString()));
+    engine.rootContext()->setContextProperty("ambientIdle",idle.get());
+    QFile main(QString::fromUtf8(ARINN_MAIN_QML));QVERIFY(main.open(QIODevice::ReadOnly));
+    const QRegularExpression pattern(QStringLiteral(R"(readonly property bool interfaceMediaActive:\s*([\s\S]*?)\n\s*Binding\s*\{)"));
+    const auto binding=pattern.match(QString::fromUtf8(main.readAll()));QVERIFY(binding.hasMatch());
+    QQmlComponent component(&engine);
+    component.setData(("import QtQml\nQtObject { readonly property bool mediaActive: "+binding.captured(1)+"\n}").toUtf8(),QUrl());
+    std::unique_ptr<QObject> policy(component.create());QVERIFY2(policy!=nullptr,qPrintable(component.errorString()));
+    QVERIFY(!policy->property("mediaActive").toBool());
+    auto publish=[&](const QString &playback) {
+      auto current=state({"tracks"});current["playback"]=playback;current["session"]="fixture-session";
+      daemon.active=QString::fromUtf8(QJsonDocument(QJsonObject{{"provider_id","local"},{"generation","g1"},{"state",current}}).toJson(QJsonDocument::Compact));
+      catalog.refresh();
+    };
+    publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
+    publish("paused");QTRY_VERIFY(!policy->property("mediaActive").toBool());
+    publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
+    daemon.active="null";catalog.refresh();QTRY_VERIFY(!policy->property("mediaActive").toBool());
   }
   // The Home card names the source of the active session.
   void theHomeCardNamesTheActiveSource() {

@@ -795,6 +795,7 @@ Window {
     readonly property bool interfaceMediaActive:
         ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs, false)
         || (playerOpen && playerView.playing)
+        || musicCatalog.activeState.playback === "playing"
     Binding {
         target: interfaceSounds
         property: "mediaActive"

@@ -50,7 +50,9 @@ Secret Service as a unique unlocked `text/plain` item with attributes
 `application=arinn-yandex-client` and `client-id=<public ID>`. Never paste the
 secret or a user access token into chat, settings, environment files or the
 repository. An absent optional application-secret item permits a public client;
-locked or ambiguous matching items fail closed. Missing Secret Service does not
+locked or ambiguous matching items fail closed. Invalid client configuration or
+approval state is projected as an unavailable source without discarding the
+journal or aborting provider registration. Missing Secret Service does not
 prevent the provider starting, but account credential persistence still requires
 it. Approval records and a stable nonsecret device ID use provider-private state;
 user tokens use Secret Service only.

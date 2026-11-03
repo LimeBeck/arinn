@@ -71,6 +71,24 @@ impl<S: CredentialStore + 'static> Service<S> {
             })),
         }
     }
+    fn from_initialization(auth: Result<Option<Arc<DeviceAuth<S>>>, ErrorCode>) -> Self {
+        match auth {
+            Ok(auth) => Self::new(auth),
+            Err(error) => Self {
+                account: Arc::new(Mutex::new(Account {
+                    epoch: 0,
+                    prompt_deadline: None,
+                    state: State {
+                        backend: "unavailable".into(),
+                        account: "unconfigured".into(),
+                        error: Some(error),
+                        ..State::default()
+                    },
+                })),
+                ..Self::new(None)
+            },
+        }
+    }
     fn runtime(mut self, runtime: Arc<crate::runtime::Runtime>) -> Self {
         self.runtime = Some(runtime);
         self
@@ -370,7 +388,8 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     // separately qualified provisioning before being supported here.
     let client_id =
         Some(std::env::var("ARINN_YANDEX_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.into()))
-            .filter(|s| !s.trim().is_empty());
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty());
     let bus = connection.clone();
     let auth = tokio::task::spawn_blocking(move || {
         let Some(client_id) = client_id else {
@@ -400,7 +419,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
             .map_err(normalize)
     })
     .await
-    .map_err(|_| ErrorCode::Internal)??;
+    .map_err(|_| ErrorCode::Internal)?;
     let directory = paths::provider_state(
         &std::env::var("ARINN_PROVIDER_ID").map_err(|_| ErrorCode::InvalidArgument)?,
     )?;
@@ -410,7 +429,7 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         std::path::PathBuf::from("mpv"),
     )?;
     let runtime = crate::runtime::Runtime::new(player, pins)?;
-    let handler = Service::new(auth).runtime(runtime);
+    let handler = Service::from_initialization(auth).runtime(runtime);
     let restore_start = handler.auth.as_ref().map(|auth| auth.prepare());
     let restore = handler.clone();
     tokio::spawn(async move {
@@ -495,5 +514,25 @@ mod tests {
         let state = service.snapshot().await;
         assert_eq!(state.account, "disconnected");
         mock.finish();
+    }
+    #[tokio::test]
+    async fn invalid_client_configuration_projects_an_unavailable_source() {
+        use crate::auth::tests::MemoryStore;
+        let init = DeviceAuth::new(
+            "invalid client",
+            None,
+            "synthetic-device",
+            MemoryStore::default(),
+        )
+        .map(|auth| Some(Arc::new(auth)))
+        .map_err(normalize);
+        let service = Service::from_initialization(init);
+        let state = service.snapshot().await;
+        assert_eq!(state.backend, "unavailable");
+        assert_eq!(state.account, "unconfigured");
+        assert!(state.actions.is_empty());
+        assert!(state.error.is_some());
+        assert!(state.validate().is_ok());
+        assert_eq!(service.connect().await, Err(ErrorCode::Unsupported));
     }
 }

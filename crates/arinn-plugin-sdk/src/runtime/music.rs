@@ -47,9 +47,9 @@ struct Lease {
 /// A lease lives this long after it is issued; each continuation gets its
 /// own full period, so slow paging does not fail 30 s after page one.
 const LEASE: Duration = Duration::from_secs(30);
-/// The longest a handler command or reset may take. The daemon gives up
-/// after 5 s; this only bounds a handler that never returns.
-const HANDLER: Duration = Duration::from_secs(10);
+/// Bound reset cleanup. Commands retain ownership until a terminal receipt;
+/// a transport deadline must not cancel a possible committed mutation.
+const RESET_LIMIT: Duration = Duration::from_secs(10);
 /// Retained snapshot and cached page data across all leases.
 const RETAINED: usize = 16 * 1024 * 1024;
 struct MusicData {
@@ -370,7 +370,7 @@ impl Endpoint for MusicService {
     }
     async fn clear(&self) {
         let _serial = self.serial.lock().await;
-        let _ = tokio::time::timeout(HANDLER, self.handler.reset()).await;
+        let _ = tokio::time::timeout(RESET_LIMIT, self.handler.reset()).await;
         let mut d = self.data.lock().await;
         d.generation.clear();
         d.owner.clear();

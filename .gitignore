@@ -8,3 +8,4 @@ __pycache__/
 packaging/debian/*.deb
 packaging/debian/*.buildinfo
 packaging/debian/private-systemd
+packaging/debian/arinn-xfce-test-screensaver

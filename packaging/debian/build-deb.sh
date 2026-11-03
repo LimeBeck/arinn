@@ -42,3 +42,5 @@ target_dir="${CARGO_TARGET_DIR:-${work}/arinn-${version}/target}"
 if [ -f "${target_dir}/release/examples/private-systemd" ]; then
   cp "${target_dir}/release/examples/private-systemd" "$root/packaging/debian/private-systemd"
 fi
+# Required: the Debian smoke job has no Cargo tree (#749).
+cp "${target_dir}/release/arinn-xfce-test-screensaver" "$root/packaging/debian/arinn-xfce-test-screensaver"

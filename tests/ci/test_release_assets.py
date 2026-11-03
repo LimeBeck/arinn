@@ -37,7 +37,7 @@ class ReleaseAssetsTest(unittest.TestCase):
         )
 
     def test_mixed_ci_artifact_excludes_helpers_and_old_checksums(self):
-        for name in ("private-systemd", "README", "SHA256SUMS", "other.tar.gz", "other.deb"):
+        for name in ("private-systemd", "arinn-xfce-test-screensaver", "README", "SHA256SUMS", "other.tar.gz", "other.deb"):
             (self.source / name).write_text("internal CI fixture")
         result = self.stage("--require-debian")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -45,6 +45,7 @@ class ReleaseAssetsTest(unittest.TestCase):
         for name in self.products:
             self.assertEqual((self.output / name).read_bytes(), (self.source / name).read_bytes())
         self.assertTrue((self.source / "private-systemd").exists())
+        self.assertTrue((self.source / "arinn-xfce-test-screensaver").exists())
 
     def test_snapshot_does_not_require_debian(self):
         (self.source / "arinn_0.2.0-1_amd64.deb").unlink()

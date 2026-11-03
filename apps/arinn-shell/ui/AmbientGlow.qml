@@ -18,11 +18,8 @@ import QtQuick.Window
 //   ceiling black at 50% across the top 44% of the height
 //   veil    rgb(12 7 2) at 6% in the evening and 22% at night
 //
-// Night text is text-1 oklch(0.97 …), text-2 0.84, text-3 0.75 (the issue's
-// "text-1 oklch(0.84 …)" is that text-2; the brief's 0.71 misses 4.5:1 on
-// the brightest floor pixel). Evening hints are text-3 0.80; titles stay
-// the day colours. Theme paints these when this light publishes the period.
-// The oklch numbers stay on Theme, not in a token.
+// Night text is not painted here. Its colours and the night contrast
+// belong to the token task (#722).
 Item {
     id: root
     clip: true
@@ -34,7 +31,7 @@ Item {
     // Light field (Settings › Appearance › Light field). Off fades the
     // ceiling, the floor and the pool. The screen is then flat.
     property bool lit: true
-    // 1 on Home, 0.8 on Applications, 0.6 in the Library, 0.5 on a detail.
+    // 1 on Home, 0.6 on Applications and in the Library, 0.5 on a detail.
     property real strength: 1
     // Settings › Appearance › Light follows the time of day. Off keeps day.
     property bool followsTime: true
@@ -72,12 +69,8 @@ Item {
     readonly property real poolLightness: 0.50
     readonly property real poolChromaWarm: 0.10
     readonly property real poolChromaCool: 0.065
-    readonly property color nightText1: Theme.nightText1
-    readonly property color nightText2: Theme.nightText2
-    readonly property color nightText3: Theme.nightText3
 
-    // The shell's text reads the same period. Publishing keeps one clock
-    // when several hosts of this light are alive; they share the shell clock.
+    // Publishing keeps one period when several hosts of this light are alive.
     function publishClock() {
         Theme.followsTime = followsTime;
         Theme.clockText = clockText;
@@ -123,8 +116,7 @@ Item {
     }
     // Ceiling, floor and pool composited over the screen background. The pool
     // is taken under `poolAtX`. Same stops the canvases paint, in sRGB
-    // source-over. The warm veil is not in this colour; it is applied by
-    // textContrastAt, over both the text and this pixel.
+    // source-over. The warm veil is not in this colour; it darkens further.
     function litColorAt(x, y, poolAtX, hueDegrees) {
         if (width < 2 || height < 2)
             return Theme.background;
@@ -154,12 +146,6 @@ Item {
     function lightnessAt(x, y, poolAtX, hueDegrees) {
         return toOklch(litColorAt(x, y, poolAtX, hueDegrees)).l;
     }
-    // WCAG contrast of `textColor` against the lit pixel, after the period's
-    // veil covers both. Hue 55° is the warm, brightest pool.
-    function textContrastAt(textColor, x, y, poolAtX, hueDegrees) {
-        const bg = litColorAt(x, y, poolAtX, hueDegrees);
-        return Theme.contrast(Theme.veilOver(textColor, veilAmount), Theme.veilOver(bg, veilAmount));
-    }
     // The brightest point of the field in daytime. The pool is placed under
     // each sample, which is the brightest it can sit there, at hue 55° (the
     // warm case; other hues composite no brighter).
@@ -175,21 +161,6 @@ Item {
             }
         }
         return {l: best, x: bx, y: by, period: day};
-    }
-    // Lowest contrast of `textColor` on that same field. The minimum is the
-    // brightest lit pixel: the pool sits under the sample, at hue 55°.
-    function weakestTextContrast(textColor) {
-        let worst = 99, bx = 0, by = 0;
-        const color = textColor === undefined ? Theme.textHint : textColor;
-        for (let iy = 0; iy <= 40; ++iy) {
-            const y = height * iy / 40;
-            for (let ix = 0; ix <= 20; ++ix) {
-                const x = width * ix / 20;
-                const c = textContrastAt(color, x, y, x, floorHueDay);
-                if (c < worst) { worst = c; bx = x; by = y; }
-            }
-        }
-        return {contrast: worst, x: bx, y: by};
     }
 
     function toOklch(color) { return Theme.toOklch(color); }
@@ -442,8 +413,8 @@ Item {
     }
 
     // Warm veil over the screen that hosts this light, including its text and
-    // artwork. Settings and Downloads do not host it, so they have no veil.
-    // The player does not host it either: video stays uncovered (brief).
+    // artwork. Settings and Downloads host one with the floor and the pool
+    // off. The player does not: video stays uncovered.
     Rectangle {
         id: veil
         objectName: "hearthVeil"

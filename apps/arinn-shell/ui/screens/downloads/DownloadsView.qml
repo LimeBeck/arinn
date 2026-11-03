@@ -33,6 +33,11 @@ FocusScope {
     // view stays visible and enabled under Home's navigation menu, so data
     // updates must not take focus then (#608). Main.qml binds it.
     property bool ownsFocus: true
+    // Time-of-day veil only. The floor and the pool stay off on this system
+    // screen. The veil follows the shell clock and is not removed here
+    // (owner decision on #732).
+    property bool lightFollowsTime: true
+    property string clockText: ""
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property bool queueVisible: viewState === "populated" && jobCount > 0
     readonly property bool loadingVisible: viewState === "loading"
@@ -368,6 +373,16 @@ FocusScope {
     Keys.onPressed: event => root.acceptKey(event)
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
+    // Veil above the queue and the toast (z 10). No floor and no pool.
+    Ui.AmbientGlow {
+        objectName: "downloadsVeilGlow"
+        anchors.fill: parent
+        veilParent: root
+        veilZ: 40
+        lit: false
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Item {

@@ -1042,6 +1042,8 @@ Window {
             homeFolder: typeof shellHomeFolder === "string" ? shellHomeFolder : ""
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             onDismissRequested: home.back()
             onHomeRequested: root.goHomeFrom("settings")
             onRetryRequested: settingsCatalog.refresh()
@@ -1091,6 +1093,8 @@ Window {
             enabled: visible
             z: 4
             autoToast: false
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             viewState: downloadCatalog.downloadsState
             jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
             onPauseRequested: id => downloadCatalog.request(id, "pause")

@@ -901,7 +901,7 @@ TestCase {
                 wait(0);
             }
             // Day unless this scene's own light publishes another clock.
-            // A night scene must not leave the next screen's text raised.
+            // A night scene must not leave the next screen's light on night.
             Ui.Theme.followsTime = true;
             Ui.Theme.hour = -1;
             Ui.Theme.clockText = "12:00";

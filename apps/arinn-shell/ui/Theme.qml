@@ -8,25 +8,13 @@ QtObject {
     readonly property color background: "#131416"
     readonly property color plate: Qt.rgba(1, 1, 1, 0.06)
     readonly property color plateFocus: Qt.rgba(1, 1, 1, 0.20)
-    // Daytime handoff colours. Night replaces them; the numbers stay here
-    // until the token task (#722) owns them. The hearth light publishes the
-    // clock below, and every text binding reads the result.
-    readonly property color dayText1: "#F4F5F7"
-    readonly property color dayText2: "#C9CBCF"
-    readonly property color dayText3: "#9A9DA3"
-    // Brief night text. The issue's "text-1 oklch(0.84 …)" is text-2.
-    // Text-3 in the brief is 0.71, about 4.8:1 on the flat background under
-    // the 22% veil and about 4.06:1 where the floor and the pool are
-    // brightest. 0.75 keeps that point at or above 4.5:1. Evening does not
-    // raise titles; its hints move to 0.80, because day text-3 is about
-    // 3.35:1 on that same point under the 6% veil.
-    readonly property color nightText1: oklch(0.97, 0.006, 75, 1)
-    readonly property color nightText2: oklch(0.84, 0.008, 75, 1)
-    readonly property color nightText3: oklch(0.75, 0.008, 75, 1)
-    readonly property color eveningText3: oklch(0.80, 0.008, 75, 1)
-    // Written by the hearth light from the shell clock. Empty clock and
-    // hour < 0 are daytime, so a screen with no clock yet is not tied to
-    // the wall clock.
+    readonly property color textPrimary: "#F4F5F7"
+    readonly property color textSecondary: "#C9CBCF"
+    readonly property color textHint: "#9A9DA3"
+    // Written by the hearth light from the shell clock, so every host shares
+    // one period. Text colours do not follow it; night text is #722.
+    // Empty clock and hour < 0 are daytime, so a screen with no clock yet
+    // is not tied to the wall clock.
     property bool followsTime: true
     property string clockText: ""
     property int hour: -1
@@ -52,9 +40,6 @@ QtObject {
             return "night";
         return "day";
     }
-    readonly property color textPrimary: period === "night" ? nightText1 : dayText1
-    readonly property color textSecondary: period === "night" ? nightText2 : dayText2
-    readonly property color textHint: period === "night" ? nightText3 : period === "evening" ? eveningText3 : dayText3
     readonly property color ink: "#131417"
     readonly property color ember: "#FF8A3D"
     readonly property color error: "#E8474F"
@@ -86,8 +71,7 @@ QtObject {
     // Stable generic colour for an identity without artwork or a logo. The
     // identity is opaque: no product names, only a hash of the string.
     readonly property var identityColors: ["#536fa6", "#487b69", "#80649c", "#9a625f", "#857541", "#477f8c"]
-    // OKLCH -> sRGB. Shared with the hearth light so the pool and the night
-    // text use one conversion.
+    // OKLCH -> sRGB. Shared with the hearth light so the pool uses one conversion.
     function oklch(lightness, chroma, hueDegrees, alpha) {
         const rad = hueDegrees * Math.PI / 180;
         const a = chroma * Math.cos(rad), b = chroma * Math.sin(rad);
@@ -114,27 +98,6 @@ QtObject {
         const okB = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
         const h = Math.atan2(okB, okA) * 180 / Math.PI;
         return {l: okL, c: Math.sqrt(okA * okA + okB * okB), h: h < 0 ? h + 360 : h};
-    }
-    function relativeLuminance(color) {
-        const lin = v => v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        return 0.2126 * lin(color.r) + 0.7152 * lin(color.g) + 0.0722 * lin(color.b);
-    }
-    // The warm veil, rgb(12 7 2), in sRGB source-over. Same paint as the light.
-    function veilOver(color, veilAlpha) {
-        const veil = Qt.rgba(12 / 255, 7 / 255, 2 / 255, 1);
-        return Qt.rgba(veil.r * veilAlpha + color.r * (1 - veilAlpha),
-                       veil.g * veilAlpha + color.g * (1 - veilAlpha),
-                       veil.b * veilAlpha + color.b * (1 - veilAlpha), 1);
-    }
-    // WCAG contrast of two opaque colours.
-    function contrast(a, b) {
-        const lighter = Math.max(relativeLuminance(a), relativeLuminance(b));
-        const darker = Math.min(relativeLuminance(a), relativeLuminance(b));
-        return (lighter + 0.05) / (darker + 0.05);
-    }
-    // Contrast after the veil is composited over the text and the flat background.
-    function veiledContrast(textColor, veilAlpha) {
-        return contrast(veilOver(textColor, veilAlpha), veilOver(background, veilAlpha));
     }
     function identityColor(identity) {
         const text = String(identity || "");

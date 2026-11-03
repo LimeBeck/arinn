@@ -4,6 +4,9 @@
 import QtQuick
 import QtTest
 import "../../../apps/arinn-shell/ui" as Ui
+import "../../../apps/arinn-shell/ui/screens/settings" as Settings
+import "../../../apps/arinn-shell/ui/screens/downloads" as Downloads
+import "../../../apps/arinn-shell/ui/screens/player" as Player
 
 // Own process from ui-components (#733): that suite aborts on
 // keyClick(Qt.Key_MediaPause) in tst_home.qml, so a later case in the same
@@ -15,6 +18,18 @@ TestCase {
     visible: true
     when: windowShown
     property var home
+    Component {
+        id: settingsFactory
+        Settings.SettingsView { width: 1920; height: 1080 }
+    }
+    Component {
+        id: downloadsFactory
+        Downloads.DownloadsView { width: 1920; height: 1080 }
+    }
+    Component {
+        id: playerFactory
+        Player.PlayerView { width: 1920; height: 1080 }
+    }
     Component {
         id: factory
         Ui.HomeView {
@@ -52,10 +67,6 @@ TestCase {
         Ui.Theme.followsTime = true;
         Ui.Theme.hour = -1;
         Ui.Theme.clockText = "12:00";
-    }
-    function near(a, b) {
-        return Math.abs(a.r - b.r) < 0.004 && Math.abs(a.g - b.g) < 0.004
-            && Math.abs(a.b - b.b) < 0.004 && Math.abs(a.a - b.a) < 0.004;
     }
 
     // #368: the light field takes the artwork's hue, or the identity hue.
@@ -162,53 +173,54 @@ TestCase {
         home.lightFollowsTime = true;
         compare(glow.period, "night");
         verify(child("hearthVeil").visible);
-        compare(glow.nightText2, Ui.Theme.nightText2);
+        home.screen = "applications";
+        compare(glow.strength, 0.6);
+        home.screen = "home";
+        compare(glow.strength, 1);
     }
-    // Weakest text, with the veil, at the brightest point of the light
-    // (bottom centre, pool under the sample, hue 55°). Night text-3 and
-    // evening hints must hold at least 4.5:1. The brief's 0.71 and the day
-    // hint do not, which is why those two colours are lighter.
-    function test_night_and_evening_text_holds_contrast() {
-        const glow = child("ambientGlow");
-        home.clockText = "23:30";
-        compare(glow.period, "night");
-        compare(Ui.Theme.period, "night");
-        compare(Ui.Theme.textPrimary, glow.oklch(0.97, 0.006, 75, 1));
-        compare(Ui.Theme.textSecondary, glow.oklch(0.84, 0.008, 75, 1));
-        compare(Ui.Theme.textHint, glow.oklch(0.75, 0.008, 75, 1));
-        compare(Ui.Theme.textHint, Ui.Theme.nightText3);
-        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
-        verify(near(child("heroMeta").color, Ui.Theme.textSecondary), child("heroMeta").color);
-        const flat = Ui.Theme.veiledContrast(Ui.Theme.textHint, glow.veilAmount);
-        verify(flat >= 4.7, "night text-3 on the flat background " + flat);
-        const night = glow.weakestTextContrast(Ui.Theme.textHint);
-        const brief = glow.weakestTextContrast(glow.oklch(0.71, 0.008, 75, 1));
-        verify(night.y > glow.height * 0.9, "brightest point y " + night.y);
-        verify(night.contrast >= 4.5, "night text-3 at the brightest light " + night.contrast);
-        verify(brief.contrast < 4.5, "brief text-3 0.71 at that point " + brief.contrast);
-        console.log("night text-3 at the brightest light " + night.contrast.toFixed(2)
-                    + ":1 (brief 0.71 is " + brief.contrast.toFixed(2) + ":1, flat background "
-                    + flat.toFixed(2) + ":1)");
+    // The warm veil stays on Settings and Downloads. The floor and the pool
+    // stay off. The player has no veil (owner decision on #732).
+    function test_veil_covers_settings_and_downloads() {
+        const settings = createTemporaryObject(settingsFactory, suite, {clockText: "12:00", lightFollowsTime: true});
+        verify(settings);
+        const settingsGlow = findChild(settings, "settingsVeilGlow");
+        const settingsVeil = findChild(settings, "hearthVeil");
+        verify(settingsGlow);
+        verify(settingsVeil);
+        verify(!settingsGlow.lit);
+        compare(settingsGlow.veilAmount, 0);
+        verify(!settingsVeil.visible);
+        settings.clockText = "20:30";
+        compare(settingsGlow.period, "evening");
+        compare(settingsGlow.veilAmount, 0.06);
+        verify(settingsVeil.visible);
+        settings.clockText = "23:30";
+        compare(settingsGlow.period, "night");
+        compare(settingsGlow.veilAmount, 0.22);
+        verify(settingsVeil.visible);
+        settings.lightFollowsTime = false;
+        compare(settingsGlow.period, "day");
+        verify(!settingsVeil.visible);
+        settings.destroy();
 
-        home.clockText = "20:30";
-        compare(glow.period, "evening");
-        verify(near(Ui.Theme.textPrimary, Qt.color("#F4F5F7")), Ui.Theme.textPrimary);
-        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
-        compare(Ui.Theme.textHint, Ui.Theme.eveningText3);
-        compare(Ui.Theme.textHint, glow.oklch(0.80, 0.008, 75, 1));
-        const evening = glow.weakestTextContrast(Ui.Theme.textHint);
-        const dayHint = glow.weakestTextContrast(Qt.color("#9A9DA3"));
-        verify(evening.y > glow.height * 0.9, "evening brightest y " + evening.y);
-        verify(evening.contrast >= 4.5, "evening hint at the brightest light " + evening.contrast);
-        verify(dayHint.contrast < 4.5, "day hint at that point " + dayHint.contrast);
-        console.log("evening hint at the brightest light " + evening.contrast.toFixed(2)
-                    + ":1 (day hint is " + dayHint.contrast.toFixed(2) + ":1)");
+        const downloads = createTemporaryObject(downloadsFactory, suite, {clockText: "23:30", lightFollowsTime: true});
+        verify(downloads);
+        const downloadsGlow = findChild(downloads, "downloadsVeilGlow");
+        const downloadsVeil = findChild(downloads, "hearthVeil");
+        verify(downloadsGlow && !downloadsGlow.lit);
+        verify(downloadsVeil && downloadsVeil.visible);
+        compare(downloadsGlow.veilAmount, 0.22);
+        downloads.clockText = "12:00";
+        compare(downloadsGlow.period, "day");
+        verify(!downloadsVeil.visible);
+        downloads.destroy();
 
-        home.clockText = "12:00";
-        compare(glow.period, "day");
-        verify(near(Ui.Theme.textPrimary, Qt.color("#F4F5F7")), Ui.Theme.textPrimary);
-        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
-        verify(near(Ui.Theme.textHint, Qt.color("#9A9DA3")), Ui.Theme.textHint);
+        const player = createTemporaryObject(playerFactory, suite, {width: 1920, height: 1080, clockText: "23:30"});
+        verify(player);
+        verify(findChild(player, "hearthVeil") === null);
+        verify(findChild(player, "settingsVeilGlow") === null);
+        verify(findChild(player, "downloadsVeilGlow") === null);
+        player.destroy();
     }
     // Handoff rule: light under text stays at or below L 0.48. Measured by
     // compositing the same gradient stops the small canvases paint, in sRGB

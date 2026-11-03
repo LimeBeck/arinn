@@ -6,29 +6,95 @@ import QtQuick
 Surface {
     id: root
     shapeRole: "object"
+    // Home favourites: a name on a shelf, a provider icon in a neutral chip,
+    // and no letter (ADR-0136 D-3, D-10). Applications: the same object tile
+    // with identity light from below (D-9).
+    property bool shelf: false
+    property bool identityLight: false
     property string monogram: text.trim().slice(0, 1).toUpperCase()
     property url iconSource: ""
     readonly property bool iconReady: iconFrame.pixelsReady
+    readonly property bool shelfHasChip: shelf && iconSource.toString().length > 0
     onIconSourceChanged: if (iconFrame) iconFrame.syncSource()
     property string subtitle: ""
     property bool running: false
     property bool serviceOpen: false
     property bool unavailable: false
-    implicitWidth: 264
-    implicitHeight: 132
-    // Objects rise from the bottom edge. A container tile (Home favourites)
-    // takes the plate and the rim without that lift.
-    focusScale: shapeRole === "container" ? 1 : Theme.contentFocusScale
-    focusLift: shapeRole === "container" ? 0 : Theme.contentFocusLift
-    liftFromBottom: shapeRole !== "container"
+    implicitWidth: {
+        if (!shelf)
+            return identityLight ? 300 : 264;
+        const textW = Math.min(360, shelfTitle.implicitWidth);
+        const left = shelfHasChip ? 28 + 56 + 18 : 16;
+        const dot = (running || serviceOpen) ? 18 + 12 : 0;
+        return Math.ceil(left + textW + dot + 28);
+    }
+    implicitHeight: shelf ? 88 : identityLight ? 168 : 132
+    // Objects rise from the bottom edge. A container tile takes the plate and
+    // the rim without that lift. The shelf is a container that rises 4 px.
+    focusScale: shelf || shapeRole === "container" ? 1 : Theme.contentFocusScale
+    focusLift: shelf ? -4 : shapeRole === "container" ? 0 : Theme.contentFocusLift
+    liftFromBottom: shelf || shapeRole !== "container"
     cornerRadius: shapeRole === "container" ? Theme.containerRadius : Theme.objectRadius
-    opacity: !enabled || unavailable ? 0.4 : 1
+    // A shelf name recedes with its row. The container shade would draw a
+    // rounded plate under that name; at rest there is none (ADR-0136 D-3).
+    opacity: !enabled || unavailable ? 0.4 : shelf ? rowBrightness : 1
+    Component.onCompleted: {
+        if (!shelf)
+            return;
+        for (let i = 0; i < children.length; ++i)
+            if (children[i].objectName === "rowShade")
+                children[i].opacity = 0;
+    }
     contentItem: Item {
+        // Identity light: a radial glow from below the tile, half at rest and
+        // full in focus. The hue is the application's, not a pastel chip.
+        Canvas {
+            id: identityGlow
+            objectName: "identityGlow"
+            anchors.fill: parent
+            visible: root.identityLight
+            opacity: root.activeFocus ? 1 : 0.5
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            onVisibleChanged: requestPaint()
+            onPaint: {
+                const ctx = getContext("2d");
+                ctx.reset();
+                if (width < 1 || height < 1)
+                    return;
+                const c = root.accentColor;
+                const cx = width / 2;
+                const cy = height * 1.28;
+                const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.95);
+                glow.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.8));
+                glow.addColorStop(0.72, Qt.rgba(c.r, c.g, c.b, 0));
+                ctx.beginPath();
+                ctx.roundedRect(0, 0, width, height, root.cornerRadius, root.cornerRadius);
+                ctx.clip();
+                ctx.fillStyle = glow;
+                ctx.fillRect(0, 0, width, height);
+            }
+            Connections {
+                target: root
+                function onAccentColorChanged() { identityGlow.requestPaint(); }
+                function onActiveFocusChanged() { identityGlow.requestPaint(); }
+            }
+        }
         Rectangle {
+            id: chip
             objectName: "applicationChip"
-            x: 24; y: (parent.height - height) / 2
-            width: 60; height: 60; radius: 18
-            color: root.iconReady ? Qt.rgba(1, 1, 1, 0.1) : root.unavailable ? Qt.rgba(1, 1, 1, 0.06) : root.accentColor
+            visible: !root.shelf || root.shelfHasChip
+            x: root.shelf ? 28 : root.identityLight ? 26 : 24
+            y: root.shelf ? (parent.height - height) / 2 : root.identityLight ? 22 : (parent.height - height) / 2
+            width: root.shelf ? 56 : root.identityLight ? 64 : 60
+            height: width
+            radius: root.identityLight || root.shelf ? 16 : 18
+            color: root.iconReady ? Qt.rgba(1, 1, 1, 0.1)
+                    : root.unavailable ? Qt.rgba(1, 1, 1, 0.06)
+                    : (root.shelf || root.identityLight) ? Theme.chip
+                    : root.accentColor
+            border.width: (root.shelf || root.identityLight) && !root.iconReady ? 1 : 0
+            border.color: Theme.chipLine
             Image {
                 id: icon
                 objectName: "applicationIcon"
@@ -89,7 +155,7 @@ Surface {
             }
             UiText {
                 objectName: "applicationFallback"
-                visible: !root.iconReady
+                visible: !root.iconReady && !root.shelf
                 anchors.centerIn: parent
                 text: root.monogram
                 role: "control"
@@ -99,6 +165,7 @@ Surface {
             }
         }
         Column {
+            visible: !root.shelf && !root.identityLight
             x: 100; width: parent.width - 120
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
@@ -106,7 +173,7 @@ Surface {
             // (owner decision 2026-11-01, #656); Text.Wrap breaks a word
             // wider than the column instead of letting it overflow.
             UiText {
-                objectName: "tileTitle"
+                objectName: (!root.shelf && !root.identityLight) ? "tileTitle" : ""
                 width: parent.width
                 role: "control"; font.pixelSize: 26
                 lineHeight: 1.1
@@ -129,9 +196,42 @@ Surface {
                 wrapMode: Text.Wrap
             }
         }
+        UiText {
+            id: shelfTitle
+            visible: root.shelf
+            objectName: root.shelf ? "tileTitle" : ""
+            x: root.shelfHasChip ? 28 + 56 + 18 : 16
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(360, implicitWidth)
+            text: root.busy ? qsTr("Loading…") : root.text
+            role: "control"
+            font.pixelSize: 32
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            wrapMode: Text.NoWrap
+            color: root.unavailable ? Theme.textHint
+                    : root.activeFocus ? Theme.textPrimary : Theme.textSecondary
+        }
+        UiText {
+            visible: root.identityLight && !root.shelf
+            objectName: (root.identityLight && !root.shelf) ? "tileTitle" : ""
+            x: 26
+            width: parent.width - 52
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 18
+            text: root.busy ? qsTr("Loading…") : root.text
+            role: "control"
+            font.pixelSize: 30
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            wrapMode: Text.NoWrap
+            color: root.unavailable ? Theme.textHint : Theme.textPrimary
+        }
         Rectangle {
             objectName: "emberDot"
-            anchors.top: parent.top; anchors.right: parent.right; anchors.margins: 16
+            x: root.shelf ? shelfTitle.x + Math.min(360, shelfTitle.implicitWidth) + 18
+                    : parent.width - width - (root.identityLight ? 24 : 16)
+            y: root.shelf ? (parent.height - height) / 2 : root.identityLight ? 24 : 16
             width: 12; height: 12; radius: 6; color: Theme.ember
             visible: root.running || root.serviceOpen
         }

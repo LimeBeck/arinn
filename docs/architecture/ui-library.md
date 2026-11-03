@@ -128,8 +128,7 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 artwork*). The bound catalogue sets it when the poster id is empty. An entry
 without an `artwork` URL shows the same plate, and a poster URL shows it
 until the image is ready, and leaves it there when the image does not arrive.
-An episode still without a ready image is the same neutral plate with the
-glyph centred; its number, title and duration stay under it. `fanart` is the
+An episode still without a ready image is a numbered title card on Charcoal: the number in the content face at 76 px, the title at 30 px. The caption under it then shows only the duration. Down from the action lands on the selected season, then on the first episode with progress. Focusing the rail moves it to y 180, dims the copy to 0.18 and the backdrop to brightness 0.45 ([#725](https://github.com/LimeBeck/arinn/issues/725)). `fanart` is the
 detail backdrop URL. Without one, the coloured stand-in stays. The view never
 paints the prototype's `poster`, `backdrop` or `still` labels (#610).
 

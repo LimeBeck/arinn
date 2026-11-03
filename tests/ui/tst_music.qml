@@ -130,6 +130,14 @@ TestCase {
         compare(findChild(home,"nav-6").text,"Open services");compare(findChild(home,"nav-6").visible,true);
         compare(findChild(home,"nav-7").text,"Return to activity");compare(findChild(home,"nav-7").visible,false);
         home.returnActivityId="activity";compare(findChild(home,"nav-7").visible,true);
+        home.currentServiceTitle="Fixture service";
+        compare(home.navIcon(2),"volume_up");compare(home.navIcon(3),"download");
+        compare(home.navIcon(6),"public");compare(home.navIcon(8),"power");
+        const items=[];
+        for (let i=0;i<10;i++) items.push(findChild(home,"nav-"+i));
+        for (let i=1;i<items.length;i++)
+            verify(items[i-1].y+items[i-1].height<=items[i].y,"navigation items must not overlap with music enabled");
+        Ui.Focus.take(items[6]);keyClick(Qt.Key_Return);compare(home.navOpen,false);home.navOpen=true;
         home.musicTitle="";compare(home.routes.length,5);compare(home.routes[2],"downloads");
         compare(findChild(home,"nav-5").visible,true);compare(findChild(home,"nav-6").visible,true);
     }

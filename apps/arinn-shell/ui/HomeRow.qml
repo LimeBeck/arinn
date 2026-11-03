@@ -18,9 +18,10 @@ FocusScope {
     property bool browserUnavailable: false
     property string title: ""
     property string variant: "content"
-    // Application rows are objects. Home favourites are containers until the
-    // shelf (#725): no plate at rest, an 8% plate and a rim in focus.
-    property string shapeRole: variant === "app" ? "object" : "content"
+    // Application rows are objects with identity light. The Home shelf is a
+    // container: no plate at rest, an 8% plate and a rim in focus (#725).
+    property bool identityLight: false
+    property string shapeRole: variant === "app" ? "object" : variant === "shelf" ? "container" : "content"
     // Pool hue for the cast under a focused image. NaN uses the hearth hue.
     property real castHue: Theme.hearthHue
     property bool pointerMode: false
@@ -31,12 +32,13 @@ FocusScope {
     property string selectedId: ""
     property int selectedIndex: 0
     readonly property int count: shown.length
-    property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
-    readonly property real artworkHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
+    readonly property bool shelf: variant === "shelf"
+    property real cellWidth: variant === "app" ? (identityLight ? 300 : 264) : variant === "poster" ? 180 : 400
+    readonly property real artworkHeight: shelf ? 88 : variant === "app" ? (identityLight ? 168 : 132) : variant === "poster" ? 270 : 225
     readonly property real captionHeight: variant === "poster" ? Theme.posterCaptionHeight
-            : variant === "app" ? 0 : Theme.contentCaptionHeight
+            : (variant === "app" || shelf) ? 0 : Theme.contentCaptionHeight
     readonly property real cellHeight: artworkHeight + captionHeight
-    readonly property real gap: variant === "content" ? 32 : 24
+    readonly property real gap: shelf ? 28 : variant === "content" ? 32 : 24
     // Room for the focus rim, lift and scale around a card. The right edge
     // keeps this margin. The left edge reaches the screen fade instead.
     readonly property real glowMargin: 48
@@ -69,7 +71,9 @@ FocusScope {
     signal focusLost()
     signal scrolled()
     signal dpadRequested()
-    height: cellHeight + 74
+    // The shelf is 125 px so Home can keep 94 px of the New poster on screen
+    // while Continue is focused (#725). Its 88 px names sit under the label.
+    height: shelf ? 125 : cellHeight + 74
 
     function available(index) {
         return index >= 0 && index < count && shown[index].enabled !== false;
@@ -133,16 +137,18 @@ FocusScope {
     onEntriesChanged: sync()
     Component.onCompleted: sync()
     function reveal(index) {
-        const left = index * (cellWidth + gap);
-        const margin = pointerMode ? 0 : cellWidth + gap;
+        const slot = cards.itemAt(index);
+        const body = slot ? slot.width : cellWidth;
+        const left = slot ? slot.x : index * (cellWidth + gap);
+        const margin = pointerMode ? 0 : body + gap;
         let next = viewport.contentX;
         if (left < next + margin) next = left - margin;
-        else if (left + cellWidth > next + viewport.width - margin)
-            next = left + cellWidth - viewport.width + margin;
+        else if (left + body > next + viewport.width - margin)
+            next = left + body - viewport.width + margin;
         // The viewport is wider than the safe area by its glow margins. Keep
         // the card's body inside the safe right edge, e.g. a partly visible
         // poster that the pointer focuses (#564).
-        if (left + cellWidth > next + width) next = left + cellWidth - width;
+        if (left + body > next + width) next = left + body - width;
         viewport.contentX = Math.max(0, Math.min(next, Math.max(0, viewport.contentWidth - viewport.width)));
     }
     Keys.onPressed: event => {
@@ -167,9 +173,9 @@ FocusScope {
     Flickable {
         id: viewport
         objectName: root.objectName + "Viewport"
-        x: -root.leftBleed; y: 10
+        x: -root.leftBleed; y: root.shelf ? 29 : 10
         width: parent.width + root.leftBleed + root.glowMargin
-        height: root.cellHeight + 104
+        height: root.shelf ? root.height - y : root.cellHeight + 104
         clip: true
         contentWidth: cardsRow.width + root.leftBleed + root.glowMargin
         contentHeight: height
@@ -178,7 +184,7 @@ FocusScope {
         onContentXChanged: root.scrolled()
         Row {
             id: cardsRow
-            x: root.leftBleed; y: 48
+            x: root.leftBleed; y: root.shelf ? 8 : 48
             spacing: root.gap
             Repeater {
                 id: cards
@@ -192,7 +198,8 @@ FocusScope {
                     required property string key
                     required property int index
                     readonly property var item: entryLoader.item
-                    width: root.cellWidth; height: root.cellHeight
+                    width: root.shelf ? entryLoader.width : root.cellWidth
+                    height: root.cellHeight
                     // The row's safe area (handoff 01: x120 to x1824) in
                     // this slot's coordinates.
                     readonly property real safeLeft: viewport.contentX - x
@@ -220,8 +227,11 @@ FocusScope {
                             id: entryLoader
                             readonly property var modelData: root.byKey[slot.key] || ({})
                             x: -cardClip.x; y: root.glowMargin
-                            width: root.cellWidth; height: root.cellHeight
-                            sourceComponent: root.variant === "app" ? tile : card
+                            width: root.shelf ? (item ? item.implicitWidth : 160) : root.cellWidth
+                            height: root.cellHeight
+                            sourceComponent: (root.variant === "app" || root.shelf) ? tile
+                                    : (root.variant === "poster" && !String((modelData && modelData.artwork) || "").length
+                                       && !(modelData && modelData.stack && modelData.stack.length)) ? titleCard : card
                             function chosen() {
                                 root.selectedIndex = slot.index;
                                 root.selectedId = modelData.id;
@@ -233,6 +243,8 @@ FocusScope {
                                 AppTile {
                                     objectName: "entry-" + entryLoader.modelData.id
                                     width: entryLoader.width; height: entryLoader.height
+                                    shelf: root.shelf
+                                    identityLight: root.identityLight && !root.shelf
                                     shapeRole: root.shapeRole
                                     rowBrightness: activeFocus ? 1
                                             : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
@@ -312,6 +324,108 @@ FocusScope {
                                     onFocusWithinChanged: if (focusWithin) entryLoader.chosen()
                                     onActivated: root.activated(entryLoader.modelData.id)
                                     onDpadRequested: root.dpadRequested()
+                                }
+                            }
+                            // A poster with no artwork is a title card: the name
+                            // in the content face on Charcoal, not a letter (#725).
+                            Component {
+                                id: titleCard
+                                Surface {
+                                    id: posterCard
+                                    objectName: "entry-" + entryLoader.modelData.id
+                                    shapeRole: "content"
+                                    width: entryLoader.width; height: entryLoader.height
+                                    cornerRadius: Theme.posterRadius
+                                    text: entryLoader.modelData.title || ""
+                                    visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
+                                    enabled: entryLoader.modelData.enabled !== false
+                                    busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
+                                    rowBrightness: activeFocus ? 1
+                                            : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
+                                    pointerMode: root.pointerMode
+                                    hoverFocusEnabled: root.hoverFocusEnabled && slot.painted
+                                    onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                                    onActivated: root.activated(entryLoader.modelData.id)
+                                    onDpadRequested: root.dpadRequested()
+                                    contentItem: Item {
+                                        Item {
+                                            id: titleFrame
+                                            width: parent.width
+                                            height: root.artworkHeight
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: posterCard.cornerRadius
+                                                gradient: Gradient {
+                                                    GradientStop { position: 0; color: Theme.background }
+                                                    GradientStop { position: 1; color: Theme.chip }
+                                                }
+                                            }
+                                            UiText {
+                                                objectName: "titleCardTitle"
+                                                x: 18; width: parent.width - 36
+                                                anchors.bottom: parent.bottom
+                                                anchors.bottomMargin: 18
+                                                text: posterCard.busy ? qsTr("Loading…") : posterCard.text
+                                                role: "meta"
+                                                font.family: Theme.contentFontFamily
+                                                font.pixelSize: 26
+                                                font.weight: 600
+                                                lineHeight: 1.15
+                                                color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 4
+                                                elide: Text.ElideRight
+                                            }
+                                            Rectangle {
+                                                objectName: "rowShade"
+                                                anchors.fill: parent
+                                                radius: posterCard.cornerRadius
+                                                color: "black"
+                                                opacity: Math.max(0, 1 - posterCard.rowBrightness)
+                                                z: 8
+                                            }
+                                            ArtworkFocus {
+                                                shown: posterCard.activeFocus
+                                                artworkRadius: posterCard.cornerRadius
+                                            }
+                                        }
+                                        CastLight {
+                                            objectName: "castLight"
+                                            shown: posterCard.activeFocus
+                                            hue: root.castHue
+                                            width: titleFrame.width * Theme.castWidthRatio
+                                            anchors.horizontalCenter: titleFrame.horizontalCenter
+                                            anchors.top: titleFrame.bottom
+                                            anchors.topMargin: -Math.round(Theme.castHeight * 0.4)
+                                        }
+                                        Column {
+                                            objectName: "cardCaption"
+                                            y: root.artworkHeight + 14
+                                            width: parent.width
+                                            spacing: 4
+                                            UiText {
+                                                objectName: "cardTitle"
+                                                width: parent.width
+                                                text: posterCard.busy ? qsTr("Loading…") : posterCard.text
+                                                role: "caption"
+                                                font.pixelSize: 24
+                                                font.weight: 500
+                                                color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                                                wrapMode: Text.NoWrap
+                                                maximumLineCount: 1
+                                                elide: Text.ElideRight
+                                            }
+                                            UiText {
+                                                width: parent.width
+                                                visible: (entryLoader.modelData.subtitle || "").length > 0
+                                                text: entryLoader.modelData.subtitle || ""
+                                                role: "caption"
+                                                color: Theme.textHint
+                                                maximumLineCount: 1
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

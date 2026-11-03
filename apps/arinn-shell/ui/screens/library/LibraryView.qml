@@ -180,7 +180,20 @@ FocusScope {
     property int episodeIndex: 0
     property int seasonIndex: 0
     property string currentSeasonId: ""
-    onCurrentSeasonIdChanged: if (episodeFlick) episodeFlick.resetScroll()
+    // The first episode that has been started, else the first. Down from the
+    // selected season lands here (#725).
+    function resumedEpisode(episodes) {
+        const list = episodes || [];
+        for (let i = 0; i < list.length; ++i)
+            if ((list[i].progress || 0) > 0)
+                return i;
+        return 0;
+    }
+    onCurrentSeasonIdChanged: {
+        if (episodeFlick) episodeFlick.resetScroll();
+        episodeIndex = resumedEpisode(detailEpisodes);
+    }
+    readonly property real detailBackdropBrightness: detailRailActive ? 0.45 : 1
     // Survives delegate destruction so a removed poster can restore a neighbour.
     property string focusPlace: "tab"
     readonly property int skeletonSlots: 14
@@ -549,10 +562,8 @@ FocusScope {
         detailRailActive = true;
         seasonIndex = index;
         const season = detailSeasons[index];
-        if (season && currentSeasonId !== season.id) {
+        if (season && currentSeasonId !== season.id)
             currentSeasonId = season.id;
-            episodeIndex = 0;
-        }
         Ui.Focus.take(item);
         return true;
     }
@@ -1333,6 +1344,7 @@ FocusScope {
             sourceSize: Qt.size(Math.ceil(width), Math.ceil(height))
             source: root.detailEntry && root.detailEntry.fanart ? root.detailEntry.fanart : ""
             visible: status === Image.Ready
+            opacity: root.detailBackdropBrightness
         }
         Rectangle {
             z: 2
@@ -1358,11 +1370,12 @@ FocusScope {
             z: 3
             anchors.fill: parent
             transform: Translate {
-                y: root.detailRailActive ? Math.min(0, 170 - detailRail.y) : 0
+                y: root.detailRailActive ? Math.min(0, 180 - detailRail.y) : 0
                 Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.InOutCubic } }
             }
             Column {
                 id: detailCopy
+                objectName: "detailCopy"
                 opacity: root.detailRailActive ? 0.18 : 1
                 x: root.marginLeft
                 y: (root.detailEntry && root.detailEntry.kind === "series") || root.detailSeasons.length ? 180 : 320
@@ -1651,13 +1664,40 @@ FocusScope {
                                             anchors.fill: parent
                                             radius: still.cornerRadius
                                             visible: !stillImage.ready
-                                            gradient: Gradient {
-                                                GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
-                                                GradientStop { position: 1.0; color: Qt.rgba(0.21, 0.21, 0.23, 1) }
+                                            color: Ui.Theme.background
+                                            Column {
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.top: parent.top
+                                                anchors.margins: 18
+                                                spacing: 0
+                                                Ui.UiText {
+                                                    objectName: "episodeNumber-" + modelData.id
+                                                    text: (modelData.number !== undefined && modelData.number !== null
+                                                           && String(modelData.number).length)
+                                                            ? String(modelData.number) : String(index + 1)
+                                                    font.family: Ui.Theme.contentFontFamily
+                                                    font.pixelSize: 76
+                                                    font.weight: 600
+                                                    font.features: ({ "tnum": 1, "lnum": 1 })
+                                                    color: still.activeFocus ? Ui.Theme.textSecondary : Ui.Theme.textHint
+                                                }
                                             }
-                                            FilmGlyph {
-                                                objectName: "episodeGlyph-" + modelData.id
-                                                anchors.centerIn: parent
+                                            Ui.UiText {
+                                                objectName: "episodeArtTitle-" + modelData.id
+                                                anchors.left: parent.left
+                                                anchors.right: parent.right
+                                                anchors.bottom: parent.bottom
+                                                anchors.margins: 18
+                                                text: modelData.title || ""
+                                                font.family: Ui.Theme.contentFontFamily
+                                                font.pixelSize: 30
+                                                font.weight: 600
+                                                lineHeight: 1.15
+                                                color: still.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+                                                wrapMode: Text.WordWrap
+                                                maximumLineCount: 2
+                                                elide: Text.ElideRight
                                             }
                                         }
                                         RoundedArtwork {
@@ -1727,7 +1767,10 @@ FocusScope {
                                     transform: Translate { y: episodeCaption.lift }
                                     Ui.UiText {
                                         id: episodeLabel
+                                        objectName: "episodeLabel-" + modelData.id
                                         width: parent.width
+                                        visible: stillImage.ready
+                                        height: visible ? implicitHeight : 0
                                         text: (modelData.number !== undefined && modelData.number !== null && String(modelData.number).length
                                                ? String(modelData.number) + ". " : "") + (modelData.title || "")
                                         font.pixelSize: 26

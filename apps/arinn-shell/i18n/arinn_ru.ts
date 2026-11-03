@@ -501,6 +501,10 @@
         <source>Unavailable</source>
         <translation>Недоступно</translation>
     </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
+    </message>
 </context>
 <context>
     <name>HomeView</name>
@@ -563,10 +567,6 @@
     <message>
         <source>Add application</source>
         <translation>Добавить приложение</translation>
-    </message>
-    <message>
-        <source>Any site as an application</source>
-        <translation>Любой сайт как приложение</translation>
     </message>
     <message>
         <source>Browser unavailable</source>

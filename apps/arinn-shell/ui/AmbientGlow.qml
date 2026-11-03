@@ -18,9 +18,11 @@ import QtQuick.Window
 //   ceiling black at 50% across the top 44% of the height
 //   veil    rgb(12 7 2) at 6% in the evening and 22% at night
 //
-// Night text in the brief is text-1 oklch(0.97 …), text-2 0.84, text-3 0.71
-// (the issue's "text-1 oklch(0.84 …)" is that text-2). Applying it is a
-// token change, so the constants sit here and Theme still paints the text.
+// Night text is text-1 oklch(0.97 …), text-2 0.84, text-3 0.75 (the issue's
+// "text-1 oklch(0.84 …)" is that text-2; the brief's 0.71 misses 4.5:1 on
+// the brightest floor pixel). Evening hints are text-3 0.80; titles stay
+// the day colours. Theme paints these when this light publishes the period.
+// The oklch numbers stay on Theme, not in a token.
 Item {
     id: root
     clip: true
@@ -70,32 +72,22 @@ Item {
     readonly property real poolLightness: 0.50
     readonly property real poolChromaWarm: 0.10
     readonly property real poolChromaCool: 0.065
-    readonly property color nightText1: oklch(0.97, 0.006, 75, 1)
-    readonly property color nightText2: oklch(0.84, 0.008, 75, 1)
-    readonly property color nightText3: oklch(0.71, 0.008, 75, 1)
+    readonly property color nightText1: Theme.nightText1
+    readonly property color nightText2: Theme.nightText2
+    readonly property color nightText3: Theme.nightText3
 
-    readonly property int shownHour: {
-        if (hour >= 0 && hour <= 23)
-            return hour;
-        const match = /^(\d{1,2}):(\d{2})$/.exec(clockText || "");
-        if (match) {
-            const parsed = parseInt(match[1], 10);
-            if (parsed >= 0 && parsed <= 23)
-                return parsed;
-        }
-        return 12;
+    // The shell's text reads the same period. Publishing keeps one clock
+    // when several hosts of this light are alive; they share the shell clock.
+    function publishClock() {
+        Theme.followsTime = followsTime;
+        Theme.clockText = clockText;
+        Theme.hour = hour;
     }
-    // Day 06:00–18:59, evening 19:00–22:59, night 23:00–05:59 (spec §5.6).
-    readonly property string period: {
-        if (!followsTime)
-            return "day";
-        const h = shownHour;
-        if (h >= 19 && h < 23)
-            return "evening";
-        if (h >= 23 || h < 6)
-            return "night";
-        return "day";
-    }
+    onFollowsTimeChanged: publishClock()
+    onClockTextChanged: publishClock()
+    onHourChanged: publishClock()
+
+    readonly property string period: Theme.period
     readonly property real lightScale: period === "night" ? 0.6 : period === "evening" ? 0.85 : 1
     readonly property real veilAmount: period === "night" ? 0.22 : period === "evening" ? 0.06 : 0
     // Warmer is a lower hue: evening −5°, night −8°.
@@ -129,14 +121,13 @@ Item {
         for (let i = 0; i < stops.length; ++i)
             gradient.addColorStop(stops[i][0], Qt.rgba(color.r, color.g, color.b, stops[i][1]));
     }
-    // OKLab L of the ceiling, floor and pool composited over the screen
-    // background at a pixel. The pool is taken under `poolAtX` (the focused
-    // item). This is the handoff's "light under text" measurement: the same
-    // stops the canvases paint, evaluated in sRGB source-over, then OKLab.
-    // It does not include the warm veil, which darkens further.
-    function lightnessAt(x, y, poolAtX, hueDegrees) {
+    // Ceiling, floor and pool composited over the screen background. The pool
+    // is taken under `poolAtX`. Same stops the canvases paint, in sRGB
+    // source-over. The warm veil is not in this colour; it is applied by
+    // textContrastAt, over both the text and this pixel.
+    function litColorAt(x, y, poolAtX, hueDegrees) {
         if (width < 2 || height < 2)
-            return 0;
+            return Theme.background;
         const nx = x / width, ny = y / height;
         const px = (poolAtX === undefined ? poolX : poolAtX) / width;
         const amount = (lit ? strength : 0);
@@ -158,7 +149,16 @@ Item {
         over(0, 0, 0, ceilA);
         over(floor.r, floor.g, floor.b, floorA);
         over(pool.r, pool.g, pool.b, poolA);
-        return toOklch(Qt.rgba(r, g, b, 1)).l;
+        return Qt.rgba(r, g, b, 1);
+    }
+    function lightnessAt(x, y, poolAtX, hueDegrees) {
+        return toOklch(litColorAt(x, y, poolAtX, hueDegrees)).l;
+    }
+    // WCAG contrast of `textColor` against the lit pixel, after the period's
+    // veil covers both. Hue 55° is the warm, brightest pool.
+    function textContrastAt(textColor, x, y, poolAtX, hueDegrees) {
+        const bg = litColorAt(x, y, poolAtX, hueDegrees);
+        return Theme.contrast(Theme.veilOver(textColor, veilAmount), Theme.veilOver(bg, veilAmount));
     }
     // The brightest point of the field in daytime. The pool is placed under
     // each sample, which is the brightest it can sit there, at hue 55° (the
@@ -176,36 +176,24 @@ Item {
         }
         return {l: best, x: bx, y: by, period: day};
     }
+    // Lowest contrast of `textColor` on that same field. The minimum is the
+    // brightest lit pixel: the pool sits under the sample, at hue 55°.
+    function weakestTextContrast(textColor) {
+        let worst = 99, bx = 0, by = 0;
+        const color = textColor === undefined ? Theme.textHint : textColor;
+        for (let iy = 0; iy <= 40; ++iy) {
+            const y = height * iy / 40;
+            for (let ix = 0; ix <= 20; ++ix) {
+                const x = width * ix / 20;
+                const c = textContrastAt(color, x, y, x, floorHueDay);
+                if (c < worst) { worst = c; bx = x; by = y; }
+            }
+        }
+        return {contrast: worst, x: bx, y: by};
+    }
 
-    // sRGB colour -> OKLCH {l, c, h}.
-    function toOklch(color) {
-        const lin = v => v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-        const r = lin(color.r), g = lin(color.g), b = lin(color.b);
-        const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-        const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-        const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-        const okL = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s;
-        const okA = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s;
-        const okB = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s;
-        const h = Math.atan2(okB, okA) * 180 / Math.PI;
-        return {l: okL, c: Math.sqrt(okA * okA + okB * okB), h: h < 0 ? h + 360 : h};
-    }
-    // OKLCH -> sRGB colour with alpha.
-    function oklch(lightness, chroma, hueDegrees, alpha) {
-        const rad = hueDegrees * Math.PI / 180;
-        const a = chroma * Math.cos(rad), b = chroma * Math.sin(rad);
-        const l = Math.pow(lightness + 0.3963377774 * a + 0.2158037573 * b, 3);
-        const m = Math.pow(lightness - 0.1055613458 * a - 0.0638541728 * b, 3);
-        const s = Math.pow(lightness - 0.0894841775 * a - 1.2914855480 * b, 3);
-        const gamma = v => {
-            v = Math.max(0, Math.min(1, v));
-            return v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
-        };
-        return Qt.rgba(gamma(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-                       gamma(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-                       gamma(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
-                       alpha);
-    }
+    function toOklch(color) { return Theme.toOklch(color); }
+    function oklch(lightness, chroma, hueDegrees, alpha) { return Theme.oklch(lightness, chroma, hueDegrees, alpha); }
     function tintHue() {
         return tint.a > 0 ? toOklch(tint).h : NaN;
     }
@@ -270,7 +258,7 @@ Item {
     onWidthChanged: if (width > 0 && !poolReady) settle()
     onLightScaleChanged: repaintColours()
     onFloorHueChanged: if (floorCanvas.width > 0) floorCanvas.requestPaint()
-    Component.onCompleted: settle()
+    Component.onCompleted: { publishClock(); settle(); }
     Timer { id: settleTimer; interval: 200; onTriggered: root.settle() }
     Timer {
         interval: 50
@@ -453,8 +441,9 @@ Item {
         }
     }
 
-    // Warm veil over the whole screen, including text and artwork. It never
-    // covers video: the player does not host this light (brief, *Time of day*).
+    // Warm veil over the screen that hosts this light, including its text and
+    // artwork. Settings and Downloads do not host it, so they have no veil.
+    // The player does not host it either: video stays uncovered (brief).
     Rectangle {
         id: veil
         objectName: "hearthVeil"

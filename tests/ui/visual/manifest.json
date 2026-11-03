@@ -1,7 +1,9 @@
 {
   "version": 1,
   "states": [
-    {"id": "home-populated", "screen": "Home", "summary": "Populated Home fixture", "reference": "01-home.jpg", "render": true},
+    {"id": "home-populated", "screen": "Home", "summary": "Populated Home fixture", "reference": "01-home.jpg", "render": true, "note": "Day at 12:00, no veil. Evening and night are home-evening and home-night."},
+    {"id": "home-evening", "screen": "Home", "summary": "Home in the evening", "reference": null, "render": true, "note": "20:30, the middle of evening: light 85% and a 6% warm veil. Text stays the daytime colours."},
+    {"id": "home-night", "screen": "Home", "summary": "Home at night", "reference": null, "render": true, "note": "23:30, the middle of night: light 60%, a 22% warm veil, and the raised night text colours."},
     {"id": "home-content-focus", "screen": "Home", "summary": "Home with a content card focused", "reference": "02-home-movie-focus.jpg", "render": true},
     {"id": "home-activity", "screen": "Home", "summary": "Home with a return activity card", "reference": "03-home-activity-present.jpg", "render": true},
     {"id": "home-over-activity", "screen": "Home", "summary": "Home over a running activity", "reference": "04-home-over-activity.jpg", "render": false, "reason": "HomeView has no activity backdrop. The return card is home-activity."},

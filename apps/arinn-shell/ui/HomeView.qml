@@ -638,6 +638,8 @@ FocusScope {
         // still suppresses the field (ADR-0027). The pool takes the focused item.
         lit: root.ambientEnabled && (root.screen === "applications"
              || (root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed))
+        // Prototype updateLight() (hearth-light.html): Home 1, Applications
+        // 0.8, Library 0.6, detail 0.5. The brief does not list these.
         strength: root.screen === "applications" ? 0.8 : 1
         source: root.lightEntry ? (root.lightEntry.artwork || "") : ""
         tint: root.lightEntry ? Theme.identityColor(root.lightEntry.visualIdentity || root.lightEntry.id) : "transparent"

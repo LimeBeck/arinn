@@ -192,12 +192,13 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
-    // The first row sits this far under the hero meta. A two-line title is
-    // taller, the meta follows it, and the rows follow the meta, so the gap
-    // stays the same. The hero box itself stays 240 px (#722).
+    // The hero starts at the brief's y 150 and reserves two lines at 68 px.
+    // The title grows upward in that slot. The first row stays this far
+    // under the block, so it does not move when the title wraps (#722).
     readonly property real heroRowGap: 60
-    readonly property real firstRowY: heroBox.y + heroMeta.y + heroMeta.height + heroRowGap
-    // Favourites sat at 700 when Continue sat at 372. Later rows keep that step.
+    readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
+    readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
+    // Favorites sat at 700 when Continue sat at 372. Later rows keep that step.
     readonly property real homeRowStride: 328
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
@@ -850,15 +851,13 @@ FocusScope {
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
-                // Fixed hero box (ADR-0136): 240 px. The title fits in steps
-                // (96 on one line, 68 on two). Lines are 1.07 em apart; Qt
-                // keeps the last line at the face's own spacing, and that
-                // descent is the gap to the meta line. The rows follow the
-                // measured title, heroRowGap under the meta.
+                // Two-line title slot at 68 px, bottom-aligned, so a one-line
+                // title sits lower and a two-line title grows upward. The
+                // block stays at y 150. The rows stay heroRowGap under it.
                 Column {
                     id: heroBox
                     objectName: "heroBox"
-                    x: 120; y: 128; width: 1300; height: 240; spacing: 4
+                    x: 120; y: 150; width: 1300; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
                     Row {
                         spacing: 12
@@ -873,6 +872,8 @@ FocusScope {
                     UiText {
                         objectName: "heroTitle"
                         width: parent.width
+                        height: root.heroTwoLineSlot
+                        verticalAlignment: Text.AlignBottom
                         role: "hero"
                         text: root.hero.title
                         fitSteps: [[96, 1], [68, 2]]

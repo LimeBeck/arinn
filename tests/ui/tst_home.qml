@@ -687,18 +687,21 @@ TestCase {
         tryCompare(child("heroTitle"), "fitStep", 0);
         compare(child("heroTitle").font.pixelSize, 96);
         compare(child("heroTitle").font.family, Ui.Theme.contentFontFamily);
-        compare(child("heroBox").height, 240);
+        compare(child("heroTitle").height, home.heroTwoLineSlot);
+        const rowY = child("continue").y;
         keyClick(Qt.Key_Right); focused("entry-long");
         tryCompare(child("heroTitle"), "fitStep", 1);
         compare(child("heroTitle").font.pixelSize, 68);
+        compare(child("continue").y, rowY);
         const meta = child("heroMeta");
         const bottom = meta.mapToItem(home, 0, meta.height).y;
         const rowTop = child("continue").mapToItem(home, 0, 0).y;
         verify(bottom <= rowTop, "hero bottom " + bottom + " is above the Continue row at " + rowTop);
     }
-    // A two-line title used to leave 18 px between "Return" and Continue,
-    // because Continue was fixed at y 372. The rows follow the measured
-    // title, so one line and two lines keep heroRowGap, and the box stays 240.
+    // The hero reserves two lines at 68 px and bottom-aligns the title, so
+    // Continue, Favorites and New keep their y when focus moves between a
+    // one-line title and a two-line title. The meta stays heroRowGap above
+    // Continue, and the two-line title grows upward.
     function test_two_line_hero_keeps_the_row_gap() {
         home.continueEntries = [
             {id: "short", title: "Film", running: true},
@@ -708,22 +711,33 @@ TestCase {
             const meta = child("heroMeta");
             return child("continue").mapToItem(home, 0, 0).y - meta.mapToItem(home, 0, meta.height).y;
         }
+        function textTop() {
+            const title = child("heroTitle");
+            return title.mapToItem(home, 0, title.height - title.implicitHeight).y;
+        }
         child("entry-short").forceActiveFocus(); focused("entry-short");
         tryCompare(child("heroTitle"), "fitStep", 0);
-        compare(child("heroBox").height, 240);
+        compare(child("heroTitle").font.pixelSize, 96);
+        compare(child("heroTitle").height, home.heroTwoLineSlot);
         compare(child("heroMeta").text, "Return");
         tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "one-line gap " + gap());
-        const oneLine = child("continue").y;
-        const stride = child("favorites").y - oneLine;
-        compare(stride, home.homeRowStride);
+        const continueY = child("continue").y;
+        const favoritesY = child("favorites").y;
+        const newY = child("new").y;
+        const oneLineTop = textTop();
         keyClick(Qt.Key_Right); focused("entry-long");
         tryCompare(child("heroTitle"), "fitStep", 1);
         compare(child("heroTitle").font.pixelSize, 68);
-        compare(child("heroBox").height, 240);
+        compare(child("heroTitle").height, home.heroTwoLineSlot);
         compare(child("heroMeta").text, "Return");
+        compare(child("continue").y, continueY);
+        compare(child("favorites").y, favoritesY);
+        compare(child("new").y, newY);
         tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "two-line gap " + gap());
-        verify(child("continue").y > oneLine + 20, "two-line Continue at " + child("continue").y + " follows the title from " + oneLine);
-        compare(child("favorites").y - child("continue").y, stride);
+        verify(textTop() < oneLineTop - 20, "two-line title top " + textTop() + " grows up from " + oneLineTop);
+        compare(child("heroBox").y, 150);
+        verify(child("heroBox").y >= child("menuButton").y + child("menuButton").height,
+               "hero top " + child("heroBox").y + " clears the menu");
     }
 
     function test_hero_describes_the_focused_item() {

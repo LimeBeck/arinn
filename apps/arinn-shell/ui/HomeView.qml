@@ -192,6 +192,13 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    // The first row sits this far under the hero meta. A two-line title is
+    // taller, the meta follows it, and the rows follow the meta, so the gap
+    // stays the same. The hero box itself stays 240 px (#722).
+    readonly property real heroRowGap: 60
+    readonly property real firstRowY: heroBox.y + heroMeta.y + heroMeta.height + heroRowGap
+    // Favourites sat at 700 when Continue sat at 372. Later rows keep that step.
+    readonly property real homeRowStride: 328
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
     // nears this line: fully shown from 60 px below it, gone at it, so no card
@@ -843,15 +850,13 @@ FocusScope {
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
-                // Fixed hero box (ADR-0136): 240 px, so a two-line title does not
-                // push the Continue row. The brief's y 150 would end at 390,
-                // over the row that still sits at 372. The box starts at y 128:
-                // the meta line's descent sits a few pixels below the box, and
-                // that line ends on the row.
-                // The title fits in steps (96 on one line, 68 on two). Lines
-                // are 1.07 em apart; Qt keeps the last line at the face's own
-                // spacing, and that descent is the gap to the meta line.
+                // Fixed hero box (ADR-0136): 240 px. The title fits in steps
+                // (96 on one line, 68 on two). Lines are 1.07 em apart; Qt
+                // keeps the last line at the face's own spacing, and that
+                // descent is the gap to the meta line. The rows follow the
+                // measured title, heroRowGap under the meta.
                 Column {
+                    id: heroBox
                     objectName: "heroBox"
                     x: 120; y: 128; width: 1300; height: 240; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
@@ -875,13 +880,19 @@ FocusScope {
                         lineHeight: Math.round(font.pixelSize * 1.07)
                         elide: Text.ElideRight
                     }
-                    UiText { objectName: "heroMeta"; width: parent.width; role: "meta"; font.pixelSize: 28; text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
+                    UiText {
+                        id: heroMeta
+                        objectName: "heroMeta"
+                        width: parent.width; role: "meta"; font.pixelSize: 28
+                        text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight
+                        color: Theme.textSecondary
+                    }
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"
                     opacity: root.rowHeaderOpacity(continueRow)
                     pointerBlocked: !root.rowClearsHeader(continueRow)
-                    x: 120; y: 372; width: 1704
+                    x: 120; y: root.firstRowY; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
@@ -896,7 +907,7 @@ FocusScope {
                     id: favoritesRow; objectName: "favorites"
                     opacity: root.rowHeaderOpacity(favoritesRow)
                     pointerBlocked: !root.rowClearsHeader(favoritesRow)
-                    x: 120; y: continueRow.visible ? 700 : 372; width: 1704
+                    x: 120; y: continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
@@ -911,7 +922,7 @@ FocusScope {
                 }
                 HomeRow {
                     id: newRow; objectName: "new"
-                    x: 120; y: favoritesRow.visible ? favoritesRow.y + 230 : continueRow.visible ? 700 : 372; width: 1704
+                    x: 120; y: favoritesRow.visible ? favoritesRow.y + 230 : continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
                     title: activeFocus ? qsTr("New") + " · " + (root.focusedEntry.title || "") : qsTr("New")
                     variant: "poster"; entries: root.newEntries; busyEntryIds: root.busyEntryIds

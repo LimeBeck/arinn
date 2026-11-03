@@ -197,11 +197,11 @@ title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
 a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
 ([#364](https://github.com/LimeBeck/arinn/issues/364)). It sits in a fixed 240 px
-box: the title is Ysabeau and fits in steps, 96 px on one line or 68 px on two,
-so the Continue row does not move
-([#722](https://github.com/LimeBeck/arinn/issues/722)). The brief's y 150 would
-overlap the row, which is still at y 372; the box starts at y 128 so the
-meta line, whose descent sits a few pixels below the box, ends on that row. `downloadActive` and
+box starting at y 128: the title is Ysabeau and fits in steps, 96 px on one line
+or 68 px on two
+([#722](https://github.com/LimeBeck/arinn/issues/722)). The meta line sits under
+the measured title. The rows follow that line, `heroRowGap` (60 px) below it,
+for one line and for two. The hero box does not grow. `downloadActive` and
 `downloadProgress` drive the status-area download chip. `muted`, `wifi` and
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
 chip and the clock, only while known; `network` (`wired` or `disconnected`)

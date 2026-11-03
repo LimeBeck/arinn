@@ -696,6 +696,35 @@ TestCase {
         const rowTop = child("continue").mapToItem(home, 0, 0).y;
         verify(bottom <= rowTop, "hero bottom " + bottom + " is above the Continue row at " + rowTop);
     }
+    // A two-line title used to leave 18 px between "Return" and Continue,
+    // because Continue was fixed at y 372. The rows follow the measured
+    // title, so one line and two lines keep heroRowGap, and the box stays 240.
+    function test_two_line_hero_keeps_the_row_gap() {
+        home.continueEntries = [
+            {id: "short", title: "Film", running: true},
+            {id: "long", title: "A journey to the far edge of a long night and all the way back home again", running: true}
+        ];
+        function gap() {
+            const meta = child("heroMeta");
+            return child("continue").mapToItem(home, 0, 0).y - meta.mapToItem(home, 0, meta.height).y;
+        }
+        child("entry-short").forceActiveFocus(); focused("entry-short");
+        tryCompare(child("heroTitle"), "fitStep", 0);
+        compare(child("heroBox").height, 240);
+        compare(child("heroMeta").text, "Return");
+        tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "one-line gap " + gap());
+        const oneLine = child("continue").y;
+        const stride = child("favorites").y - oneLine;
+        compare(stride, home.homeRowStride);
+        keyClick(Qt.Key_Right); focused("entry-long");
+        tryCompare(child("heroTitle"), "fitStep", 1);
+        compare(child("heroTitle").font.pixelSize, 68);
+        compare(child("heroBox").height, 240);
+        compare(child("heroMeta").text, "Return");
+        tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "two-line gap " + gap());
+        verify(child("continue").y > oneLine + 20, "two-line Continue at " + child("continue").y + " follows the title from " + oneLine);
+        compare(child("favorites").y - child("continue").y, stride);
+    }
 
     function test_hero_describes_the_focused_item() {
         home.continueEntries = [

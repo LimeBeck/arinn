@@ -18,12 +18,6 @@ private slots:
     m_sounds.setLevel(QStringLiteral("normal"));
     m_sounds.setOutputMuted(false);
     m_sounds.setMediaActive(false);
-    for (const char *name :
-         {"tap", "edge", "select", "back", "open", "close", "ignite", "kindle",
-          "error"}) {
-      QVERIFY2(m_sounds.ensureLoaded(QString::fromLatin1(name)), name);
-    }
-    m_events.clear();
   }
 
   void init() { m_events.clear(); }

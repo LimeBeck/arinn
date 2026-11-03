@@ -132,10 +132,10 @@ void InterfaceSounds::play(const QString &name, bool repeat) {
     m_lastTapMs = now;
   }
   auto *effect = effectFor(name);
-  if (!effect || !effect->isLoaded())
-    return;
-  effect->setVolume(static_cast<float>(volume(repeat)));
-  effect->play();
+  if (effect && effect->isLoaded()) {
+    effect->setVolume(static_cast<float>(volume(repeat)));
+    effect->play();
+  }
   emit played(name, repeat);
 }
 

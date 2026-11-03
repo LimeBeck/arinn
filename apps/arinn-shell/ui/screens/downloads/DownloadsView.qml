@@ -346,6 +346,12 @@ FocusScope {
     function restoreOwned() {
         if (ownsFocus) restore();
     }
+    // A method, not an inline function: Qt drops the deferred call when this
+    // view is destroyed. An inline function still runs and then reads
+    // activeFocus on a dead object (#732).
+    function restoreIfScopeFocused() {
+        if (activeFocus && Window.activeFocusItem === root) restore();
+    }
     Component.onCompleted: Qt.callLater(() => { syncImports(); restoreOwned(); })
     onViewStateChanged: Qt.callLater(restoreOwned)
     onJobsChanged: Qt.callLater(() => { syncImports(); restoreOwned(); })
@@ -354,9 +360,7 @@ FocusScope {
     onOwnsFocusChanged: if (ownsFocus) Qt.callLater(restoreOwned)
     // A queue read while the screen was hidden could not focus a row. When
     // the scope itself receives focus, hand it to the selected row.
-    onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(() => {
-        if (activeFocus && Window.activeFocusItem === root) restore();
-    })
+    onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(restoreIfScopeFocused)
     Timer { id: hoverDelay; interval: hoverSuppressMs }
     Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.nextToast() }
     HoverHandler {

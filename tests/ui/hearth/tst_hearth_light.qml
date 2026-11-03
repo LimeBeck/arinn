@@ -181,6 +181,9 @@ TestCase {
     // The warm veil stays on Settings and Downloads. The floor and the pool
     // stay off. The player has no veil (owner decision on #732).
     function test_veil_covers_settings_and_downloads() {
+        // Destroying Downloads used to run a deferred focus restore and throw
+        // "activeFocus is not defined" (#732).
+        failOnWarning(/activeFocus is not defined/);
         const settings = createTemporaryObject(settingsFactory, suite, {clockText: "12:00", lightFollowsTime: true});
         verify(settings);
         const settingsGlow = findChild(settings, "settingsVeilGlow");
@@ -221,6 +224,7 @@ TestCase {
         verify(findChild(player, "settingsVeilGlow") === null);
         verify(findChild(player, "downloadsVeilGlow") === null);
         player.destroy();
+        wait(0);
     }
     // Handoff rule: light under text stays at or below L 0.48. Measured by
     // compositing the same gradient stops the small canvases paint, in sRGB

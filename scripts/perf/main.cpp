@@ -13,6 +13,7 @@
 #include <QJsonObject>
 #include <QKeyEvent>
 #include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickView>
 #include <QSGRendererInterface>

@@ -210,7 +210,9 @@ Surface {
             visible: root.secondaryIcon.length > 0
             enabled: root.secondaryEnabled && !root.busy
             text: root.secondaryText
-            contentItem: LineIcon { name: root.secondaryIcon; color: Theme.textPrimary }
+            contentItem: Item {
+                LineIcon {anchors.centerIn:parent;width:32;height:32;name:root.secondaryIcon;color:Theme.textPrimary}
+            }
             onActivated: root.secondaryActivated()
             Keys.onLeftPressed: Focus.take(root)
             onDpadRequested: root.dpadRequested()

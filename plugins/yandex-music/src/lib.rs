@@ -5,9 +5,12 @@
 //! Native D-Bus account lifecycle is available; playback and live client
 //! provisioning qualification remain separate integration work.
 pub mod auth;
+pub mod catalogue;
 mod parse;
+pub mod runtime;
 pub mod secrets;
 pub mod service;
+pub mod stream;
 #[cfg(test)]
 mod tests;
 use arinn_music_common::Track;
@@ -35,9 +38,15 @@ pub enum Error {
 }
 
 /// Does not implement Debug: the client owns a sensitive authorization header.
+#[derive(Clone)]
 pub struct Api {
     client: Client,
     origin: Url,
+    downloads: Client,
+    expired: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    lease: Option<std::sync::Arc<std::sync::atomic::AtomicU8>>,
+    expires_at: Option<u64>,
+    deadline: Option<tokio::time::Instant>,
 }
 
 fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
@@ -51,6 +60,59 @@ fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
 }
 
 impl Api {
+    pub fn expired(&self) -> bool {
+        self.expired.load(std::sync::atomic::Ordering::Acquire)
+            || self
+                .lease
+                .as_ref()
+                .is_some_and(|l| l.load(std::sync::atomic::Ordering::Acquire) != auth::ACCEPTED)
+            || self.expires_at.is_some_and(|at| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(true, |t| t.as_secs() >= at)
+            })
+            || self
+                .deadline
+                .is_some_and(|at| tokio::time::Instant::now() >= at)
+    }
+    pub(crate) fn leased(
+        token: &str,
+        expires_at: Option<u64>,
+        lease: std::sync::Arc<std::sync::atomic::AtomicU8>,
+    ) -> Result<Self, Error> {
+        let mut api = Self::new(token)?;
+        api.expires_at = expires_at;
+        api.lease = Some(lease);
+        api.deadline = expires_at.map(|at| {
+            tokio::time::Instant::now()
+                + Duration::from_secs(
+                    at.saturating_sub(
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(at, |t| t.as_secs()),
+                    ),
+                )
+        });
+        Ok(api)
+    }
+    pub(crate) async fn guard<T>(
+        &self,
+        work: impl std::future::Future<Output = Result<T, Error>>,
+    ) -> Result<T, Error> {
+        if self.expired() {
+            return Err(Error::Authentication);
+        }
+        let expiry = async {
+            let mut tick = tokio::time::interval(Duration::from_millis(100));
+            loop {
+                tick.tick().await;
+                if self.expired() {
+                    return;
+                }
+            }
+        };
+        tokio::select! {biased;_=expiry=>Err(Error::Authentication),result=work=>{if self.expired(){Err(Error::Authentication)}else{result}}}
+    }
     /// The caller obtains and stores a user-authorized token outside shell/QML.
     /// No third-party application client ID or secret is bundled here.
     pub fn new(token: &str) -> Result<Self, Error> {
@@ -64,7 +126,18 @@ impl Api {
             .user_agent("arinn-yandex-provider")
             .build()
             .map_err(|_| Error::Transport)?;
+        let downloads = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .timeout(Duration::from_secs(15))
+            .user_agent("arinn-yandex-provider")
+            .build()
+            .map_err(|_| Error::Transport)?;
         Ok(Self {
+            downloads,
+            expired: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            lease: None,
+            expires_at: None,
+            deadline: None,
             client,
             origin: Url::parse("https://api.music.yandex.net/").map_err(|_| Error::InvalidInput)?,
         })
@@ -100,9 +173,16 @@ impl Api {
     }
 
     async fn send(&self, builder: reqwest::RequestBuilder) -> Result<Value, Error> {
+        self.guard(self.send_inner(builder)).await
+    }
+    async fn send_inner(&self, builder: reqwest::RequestBuilder) -> Result<Value, Error> {
         let mut response = builder.send().await.map_err(|_| Error::Transport)?;
         match response.status() {
-            StatusCode::UNAUTHORIZED => return Err(Error::Authentication),
+            StatusCode::UNAUTHORIZED => {
+                self.expired
+                    .store(true, std::sync::atomic::Ordering::Release);
+                return Err(Error::Authentication);
+            }
             StatusCode::FORBIDDEN => return Err(Error::Forbidden),
             StatusCode::TOO_MANY_REQUESTS => return Err(Error::RateLimited),
             status if status.is_redirection() || !status.is_success() => {
@@ -198,14 +278,14 @@ impl Api {
         session: &RadioSession,
         completed_track: &str,
     ) -> Result<Batch, Error> {
-        if !parse::track_id(completed_track) {
+        if !completed_track.is_empty() && !parse::track_id(completed_track) {
             return Err(Error::InvalidInput);
         }
         let result = self
             .request_json(
                 &["rotor", "session", &session.id, "tracks"],
                 json!({
-                    "queue":[completed_track.split(':').next().unwrap_or(completed_track)],
+                    "queue":if completed_track.is_empty(){Vec::<&str>::new()}else{vec![completed_track.split(':').next().unwrap_or(completed_track)]},
                 }),
             )
             .await?;
@@ -263,6 +343,7 @@ impl Api {
 }
 
 /// Provider-private identifiers, deliberately not logged or exported to QML.
+#[derive(Clone)]
 pub struct RadioSession {
     id: String,
     pub batch: Batch,

@@ -11,10 +11,19 @@ struct Cached {
     owner: String,
     state: MusicState,
 }
+#[derive(Clone)]
+struct Pending {
+    id: String,
+    generation: String,
+    owner: String,
+    client: String,
+    command: Command,
+}
 type Receipt = (String, String, String, Command, Result<String, ErrorCode>);
 #[derive(Default)]
 struct Registry {
     active: Option<String>,
+    pending: Option<Pending>,
     states: BTreeMap<String, Cached>,
     ledger: std::collections::VecDeque<Receipt>,
 }
@@ -36,6 +45,9 @@ impl Coordinator {
     pub(super) async fn forget(&self, id: &str) {
         let mut r = self.registry.lock().await;
         r.states.remove(id);
+        if r.pending.as_ref().is_some_and(|p| p.id == id) {
+            r.pending = None;
+        }
         if r.active.as_deref() == Some(id) {
             r.active = None;
         }
@@ -92,7 +104,9 @@ impl Core {
             values
         };
         for (id, cached) in candidates {
-            if cached.state.current.is_some()
+            if (cached.state.current.is_some()
+                || cached.state.continuous
+                || (!cached.state.session.is_empty() && cached.state.playback == "loading"))
                 && self
                     .music_identity(&id, &cached.generation)
                     .await
@@ -124,13 +138,22 @@ impl Core {
             .build()
             .await
             .map_err(normalize_error)?;
-        let json = tokio::time::timeout_at(
-            deadline,
-            proxy.command(generation, client, &music::encode(command)?),
-        )
-        .await
-        .map_err(|_| ErrorCode::Timeout)?
-        .map_err(normalize_error)?;
+        let payload = music::encode(command)?;
+        self.music.registry.lock().await.pending = Some(Pending {
+            id: id.into(),
+            generation: generation.into(),
+            owner: owner.clone(),
+            client: client.into(),
+            command: command.clone(),
+        });
+        // A transport deadline is uncertain; an explicit provider error is a
+        // terminal receipt, including the provider's own Timeout error.
+        let response =
+            tokio::time::timeout_at(deadline, proxy.command(generation, client, &payload))
+                .await
+                .map_err(|_| ErrorCode::Timeout)?;
+        self.music.registry.lock().await.pending = None;
+        let json = response.map_err(normalize_error)?;
         let snapshot: MusicState = music::decode(&json)?;
         snapshot.validate()?;
         if self.music_identity(id, generation).await? != owner {
@@ -165,6 +188,15 @@ impl Core {
         else {
             return;
         };
+        let features = tokio::time::timeout(Duration::from_secs(3), proxy.features())
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
+        let supports_assets = features.len() <= 8
+            && features
+                .iter()
+                .any(|f| f == arinn_protocol::assets::FEATURE_ASSETS);
         let mut tick = tokio::time::interval(Duration::from_secs(1));
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -197,6 +229,11 @@ impl Core {
                     p.info.revision = snapshot.revision;
                     p.info.backend_state = snapshot.backend.clone();
                     self.music.cache(&id, &generation, &owner, snapshot).await;
+                    p.features = if supports_assets {
+                        vec![arinn_protocol::assets::FEATURE_ASSETS.into()]
+                    } else {
+                        vec![]
+                    };
                     p.info.runtime_state = "ready".into();
                     changed
                 }
@@ -291,6 +328,47 @@ impl MusicEndpoint {
             .await
             .map_err(|_| ErrorCode::Timeout)?;
         self.core.music_identity(&self.id, generation).await?;
+        let pending = self.core.music.registry.lock().await.pending.clone();
+        if let Some(pending) = pending {
+            if self
+                .core
+                .music_identity(&pending.id, &pending.generation)
+                .await
+                .as_deref()
+                == Ok(pending.owner.as_str())
+            {
+                let settled = self
+                    .core
+                    .forward_music(
+                        &pending.id,
+                        &pending.generation,
+                        &pending.client,
+                        &pending.command,
+                        deadline,
+                    )
+                    .await;
+                if self.core.music.registry.lock().await.pending.is_some() {
+                    return Err(ErrorCode::Timeout.into());
+                }
+                let encoded = settled.and_then(|state| music::encode(&state));
+                let mut registry = self.core.music.registry.lock().await;
+                if let Some(receipt) =
+                    registry
+                        .ledger
+                        .iter_mut()
+                        .find(|(client, id, generation, command, _)| {
+                            client == &pending.client
+                                && id == &pending.id
+                                && generation == &pending.generation
+                                && command == &pending.command
+                        })
+                {
+                    receipt.4 = encoded;
+                }
+            } else {
+                self.core.music.registry.lock().await.pending = None;
+            }
+        }
         {
             let registry = self.core.music.registry.lock().await;
             if let Some((_, _, _, previous, result)) =
@@ -310,7 +388,8 @@ impl MusicEndpoint {
         let result = async {
             if ["play", "radio"].contains(&command.action.as_str())
                 && let Some(active) = self.core.active_music().await
-                && ["playing", "paused", "loading"].contains(&active.state.playback.as_str())
+                && (active.state.continuous
+                    || ["playing", "paused", "loading"].contains(&active.state.playback.as_str()))
             {
                 if command.replaces_provider != active.provider_id
                     || command.replaces_session != active.state.session
@@ -326,6 +405,7 @@ impl MusicEndpoint {
                     position_us: 0,
                     replaces_provider: String::new(),
                     replaces_session: String::new(),
+                    text: String::new(),
                 };
                 let stopped = self
                     .core
@@ -365,6 +445,10 @@ impl MusicEndpoint {
         result.map_err(Into::into)
     }
 }
+
+#[cfg(test)]
+#[path = "music_tests.rs"]
+mod routing_tests;
 
 #[cfg(test)]
 mod tests {

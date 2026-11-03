@@ -19,6 +19,16 @@ pub trait MusicHandler: Send + Sync + 'static {
         &self,
         command: Command,
     ) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>>;
+    fn supports_assets(&self) -> bool {
+        false
+    }
+    fn asset(
+        &self,
+        _id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<arinn_protocol::assets::Asset, ErrorCode>> + Send + '_>>
+    {
+        Box::pin(async { Err(ErrorCode::Unsupported) })
+    }
     fn reset(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
 }
 #[derive(Clone)]
@@ -207,6 +217,13 @@ impl MusicService {
 }
 #[zbus::interface(name = "org.arinn.MusicProvider1")]
 impl MusicService {
+    fn features(&self) -> Vec<String> {
+        if self.handler.supports_assets() {
+            vec![arinn_protocol::assets::FEATURE_ASSETS.into()]
+        } else {
+            vec![]
+        }
+    }
     async fn get_state(
         &self,
         generation: &str,
@@ -285,6 +302,23 @@ impl MusicService {
         revision: u64,
     ) -> zbus::Result<()>;
 }
+struct MusicAssets(MusicService);
+#[zbus::interface(name = "org.arinn.AssetProvider1")]
+impl MusicAssets {
+    async fn get_asset(
+        &self,
+        generation: &str,
+        id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<(arinn_protocol::assets::Asset,)> {
+        self.0.ready(generation, &h).await?;
+        arinn_protocol::assets::asset_id(id)?;
+        let asset = self.0.handler.asset(id.into()).await?;
+        asset.validate()?;
+        self.0.ready(generation, &h).await?;
+        Ok((asset,))
+    }
+}
 impl Endpoint for MusicService {
     const CAPABILITY: &'static str = "music";
     fn registrations(&self) -> &tokio::sync::watch::Sender<Option<RegistrationContext>> {
@@ -295,6 +329,25 @@ impl Endpoint for MusicService {
     }
     fn updates(&self) -> &tokio::sync::watch::Sender<(String, u64)> {
         &self.updates
+    }
+    async fn export(
+        &self,
+        connection: &zbus::Connection,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if !connection
+            .object_server()
+            .at(production::PROVIDER_PATH, self.clone())
+            .await?
+        {
+            return Err("provider endpoint already exported".into());
+        }
+        if self.handler.supports_assets() {
+            connection
+                .object_server()
+                .at(production::PROVIDER_PATH, MusicAssets(self.clone()))
+                .await?;
+        }
+        Ok(())
     }
     async fn clear(&self) {
         let _serial = self.serial.lock().await;

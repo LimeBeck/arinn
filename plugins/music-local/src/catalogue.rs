@@ -105,6 +105,32 @@ impl Catalogue {
         crate::paths::open_beneath(&record.root_path, &record.relative, *identity)
     }
 
+    pub fn open_cover(&self, id: &str) -> std::io::Result<std::fs::File> {
+        let record = self
+            .records
+            .get(id)
+            .filter(|r| r.track.available)
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        let identity = *self
+            .roots
+            .get(&record.root)
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))?;
+        let parent = record.relative.parent().unwrap_or_else(|| Path::new(""));
+        for name in [
+            "cover.jpg",
+            "cover.png",
+            "cover.webp",
+            "folder.jpg",
+            "folder.png",
+        ] {
+            if let Ok(file) =
+                crate::paths::open_beneath(&record.root_path, &parent.join(name), identity)
+            {
+                return Ok(file);
+            }
+        }
+        Err(std::io::ErrorKind::NotFound.into())
+    }
     /// The caller supplies stable opaque root IDs; these never depend on labels.
     /// Missing/replaced roots and failed subtrees preserve last-known records.
     pub fn scan(&mut self, roots: &[Root], probe: &impl Probe) -> Vec<RootStatus> {

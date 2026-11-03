@@ -148,7 +148,7 @@ impl Probe for Ffprobe {
 
 // Observe exit without reaping: the owned PID cannot be reused before group
 // cleanup, even if a helper leaves a descendant holding the output pipe open.
-fn process_status(pid: u32) -> io::Result<Option<bool>> {
+pub(crate) fn process_status(pid: u32) -> io::Result<Option<bool>> {
     // SAFETY: zero is a valid initialization for this C output struct.
     let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
     // SAFETY: info is writable and pid identifies our direct child.

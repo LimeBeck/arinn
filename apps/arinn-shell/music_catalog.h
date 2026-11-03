@@ -16,6 +16,7 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(QString sourceId READ sourceId NOTIFY sourcesChanged)
   Q_PROPERTY(QString errorText READ errorText NOTIFY statusChanged)
   Q_PROPERTY(bool busy READ busy NOTIFY statusChanged)
+  Q_PROPERTY(bool transportBusy READ transportBusy NOTIFY statusChanged)
   Q_PROPERTY(bool more READ more NOTIFY statusChanged)
   Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY activeChanged)
   Q_PROPERTY(QString sectionTitle READ sectionTitle CONSTANT)
@@ -28,22 +29,23 @@ public:
   QString activeSourceName() const;
   QString sourceId() const{return m_sourceId;}
   QString errorText() const{return m_error;}
-  bool busy() const{return m_commandBusy||m_pageBusy;}
+  bool busy() const{return m_commandBusy||m_pageBusy||m_state.value("catalogue_loading").toBool();}
+  bool transportBusy() const{return m_commandBusy;}
   bool more() const{return !m_next.isEmpty();}
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   Q_INVOKABLE void choose(const QString &id);
   Q_INVOKABLE void browse(const QString &facet,const QString &parent=QString(),const QString &search=QString());
   Q_INVOKABLE void loadMore();
-  Q_INVOKABLE void command(const QString &action,const QString &entity=QString(),const QString &occurrence=QString(),qint64 positionUs=0);
-  Q_INVOKABLE void transport(const QString &action,const QString &entity=QString(),const QString &occurrence=QString(),qint64 positionUs=0);
+  Q_INVOKABLE void command(const QString &action,const QString &entity=QString(),const QString &occurrence=QString(),qint64 positionUs=0,const QString &text=QString());
+  Q_INVOKABLE void transport(const QString &action,const QString &entity=QString(),const QString &occurrence=QString(),qint64 positionUs=0,const QString &text=QString());
   Q_INVOKABLE void refresh();
 signals:
   void sourcesChanged();void entriesChanged();void stateChanged();void statusChanged();void activeChanged();
 private:
   void providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens);
   void readState();void readActive();void readPage(bool append);void fail(const QString &code);
-  void send(const QString &action,const QString &entity,const QString &occurrence,qint64 positionUs,bool active);
+  void send(const QString &action,const QString &entity,const QString &occurrence,qint64 positionUs,bool active,const QString &text=QString());
   QVariantList m_sources,m_entries;
   QVariantMap m_state;
   QVariantMap m_active;

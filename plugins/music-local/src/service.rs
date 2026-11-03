@@ -47,6 +47,7 @@ pub struct Local {
     scanning: AtomicBool,
     scan_revision: AtomicU64,
     shutdown: Arc<AtomicBool>,
+    assets: Arc<tokio::sync::Semaphore>,
 }
 struct LocalResolver(Arc<RwLock<View>>);
 impl Resolver for LocalResolver {
@@ -114,6 +115,7 @@ impl Local {
             scanning: AtomicBool::new(false),
             scan_revision: AtomicU64::new(0),
             shutdown: Arc::new(AtomicBool::new(false)),
+            assets: Arc::new(tokio::sync::Semaphore::new(2)),
         }))
     }
     pub fn rescan(self: &Arc<Self>) {
@@ -144,13 +146,66 @@ impl Local {
             if let Ok(Ok(view)) = result
                 && !owner.shutdown.load(Ordering::Acquire)
             {
-                *owner.view.write().await = view;
+                owner.publish(view).await;
             } else if !owner.shutdown.load(Ordering::Acquire) {
                 owner.view.write().await.degraded = true;
             }
             owner.scanning.store(false, Ordering::Release);
             owner.scan_revision.fetch_add(1, Ordering::AcqRel);
         });
+    }
+    async fn publish(&self, view: View) {
+        let mut current = self.view.write().await;
+        if view.revision >= current.revision {
+            *current = view;
+        }
+    }
+    async fn playlist(&self, command: &Command) -> Result<(), ErrorCode> {
+        let tracks = if command.action == "save_playlist" {
+            if command.entity.is_empty() {
+                self.playback.remaining(&command.session).await?
+            } else {
+                self.selected(&command.entity).await
+            }
+        } else {
+            vec![]
+        };
+        let degraded = self.view.read().await.degraded;
+        let library = self.library.clone();
+        let name = command.text.trim().to_owned();
+        let id = command.entity.clone();
+        let action = command.action.clone();
+        let published = self.view.clone();
+        tokio::spawn(async move {
+            let view = tokio::task::spawn_blocking(move || {
+                let mut library = library.try_lock().map_err(|_| ErrorCode::Unavailable)?;
+                if action == "save_playlist" {
+                    library
+                        .create_playlist(&name, tracks.into_iter().map(|t| t.id).collect())
+                        .map_err(|_| ErrorCode::InvalidArgument)?;
+                } else {
+                    library
+                        .remove_playlist(&id)
+                        .map_err(|_| ErrorCode::NotFound)?;
+                }
+                Ok::<_, ErrorCode>(View {
+                    degraded,
+                    revision: library.revision(),
+                    tracks: library.tracks(),
+                    playlists: library.playlists(),
+                    catalogue: Arc::new(library.catalogue_snapshot()),
+                })
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
+            let mut current = published.write().await;
+            if view.revision >= current.revision {
+                *current = view;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| ErrorCode::Internal)?
     }
     async fn selected(&self, id: &str) -> Vec<Track> {
         select(&*self.view.read().await, id)
@@ -184,6 +239,26 @@ impl std::ops::Deref for LocalService {
     }
 }
 impl MusicHandler for LocalService {
+    fn supports_assets(&self) -> bool {
+        true
+    }
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<arinn_protocol::assets::Asset, ErrorCode>> + Send + '_>>
+    {
+        Box::pin(async move {
+            let _permit = self
+                .assets
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| ErrorCode::Unavailable)?;
+            let catalogue = self.view.read().await.catalogue.clone();
+            tokio::task::spawn_blocking(move || crate::artwork::load(&catalogue, &id))
+                .await
+                .map_err(|_| ErrorCode::Internal)?
+        })
+    }
     fn state(&self) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>> {
         Box::pin(async move {
             let mut state = self.playback.state().await;
@@ -192,7 +267,11 @@ impl MusicHandler for LocalService {
                 .revision
                 .saturating_add(self.scan_revision.load(Ordering::Acquire))
                 .saturating_add(state.catalogue_revision);
-            state.actions.push("scan".into());
+            state.actions.extend([
+                "scan".into(),
+                "save_playlist".into(),
+                "delete_playlist".into(),
+            ]);
             let scanning = self.scanning.load(Ordering::Acquire);
             if scanning || self.view.read().await.degraded {
                 state.backend = "degraded".into();
@@ -252,7 +331,11 @@ impl MusicHandler for LocalService {
                                     String::new()
                                 },
                                 album: String::new(),
-                                artwork: String::new(),
+                                artwork: if kind == "album" {
+                                    format!("cover:{}", t.id)
+                                } else {
+                                    String::new()
+                                },
                                 duration_us: 0,
                                 available: false,
                             });
@@ -301,6 +384,7 @@ impl MusicHandler for LocalService {
                         .await?;
                 }
                 "scan" => self.0.rescan(),
+                "save_playlist" | "delete_playlist" => self.playlist(&command).await?,
                 _ => {
                     self.playback.command(&command).await?;
                 }

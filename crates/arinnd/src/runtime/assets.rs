@@ -26,7 +26,7 @@ impl Core {
         let owner = {
             let state = self.state.lock().await;
             let p = state.providers.get(provider).ok_or(ErrorCode::NotFound)?;
-            if !["media", "library"].contains(&p.capability()) {
+            if !["media", "library", "music"].contains(&p.capability()) {
                 return Err(ErrorCode::Unsupported);
             }
             if p.info.generation != generation {
@@ -50,6 +50,13 @@ impl Core {
             .await
             .map_err(|_| ErrorCode::Timeout)?
             .map_err(normalize_error)?;
+        {
+            let state = self.state.lock().await;
+            let p = state.providers.get(provider).ok_or(ErrorCode::NotFound)?;
+            if p.owner != owner || p.info.generation != generation {
+                return Err(ErrorCode::Conflict);
+            }
+        }
         // The SDK already checks this; a provider not built on it may not.
         asset.validate().map_err(|_| ErrorCode::Internal)?;
         Ok(asset)

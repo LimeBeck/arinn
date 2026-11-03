@@ -21,6 +21,8 @@ Canvas {
         } else if (name === "radio") {
             c.arc(12, 12, 2, 0, 2 * Math.PI); c.fill(); c.beginPath(); c.arc(12, 12, 6, -0.8, 0.8); c.stroke(); c.beginPath(); c.arc(12, 12, 6, 2.35, 3.95); c.stroke(); c.beginPath(); c.arc(12, 12, 10, -0.8, 0.8); c.stroke(); c.beginPath(); c.arc(12, 12, 10, 2.35, 3.95); c.stroke();
         } else if (name === "seek") { c.arc(12, 12, 9, 0, Math.PI * 2); c.moveTo(12, 6); c.lineTo(12, 12); c.lineTo(17, 12); c.stroke(); }
+        else if(name==="pin"){c.moveTo(8,3);c.lineTo(16,3);c.lineTo(15,10);c.lineTo(19,14);c.lineTo(5,14);c.lineTo(9,10);c.closePath();c.stroke();c.beginPath();c.moveTo(12,14);c.lineTo(12,22);c.stroke();}
+        else if(name==="retry"){c.arc(12,12,8,0.6,Math.PI*2);c.stroke();c.beginPath();c.moveTo(20,4);c.lineTo(20,11);c.lineTo(13,11);c.stroke();}
         else if (name === "stop") c.fillRect(5, 5, 14, 14);
         else if (name === "music") { c.moveTo(10, 18); c.lineTo(10, 4); c.lineTo(21, 2); c.lineTo(21, 16); c.stroke(); c.beginPath(); c.ellipse(3, 15, 7, 6); c.ellipse(14, 13, 7, 6); c.fill(); }
         else { c.moveTo(7, 3); c.lineTo(21, 12); c.lineTo(7, 21); c.closePath(); c.fill(); }

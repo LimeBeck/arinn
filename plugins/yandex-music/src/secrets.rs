@@ -162,6 +162,78 @@ impl SecretService {
             closed: false,
         })
     }
+    /// Read an administrator-provisioned application secret; never expose it
+    /// through settings, diagnostics, prompts or the music wire model.
+    pub async fn application_secret(&self, client_id: &str) -> Result<Option<String>, Error> {
+        let attributes = HashMap::from([
+            ("application".to_owned(), "arinn-yandex-client".to_owned()),
+            ("client-id".to_owned(), client_id.to_owned()),
+        ]);
+        let reply = match tokio::time::timeout(
+            CALL_LIMIT,
+            self.connection.call_method(
+                Some(SERVICE),
+                PATH,
+                Some(INTERFACE),
+                "SearchItems",
+                &attributes,
+            ),
+        )
+        .await
+        .map_err(|_| Error::Storage)?
+        {
+            Ok(reply) => reply,
+            Err(zbus::Error::MethodError(name, _, _))
+                if matches!(
+                    name.as_str(),
+                    "org.freedesktop.DBus.Error.ServiceUnknown"
+                        | "org.freedesktop.DBus.Error.NameHasNoOwner"
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(_) => return Err(Error::Storage),
+        };
+        let (unlocked, locked): (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
+            reply.body().deserialize().map_err(|_| Error::Storage)?;
+        if !locked.is_empty() {
+            return Err(Error::Locked);
+        }
+        if unlocked.len() > 1 {
+            return Err(Error::Storage);
+        }
+        let Some(item) = unlocked.first() else {
+            return Ok(None);
+        };
+        let mut session = self.session().await?;
+        let result = async {
+            let reply = self
+                .call(
+                    item.as_str(),
+                    "org.freedesktop.Secret.Item",
+                    "GetSecret",
+                    &session.path,
+                )
+                .await?;
+            let (secret,): (Secret,) = reply.body().deserialize().map_err(|_| Error::Storage)?;
+            if secret.0 != session.path
+                || !secret.1.is_empty()
+                || secret.2.is_empty()
+                || secret.2.len() > 8192
+                || !secret.3.starts_with("text/plain")
+            {
+                return Err(Error::Storage);
+            }
+            let value = String::from_utf8(secret.2).map_err(|_| Error::Storage)?;
+            if value.chars().any(char::is_control) {
+                return Err(Error::Storage);
+            }
+            Ok(Some(value))
+        }
+        .await;
+        session.close().await;
+        result
+    }
     async fn items(&self, nonce: Option<&str>) -> Result<Vec<OwnedObjectPath>, Error> {
         let reply = self
             .call(PATH, INTERFACE, "SearchItems", &self.attributes(nonce))

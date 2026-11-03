@@ -1,6 +1,6 @@
 # Music backend implementation increment
 
-Status: **native local/account integration in progress; MR remains draft**. Task
+Status: **native local/Yandex integration in verification; MR remains draft**. Task
 [#707](https://github.com/LimeBeck/arinn/issues/707), parent
 [#677](https://github.com/LimeBeck/arinn/issues/677). The owner authorized one
 implementation MR for local music, Yandex and their common API/UI on 2026-11-01.
@@ -15,9 +15,9 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 
 | Package | Implemented in this increment | Still missing |
 | --- | --- | --- |
-| `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player actor and finite playback session | Runtime continuous refill/feedback and service stream resolver |
-| `arinn-plugin-music-local` | Persistent catalogue/playlists, provider process/registration, snapshot paging, root settings, background scan and finite playback | Artwork extraction, native package/audio qualification and complete remote/detail UX |
-| `arinn-plugin-yandex-music` | Private HTTP/radio adapter, device-code controller, staged Secret Service lifecycle, provider registration and native account projection | Qualified deployment client, catalogue/liked content UI, stream playback, continuous runtime and live qualification |
+| `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player, natural playback events and continuous refill | Installed audio qualification |
+| `arinn-plugin-music-local` | Persistent catalogue/playlists, registration, snapshot paging, root settings, background scan, finite playback, bounded artwork extraction and native playlist save/delete | Native package/audio qualification |
+| `arinn-plugin-yandex-music` | Device-code controller, staged Secret Service lifecycle, catalogue/search/liked content, signed stream resolution, artwork and continuous radio runtime | Live deployment-client, account and authenticated audio qualification |
 
 The proposed [music contract](../plugin-api/music.md) and
 [ADR-0134](../adr/0134-native-music-catalogue-and-session.md) add protocol, SDK,
@@ -38,18 +38,27 @@ not wait for a scan lock. Shutdown cancels further scan work between files;
 an in-flight bounded ffprobe may finish before exit. Unavailable/incomplete roots
 produce a degraded state while preserving last-known metadata.
 
-Yandex account registration is deliberately account-only in this slice. Native
-Connect/Cancel/Disconnect are routed through the daemon, and startup restore is
-reserved before exposing commands so it cannot invalidate a newer Connect.
-Configure the public deployment identity `ARINN_YANDEX_CLIENT_ID` in the provider's
-systemd user-manager environment. No borrowed client ID or client-secret default
-is bundled. Clients requiring a secret need separately qualified provisioning.
-An absent identity reports `unconfigured` with Connect disabled. Approval records
-and a stable non-secret device ID use provider-private state; tokens use Secret
-Service only. No live identity or account has been qualified in this environment.
+Yandex account connection, catalogue and playback share the native provider.
+The owner supplied the public Arinn client ID
+`4173e0c60dfa4066bd6ec2a504b8ae9a` on 2026-11-03. It is the default identity;
+`ARINN_YANDEX_CLIENT_ID` overrides it and an explicit empty value disables
+Connect. Registration alone does not establish Music API or device-flow access.
+No third-party application identity or secret is bundled.
 
-The settings dependency has merged. This work does not close #707, change phase
-status or claim Yandex streaming support.
+If this registration requires a client secret, provision it locally through
+Secret Service as a unique unlocked `text/plain` item with attributes
+`application=arinn-yandex-client` and `client-id=<public ID>`. Never paste the
+secret or a user access token into chat, settings, environment files or the
+repository. An absent optional application-secret item permits a public client;
+locked or ambiguous matching items fail closed. Missing Secret Service does not
+prevent the provider starting, but account credential persistence still requires
+it. Approval records and a stable nonsecret device ID use provider-private state;
+user tokens use Secret Service only.
+
+No live identity or account has been qualified in this environment. Its enforced
+network policy currently excludes Yandex OAuth, Music API and media hosts.
+Synthetic tests do not establish API eligibility, subscription or regional access.
+This work does not change the phase status or close #707 before qualification.
 
 ## Queue invariants
 
@@ -65,9 +74,12 @@ status or claim Yandex streaming support.
   most 32 historical and 64 upcoming entries are retained, with a 256-track
   recent window. Recent/current/upcoming duplicates are filtered for radio;
   a batch containing no acceptable entries remains an explicit empty result.
-- These primitives do not send playback/account feedback. The future runtime
-  must distinguish selected entries from player-confirmed events and must not
-  equate a seek-to-end with a natural EOF.
+- Playback emits events only after native readiness, successful navigation or
+  natural completion. Radio feedback retains the originating batch even after
+  later batches arrive. Seeking to the duration does not manufacture completion.
+- Known token expiry, revoked leases and account changes cancel private work;
+  late responses cannot populate a newer account or session. Failed refills
+  preserve the loaded tail and expose retry without looping it.
 
 ## Local catalogue
 
@@ -129,8 +141,9 @@ Traversal and retained-record limits apply across configured roots and rescans.
 
 The common state-file helper is provider-private implementation, not a D-Bus
 contract. It is also used by the Yandex nonsecret approval checkpoint below.
-State-directory selection, settings export and background scan scheduling still
-belong to provider/runtime integration.
+Provider registration integrates state-directory selection, settings export and
+background scan scheduling. Playlist metadata writes publish immutable views;
+only catalogue references are removed when deleting a playlist.
 
 ## Yandex private adapter
 
@@ -191,13 +204,17 @@ grant. Keyring calls have deadlines, cleanup is bounded, known sessions close
 on error/drop, and locked/ambiguous storage fails without opening prompts or
 falling back to plaintext credentials.
 
-The connection UI and provider process are **not integrated yet**. The controller
-requires an explicitly configured, qualified OAuth client identity (and secret
-if needed); it does not copy the upstream library's third-party registration
-credentials or bundle a shared application secret. The upstream example
-establishes the interaction, not official API support or permission to reuse that
-registration. Live account, scope, region and subscription qualification remain
-outstanding. Expired access requires reconnect; automatic refresh is not claimed.
+The provider process and connection UI are integrated. The deployment identity
+still needs live qualification for device flow and Music API access. The upstream
+example establishes the interaction, not official API support or permission to
+reuse its registration. Expired access requires reconnect; automatic refresh is
+not claimed. Outward state revisions remain monotonic through account changes.
+
+Audio resolution uses authenticated download-info metadata, then a separate
+anonymous client for allowlisted HTTPS download metadata, signed audio and
+artwork. Credentials never accompany media-host requests. XML, URLs, image bytes
+and cumulative catalogue metadata have explicit bounds; redirects are disabled.
+Track URLs and authorization headers stay inside the provider/player boundary.
 
 ### Radio and qualification
 
@@ -236,8 +253,9 @@ commands, toolchain wrapper failures and reruns; these command examples alone
 are not evidence that the complete project check list passed.
 
 Before completion: qualify the proposed contract and daemon replacement/timeout
-coordination; finish catalogue detail/playlist editing, artwork, Yandex client
-provisioning/stream playback and continuous-session feedback; add package fixtures;
-run the full required checks and obtain current-head review.
+coordination, complete native/package fixtures, run the full required checks and
+obtain current-head review. Catalogue details, playlist actions, artwork, signed
+stream resolution and continuous-session feedback are implemented; their presence
+does not establish live-service qualification.
 Live service and real-remote/HTPC qualification remain separate from synthetic
 tests and require the applicable account setup/operator authorization.

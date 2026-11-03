@@ -225,7 +225,7 @@ impl Queue {
             .map(|e| e.track.clone())
             .collect();
         seen.extend(self.recent.iter().cloned());
-        let accepted: Vec<String> = tracks
+        let mut accepted: Vec<String> = tracks
             .into_iter()
             .filter(|id| seen.insert(id.clone()))
             .collect();
@@ -233,9 +233,10 @@ impl Queue {
             return Err(Error::Empty);
         }
         let capacity = MAX_UPCOMING.saturating_sub(if replace { 0 } else { self.upcoming() });
-        if accepted.len() > capacity {
+        if capacity == 0 {
             return Err(Error::Full);
         }
+        accepted.truncate(capacity);
         let initially_empty = self.entries.is_empty();
         if replace {
             self.entries.truncate(self.cursor + 1);

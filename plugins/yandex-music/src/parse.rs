@@ -104,6 +104,11 @@ fn track(value: &Value) -> Result<Track, Error> {
         },
         title: text(value.get("title").and_then(Value::as_str).unwrap_or("")),
         artist: artist.clone(),
+        artist_ids: artists
+            .into_iter()
+            .flatten()
+            .filter_map(|a| id(a.get("id")).ok())
+            .collect(),
         album_artist: artist,
         album: text(
             album

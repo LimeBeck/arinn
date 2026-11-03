@@ -19,6 +19,24 @@ use std::{
 #[derive(Clone, Default)]
 struct Handler(Arc<AtomicUsize>);
 impl MusicHandler for Handler {
+    fn supports_assets(&self) -> bool {
+        true
+    }
+    fn asset(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<arinn_protocol::assets::Asset, ErrorCode>> + Send + '_>>
+    {
+        Box::pin(async move {
+            if id != "cover:fixture" {
+                return Err(ErrorCode::NotFound);
+            }
+            Ok(arinn_protocol::assets::Asset {
+                mime: "image/png".into(),
+                data: vec![0x89, b'P', b'N', b'G', 13, 10, 26, 10],
+            })
+        })
+    }
     fn state(&self) -> Pin<Box<dyn Future<Output = Result<State, ErrorCode>> + Send + '_>> {
         Box::pin(async move {
             Ok(State {
@@ -110,7 +128,42 @@ async fn scenario() {
         .build()
         .await
         .unwrap();
+    assert_eq!(
+        proxy.features().await.unwrap(),
+        vec![arinn_protocol::assets::FEATURE_ASSETS]
+    );
+    let assets = arinn_protocol::assets::AssetProviderProxy::builder(&daemon)
+        .destination(provider.unique_name().unwrap().clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assets
+        .get_asset(&generation, "cover:fixture")
+        .await
+        .unwrap()
+        .0
+        .validate()
+        .unwrap();
+    assert!(
+        assets
+            .get_asset("stale-generation", "cover:fixture")
+            .await
+            .is_err()
+    );
     let stranger = bus.connection().await;
+    let unauthorized_assets = arinn_protocol::assets::AssetProviderProxy::builder(&stranger)
+        .destination(provider.unique_name().unwrap().clone())
+        .unwrap()
+        .build()
+        .await
+        .unwrap();
+    assert!(
+        unauthorized_assets
+            .get_asset(&generation, "cover:fixture")
+            .await
+            .is_err()
+    );
     let unauthorized = MusicProviderProxy::builder(&stranger)
         .destination(provider.unique_name().unwrap().clone())
         .unwrap()
@@ -172,6 +225,7 @@ async fn scenario() {
         position_us: 0,
         replaces_provider: String::new(),
         replaces_session: String::new(),
+        text: String::new(),
     };
     let payload = music::encode(&command).unwrap();
     let receipt = proxy.command(&generation, client, &payload).await.unwrap();

@@ -21,7 +21,7 @@ use tokio::{
 
 const RESPONSE_LIMIT: usize = 16 * 1024;
 const PENDING: u8 = 0;
-const ACCEPTED: u8 = 1;
+pub(crate) const ACCEPTED: u8 = 1;
 const REVOKED: u8 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +93,7 @@ pub struct Prompt {
 
 /// An attempt reserved synchronously before spawning network work.
 pub struct Start {
+    replace: bool,
     owner: Arc<()>,
     generation: u64,
 }
@@ -107,6 +108,12 @@ pub struct Attempt {
     interval: Duration,
 }
 impl Attempt {
+    pub fn remaining_seconds(&self) -> u64 {
+        self.deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs()
+    }
+
     fn slow_down(&mut self) {
         // Expiry already bounds sleep; never retain a rate rejected by OAuth.
         self.interval = self.interval.saturating_add(Duration::from_secs(5));
@@ -244,6 +251,14 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
 
     pub fn prepare(&self) -> Start {
         Start {
+            replace: false,
+            owner: self.owner.clone(),
+            generation: self.advance(),
+        }
+    }
+    pub fn prepare_reconnect(&self) -> Start {
+        Start {
+            replace: true,
             owner: self.owner.clone(),
             generation: self.advance(),
         }
@@ -261,7 +276,9 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
             let mut active = self.session.gate.lock().await;
             self.current(generation)?;
             if active.as_ref().is_some_and(|a| {
-                a.lease.load(Ordering::Acquire) == ACCEPTED && a.credentials.valid()
+                !start.replace
+                    && a.lease.load(Ordering::Acquire) == ACCEPTED
+                    && a.credentials.valid()
             }) {
                 return Err(Error::InvalidInput);
             }
@@ -476,7 +493,9 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
             .map(|s| &s.credentials)
             .filter(|s| s.valid())
             .ok_or(Error::Expired)?;
-        Api::new(&credentials.access_token).map_err(|_| Error::Unavailable)
+        let lease = active.as_ref().ok_or(Error::Expired)?.lease.clone();
+        Api::leased(&credentials.access_token, credentials.expires_at, lease)
+            .map_err(|_| Error::Unavailable)
     }
 
     async fn guard<T>(

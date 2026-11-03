@@ -26,6 +26,8 @@ pub const ACTIONS: &[&str] = &[
     "cancel",
     "disconnect",
     "scan",
+    "save_playlist",
+    "delete_playlist",
 ];
 
 #[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +93,14 @@ pub struct State {
     pub continuous: bool,
     pub refill: String,
     pub error: Option<ErrorCode>,
+    #[serde(default)]
+    pub station: Option<Entity>,
+    #[serde(default)]
+    pub catalogue_loading: bool,
+    #[serde(default)]
+    pub feedback: String,
+    #[serde(default)]
+    pub pinned: bool,
 }
 impl Default for State {
     fn default() -> Self {
@@ -111,6 +121,10 @@ impl Default for State {
             continuous: false,
             refill: "idle".into(),
             error: None,
+            station: None,
+            catalogue_loading: false,
+            feedback: String::new(),
+            pinned: false,
         }
     }
 }
@@ -136,6 +150,15 @@ impl State {
             || self.position_us > 31_536_000_000_000
         {
             return Err(ErrorCode::InvalidArgument);
+        }
+        if !["", "liked", "disliked"].contains(&self.feedback.as_str()) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if let Some(station) = &self.station {
+            station.validate()?;
+            if station.kind != "station" || !self.continuous {
+                return Err(ErrorCode::InvalidArgument);
+            }
         }
         known(&self.facets, FACETS)?;
         known(&self.actions, ACTIONS)?;
@@ -259,6 +282,8 @@ pub struct Command {
     pub replaces_provider: String,
     #[serde(default)]
     pub replaces_session: String,
+    #[serde(default)]
+    pub text: String,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -269,6 +294,12 @@ pub struct Active {
 }
 impl Command {
     pub fn validate(&self) -> Result<(), ErrorCode> {
+        if self.text.len() > 1024
+            || self.text.chars().any(char::is_control)
+            || (self.action == "save_playlist" && self.text.trim().is_empty())
+        {
+            return Err(ErrorCode::InvalidArgument);
+        }
         uuid::Uuid::parse_str(&self.request_id).map_err(|_| ErrorCode::InvalidArgument)?;
         if !ACTIONS.contains(&self.action.as_str()) || self.position_us > 31_536_000_000_000 {
             return Err(ErrorCode::InvalidArgument);
@@ -295,6 +326,8 @@ impl Command {
             "cancel",
             "disconnect",
             "scan",
+            "save_playlist",
+            "delete_playlist",
         ]
         .contains(&self.action.as_str())
             && self.session.is_empty()
@@ -326,6 +359,7 @@ pub fn encode<T: Serialize>(value: &T) -> Result<String, ErrorCode> {
     default_path = "/org/arinn/Provider1"
 )]
 pub trait MusicProvider {
+    fn features(&self) -> zbus::Result<Vec<String>>;
     fn get_state(&self, generation: &str) -> zbus::Result<String>;
     fn get_page(&self, generation: &str, client: &str, query: &str) -> zbus::Result<String>;
     fn command(&self, generation: &str, client: &str, command: &str) -> zbus::Result<String>;

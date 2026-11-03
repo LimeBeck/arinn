@@ -220,5 +220,77 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>Rescan</source>
       <translation>Обновить медиатеку</translation>
     </message>
+    <message>
+      <source>Could not load more tracks. The loaded queue is preserved.</source>
+      <translation>Не удалось загрузить ещё треки. Загруженная очередь сохранена.</translation>
+    </message>
+    <message>
+      <source>Delete playlist</source>
+      <translation>Удалить плейлист</translation>
+    </message>
+    <message>
+      <source>Delete this playlist? Audio files are kept.</source>
+      <translation>Удалить плейлист? Аудиофайлы сохранятся.</translation>
+    </message>
+    <message>
+      <source>Loading music…</source>
+      <translation>Загрузка музыки…</translation>
+    </message>
+    <message>
+      <source>Loading upcoming tracks…</source>
+      <translation>Загрузка следующих треков…</translation>
+    </message>
+    <message>
+      <source>No more tracks in the loaded queue. You can retry.</source>
+      <translation>В загруженной очереди больше нет треков. Попробуйте загрузить ещё.</translation>
+    </message>
+    <message>
+      <source>No music here yet. Try search or another section.</source>
+      <translation>Здесь пока нет музыки. Попробуйте поиск или другой раздел.</translation>
+    </message>
+    <message>
+      <source>Pin station</source>
+      <translation>Закрепить станцию</translation>
+    </message>
+    <message>
+      <source>Refresh</source>
+      <translation>Обновить</translation>
+    </message>
+    <message>
+      <source>Remove</source>
+      <translation>Убрать</translation>
+    </message>
+    <message>
+      <source>Remove this occurrence from the queue?</source>
+      <translation>Убрать этот экземпляр трека из очереди?</translation>
+    </message>
+    <message>
+      <source>Retry loading tracks</source>
+      <translation>Повторить загрузку треков</translation>
+    </message>
+    <message>
+      <source>Save</source>
+      <translation>Сохранить</translation>
+    </message>
+    <message>
+      <source>Save playlist</source>
+      <translation>Сохранить плейлист</translation>
+    </message>
+    <message>
+      <source>Save queue</source>
+      <translation>Сохранить очередь</translation>
+    </message>
+    <message>
+      <source>Unpin station</source>
+      <translation>Открепить станцию</translation>
+    </message>
+    <message>
+      <source>Upcoming tracks continue automatically</source>
+      <translation>Следующие треки подбираются автоматически</translation>
+    </message>
+    <message>
+      <source>Waiting for confirmation · %1 seconds remaining</source>
+      <translation>Ожидаем подтверждения · осталось %1 с</translation>
+    </message>
   </context>
 </TS>

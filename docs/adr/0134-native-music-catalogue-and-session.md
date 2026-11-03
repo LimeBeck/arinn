@@ -36,10 +36,11 @@ only a confirmed stop permits the new start. Browsing another source does not
 change the active session. `MusicController1.GetActive` projects that session
 independently from the catalogue selection.
 
-Yandex uses device-code authorization and Secret Service. A public qualified
-client identity is deployment configuration. No third-party client defaults are
-bundled. Missing provisioning disables Connect rather than accepting a pasted
-user token. This ADR does not claim live provisioning or streaming qualification.
+Yandex uses device-code authorization and Secret Service. The owner-supplied
+public Arinn client identity is the default deployment configuration; it remains
+subject to live device-flow and Music API qualification. No third-party client defaults are
+bundled. An explicitly empty identity disables Connect. Optional client secrets
+use a unique unlocked Secret Service item; user tokens are never pasted into UI. This ADR does not claim live provisioning or streaming qualification.
 
 ## Consequences
 

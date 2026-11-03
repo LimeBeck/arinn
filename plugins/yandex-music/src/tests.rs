@@ -9,14 +9,14 @@ use std::{
     thread,
 };
 
-struct Mock {
-    api: Api,
+pub(crate) struct Mock {
+    pub(crate) api: Api,
     requests: Arc<Mutex<Vec<(String, Value)>>>,
     worker: Option<thread::JoinHandle<()>>,
 }
 
 impl Mock {
-    fn new(responses: Vec<(u16, String)>) -> Self {
+    pub(crate) fn new(responses: Vec<(u16, String)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let origin = format!("http://{}/", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -84,6 +84,17 @@ impl Mock {
             .build()
             .unwrap();
         let api = Api {
+            expired: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            lease: None,
+            expires_at: None,
+            deadline: None,
+            downloads: Client::builder()
+                .no_proxy()
+                .tls_built_in_root_certs(false)
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(3))
+                .build()
+                .unwrap(),
             client,
             origin: Url::parse(&origin).unwrap(),
         };
@@ -93,7 +104,7 @@ impl Mock {
             worker: Some(worker),
         }
     }
-    fn finish(mut self) -> Vec<(String, Value)> {
+    pub(crate) fn finish(mut self) -> Vec<(String, Value)> {
         self.worker.take().unwrap().join().unwrap();
         self.requests.lock().unwrap().clone()
     }
@@ -174,4 +185,44 @@ fn token_validation_never_echoes_a_private_header_value() {
     let value = authorization_header("synthetic-test-token").unwrap();
     assert!(value.is_sensitive());
     assert!(!format!("{value:?}").contains("synthetic-test-token"));
+}
+
+#[tokio::test]
+async fn api_known_expiry_and_revocation_cancel_work_without_waiting_for_http_401() {
+    let mut mock = Mock::new(vec![]);
+    mock.api.deadline = Some(tokio::time::Instant::now());
+    assert!(mock.api.expired());
+    assert_eq!(
+        mock.api.guard(async { Ok(()) }).await,
+        Err(Error::Authentication)
+    );
+    mock.api.deadline = Some(tokio::time::Instant::now() + Duration::from_millis(1));
+    assert_eq!(
+        mock.api
+            .guard(std::future::pending::<Result<(), Error>>())
+            .await,
+        Err(Error::Authentication)
+    );
+    mock.api.deadline = None;
+    let lease = Arc::new(std::sync::atomic::AtomicU8::new(auth::ACCEPTED));
+    mock.api.lease = Some(lease.clone());
+    lease.store(0, std::sync::atomic::Ordering::Release);
+    assert!(mock.api.expired());
+    assert_eq!(
+        mock.api.guard(async { Ok(()) }).await,
+        Err(Error::Authentication)
+    );
+    assert!(mock.finish().is_empty());
+}
+#[test]
+fn anonymous_download_client_carries_no_oauth_header() {
+    let mock = Mock::new(vec![]);
+    let request = mock
+        .api
+        .downloads
+        .get("https://storage.mds.yandex.net/fixture")
+        .build()
+        .unwrap();
+    assert!(!request.headers().contains_key(AUTHORIZATION));
+    assert!(mock.finish().is_empty());
 }

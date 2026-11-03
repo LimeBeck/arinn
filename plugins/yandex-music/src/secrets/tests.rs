@@ -59,8 +59,13 @@ impl Service {
         &self,
         attributes: HashMap<String, String>,
     ) -> (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) {
-        assert_eq!(attributes["arinn"], "music-yandex");
-        assert_eq!(attributes["credential"], "synthetic-reference");
+        if attributes.contains_key("application") {
+            assert_eq!(attributes["application"], "arinn-yandex-client");
+            assert_eq!(attributes["client-id"], "synthetic-public-client");
+        } else {
+            assert_eq!(attributes["arinn"], "music-yandex");
+            assert_eq!(attributes["credential"], "synthetic-reference");
+        }
         let state = self.0.state.lock().unwrap();
         let items = state
             .records
@@ -128,8 +133,14 @@ impl Item {
         if stall {
             tokio::time::sleep(Duration::from_secs(4)).await;
         }
-        let bytes = self.0.state.lock().unwrap().records[self.1].bytes.clone();
-        Secret(session, vec![], bytes, "application/json".into())
+        let state = self.0.state.lock().unwrap();
+        let record = &state.records[self.1];
+        let content_type = if record.attrs.contains_key("application") {
+            "text/plain"
+        } else {
+            "application/json"
+        };
+        Secret(session, vec![], record.bytes.clone(), content_type.into())
     }
     fn set_secret(&self, secret: Secret) {
         let mut state = self.0.state.lock().unwrap();
@@ -415,4 +426,71 @@ async fn revoking_a_staged_grant_prevents_a_worker_parked_before_activation_from
     assert!(store.load().await.unwrap().is_none());
     drop(store);
     assert!(f.store().load().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn optional_application_secret_requires_a_unique_unlocked_matching_item() {
+    let f = Fixture::new(Shared::new()).await;
+    let store = f.store();
+    assert_eq!(
+        store
+            .application_secret("synthetic-public-client")
+            .await
+            .unwrap(),
+        None
+    );
+    let attributes = HashMap::from([
+        ("application".into(), "arinn-yandex-client".into()),
+        ("client-id".into(), "synthetic-public-client".into()),
+    ]);
+    f.shared.state.lock().unwrap().records.insert(
+        ITEMS[0].into(),
+        Record {
+            attrs: attributes.clone(),
+            bytes: b"synthetic-app-secret".to_vec(),
+        },
+    );
+    assert_eq!(
+        store
+            .application_secret("synthetic-public-client")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("synthetic-app-secret")
+    );
+    f.shared.state.lock().unwrap().locked = true;
+    assert!(matches!(
+        store.application_secret("synthetic-public-client").await,
+        Err(Error::Locked)
+    ));
+    f.shared.state.lock().unwrap().locked = false;
+    f.shared.state.lock().unwrap().records.insert(
+        ITEMS[1].into(),
+        Record {
+            attrs: attributes,
+            bytes: b"synthetic-app-secret".to_vec(),
+        },
+    );
+    assert!(matches!(
+        store.application_secret("synthetic-public-client").await,
+        Err(Error::Storage)
+    ));
+    let state = f.shared.state.lock().unwrap();
+    assert_eq!(state.opened, state.closed);
+}
+#[tokio::test]
+async fn missing_secret_service_does_not_prevent_public_client_initialization() {
+    let f = Fixture::new(Shared::new()).await;
+    f._server.release_name(SERVICE).await.unwrap();
+    assert!(
+        f.store()
+            .application_secret("synthetic-public-client")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        f.store().save(&credentials()).await,
+        Err(Error::Storage)
+    ));
 }

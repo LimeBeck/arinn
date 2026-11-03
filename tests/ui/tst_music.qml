@@ -17,6 +17,7 @@ TestCase {
             property string activeSourceName: "Fixture music"
             property string errorText: ""
             property bool busy: false
+            property bool transportBusy: busy
             property bool more: false
             property var commands: []
             function choose(id) { sourceId=id; }
@@ -104,4 +105,38 @@ TestCase {
         home.selectSection(2);compare(home.screen,"music");
         home.musicTitle="";compare(home.routes.length,5);compare(home.routes[2],"downloads");
     }
+    function test_playlist_actions_have_remote_entry_paths() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["playlists"],actions:["play","save_playlist","delete_playlist"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"playlist:fixture",parentKind:"playlist"});
+        verify(view);wait(0);view.focusInitial();
+        keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicSavePlaylist"),"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicDeletePlaylist"),"activeFocus",true);
+        keyClick(Qt.Key_Left);keyClick(Qt.Key_Return);compare(view.namingPlaylist,true);
+        const name=findChild(view,"musicPlaylistName");tryCompare(name,"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicPlaylistKeyboard"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.typing,true);
+        keyClick(Qt.Key_Escape);compare(view.typing,false);compare(view.namingPlaylist,true);
+        keyClick(Qt.Key_Escape);compare(view.namingPlaylist,false);
+    }
+    function test_save_queue_has_remote_entry_path() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"session",playback:"paused",actions:["save_playlist"],upcoming:[{occurrence:"one",track:{id:"track-1",title:"Track"}}]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"queue"});
+        verify(view);wait(0);view.focusInitial();keyClick(Qt.Key_Up);
+        tryCompare(findChild(view,"musicSaveQueue"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.namingPlaylist,true);compare(view.playlistActive,true);
+    }
+
+    function test_initially_empty_radio_still_requires_replacement_confirmation() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"station-session",playback:"ended",continuous:true,actions:["stop"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.requestPlay("track-1");compare(view.pendingPlay,"track-1");compare(catalog.commands.length,0);
+        tryCompare(findChild(view,"musicKeepQueue"),"activeFocus",true);
+        keyClick(Qt.Key_Escape);view.openPlayer();wait(0);
+        tryCompare(findChild(view,"musicStop"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"stop");
+    }
+
 }

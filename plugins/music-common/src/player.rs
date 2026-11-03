@@ -191,7 +191,22 @@ impl Process {
             .create(&directory)
             .map_err(|_| ErrorCode::Unavailable)?;
         let socket = directory.join("audio.sock");
-        let child = Command::new(executable)
+        let parent = std::process::id() as libc::pid_t;
+        let mut command = Command::new(executable);
+        // SAFETY: the child-side hook uses only async-signal-safe C calls.
+        // Kill this owned audio process if its creating provider thread dies.
+        unsafe {
+            command.pre_exec(move || {
+                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if libc::getppid() != parent {
+                    return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+                }
+                Ok(())
+            });
+        }
+        let child = command
             .args([
                 "--no-config",
                 "--idle=yes",
@@ -504,5 +519,89 @@ mod tests {
         let snapshot = process.poll().unwrap();
         assert!(snapshot.failed);
         assert_eq!(snapshot.eof, None);
+    }
+    // Executed only as an owned subprocess by the parent-death regression.
+    #[test]
+    #[ignore]
+    fn provider_owner_fixture() {
+        let directory = PathBuf::from(std::env::var("ARINN_TEST_AUDIO_OWNER_DIRECTORY").unwrap());
+        let process = Process::start(&directory, &directory.join("fixture.py")).unwrap();
+        std::fs::write(directory.join("audio.pid"), process.child.id().to_string()).unwrap();
+        loop {
+            std::thread::park();
+        }
+    }
+    #[test]
+    fn killing_provider_also_terminates_its_owned_audio_child() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!("am-owner-{}", uuid::Uuid::new_v4()));
+        DirBuilder::new().mode(0o700).create(&directory).unwrap();
+        let executable = directory.join("fixture.py");
+        std::fs::write(
+            &executable,
+            r#"#!/usr/bin/python3
+import socket,sys,time
+path=next(a.split('=',1)[1] for a in sys.argv if a.startswith('--input-ipc-server='))
+server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
+connection,_=server.accept()
+time.sleep(30)
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut owner = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "player::tests::provider_owner_fixture",
+            ])
+            .env("ARINN_TEST_AUDIO_OWNER_DIRECTORY", &directory)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let start = Instant::now();
+        let pid = loop {
+            if let Ok(bytes) = std::fs::read_to_string(directory.join("audio.pid")) {
+                break bytes.parse::<i32>().unwrap();
+            }
+            if start.elapsed() > Duration::from_secs(8) {
+                let _ = owner.kill();
+                let _ = owner.wait();
+                panic!("owned provider fixture did not start");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        // SAFETY: pid came from our live child fixture; pidfd pins its identity.
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
+        assert!(descriptor >= 0);
+        owner.kill().unwrap();
+        owner.wait().unwrap();
+        let mut poll = libc::pollfd {
+            fd: descriptor,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll points to one valid pollfd; close releases our descriptor.
+        let exited = unsafe { libc::poll(&mut poll, 1, 3000) };
+        if exited == 0 {
+            unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    descriptor,
+                    libc::SIGKILL,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                );
+            }
+        }
+        unsafe {
+            libc::close(descriptor);
+        }
+        assert!(
+            exited > 0,
+            "audio survived the death of its owning provider"
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

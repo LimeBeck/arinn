@@ -5,6 +5,7 @@
 #include "asset_images.h"
 #include "backend.h"
 #include "input_bindings.h"
+#include "interface_sounds.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
 #include "startup_home.h"
@@ -52,6 +53,7 @@ int main(int argc, char **argv) {
     return 2;
   }
   Backend backend(nullptr, {QGuiApplication::platformName(), app.desktopFileName()});
+  InterfaceSounds interfaceSounds;
   // Extra keys from config.toml (ADR-0079), applied before any screen.
   InputBindings bindings;
   app.installEventFilter(&bindings);
@@ -70,6 +72,7 @@ int main(int argc, char **argv) {
   // only: the shell never reads the file system itself (R-05).
   engine.rootContext()->setContextProperty("shellHomeFolder",
                                            qEnvironmentVariable("HOME"));
+  engine.rootContext()->setContextProperty("interfaceSounds", &interfaceSounds);
   engine.load(QUrl("qrc:/Main.qml"));
   if (engine.rootObjects().isEmpty())
     return 1;

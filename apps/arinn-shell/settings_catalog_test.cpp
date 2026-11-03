@@ -553,6 +553,8 @@ private slots:
                         {QStringLiteral("alpha"), QStringLiteral("Alpha")}};
     const auto timeouts = QStringLiteral(
         R"({"options":[{"value":"5","title":"5 min"},{"value":"10","title":"10 min"},{"value":"15","title":"15 min"},{"value":"30","title":"30 min"},{"value":"60","title":"60 min"}]})");
+    const auto soundLevels = QStringLiteral(
+        R"({"options":[{"value":"off","title":"Off"},{"value":"quiet","title":"Quiet"},{"value":"normal","title":"Normal"}]})");
     daemon.settings.insert(
         QStringLiteral("alpha"),
         {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
@@ -568,17 +570,24 @@ private slots:
                  QStringLiteral("{}"), true),
          setting(QStringLiteral("ambient_timeout"), QStringLiteral("appearance"),
                  QStringLiteral("enum"), QStringLiteral("\"30\""), timeouts,
-                 true)});
+                 true),
+         setting(QStringLiteral("interface_sounds"), QStringLiteral("sound"),
+                 QStringLiteral("enum"), QStringLiteral("\"normal\""),
+                 soundLevels, true)});
     SettingsCatalog catalog;
     // Defaults until the daemon has answered.
     QCOMPARE(catalog.lightField(), true);
     QCOMPARE(catalog.ambientTimeoutMinutes(), 10);
+    QVERIFY(!catalog.interfaceSoundsLevelKnown());
+    QVERIFY(catalog.interfaceSoundsLevel().isEmpty());
     QSignalSpy changes(&catalog, &SettingsCatalog::preferencesChanged);
     QVERIFY(registerBus(daemon));
     catalog.refresh();
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
     QTRY_COMPARE(catalog.lightField(), false);
     QCOMPARE(catalog.ambientTimeoutMinutes(), 30);
+    QVERIFY(catalog.interfaceSoundsLevelKnown());
+    QCOMPARE(catalog.interfaceSoundsLevel(), QStringLiteral("normal"));
     const auto row = rowAt(catalog, QStringLiteral("arinn"),
                            QStringLiteral("ambient_timeout"));
     QCOMPARE(row.value(QStringLiteral("constraints")).toMap()

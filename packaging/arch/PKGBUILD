@@ -21,8 +21,9 @@ pkgdesc='TV-first shell for a Linux HTPC (pre-alpha prototype)'
 arch=('x86_64')
 url='https://github.com/LimeBeck/arinn'
 license=('GPL-3.0-or-later' 'MIT OR Apache-2.0' 'CC-BY-SA-4.0')
-depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base>=6.8' 'qt6-declarative>=6.8' 'qt6-svg>=6.8' 'curl' 'libunwind' 'openssl')
+depends=('gcc-libs' 'glibc' 'glib2>=2.86' 'dbus' 'systemd' 'qt6-base>=6.8' 'qt6-declarative>=6.8' 'qt6-svg>=6.8' 'qt6-multimedia>=6.8' 'curl' 'libunwind' 'openssl')
 optdepends=('mpv: local file and music playback' 'ffmpeg: seek thumbnails for the mpv provider; video duration and audio/subtitle languages for the library provider; audio probing (ffprobe) for the local music provider' 'transmission-cli: local Transmission daemon for the download provider')
+
 makedepends=('cargo' 'cmake' 'ninja' 'python' 'qt6-tools')
 checkdepends=('ffmpeg')
 options=('!lto')

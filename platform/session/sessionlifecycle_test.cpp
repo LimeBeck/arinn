@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "main_qml_test_support.h"
 #include "dbussessionlifecycle.h"
 #include <QDBusArgument>
 #include <QDBusContext>
@@ -206,8 +207,9 @@ private slots:
     Backend backend;
     DbusSessionLifecycle guard(nullptr, bus, bus);
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("backend", &backend);
-    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
@@ -267,8 +269,9 @@ private slots:
     Backend backend;
     DbusSessionLifecycle guard(nullptr, bus, bus);
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("backend", &backend);
-    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
@@ -358,8 +361,9 @@ private slots:
     Backend backend;
     DbusSessionLifecycle guard(nullptr, bus, bus);
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty("backend", &backend);
-    engine.rootContext()->setContextProperty("sessionGuard", &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());

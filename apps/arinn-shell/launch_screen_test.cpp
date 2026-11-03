@@ -8,6 +8,7 @@
 // through real keys.
 #include "asset_images.h"
 #include "backend.h"
+#include "main_qml_test_support.h"
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlProperty>
@@ -166,6 +167,7 @@ class LaunchScreenTest : public QObject {
   Q_OBJECT
   LaunchDaemon daemon;
   SessionGuardStandIn guard;
+  InterfaceSounds interfaceSounds;
   std::unique_ptr<Backend> backend;
   std::unique_ptr<QQmlApplicationEngine> engine;
   QQuickWindow *window = nullptr;
@@ -241,8 +243,8 @@ private slots:
     QTRY_COMPARE(backend->applications().size(), 2);
     engine = std::make_unique<QQmlApplicationEngine>();
     installAssetImageProvider(engine.get());
-    engine->rootContext()->setContextProperty("backend", backend.get());
-    engine->rootContext()->setContextProperty("sessionGuard", &guard);
+    installMainQmlContextProperties(engine.get(), backend.get(), &guard,
+                                    &interfaceSounds);
     engine->load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     window = qobject_cast<QQuickWindow *>(engine->rootObjects().value(0));
     QVERIFY(window);

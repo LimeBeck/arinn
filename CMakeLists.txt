@@ -5,7 +5,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(ArinnPhase0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
-find_package(Qt6 6.8 REQUIRED COMPONENTS Quick DBus Test QuickTest Svg LinguistTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Quick DBus Test QuickTest Svg LinguistTools Multimedia)
 qt_standard_project_setup()
 enable_testing()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -23,6 +23,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 configure_file(apps/arinn-shell/arinn_build_id.h.in
     ${CMAKE_BINARY_DIR}/generated/arinn_build_id.h @ONLY)
 include_directories(${CMAKE_BINARY_DIR}/generated)
+add_test(NAME ui-sounds-render COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_SOURCE_DIR}/scripts/render-ui-sounds.py --check
+    ${CMAKE_SOURCE_DIR}/apps/arinn-shell/sounds)
 add_subdirectory(apps/arinn-shell)
 # In-process KWin producer of Activity background frames (ADR-0087).
 add_subdirectory(platform/kde/background)

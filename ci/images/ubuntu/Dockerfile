@@ -20,7 +20,7 @@ FROM smoke AS build
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       git python3 ca-certificates curl debhelper-compat cmake g++ ninja-build \
-      pkg-config qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-tools-dev \
+      pkg-config qt6-base-dev qt6-declarative-dev qt6-svg-dev qt6-multimedia-dev qt6-tools-dev \
       libcurl4-openssl-dev libunwind-dev libssl-dev devscripts \
       dbus-daemon libglib2.0-bin python-is-python3 ffmpeg \
  && rm -rf /var/lib/apt/lists/*

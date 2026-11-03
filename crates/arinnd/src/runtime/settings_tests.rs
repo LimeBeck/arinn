@@ -412,6 +412,23 @@ async fn the_shell_preferences_are_core_settings() {
             "{value}"
         );
     }
+    let sounds = find(&settings, "interface_sounds");
+    assert_eq!(
+        (
+            sounds.category.as_str(),
+            sounds.kind.as_str(),
+            sounds.value.as_str()
+        ),
+        ("sound", "enum", r#""quiet""#)
+    );
+    for value in ["off", "quiet", "normal"] {
+        assert!(
+            sounds
+                .constraints
+                .contains(&format!(r#""value":"{value}""#)),
+            "{value}"
+        );
+    }
 
     let path = api
         .set_value("arinn", &generation, "light_field", "false", &rid())
@@ -423,16 +440,45 @@ async fn the_shell_preferences_are_core_settings() {
         .await
         .unwrap();
     f.wait(path).await.unwrap();
+    let path = api
+        .set_value(
+            "arinn",
+            &generation,
+            "interface_sounds",
+            r#""normal""#,
+            &rid(),
+        )
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
     let config = Config::load(&f.folder.join("config")).unwrap();
-    assert_eq!((config.light_field, config.ambient_timeout), (false, 30));
+    assert_eq!(
+        (
+            config.light_field,
+            config.ambient_timeout,
+            config.interface_sounds.as_str()
+        ),
+        (false, 30, "normal")
+    );
     let (_, settings) = api.get_settings("arinn").await.unwrap();
     assert_eq!(find(&settings, "light_field").value, "false");
     assert_eq!(find(&settings, "ambient_timeout").value, r#""30""#);
+    assert_eq!(find(&settings, "interface_sounds").value, r#""normal""#);
     // Only the offered timeouts; nothing is stored for another one.
     for bad in [r#""7""#, "30", r#""never""#] {
         assert_eq!(
             error_name(
                 api.set_value("arinn", &generation, "ambient_timeout", bad, &rid())
+                    .await
+            ),
+            "org.arinn.Error1.InvalidArgument",
+            "{bad}"
+        );
+    }
+    for bad in [r#""loud""#, "quiet", r#""maybe""#] {
+        assert_eq!(
+            error_name(
+                api.set_value("arinn", &generation, "interface_sounds", bad, &rid())
                     .await
             ),
             "org.arinn.Error1.InvalidArgument",

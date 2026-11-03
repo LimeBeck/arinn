@@ -5,6 +5,7 @@
 // real Backend and Main.qml against a fake Daemon1 on a private bus.
 #include "asset_images.h"
 #include "backend.h"
+#include "main_qml_test_support.h"
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickItem>
@@ -159,6 +160,7 @@ class QuickMenuTest : public QObject {
   Q_OBJECT
   QuickMenuDaemon daemon;
   SessionGuardStandIn guard;
+  InterfaceSounds interfaceSounds;
   std::unique_ptr<Backend> backend;
   std::unique_ptr<QQmlApplicationEngine> engine;
   QQuickWindow *window = nullptr;
@@ -194,8 +196,8 @@ private slots:
     QTRY_VERIFY(backend->connected());
     engine = std::make_unique<QQmlApplicationEngine>();
     installAssetImageProvider(engine.get());
-    engine->rootContext()->setContextProperty("backend", backend.get());
-    engine->rootContext()->setContextProperty("sessionGuard", &guard);
+    installMainQmlContextProperties(engine.get(), backend.get(), &guard,
+                                    &interfaceSounds);
     engine->load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     window = qobject_cast<QQuickWindow *>(engine->rootObjects().value(0));
     QVERIFY(window);

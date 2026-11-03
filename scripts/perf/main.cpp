@@ -12,6 +12,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
+#include <QQmlContext>
+#include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickView>
 #include <QSGRendererInterface>
@@ -51,6 +53,18 @@ QQuickItem *findItem(QQuickItem *root, const QString &name) {
   return nullptr;
 }
 
+class InterfaceSoundsStub : public QObject {
+  Q_OBJECT
+public:
+  using QObject::QObject;
+  Q_INVOKABLE void play(const QString &, bool = false) {}
+  Q_INVOKABLE void playNavigationTap(bool) {}
+  Q_INVOKABLE void playEdgeBump(bool) {}
+  Q_INVOKABLE void playOpen() {}
+  Q_INVOKABLE void playClose() {}
+  Q_INVOKABLE void playBack() {}
+};
+
 int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   QCommandLineParser parser;
@@ -74,6 +88,9 @@ int main(int argc, char **argv) {
 
   auto window = std::make_unique<QQuickView>();
   auto &view = *window;
+  InterfaceSoundsStub interfaceSounds;
+  view.engine()->rootContext()->setContextProperty(QStringLiteral("interfaceSounds"),
+                                                   &interfaceSounds);
   view.setSource(QUrl::fromLocalFile(QStringLiteral(ARINN_PERF_SCENE)));
   if (view.status() != QQuickView::Ready)
     return 2;
@@ -278,3 +295,5 @@ int main(int argc, char **argv) {
     QTextStream(stderr) << failure << '\n';
   return result;
 }
+
+#include "main.moc"

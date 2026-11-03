@@ -71,6 +71,7 @@ Window {
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuTarget = "";
             quickMenuOpen = true;
+            interfaceSounds.playOpen();
             // The sheet takes the place of the "Opening…" and "Starting…"
             // progress, as Home does (§6.5): the launch keeps running, and
             // only its dialog (failure or timeout) is drawn above the sheet
@@ -89,6 +90,7 @@ Window {
     // shell, return focus to the opener.
     function quickMenuBack() {
         if (!quickMenuOpen) return;
+        interfaceSounds.playClose();
         quickMenuOpen = false;
         const target = backend.returnWindow || quickMenuTarget;
         quickMenuTarget = "";
@@ -293,6 +295,7 @@ Window {
             presentationFocusBound.start();
     }
     function returnToActivity() {
+        interfaceSounds.play("kindle");
         if (mediaCatalog.inputLayerActive && mediaCatalog.presentationState === "active") {
             // Record the intent before the platform can change Qt activation.
             presentationReturning = true;
@@ -521,6 +524,14 @@ Window {
         return visible && active && (!activeFocusItem || activeFocusItem === contentItem);
     }
     property bool hadFocus: false
+    property bool interfaceStartupHeard: false
+    function playStartupIgnite() {
+        if (interfaceStartupHeard || !settingsCatalog.interfaceSoundsLevelKnown)
+            return;
+        interfaceStartupHeard = true;
+        if (settingsCatalog.interfaceSoundsLevel !== "off")
+            interfaceSounds.play("ignite");
+    }
     onActiveFocusItemChanged: {
         if (!focusFellToRoot()) {
             hadFocus = true;
@@ -541,6 +552,7 @@ Window {
         quickMenuOpener = null;
         quickMenuTarget = "";
     } else {
+        playStartupIgnite();
         Qt.callLater(() => {
             // Returning from an external activity keeps the displayed route. Home
             // must not take focus behind Open services or another retained screen.
@@ -663,6 +675,7 @@ Window {
                 root.resumeFromHome = false;
                 if (!libraryView.operationFailed) return;
                 root.launchFromHome = false;
+                interfaceSounds.play("error");
                 feedback.text = libraryView.operationMessage;
                 feedbackTimer.restart();
             });
@@ -744,6 +757,7 @@ Window {
         ambientScreen.start();
     }
     function finishAmbient() {
+        interfaceSounds.play("kindle");
         const target = ambientReturn;
         ambientReturn = null;
         Qt.callLater(() => {
@@ -763,6 +777,29 @@ Window {
         onDownloadImported: message => downloadsView.showToast(message)
     }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
+    Connections {
+        target: settingsCatalog
+        function onPreferencesChanged() { root.playStartupIgnite(); }
+    }
+    Binding {
+        target: interfaceSounds
+        property: "level"
+        value: settingsCatalog.interfaceSoundsLevel
+        when: settingsCatalog.interfaceSoundsLevelKnown
+    }
+    Binding {
+        target: interfaceSounds
+        property: "outputMuted"
+        value: systemStatus.muted
+    }
+    readonly property bool interfaceMediaActive:
+        ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs, false)
+        || (playerOpen && playerView.playing)
+    Binding {
+        target: interfaceSounds
+        property: "mediaActive"
+        value: root.interfaceMediaActive
+    }
     KeyboardMonitor { id: keyboardMonitor }
     // Every key press and pointer movement in the shell feeds the one input
     // mode; it hides the cursor in D-pad mode (spec §6.1, ADR-0095).

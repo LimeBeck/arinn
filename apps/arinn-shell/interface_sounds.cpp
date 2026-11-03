@@ -1,0 +1,354 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+//
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+#include "interface_sounds.h"
+
+#include <QAudioDevice>
+#include <QCoreApplication>
+#include <QEventLoop>
+#include <QMediaDevices>
+#include <QResource>
+#include <QSoundEffect>
+#include <QQmlEngine>
+
+namespace {
+InterfaceSounds *g_instance = nullptr;
+
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+bool g_testOutputsOverride = false;
+bool g_testOutputsPresent = false;
+#endif
+
+const char *resourceFor(const QString &name) {
+  if (name == QLatin1String("tap"))
+    return "qrc:/sounds/tap.wav";
+  if (name == QLatin1String("edge"))
+    return "qrc:/sounds/edge.wav";
+  if (name == QLatin1String("select"))
+    return "qrc:/sounds/select.wav";
+  if (name == QLatin1String("back"))
+    return "qrc:/sounds/back.wav";
+  if (name == QLatin1String("open"))
+    return "qrc:/sounds/open.wav";
+  if (name == QLatin1String("close"))
+    return "qrc:/sounds/close.wav";
+  if (name == QLatin1String("ignite"))
+    return "qrc:/sounds/ignite.wav";
+  if (name == QLatin1String("kindle"))
+    return "qrc:/sounds/kindle.wav";
+  if (name == QLatin1String("error"))
+    return "qrc:/sounds/error.wav";
+  return nullptr;
+}
+
+const char *kAllSounds[] = {"tap",  "edge",   "select", "back", "open",
+                              "close", "ignite", "kindle", "error"};
+} // namespace
+
+InterfaceSounds::InterfaceSounds(QObject *parent) : QObject(parent) {
+  g_instance = this;
+  m_clock.start();
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  m_testOutputsOverride = g_testOutputsOverride;
+  m_testOutputsPresent = g_testOutputsPresent;
+#endif
+  // Sample once. An empty list latches unavailable before any QSoundEffect
+  // exists, and a later output does not clear it.
+  if (!outputsReported())
+    m_unavailableLatched = true;
+  connect(&m_mediaDevices, &QMediaDevices::audioOutputsChanged, this,
+          &InterfaceSounds::onAudioOutputsChanged);
+}
+
+InterfaceSounds::~InterfaceSounds() {
+  if (g_instance == this)
+    g_instance = nullptr;
+}
+
+InterfaceSounds *InterfaceSounds::instance() { return g_instance; }
+
+bool InterfaceSounds::outputsReported() const {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testOutputsOverride)
+    return m_testOutputsPresent;
+#endif
+  return !QMediaDevices::audioOutputs().isEmpty();
+}
+
+bool InterfaceSounds::available() const { return !m_unavailableLatched; }
+
+void InterfaceSounds::onAudioOutputsChanged() {
+  const bool wasAvailable = available();
+  // Devices that show up after a cold start are not recovery. An empty list
+  // before the first Ready latches for the rest of this process.
+  if (!m_seenReady && !outputsReported())
+    m_unavailableLatched = true;
+  if (wasAvailable != available())
+    emit availableChanged();
+  if (!available() || !outputsReported())
+    return;
+  reloadAllEffects();
+}
+
+void InterfaceSounds::resetAllEffects() { m_effects.clear(); }
+
+void InterfaceSounds::reloadAllEffects() {
+  if (!available() || !outputsReported()) {
+    resetAllEffects();
+    return;
+  }
+  resetAllEffects();
+  for (const char *name : kAllSounds)
+    waitForEffectReady(QString::fromLatin1(name));
+}
+
+void InterfaceSounds::setLevel(const QString &level) {
+  if (level.isEmpty()) {
+    if (!m_levelKnown && m_level.isEmpty())
+      return;
+    m_levelKnown = false;
+    m_level.clear();
+    emit levelChanged();
+    return;
+  }
+  const auto normalized = level == QLatin1String("off") ||
+                                  level == QLatin1String("quiet") ||
+                                  level == QLatin1String("normal")
+                              ? level
+                              : QStringLiteral("quiet");
+  if (m_levelKnown && m_level == normalized)
+    return;
+  m_levelKnown = true;
+  m_level = normalized;
+  emit levelChanged();
+}
+
+void InterfaceSounds::setOutputMuted(bool muted) {
+  if (m_outputMuted == muted)
+    return;
+  m_outputMuted = muted;
+  emit outputMutedChanged();
+}
+
+void InterfaceSounds::setMediaActive(bool active) {
+  if (m_mediaActive == active)
+    return;
+  m_mediaActive = active;
+  emit mediaActiveChanged();
+}
+
+double InterfaceSounds::volume(bool repeat) const {
+  if (!m_levelKnown || m_level == QLatin1String("off") || m_outputMuted)
+    return 0.0;
+  const double base = m_level == QLatin1String("normal") ? 0.75 : 0.35;
+  return base * (repeat ? 0.5 : 1.0);
+}
+
+QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
+  if (!available() || !outputsReported())
+    return nullptr;
+  const auto found = m_effects.find(name);
+  if (found != m_effects.end())
+    return found->second.get();
+  const char *url = resourceFor(name);
+  if (!url)
+    return nullptr;
+  auto effect = std::make_unique<QSoundEffect>(this);
+  effect->setSource(QUrl(QString::fromLatin1(url)));
+  effect->setLoopCount(1);
+  auto *raw = effect.get();
+  m_effects.emplace(name, std::move(effect));
+  return raw;
+}
+
+bool InterfaceSounds::resourceEmbedded(const QString &name) const {
+  return QResource(QStringLiteral(":/sounds/%1.wav").arg(name).toUtf8())
+      .isValid();
+}
+
+bool InterfaceSounds::waitForEffectReady(const QString &name) {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testFailNextDecodeName == name) {
+    m_testFailNextDecodeName.clear();
+    return false;
+  }
+#endif
+  auto *effect = effectFor(name);
+  if (!effect)
+    return false;
+  for (int i = 0; i < 1000; ++i) {
+    switch (effect->status()) {
+    case QSoundEffect::Ready:
+      m_seenReady = true;
+      return true;
+    case QSoundEffect::Error:
+      return false;
+    case QSoundEffect::Loading:
+    case QSoundEffect::Null:
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+      break;
+    }
+  }
+  if (effect->status() != QSoundEffect::Ready)
+    return false;
+  m_seenReady = true;
+  return true;
+}
+
+bool InterfaceSounds::ensureLoaded(const QString &name) {
+  if (!resourceEmbedded(name))
+    return false;
+  return waitForEffectReady(name);
+}
+
+int InterfaceSounds::effectStatus(const QString &name) const {
+  const auto found = m_effects.find(name);
+  if (found == m_effects.end())
+    return static_cast<int>(QSoundEffect::Null);
+  return static_cast<int>(found->second->status());
+}
+
+bool InterfaceSounds::playEffectReady(const QString &name, bool repeat) {
+  if (!waitForEffectReady(name))
+    return false;
+  auto *effect = effectFor(name);
+  if (!effect || effect->status() != QSoundEffect::Ready)
+    return false;
+  effect->setVolume(static_cast<float>(volume(repeat)));
+  effect->play();
+  return true;
+}
+
+bool InterfaceSounds::playInternal(const QString &name, bool repeat,
+                                   bool throttleTap, bool throttleEdge) {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testFailPlayAttempts > 0) {
+    --m_testFailPlayAttempts;
+    return false;
+  }
+#endif
+  if (!m_levelKnown || m_level == QLatin1String("off") || m_outputMuted)
+    return false;
+  if (m_mediaActive && name != QLatin1String("error"))
+    return false;
+  if (name == QLatin1String("tap") && m_suppressNavigationTap)
+    return false;
+  if (name == QLatin1String("edge") && m_suppressEdgeBump)
+    return false;
+  if (throttleTap && name == QLatin1String("tap") && m_tapIntervalMs > 0) {
+    const qint64 now = m_clock.elapsed();
+    if (m_lastTapMs != 0 && now - m_lastTapMs < m_tapIntervalMs)
+      return false;
+  }
+  if (throttleEdge && name == QLatin1String("edge") && m_edgeIntervalMs > 0) {
+    const qint64 now = m_clock.elapsed();
+    if (m_lastEdgeMs != 0 && now - m_lastEdgeMs < m_edgeIntervalMs)
+      return false;
+  }
+  if (!available() || !outputsReported())
+    return false;
+  if (!playEffectReady(name, repeat)) {
+    resetAllEffects();
+    if (!playEffectReady(name, repeat))
+      return false;
+  }
+  emit played(name, repeat);
+  if (name == QLatin1String("tap"))
+    m_lastTapMs = m_clock.elapsed();
+  if (name == QLatin1String("edge"))
+    m_lastEdgeMs = m_clock.elapsed();
+  return true;
+}
+
+void InterfaceSounds::play(const QString &name, bool repeat) {
+  playInternal(name, repeat, name == QLatin1String("tap"),
+               name == QLatin1String("edge"));
+}
+
+void InterfaceSounds::playNavigationTap(bool autoRepeat) {
+  playInternal(QStringLiteral("tap"), autoRepeat, true, false);
+}
+
+void InterfaceSounds::playEdgeBump(bool autoRepeat) {
+  if (autoRepeat)
+    return;
+  playInternal(QStringLiteral("edge"), false, false, true);
+}
+
+void InterfaceSounds::playOpen() {
+  m_suppressNavigationTap = true;
+  m_suppressEdgeBump = true;
+  playInternal(QStringLiteral("open"), false, false, false);
+  m_suppressNavigationTap = false;
+  m_suppressEdgeBump = false;
+}
+
+void InterfaceSounds::playClose() {
+  m_suppressNavigationTap = true;
+  m_suppressEdgeBump = true;
+  playInternal(QStringLiteral("close"), false, false, false);
+  m_suppressNavigationTap = false;
+  m_suppressEdgeBump = false;
+}
+
+void InterfaceSounds::playBack() {
+  m_suppressNavigationTap = true;
+  m_suppressEdgeBump = true;
+  playInternal(QStringLiteral("back"), false, false, false);
+  m_suppressNavigationTap = false;
+  m_suppressEdgeBump = false;
+}
+
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+bool InterfaceSounds::playNavigationTapWhileSuppressed(bool autoRepeat) {
+  m_suppressNavigationTap = true;
+  const bool played =
+      playInternal(QStringLiteral("tap"), autoRepeat, true, false);
+  m_suppressNavigationTap = false;
+  return played;
+}
+
+bool InterfaceSounds::playEdgeBumpWhileSuppressed(bool autoRepeat) {
+  m_suppressEdgeBump = true;
+  const bool played = playInternal(QStringLiteral("edge"), false, false, true);
+  m_suppressEdgeBump = false;
+  Q_UNUSED(autoRepeat);
+  return played;
+}
+
+void InterfaceSounds::setTestFailNextDecodeOnce(const QString &name) {
+  m_testFailNextDecodeName = name;
+}
+
+void InterfaceSounds::setTestFailPlayAttempts(int count) {
+  m_testFailPlayAttempts = count;
+}
+
+void InterfaceSounds::setTestAudioOutputsPresent(bool present) {
+  g_testOutputsOverride = true;
+  g_testOutputsPresent = present;
+}
+
+void InterfaceSounds::clearTestAudioOutputs() { g_testOutputsOverride = false; }
+
+void InterfaceSounds::useTestAudioOutputs(bool present) {
+  m_testOutputsOverride = true;
+  m_testOutputsPresent = present;
+  onAudioOutputsChanged();
+}
+#endif
+
+void registerInterfaceSounds() {
+  qmlRegisterSingletonType<InterfaceSounds>(
+      "Arinn.Shell", 1, 0, "InterfaceSounds",
+      [](QQmlEngine *, QJSEngine *) -> QObject * {
+        if (!InterfaceSounds::instance()) {
+          static InterfaceSounds fallback;
+          return &fallback;
+        }
+        return InterfaceSounds::instance();
+      });
+}
+
+Q_COREAPP_STARTUP_FUNCTION(registerInterfaceSounds)

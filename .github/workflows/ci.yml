@@ -106,6 +106,9 @@ jobs:
         if: ${{ github.event_name == 'schedule' }}
         run: pacman -Syu --noconfirm
       - uses: actions/checkout@v7
+      - name: Install Qt Multimedia for interface sounds
+        # Until the Arch CI image is rebuilt with qt6-multimedia (ci/images/arch).
+        run: pacman -S --noconfirm --needed qt6-multimedia
       - name: Restore build cache
         # The self-hosted runner keeps /ci-cache on its own disk.
         if: ${{ !vars.ARINN_RUNNER }}

@@ -1413,4 +1413,47 @@ TestCase {
         tryCompare(child("detail-library-scan"), "text", "Look for new files");
         verify(insideView(windowFocus()));
     }
+
+    function test_interfaceSoundsUnavailableStatus() {
+        interfaceSounds.available = false;
+        const rows = copyRows();
+        rows.push({
+            providerId: "arinn", providerName: "Arinn", id: "interface_sounds",
+            categoryId: "sound", title: "Interface sounds",
+            description: "Short sounds for focus, OK, Back and panels; never over video or music",
+            type: "enum", currentValue: "quiet",
+            constraints: { options: [
+                { value: "off", title: "Off" },
+                { value: "quiet", title: "Quiet" },
+                { value: "normal", title: "Normal" }
+            ] },
+            enabled: true
+        });
+        view.rows = rows;
+        view.focusCategory(2);
+        verify(view.focusPart(view.activeRowIndex("arinn-interface_sounds"), "main"));
+        focused("setting-arinn-interface_sounds");
+        const status = child("interface-sounds-unavailable");
+        verify(status.visible);
+        const title = child("interface-sounds-unavailable-title").text;
+        const english = title === "Interface sounds unavailable";
+        verify(english || title === "Звуки интерфейса недоступны");
+        const detail = child("interface-sounds-unavailable-detail");
+        compare(detail.text, english ? "Restart Arinn after audio starts"
+                                      : "Перезапустите Arinn после появления звука");
+        compare(detail.color.toString(), Ui.Theme.textSecondary.toString());
+        compare(status.activeFocus, false);
+        keyClick(Qt.Key_Down);
+        verify(windowFocus().objectName !== "interface-sounds-unavailable");
+        if (captureSoundsStatusDir && String(captureSoundsStatusDir).length) {
+            let saved = false;
+            view.grabToImage(function(result) {
+                saved = result.saveToFile(String(captureSoundsStatusDir));
+            });
+            tryVerify(function() { return saved; }, 5000);
+        }
+        interfaceSounds.available = true;
+        tryCompare(status, "visible", false);
+        focused("setting-arinn-interface_sounds");
+    }
 }

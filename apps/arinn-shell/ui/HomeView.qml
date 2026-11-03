@@ -445,15 +445,16 @@ FocusScope {
         if (key === Qt.Key_Right) return;
         if (key === Qt.Key_Down && shortcutEditButton.visible) {
             Qt.callLater(() => Focus.take(shortcutEditButton));
-            return;
+            return true;
         }
         const rows = applicationRows();
         const step = key === Qt.Key_Up ? -1 : 1;
         for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
-            if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return;
+            if (rows[i].focusIndex(row.selectedIndex) || rows[i].restore()) return true;
         }
-        if (key === Qt.Key_Up) { sectionOffset = 0; Focus.take(menuButton); }
-        else Focus.take(sectionBack);
+        if (key === Qt.Key_Up) { sectionOffset = 0; Focus.take(menuButton); return true; }
+        Focus.take(sectionBack);
+        return true;
     }
     function applicationFocusLost(row) {
         const rows = applicationRows();
@@ -486,10 +487,13 @@ FocusScope {
         navigationOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
         navIndex = Math.max(0, routes.indexOf(screen));
         navOpen = true;
+        interfaceSounds.playOpen();
         Qt.callLater(() => Focus.take(navItems.itemAt(navIndex)));
     }
     function closeNavigation() {
+        if (!navOpen) return;
         navOpen = false;
+        interfaceSounds.playClose();
         if (navigationOpener && navigationOpener.visible && navigationOpener.enabled)
             Focus.take(navigationOpener);
         else restoreScreen();
@@ -499,6 +503,7 @@ FocusScope {
     // so showHome() can focus a visible control (review of #334).
     function homeKey() {
         if (tileActionsOpen) { actionEntryId = ""; actionOpener = null; }
+        interfaceSounds.play("kindle");
         homeKeyPressed();
         showHome();
     }
@@ -518,11 +523,18 @@ FocusScope {
         focusAfterRemoval(newRow);
     }
     function back() {
-        if (tileActionsOpen) closeTileActions();
-        else if (navOpen) closeNavigation();
-        else if (screen !== "home") { screen = "home"; restoreHome(); }
-        else if (returnActivityId) returnRequested(returnActivityId);
-        else openNavigation();
+        if (tileActionsOpen) {
+            interfaceSounds.playBack();
+            closeTileActions();
+        } else if (navOpen) closeNavigation();
+        else if (screen !== "home") {
+            interfaceSounds.playBack();
+            screen = "home";
+            restoreHome();
+        } else if (returnActivityId) {
+            interfaceSounds.playBack();
+            returnRequested(returnActivityId);
+        } else openNavigation();
     }
     function selectSection(index) {
         sectionOffset = 0;
@@ -537,9 +549,10 @@ FocusScope {
         const rows = rowItems();
         const step = key === Qt.Key_Up ? -1 : 1;
         for (let i = rows.indexOf(row) + step; i >= 0 && i < rows.length; i += step) {
-            if (rows[i].visible && rows[i].focusIndex(row.selectedIndex)) return;
+            if (rows[i].visible && rows[i].focusIndex(row.selectedIndex)) return true;
         }
-        if (key === Qt.Key_Up || !row.count) Focus.take(menuButton);
+        if (key === Qt.Key_Up || !row.count) { Focus.take(menuButton); return true; }
+        return false;
     }
     function focusAfterRemoval(row) {
         const rows = rowItems();
@@ -560,6 +573,7 @@ FocusScope {
         return null;
     }
     function activate(entryId) {
+        interfaceSounds.play("select");
         const entry = entryById(entryId);
         if (entry && entry.kind === "music") { musicRequested(); return; }
         if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
@@ -621,15 +635,19 @@ FocusScope {
             event.accepted = true;
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
             // Do not let Qt's implicit tab chain escape the active scope.
-            if (navOpen) moveNavigation(event.key === Qt.Key_Backtab ? -1 : 1);
+            if (navOpen) moveNavigation(event.key === Qt.Key_Backtab ? -1 : 1, event.isAutoRepeat);
             event.accepted = true;
         }
     }
-    function moveNavigation(step) {
+    function moveNavigation(step, autoRepeat) {
         let next = navIndex + step;
         while (next >= 0 && next < navItems.count) {
             const item = navItems.itemAt(next);
-            if (item.visible) { Focus.take(item); return; }
+            if (item.visible) {
+                Focus.take(item);
+                interfaceSounds.playNavigationTap(autoRepeat);
+                return;
+            }
             next += step;
         }
     }
@@ -907,8 +925,16 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onSecondaryActivated: entryId => { const entry=root.entryById(entryId); if(entry && entry.kind === "music") root.musicTransportRequested(); }
-                    onEdge: key => root.rowEdge(continueRow, key)
+                    onSecondaryActivated: entryId => { const entry=root.entryById(entryId); if(entry && entry.kind === "music") {interfaceSounds.play("select");root.musicTransportRequested();} }
+                    onEdge: (key, autoRepeat) => {
+                        if (key === Qt.Key_Left || key === Qt.Key_Right) {
+                            if (key === Qt.Key_Right) return;
+                            root.rowEdge(continueRow, key);
+                            return;
+                        }
+                        if (root.rowEdge(continueRow, key))
+                            interfaceSounds.playNavigationTap(autoRepeat);
+                    }
                     onFocusLost: root.focusAfterRemoval(continueRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -926,7 +952,15 @@ FocusScope {
                     onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onEdge: key => root.rowEdge(favoritesRow, key)
+                    onEdge: (key, autoRepeat) => {
+                        if (key === Qt.Key_Left || key === Qt.Key_Right) {
+                            if (key === Qt.Key_Right) return;
+                            root.rowEdge(favoritesRow, key);
+                            return;
+                        }
+                        if (root.rowEdge(favoritesRow, key))
+                            interfaceSounds.playNavigationTap(autoRepeat);
+                    }
                     onFocusLost: root.focusAfterRemoval(favoritesRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -941,7 +975,15 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(newRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onEdge: key => root.rowEdge(newRow, key)
+                    onEdge: (key, autoRepeat) => {
+                        if (key === Qt.Key_Left || key === Qt.Key_Right) {
+                            if (key === Qt.Key_Right) return;
+                            root.rowEdge(newRow, key);
+                            return;
+                        }
+                        if (root.rowEdge(newRow, key))
+                            interfaceSounds.playNavigationTap(autoRepeat);
+                    }
                     onFocusLost: root.focusAfterRemoval(newRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -996,7 +1038,15 @@ FocusScope {
                         else if (entry && entry.launchable === false) root.openTileActions(entryId);
                         else root.entryRequested(entryId);
                     }
-                    onEdge: key => root.applicationEdge(groupRow, key)
+                    onEdge: (key, autoRepeat) => {
+                        if (key === Qt.Key_Left || key === Qt.Key_Right) {
+                            if (key === Qt.Key_Right) return;
+                            root.applicationEdge(groupRow, key);
+                            return;
+                        }
+                        if (root.applicationEdge(groupRow, key))
+                            interfaceSounds.playNavigationTap(autoRepeat);
+                    }
                     onFocusLost: root.applicationFocusLost(groupRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -1010,7 +1060,15 @@ FocusScope {
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onSelected: { root.applicationFocusRow = runningRow.objectName; root.revealRow(runningRow); }
                 onActivated: entryId => root.runningRequested(entryId)
-                onEdge: key => root.applicationEdge(runningRow, key)
+                onEdge: (key, autoRepeat) => {
+                    if (key === Qt.Key_Left || key === Qt.Key_Right) {
+                        if (key === Qt.Key_Right) return;
+                        root.applicationEdge(runningRow, key);
+                        return;
+                    }
+                    if (root.applicationEdge(runningRow, key))
+                        interfaceSounds.playNavigationTap(autoRepeat);
+                }
                 onFocusLost: root.applicationFocusLost(runningRow)
                 onScrolled: hoverDelay.restart()
                 onDpadRequested: InputMode.keyPressed()
@@ -1154,10 +1212,10 @@ FocusScope {
                             else if (index === root.sections.length + 2) root.powerRequested();
                             else root.closeShellRequested();
                         }
-                        Keys.onTabPressed: root.moveNavigation(1)
-                        Keys.onBacktabPressed: root.moveNavigation(-1)
-                        Keys.onUpPressed: root.moveNavigation(-1)
-                        Keys.onDownPressed: root.moveNavigation(1)
+                        Keys.onTabPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
+                        Keys.onBacktabPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
+                        Keys.onUpPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
+                        Keys.onDownPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
                         Keys.onLeftPressed: {}
                         Keys.onRightPressed: {}
                         Rectangle {

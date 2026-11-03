@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir --require-hashes -r /qt/aqtinstall.txt \
  && aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
       --archives qtbase qtdeclarative qtsvg qttools icu \
       --outputdir /opt/qt --keep --archive-dest /qt/archives \
+ && aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
+      -m qtmultimedia \
+      --outputdir /opt/qt --keep --archive-dest /qt/archives \
  && cd /qt/archives \
  && find . -type f | sort | xargs sha256sum > /qt/actual.sha256 \
  && cat /qt/actual.sha256 \
@@ -37,8 +40,9 @@ ARG QT_VERSION=6.8.3
 # The union of the CI build job (Rust, Qt shell, integration suite) and the
 # package build (makepkg as the unprivileged builder user).
 RUN pacman -Syu --noconfirm --needed base-devel git rust cmake ninja ccache \
-      qt6-base qt6-declarative qt6-svg qt6-tools curl libunwind openssl \
+      qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools curl libunwind openssl \
       nodejs systemd xorg-server-xvfb ffmpeg \
+
  && rm -rf /var/cache/pacman/pkg/* \
  && useradd --create-home builder
 COPY --from=qt-sdk /opt/qt/${QT_VERSION}/gcc_64 /opt/qt/${QT_VERSION}/gcc_64

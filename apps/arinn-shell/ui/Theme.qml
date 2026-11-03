@@ -151,12 +151,13 @@ QtObject {
     readonly property var easing: [0.2, 0.8, 0.2, 1, 1, 1]
     readonly property FontLoader onest: FontLoader { source: "fonts/Onest.ttf" }
     readonly property string fontFamily: onest.name
-    // Content titles (hero, detail, the display role, the player title)
-    // use Ysabeau; system text stays in Onest (ADR-0136, D-2). Ysabeau is a
-    // variable font on the wght axis, handled like Onest.
-    readonly property FontLoader ysabeau: FontLoader { source: "fonts/Ysabeau.ttf" }
-    readonly property string contentFontFamily: ysabeau.name
-    // Onest and Ysabeau are variable fonts. Qt does not match named
+    // Content titles (hero, detail, the display role, the player title,
+    // episode title cards and the plate without artwork) use Playfair
+    // Display; system text stays in Onest (ADR-0137, revising ADR-0136 D-2).
+    // Playfair Display is a variable font on the wght axis, handled like Onest.
+    readonly property FontLoader playfair: FontLoader { source: "fonts/PlayfairDisplay.ttf" }
+    readonly property string contentFontFamily: playfair.name
+    // Onest and Playfair Display are variable fonts. Qt does not match named
     // instances by font.weight, so every weight would render as the default
     // (#546). The text components call this whenever their font changes: it
     // sets the wght axis to the requested weight. A 400 text gets no axis

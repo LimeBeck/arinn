@@ -370,6 +370,7 @@ FocusScope {
                                                 font.family: Theme.contentFontFamily
                                                 font.pixelSize: 26
                                                 font.weight: 600
+                                                font.features: ({ "tnum": 1, "lnum": 1 })
                                                 lineHeight: 1.15
                                                 color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
                                                 wrapMode: Text.WordWrap

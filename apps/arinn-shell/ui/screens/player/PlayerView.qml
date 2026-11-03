@@ -549,7 +549,7 @@ FocusScope {
                         objectName: "titleLabel"
                         text: root.title
                         // Content title (ADR-0136, D-2). The OSD keeps 48 px;
-                        // the hero role supplies Ysabeau, weight 600 and lining figures.
+                        // the hero role supplies Playfair Display, weight 600 and lining figures.
                         role: "hero"
                         font.pixelSize: 48
                         elide: Text.ElideRight

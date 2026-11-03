@@ -184,10 +184,12 @@ TestCase {
         compare(entriesSpy.signalArguments[0][0], "b");
         focused("detailPlay");
         compare(child("detailMissing").visible, false);
-        // Hearth light: the detail title is a content role in Ysabeau (ADR-0136).
+        // The detail title is a content role in Playfair Display (ADR-0137).
         compare(child("detailTitle").font.pixelSize, 104);
         compare(child("detailTitle").role, "detailTitle");
-        compare(child("detailTitle").font.family, Ui.Theme.contentFontFamily);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
+        compare(child("detailTitle").font.family, "Playfair Display");
+        compare(child("detailTitle").font.weight, 600);
         compare(child("detailFanart").visible, false);
         noWireframeLabels();
         compare(child("detailEyebrow").text, "Film");
@@ -268,7 +270,12 @@ TestCase {
         compare(child("episode-e1").cornerRadius, Ui.Theme.stillRadius);
         compare(child("episodePlate-e1").visible, true);
         compare(child("episodeNumber-e1").text, "1");
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
+        compare(child("episodeNumber-e1").font.family, "Playfair Display");
+        compare(child("episodeNumber-e1").font.weight, 600);
         compare(child("episodeArtTitle-e1").text, "One");
+        compare(child("episodeArtTitle-e1").font.family, "Playfair Display");
+        compare(child("episodeArtTitle-e1").font.weight, 600);
         compare(child("episodeLabel-e1").visible, false);
         compare(findChild(library, "episodeGlyph-e1"), null);
         noWireframeLabels();
@@ -456,6 +463,9 @@ TestCase {
         compare(findChild(library, "posterMark-n"), null);
         compare(child("posterPlate-n").visible, true);
         compare(child("posterArtTitle-n").text, "Noir");
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
+        compare(child("posterArtTitle-n").font.family, "Playfair Display");
+        compare(child("posterArtTitle-n").font.weight, 600);
         compare(child("posterGlyph-n").width, 44);
         compare(child("posterLabel-n").text, "Noir");
         compare(child("posterYear-n").text, "1999");

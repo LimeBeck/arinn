@@ -2083,7 +2083,7 @@ FocusScope {
                                         objectName: "integerValue"
                                         text: String(root.integerDraft)
                                         // System readout. `display` is the Ambient clock
-                                        // face (Ysabeau 220, ADR-0136), not this number.
+                                        // face (Playfair Display 220, ADR-0137), not this number.
                                         font.pixelSize: 112
                                         font.weight: 700
                                         font.letterSpacing: -3.36

@@ -1182,8 +1182,12 @@ TestCase {
         keyClick(Qt.Key_Escape);
         focused("entry-f");
         const card = child("entry-n");
-        compare(findChild(card, "titleCardTitle").text, "New");
-        compare(findChild(card, "titleCardTitle").font.family, Ui.Theme.contentFontFamily);
+        const plateTitle = findChild(card, "titleCardTitle");
+        compare(plateTitle.text, "New");
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
+        compare(plateTitle.font.family, "Playfair Display");
+        compare(plateTitle.font.weight, 600);
+        compare(plateTitle.font.features["lnum"], 1);
     }
 
     function test_navigation_is_a_full_height_edge_panel() {

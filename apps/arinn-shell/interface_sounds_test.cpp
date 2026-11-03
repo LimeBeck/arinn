@@ -12,6 +12,10 @@ class InterfaceSoundsTest : public QObject {
   Q_OBJECT
 private slots:
   void initTestCase() {
+    connect(&m_sounds, &InterfaceSounds::played, this,
+            [this](const QString &name, bool repeat) {
+              m_events.append({name, repeat});
+            });
     m_sounds.setLevel(QStringLiteral("normal"));
     m_sounds.setOutputMuted(false);
     m_sounds.setMediaActive(false);
@@ -26,6 +30,7 @@ private slots:
       }
       QVERIFY2(!ready.isEmpty(), name);
     }
+    m_events.clear();
   }
 
   void init() { m_events.clear(); }
@@ -78,13 +83,6 @@ private slots:
 private:
   InterfaceSounds m_sounds;
   QList<QPair<QString, bool>> m_events;
-
-  void initTestCase() {
-    connect(&m_sounds, &InterfaceSounds::played, this,
-            [this](const QString &name, bool repeat) {
-              m_events.append({name, repeat});
-            });
-  }
 };
 
 QTEST_MAIN(InterfaceSoundsTest)

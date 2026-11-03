@@ -164,6 +164,15 @@ FocusScope {
         return qsTr("Try again");
     }
     property string focusedPosterId: ""
+    // Settings › Appearance (ADR-0112, ADR-0136). Main binds both.
+    property bool ambientEnabled: true
+    property bool lightFollowsTime: true
+    property string clockText: ""
+    readonly property var libraryLightEntry: {
+        if (!focusedPosterId)
+            return null;
+        return (visibleEntries || []).find(entry => entry && entry.id === focusedPosterId) || null;
+    }
     property int focusedPosterIndex: 0
     property int episodeIndex: 0
     property int seasonIndex: 0
@@ -845,6 +854,21 @@ FocusScope {
         anchors.fill: parent
         color: Ui.Theme.background
     }
+    // Floor and pool behind the catalogue (ADR-0136). Strength 0.6. The
+    // veil is the one for this screen; the detail host does not add another.
+    Ui.AmbientGlow {
+        objectName: "libraryGlow"
+        anchors.fill: parent
+        veilParent: root
+        veilZ: 40
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+        lit: root.ambientEnabled && !root.detailOpen
+        strength: 0.6
+        source: root.libraryLightEntry ? (root.libraryLightEntry.artwork || "") : ""
+        tint: root.libraryLightEntry && root.libraryLightEntry.id
+              ? Ui.Theme.identityColor(root.libraryLightEntry.id) : "transparent"
+    }
     Ui.UiText {
         id: heading
         objectName: "libraryHeading"
@@ -1252,6 +1276,22 @@ FocusScope {
         visible: root.detailOpen
         color: root.detailEntry ? root.standInColor(root.detailEntry.id) : Ui.Theme.background
         z: 5
+        // Detail strength 0.5, above the fanart scrim and under the copy.
+        // The catalogue glow already lays the veil over this screen.
+        Ui.AmbientGlow {
+            objectName: "detailGlow"
+            anchors.fill: parent
+            z: 2.5
+            visible: root.detailOpen
+            veilEnabled: false
+            followsTime: root.lightFollowsTime
+            clockText: root.clockText
+            lit: root.ambientEnabled
+            strength: 0.5
+            source: root.detailEntry ? (root.detailEntry.fanart || root.detailEntry.artwork || "") : ""
+            tint: root.detailEntry && root.detailEntry.id
+                  ? Ui.Theme.identityColor(root.detailEntry.id) : "transparent"
+        }
         Image {
             id: detailFanart
             objectName: "detailFanart"
@@ -1301,7 +1341,6 @@ FocusScope {
                 Ui.UiText {
                     objectName: "detailEyebrow"
                     role: "eyebrow"
-                    font.capitalization: Font.AllUppercase
                     text: root.detailEntry && root.detailEntry.kind === "series" ? qsTr("Series")
                             : root.detailEntry && root.detailEntry.kind === "film" ? qsTr("Film") : ""
                     visible: text.length > 0
@@ -1310,9 +1349,12 @@ FocusScope {
                 Ui.UiText {
                     objectName: "detailTitle"
                     width: parent.width
-                    role: "display"
+                    role: "detailTitle"
                     text: root.detailEntry ? (root.detailEntry.title || "") : ""
-                    maximumLineCount: 2
+                    // 104 on up to two lines, 80 on up to three (ADR-0136).
+                    fitSteps: [[104, 2], [80, 3]]
+                    lineHeightMode: Text.FixedHeight
+                    lineHeight: Math.round(font.pixelSize * 1.07)
                     elide: Text.ElideRight
                 }
                 Ui.UiText {

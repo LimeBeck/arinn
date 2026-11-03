@@ -86,16 +86,9 @@ T.AbstractButton {
         Behavior on color { ColorAnimation { duration: Theme.focusDuration } }
     }
     // A sibling overlay: artwork/content can never cover the focus ring.
-    Rectangle {
-        objectName: "focusRing"
-        anchors.fill: parent
-        z: 100
+    FocusRing {
+        shown: root.activeFocus
         radius: root.cornerRadius
-        color: "transparent"
-        border.width: 3
-        border.color: Theme.ring
-        opacity: root.activeFocus ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
     }
     function focusFromHover() {
         if (hoverTracker.hovered && pointerMode && hoverFocusEnabled && enabled)

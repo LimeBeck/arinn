@@ -577,14 +577,6 @@
         <translation>Браузер недоступен</translation>
     </message>
     <message>
-        <source>NOW RUNNING</source>
-        <translation>СЕЙЧАС ЗАПУЩЕНО</translation>
-    </message>
-    <message>
-        <source>CONTINUE</source>
-        <translation>ПРОДОЛЖИТЬ</translation>
-    </message>
-    <message>
         <source>Make yourself at home</source>
         <translation>Добро пожаловать</translation>
     </message>
@@ -595,6 +587,10 @@
     <message>
         <source>Continue</source>
         <translation>Продолжить</translation>
+    </message>
+    <message>
+        <source>Now running</source>
+        <translation>Сейчас запущено</translation>
     </message>
     <message>
         <source>New</source>
@@ -747,10 +743,6 @@
     <message>
         <source>Opens full screen</source>
         <translation>Откроется на весь экран</translation>
-    </message>
-    <message>
-        <source>OPEN SERVICES</source>
-        <translation>ОТКРЫТЫЕ СЕРВИСЫ</translation>
     </message>
     <message>
         <source>%1 of %2</source>
@@ -1997,8 +1989,16 @@
         <translation>Световой фон</translation>
     </message>
     <message>
-        <source>Soft light from the focused item&apos;s artwork behind Home</source>
-        <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
+        <source>Light follows the time of day</source>
+        <translation>Свет следует за временем суток</translation>
+    </message>
+    <message>
+        <source>Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light</source>
+        <translation>Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет</translation>
+    </message>
+    <message>
+        <source>A warm floor and a pool of light under the focused item. Off removes the floor and the pool</source>
+        <translation>Тёплый пол и пул света под выбранным элементом. Выключено — пол и пул убираются</translation>
     </message>
     <message>
         <source>Ambient after</source>

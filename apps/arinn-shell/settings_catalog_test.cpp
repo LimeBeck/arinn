@@ -600,6 +600,38 @@ private slots:
     QCOMPARE(catalog.lightField(), true);
     QVERIFY(changes.count() > before);
   }
+  // ADR-0136: Light follows the time of day comes from the `arinn` source.
+  // The same id on another provider does not count, and a missing key keeps
+  // the default.
+  void lightFollowsTimeComesFromTheCoreSource() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")},
+                        {QStringLiteral("alpha"), QStringLiteral("Alpha")}};
+    daemon.settings.insert(
+        QStringLiteral("alpha"),
+        {setting(QStringLiteral("light_follows_time"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("false"), QString(),
+                 true)});
+    auto core = setting(QStringLiteral("light_follows_time"), QStringLiteral("appearance"),
+                        QStringLiteral("boolean"), QStringLiteral("false"),
+                        QStringLiteral("{}"), true);
+    core.title = QStringLiteral("Light follows the time of day");
+    core.description = QStringLiteral(
+        "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light");
+    daemon.settings.insert(QStringLiteral("arinn"), {core});
+    SettingsCatalog catalog;
+    QCOMPARE(catalog.lightFollowsTime(), true);
+    QVERIFY(registerBus(daemon));
+    catalog.refresh();
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_COMPARE(catalog.lightFollowsTime(), false);
+    const auto row = rowAt(catalog, QStringLiteral("arinn"),
+                           QStringLiteral("light_follows_time"));
+    QCOMPARE(row.value(QStringLiteral("title")).toString(),
+             QStringLiteral("Light follows the time of day"));
+    QCOMPARE(row.value(QStringLiteral("categoryId")).toString(),
+             QStringLiteral("appearance"));
+  }
   void settingsChangedRefreshes() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("alpha"), QStringLiteral("Alpha")}};

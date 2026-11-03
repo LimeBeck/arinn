@@ -184,8 +184,10 @@ TestCase {
         compare(entriesSpy.signalArguments[0][0], "b");
         focused("detailPlay");
         compare(child("detailMissing").visible, false);
-        compare(child("detailTitle").font.pixelSize, 112);
-        compare(child("detailTitle").role, "display");
+        // Hearth light: the detail title is a content role in Ysabeau (ADR-0136).
+        compare(child("detailTitle").font.pixelSize, 104);
+        compare(child("detailTitle").role, "detailTitle");
+        compare(child("detailTitle").font.family, Ui.Theme.contentFontFamily);
         compare(child("detailFanart").visible, false);
         noWireframeLabels();
         compare(child("detailEyebrow").text, "Film");
@@ -388,7 +390,7 @@ TestCase {
         compare(heading.x, 120);
         compare(heading.y, 96);
         compare(heading.font.pixelSize, 56);
-        compare(heading.font.weight, 700);
+        compare(heading.font.weight, 600);
         const tab = child("tab-films");
         compare(tab.height, 64);
         compare(tab.cornerRadius, 32);
@@ -488,7 +490,7 @@ TestCase {
         focused("poster-show");
         keyClick(Qt.Key_Return);
         focused("detailPlay");
-        compare(child("detailTitle").font.pixelSize, 112);
+        compare(child("detailTitle").font.pixelSize, 104);
         compare(child("detailTitle").text, "Serial");
         compare(child("detailFanart").visible, false);
         compare(child("detailEyebrow").text, "Series");

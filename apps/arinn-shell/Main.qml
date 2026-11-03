@@ -875,8 +875,10 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
-            // Settings › Appearance › Light field (ADR-0112).
+            // Settings › Appearance › Light field (ADR-0112) and
+            // Light follows the time of day (ADR-0136).
             ambientEnabled: settingsCatalog.lightField
+            lightFollowsTime: settingsCatalog.lightFollowsTime
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             network: systemStatus.network
@@ -1040,6 +1042,8 @@ Window {
             homeFolder: typeof shellHomeFolder === "string" ? shellHomeFolder : ""
             onValueChangeRequested: (providerId, settingId, value) => settingsCatalog.setValue(providerId, settingId, value)
             onErrorDismissRequested: (providerId, settingId) => settingsCatalog.dismissError(providerId, settingId)
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             onDismissRequested: home.back()
             onHomeRequested: root.goHomeFrom("settings")
             onRetryRequested: settingsCatalog.refresh()
@@ -1068,6 +1072,9 @@ Window {
                     if (home.screen === "library") home.returnFromLibraryDetail();
                 }
             }
+            ambientEnabled: settingsCatalog.lightField
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             onPlayRequested: entryId => libraryCatalog.launch(entryId)
             onEpisodeRequested: (entryId, episodeId) => libraryCatalog.launch(episodeId)
             onRetryRequested: libraryCatalog.refresh()
@@ -1086,6 +1093,8 @@ Window {
             enabled: visible
             z: 4
             autoToast: false
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             viewState: downloadCatalog.downloadsState
             jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
             onPauseRequested: id => downloadCatalog.request(id, "pause")

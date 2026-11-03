@@ -14,6 +14,13 @@ path = "apps/arinn-shell/ui/fonts/Onest.ttf"
 SPDX-FileCopyrightText = "2021 The Onest Project Authors (https://github.com/googlefonts/onest)"
 SPDX-License-Identifier = "OFL-1.1"
 
+# Content-title face of the Hearth light direction (ADR-0136, D-2).
+# The owner approved this OFL-1.1 bundling and still reviews it.
+[[annotations]]
+path = "apps/arinn-shell/ui/fonts/Ysabeau.ttf"
+SPDX-FileCopyrightText = "2023 The Ysabeau Project Authors (https://github.com/CatharsisFonts/Ysabeau)"
+SPDX-License-Identifier = "OFL-1.1"
+
 # Documentation, specifications, ADRs and design materials.
 [[annotations]]
 path = ["docs/**", "*.md", "changes/**"]

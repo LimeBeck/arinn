@@ -33,6 +33,11 @@ FocusScope {
     // view stays visible and enabled under Home's navigation menu, so data
     // updates must not take focus then (#608). Main.qml binds it.
     property bool ownsFocus: true
+    // Time-of-day veil only. The floor and the pool stay off on this system
+    // screen. The veil follows the shell clock and is not removed here
+    // (owner decision on #732).
+    property bool lightFollowsTime: true
+    property string clockText: ""
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property bool queueVisible: viewState === "populated" && jobCount > 0
     readonly property bool loadingVisible: viewState === "loading"
@@ -341,6 +346,12 @@ FocusScope {
     function restoreOwned() {
         if (ownsFocus) restore();
     }
+    // A method, not an inline function: Qt drops the deferred call when this
+    // view is destroyed. An inline function still runs and then reads
+    // activeFocus on a dead object (#732).
+    function restoreIfScopeFocused() {
+        if (activeFocus && Window.activeFocusItem === root) restore();
+    }
     Component.onCompleted: Qt.callLater(() => { syncImports(); restoreOwned(); })
     onViewStateChanged: Qt.callLater(restoreOwned)
     onJobsChanged: Qt.callLater(() => { syncImports(); restoreOwned(); })
@@ -349,9 +360,7 @@ FocusScope {
     onOwnsFocusChanged: if (ownsFocus) Qt.callLater(restoreOwned)
     // A queue read while the screen was hidden could not focus a row. When
     // the scope itself receives focus, hand it to the selected row.
-    onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(() => {
-        if (activeFocus && Window.activeFocusItem === root) restore();
-    })
+    onActiveFocusChanged: if (activeFocus && Window.activeFocusItem === root) Qt.callLater(restoreIfScopeFocused)
     Timer { id: hoverDelay; interval: hoverSuppressMs }
     Timer { id: toastTimer; interval: toastDurationMs; onTriggered: root.nextToast() }
     HoverHandler {
@@ -368,6 +377,16 @@ FocusScope {
     Keys.onPressed: event => root.acceptKey(event)
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
+    // Veil above the queue and the toast (z 10). No floor and no pool.
+    Ui.AmbientGlow {
+        objectName: "downloadsVeilGlow"
+        anchors.fill: parent
+        veilParent: root
+        veilZ: 40
+        lit: false
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
         Item {

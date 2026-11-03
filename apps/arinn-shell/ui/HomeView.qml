@@ -118,8 +118,8 @@ FocusScope {
     // unknown. A cable shows "wired" and a crossed-out Wi-Fi shows
     // "disconnected"; "other" and unknown show nothing (#408).
     property string network: ""
-    // True while an Activity background is shown (ADR-0027): the ambient
-    // light field then stays off.
+    // True while an Activity background is shown (ADR-0027): the light
+    // field then stays off, as it did before the hearth floor.
     property bool ambientSuppressed: false
     // The last frame of the Activity behind Home (§12.3), empty for none.
     // Near while the Activity's own card has focus, otherwise far (handoff
@@ -133,6 +133,8 @@ FocusScope {
             || (returnIsWebService && focusedEntry.id === "current-service"))
     // Settings › Appearance › Light field (spec §15, ADR-0112).
     property bool ambientEnabled: true
+    // Settings › Appearance › Light follows the time of day (spec §5.6, ADR-0136).
+    property bool lightFollowsTime: true
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
@@ -190,6 +192,16 @@ FocusScope {
     property int navIndex: 0
     property var navigationOpener: null
     readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    // The hero starts at the brief's y 150 and reserves two lines at 68 px.
+    // The title grows upward in that slot. The first row stays this far
+    // under the block, so it does not move when the title wraps (#722).
+    // The menu ends at y 108; the block stays below it. These steps leave
+    // 94 px of the New poster on screen while Continue is focused.
+    readonly property real heroRowGap: 44
+    readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
+    readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
+    readonly property real homeRowStride: 300
+    readonly property real newRowStep: 210
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
     // nears this line: fully shown from 60 px below it, gone at it, so no card
@@ -338,13 +350,13 @@ FocusScope {
     // (#364, handoff 01–03).
     function describe(row, entry) {
         if (!entry || !entry.id)
-            return {eyebrow: qsTr("CONTINUE"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
+            return {eyebrow: qsTr("Continue"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
         if (row === "favorites") {
             const group = groupTitles[entry.group];
             const open = !!entry.running || openShortcutIds.indexOf(entry.id) >= 0;
             const unavailable = entry.unavailable || (browserUnavailable && entry.webShortcut);
             return {
-                eyebrow: (group ? favoritesTitle + " · " + group : favoritesTitle).toUpperCase(),
+                eyebrow: group ? favoritesTitle + " · " + group : favoritesTitle,
                 title: entry.title || "",
                 meta: unavailable ? (browserUnavailable && entry.webShortcut ? qsTr("Unavailable") : entry.subtitle || "")
                     : entry.hint ? entry.hint : open ? qsTr("Running · Return") : qsTr("Opens full screen"),
@@ -352,7 +364,7 @@ FocusScope {
             };
         }
         if (entry.kind === "more")
-            return {eyebrow: qsTr("OPEN SERVICES"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
+            return {eyebrow: qsTr("Open services"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
         if (entry.kind === "media") {
             // The provider's own line (an episode, an artist), not the card's.
             const detail = entry.detail !== undefined ? entry.detail : entry.subtitle || "";
@@ -365,15 +377,15 @@ FocusScope {
                     : qsTr("%1 of %2").arg(formatTime(position)).arg(formatTime(entry.durationUs)) + " · " + left;
             } else if (entry.running && !meta)
                 meta = qsTr("Playing");
-            return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: meta, live: false};
+            return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: meta, live: false};
         }
         if (entry.kind === "tab")
-            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+            return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.subtitle + " · " + qsTr("Return"), live: true};
         if (entry.running)
-            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+            return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
-        return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: entry.subtitle || "", live: false};
+        return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: entry.subtitle || "", live: false};
     }
     // The focused entry as currently presented; a stale snapshot otherwise.
     readonly property var heroEntry: {
@@ -381,10 +393,15 @@ FocusScope {
         return (pool || []).find(entry => entry && entry.id === focusedEntry.id) || focusedEntry;
     }
     readonly property var hero: describe(homeRow, heroEntry)
-    // The light field follows the focused Continue or Favorites item; the
-    // open-services summary has no single hue.
-    readonly property var ambientEntry: (homeRow === "continue" || homeRow === "favorites")
-        && heroEntry && heroEntry.id && heroEntry.kind !== "more" ? heroEntry : null
+    // The pool takes the focused content item. The open-services summary has
+    // no single hue. Applications use the focused tile.
+    readonly property var lightEntry: {
+        if (screen === "applications")
+            return focusedEntry && focusedEntry.id ? focusedEntry : null;
+        if (screen === "home" && (homeRow === "continue" || homeRow === "favorites" || homeRow === "new"))
+            return heroEntry && heroEntry.id && heroEntry.kind !== "more" ? heroEntry : null;
+        return null;
+    }
 
     function rowItems() { return [continueRow, favoritesRow, newRow]; }
     function restoreHome() {
@@ -624,11 +641,18 @@ FocusScope {
         objectName: "ambientGlow"
         anchors.fill: parent
         visible: !root.coveredByScreen
-        lit: root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed
-             && root.ambientEnabled
-             && root.ambientEntry !== null && root.homeRow !== "new"
-        source: root.ambientEntry ? (root.ambientEntry.artwork || "") : ""
-        tint: root.ambientEntry ? Theme.identityColor(root.ambientEntry.visualIdentity || root.ambientEntry.id) : "transparent"
+        veilParent: root
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+        // Home and Applications are content screens. An Activity background
+        // still suppresses the field (ADR-0027). The pool takes the focused item.
+        lit: root.ambientEnabled && (root.screen === "applications"
+             || (root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed))
+        // Home 1. Applications 0.6, with the Library; the prototype's 0.8 is
+        // not used (owner decision on #732). Detail is 0.5.
+        strength: root.screen === "applications" ? 0.6 : 1
+        source: root.lightEntry ? (root.lightEntry.artwork || "") : ""
+        tint: root.lightEntry ? Theme.identityColor(root.lightEntry.visualIdentity || root.lightEntry.id) : "transparent"
     }
     Item {
         id: content
@@ -829,8 +853,13 @@ FocusScope {
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
+                // Two-line title slot at 68 px, bottom-aligned, so a one-line
+                // title sits lower and a two-line title grows upward. The
+                // block stays at y 150. The rows stay heroRowGap under it.
                 Column {
-                    x: 120; y: 136; width: 1300; spacing: 14
+                    id: heroBox
+                    objectName: "heroBox"
+                    x: 120; y: 150; width: 1300; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
                     Row {
                         spacing: 12
@@ -842,14 +871,31 @@ FocusScope {
                         }
                         UiText { objectName: "heroEyebrow"; role: "eyebrow"; text: root.hero.eyebrow; color: Theme.textSecondary }
                     }
-                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; maximumLineCount: 1; elide: Text.ElideRight }
-                    UiText { objectName: "heroMeta"; width: parent.width; role: "meta"; font.pixelSize: 28; text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
+                    UiText {
+                        objectName: "heroTitle"
+                        width: parent.width
+                        height: root.heroTwoLineSlot
+                        verticalAlignment: Text.AlignBottom
+                        role: "hero"
+                        text: root.hero.title
+                        fitSteps: [[96, 1], [68, 2]]
+                        lineHeightMode: Text.FixedHeight
+                        lineHeight: Math.round(font.pixelSize * 1.07)
+                        elide: Text.ElideRight
+                    }
+                    UiText {
+                        id: heroMeta
+                        objectName: "heroMeta"
+                        width: parent.width; role: "meta"; font.pixelSize: 28
+                        text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight
+                        color: Theme.textSecondary
+                    }
                 }
                 HomeRow {
                     id: continueRow; objectName: "continue"
                     opacity: root.rowHeaderOpacity(continueRow)
                     pointerBlocked: !root.rowClearsHeader(continueRow)
-                    x: 120; y: 372; width: 1704
+                    x: 120; y: root.firstRowY; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
@@ -864,7 +910,7 @@ FocusScope {
                     id: favoritesRow; objectName: "favorites"
                     opacity: root.rowHeaderOpacity(favoritesRow)
                     pointerBlocked: !root.rowClearsHeader(favoritesRow)
-                    x: 120; y: continueRow.visible ? 700 : 372; width: 1704
+                    x: 120; y: continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
                     title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
@@ -879,7 +925,7 @@ FocusScope {
                 }
                 HomeRow {
                     id: newRow; objectName: "new"
-                    x: 120; y: favoritesRow.visible ? favoritesRow.y + 230 : continueRow.visible ? 700 : 372; width: 1704
+                    x: 120; y: favoritesRow.visible ? favoritesRow.y + root.newRowStep : continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
                     title: activeFocus ? qsTr("New") + " · " + (root.focusedEntry.title || "") : qsTr("New")
                     variant: "poster"; entries: root.newEntries; busyEntryIds: root.busyEntryIds
@@ -1130,7 +1176,7 @@ FocusScope {
                 } else root.closeShortcutEditorRequested();
             }
         }
-        Rectangle { anchors.fill: parent; color: "#E6131416"; MouseArea { anchors.fill: parent } }
+        Rectangle { anchors.fill: parent; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.9); MouseArea { anchors.fill: parent } }
         Rectangle {
             x: 410; y: 155; width: 1100; height: 770; radius: 40; color: Theme.background
             border.color: Theme.ring

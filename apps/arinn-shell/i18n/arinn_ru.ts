@@ -364,10 +364,6 @@
         <source>Loading…</source>
         <translation>Загрузка…</translation>
     </message>
-    <message>
-        <source>Now running</source>
-        <translation>Сейчас запущено</translation>
-    </message>
 </context>
 <context>
     <name>DownloadCatalog</name>

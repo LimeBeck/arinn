@@ -53,6 +53,12 @@ TestCase {
     function art() {
         return Qt.resolvedUrl("../../../apps/arinn-shell/gallery/fixture-artwork.svg");
     }
+    function artDark() {
+        return Qt.resolvedUrl("dark-artwork.svg");
+    }
+    function artBright() {
+        return Qt.resolvedUrl("bright-artwork.svg");
+    }
     function apply(item, props) {
         const keys = Object.keys(props);
         for (let i = 0; i < keys.length; ++i)
@@ -342,6 +348,22 @@ TestCase {
             return {factory: homeFactory, props: homeProps({clockText: "23:30"}), tune: "menu"};
         if (id === "home-content-focus")
             return {factory: homeFactory, props: homeProps(), tune: "right"};
+        if (id === "home-continue-focus")
+            return {factory: homeFactory, props: homeProps(), tune: "continue", settle: 400, expect: "entry-film"};
+        if (id === "home-focus-dark")
+            return {factory: homeFactory, props: homeProps({
+                continueEntries: [
+                    {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: artDark()},
+                    {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: artDark()}
+                ]
+            }), tune: "continue", settle: 400, expect: "entry-film"};
+        if (id === "home-focus-bright")
+            return {factory: homeFactory, props: homeProps({
+                continueEntries: [
+                    {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: artBright()},
+                    {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: artBright()}
+                ]
+            }), tune: "continue", settle: 400, expect: "entry-film"};
         if (id === "home-activity")
             return {factory: homeFactory, props: homeProps({
                 returnActivityId: "activity",
@@ -752,9 +774,14 @@ TestCase {
             const menu = findChild(item, "menuButton");
             if (menu)
                 menu.forceActiveFocus();
-        } else if (kind === "right") {
+        }         else if (kind === "right") {
             wait(50);
             keyClick(Qt.Key_Right);
+        } else if (kind === "continue") {
+            wait(50);
+            const card = findChild(item, "entry-film");
+            if (card)
+                card.forceActiveFocus();
         } else if (kind === "close") {
             const id = item.orderedTabs.length ? item.orderedTabs[0].id : "";
             item.focusedEntryId = id;

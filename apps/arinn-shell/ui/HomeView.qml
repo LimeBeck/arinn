@@ -195,13 +195,14 @@ FocusScope {
     // The hero starts at the brief's y 150 and reserves two lines at 68 px.
     // The title grows upward in that slot. The first row stays this far
     // under the block, so it does not move when the title wraps (#722).
-    // The menu ends at y 108; the block stays below it. These steps leave
-    // 94 px of the New poster on screen while Continue is focused.
+    // The menu ends at y 108; the block stays below it. Captions sit under
+    // the images, so each row is taller than the picture and the next row
+    // starts just below it. The New label still meets the bottom edge.
     readonly property real heroRowGap: 44
     readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
     readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
-    readonly property real homeRowStride: 300
-    readonly property real newRowStep: 210
+    readonly property real homeRowStride: continueRow.height + Theme.rowGap
+    readonly property real newRowStep: favoritesRow.height + Theme.rowGap
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
     // nears this line: fully shown from 60 px below it, gone at it, so no card
@@ -898,6 +899,7 @@ FocusScope {
                     x: 120; y: root.firstRowY; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
+                    castHue: isNaN(ambient.hue) ? Theme.hearthHue : ambient.hue
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -912,7 +914,8 @@ FocusScope {
                     pointerBlocked: !root.rowClearsHeader(favoritesRow)
                     x: 120; y: continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
-                    title: root.favoritesTitle; variant: "app"; entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
+                    title: root.favoritesTitle; variant: "app"; shapeRole: "container"
+                    entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(favoritesRow)
                     onActionsRequested: entryId => root.openTileActions(entryId)
@@ -929,6 +932,7 @@ FocusScope {
                     visible: count > 0
                     title: activeFocus ? qsTr("New") + " · " + (root.focusedEntry.title || "") : qsTr("New")
                     variant: "poster"; entries: root.newEntries; busyEntryIds: root.busyEntryIds
+                    castHue: isNaN(ambient.hue) ? Theme.hearthHue : ambient.hue
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(newRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -1065,9 +1069,13 @@ FocusScope {
                         height: index === 5 && root.currentServiceTitle.length ? 112 : 84
                         text: modelData
                         visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
-                        focusScale: 1.02
-                        cornerRadius: 28
+                        shapeRole: "container"
+                        focusScale: 1
+                        focusLift: 0
+                        liftFromBottom: false
+                        cornerRadius: Theme.containerRadius
                         restingColor: "transparent"
+                        focusedColor: Theme.plateContainer
                         readonly property color labelColor: activeFocus ? Theme.textPrimary : Theme.textSecondary
                         contentItem: Item {
                             Row {

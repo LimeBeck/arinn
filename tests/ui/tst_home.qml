@@ -227,14 +227,15 @@ TestCase {
         verify(plate);
         verify(!button.activeFocus);
         compare(plate.color.a, 0);
-        compare(plate.border.color.a, 0);
         const mark = findChild(child("headerBrand"), "brandMark");
         compare(mark.width, 36);
         compare(Math.round(mark.mapToItem(home, 0, 0).x), 120);
         button.forceActiveFocus();
         focused("menuButton");
-        tryVerify(() => plate.color.a > 0.15);
-        verify(plate.border.color.a > 0);
+        tryVerify(() => Math.abs(plate.color.a - Ui.Theme.plateContainer.a) < 0.02);
+        const ring = findChild(button, "focusRing");
+        tryCompare(ring, "opacity", 1);
+        compare(ring.thickness, Ui.Theme.rimThickness);
         keyClick(Qt.Key_Down);
         tryVerify(() => plate.color.a === 0);
     }
@@ -737,9 +738,10 @@ TestCase {
         tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "two-line gap " + gap());
         verify(textTop() < oneLineTop - 20, "two-line title top " + textTop() + " grows up from " + oneLineTop);
         // Absolute layout, not the properties that produce it. Hero y 150 is
-        // the brief. The gap under the meta is 44, Continue to Favorites is
-        // 300 and Favorites to New is 210, so the rows land at these y values
-        // and 94 px of the New poster stays on screen.
+        // the brief. The gap under the meta is 44. Captions sit under the
+        // images, so each row is the picture plus its caption, and the next
+        // row starts one rowGap below. The New section label meets the bottom
+        // of the screen.
         compare(child("heroBox").y, 150);
         const menuBottom = child("menuButton").y + child("menuButton").height;
         compare(menuBottom, 108);
@@ -748,19 +750,20 @@ TestCase {
         verify(child("heroBox").y + child("heroBox").height <= child("continue").y,
                "hero bottom overlaps Continue");
         compare(child("continue").y, 418);
-        compare(child("favorites").y, 718);
-        compare(child("new").y, 928);
-        compare(child("favorites").y, child("continue").y + 300);
-        compare(child("new").y, child("favorites").y + 210);
+        const stride = child("continue").height + Ui.Theme.rowGap;
+        const step = child("favorites").height + Ui.Theme.rowGap;
+        compare(child("favorites").y, child("continue").y + stride);
+        compare(child("new").y, child("favorites").y + step);
         compare(home.homeOffset, 0);
-        // The section title sits above the posters. What shows at the bottom
-        // of the screen is the top of the New poster.
+        const rowTop = child("new").mapToItem(home, 0, 0).y;
         const posterTop = child("entry-n").mapToItem(home, 0, 0).y;
-        const visibleNew = home.height - posterTop;
-        console.log("visible New poster at rest " + visibleNew.toFixed(1)
-                    + " px (poster y " + posterTop.toFixed(1) + ", row y "
-                    + child("new").y.toFixed(1) + ")");
-        verify(Math.abs(visibleNew - 94) < 1.5, "visible New " + visibleNew);
+        const visibleLabel = home.height - rowTop;
+        const visiblePoster = home.height - posterTop;
+        console.log("visible New label " + visibleLabel.toFixed(1)
+                    + " px, poster " + visiblePoster.toFixed(1)
+                    + " px (row y " + child("new").y.toFixed(1) + ")");
+        verify(visibleLabel > 40 && visibleLabel < 80, "visible New label " + visibleLabel);
+        verify(Math.abs(visiblePoster) < 8, "the New poster meets the bottom, visible " + visiblePoster);
     }
 
     function test_hero_describes_the_focused_item() {

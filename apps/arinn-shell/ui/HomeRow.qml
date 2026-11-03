@@ -18,6 +18,11 @@ FocusScope {
     property bool browserUnavailable: false
     property string title: ""
     property string variant: "content"
+    // Application rows are objects. Home favourites are containers until the
+    // shelf (#725): no plate at rest, an 8% plate and a rim in focus.
+    property string shapeRole: variant === "app" ? "object" : "content"
+    // Pool hue for the cast under a focused image. NaN uses the hearth hue.
+    property real castHue: Theme.hearthHue
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
     // A row Home has faded out of the header band (#659) takes no pointer
@@ -27,11 +32,35 @@ FocusScope {
     property int selectedIndex: 0
     readonly property int count: shown.length
     property real cellWidth: variant === "app" ? 264 : variant === "poster" ? 180 : 400
-    readonly property real cellHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
+    readonly property real artworkHeight: variant === "app" ? 132 : variant === "poster" ? 270 : 225
+    readonly property real captionHeight: variant === "poster" ? Theme.posterCaptionHeight
+            : variant === "app" ? 0 : Theme.contentCaptionHeight
+    readonly property real cellHeight: artworkHeight + captionHeight
     readonly property real gap: variant === "content" ? 32 : 24
-    // Room for the focus glow, lift and scale around a card (Surface). The
-    // viewport reaches this far past the row's safe edges.
+    // Room for the focus rim, lift and scale around a card. The right edge
+    // keeps this margin. The left edge reaches the screen fade instead.
     readonly property real glowMargin: 48
+    // X in the 1920-wide design canvas. mapToItem(null) is the window scene,
+    // which is 0 for these rows under the offscreen tests, and a scaled
+    // stage would turn the 24–112 fade into device pixels.
+    function designRoot() {
+        let item = parent;
+        while (item) {
+            if (item.width >= Theme.canvasWidth)
+                return item;
+            item = item.parent;
+        }
+        return null;
+    }
+    readonly property real screenX: {
+        // mapToItem does not notify when this row moves, so read x here.
+        const localX = x;
+        const origin = designRoot();
+        return origin ? mapToItem(origin, 0, 0).x : localX;
+    }
+    // Distance from this row's left to where the screen fade begins.
+    readonly property real fadeInset: Math.max(0, screenX - Theme.edgeFadeStart)
+    readonly property real leftBleed: Math.max(glowMargin, fadeInset)
     signal selected(var entry)
     signal activated(string entryId)
     signal actionsRequested(string entryId)
@@ -129,16 +158,18 @@ FocusScope {
     Flickable {
         id: viewport
         objectName: root.objectName + "Viewport"
-        x: -root.glowMargin; y: 10; width: parent.width + 2 * root.glowMargin; height: root.cellHeight + 104
+        x: -root.leftBleed; y: 10
+        width: parent.width + root.leftBleed + root.glowMargin
+        height: root.cellHeight + 104
         clip: true
-        contentWidth: cardsRow.width + 96
+        contentWidth: cardsRow.width + root.leftBleed + root.glowMargin
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
         onContentXChanged: root.scrolled()
         Row {
             id: cardsRow
-            x: 48; y: 48
+            x: root.leftBleed; y: 48
             spacing: root.gap
             Repeater {
                 id: cards
@@ -164,11 +195,14 @@ FocusScope {
                     readonly property bool focusedInside: !!item && item.activeFocus
                         && safeLeft <= 0 && safeRight >= width
                     readonly property bool painted: focusedInside || (safeLeft < width && safeRight > 0)
+                    // Left: the screen fade, not a hard cut. Right: the safe edge.
+                    readonly property real clipX: slot.focusedInside ? -root.leftBleed
+                            : Math.max(-root.leftBleed, slot.safeLeft - root.fadeInset)
                     Item {
                         id: cardClip
                         objectName: "cardClip"
                         clip: true
-                        x: slot.focusedInside ? -root.glowMargin : Math.max(-root.glowMargin, slot.safeLeft)
+                        x: slot.clipX
                         y: -root.glowMargin
                         width: !slot.painted ? 0 : Math.max(0, (slot.focusedInside ? slot.width + root.glowMargin
                             : Math.min(slot.width + root.glowMargin, slot.safeRight)) - x)
@@ -190,6 +224,9 @@ FocusScope {
                                 AppTile {
                                     objectName: "entry-" + entryLoader.modelData.id
                                     width: entryLoader.width; height: entryLoader.height
+                                    shapeRole: root.shapeRole
+                                    rowBrightness: activeFocus ? 1
+                                            : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
                                     text: entryLoader.modelData.title
                                     visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
                                     monogram: entryLoader.modelData.monogram || entryLoader.modelData.title.trim().slice(0, 1).toUpperCase()
@@ -241,6 +278,10 @@ FocusScope {
                                 ContentCard {
                                     objectName: "entry-" + entryLoader.modelData.id
                                     width: entryLoader.width; height: entryLoader.height
+                                    artworkHeight: root.artworkHeight
+                                    castHue: root.castHue
+                                    rowBrightness: activeFocus ? 1
+                                            : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
                                     text: entryLoader.modelData.title
                                     visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
                                     subtitle: entryLoader.modelData.subtitle || ""
@@ -274,10 +315,27 @@ FocusScope {
             }
         }
     }
+    // Previous cards stay visible as they cross the left of the screen and
+    // fade out from x 24 to x 112 (ADR-0136). A charcoal ramp matches the
+    // background on the software renderer, which has no row mask.
+    Rectangle {
+        objectName: "rowEdgeFade"
+        z: 80
+        x: Theme.edgeFadeStart - root.screenX
+        y: viewport.y
+        width: Theme.edgeFadeEnd - Theme.edgeFadeStart
+        height: viewport.height
+        visible: root.screenX - root.leftBleed < Theme.edgeFadeEnd
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Theme.background }
+            GradientStop { position: 1; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0) }
+        }
+    }
     MouseArea {
         objectName: "rowPointerBlocker"
-        // The cards' viewport reaches glowMargin past the row's edges.
-        x: -root.glowMargin; width: parent.width + 2 * root.glowMargin; height: parent.height
+        // The cards' viewport reaches past the row's edges.
+        x: -root.leftBleed; width: parent.width + root.leftBleed + root.glowMargin; height: parent.height
         z: 2000
         enabled: root.pointerBlocked
         hoverEnabled: true

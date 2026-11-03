@@ -6,11 +6,16 @@ import QtQuick
 Surface {
     id: root
     property bool destructive: false
+    property bool primary: false
+    shapeRole: "action"
     implicitWidth: Math.max(180, label.implicitWidth + 80)
     implicitHeight: 88
     cornerRadius: height / 2
-    focusScale: 1.02
-    restingColor: destructive ? Qt.rgba(0.91, 0.28, 0.31, 0.22) : Theme.plate
+    focusScale: Theme.contentFocusScale
+    focusLift: 0
+    liftFromBottom: false
+    restingColor: destructive ? Qt.rgba(0.91, 0.28, 0.31, 0.22)
+            : primary ? Theme.platePrimary : Theme.plateAction
     focusedColor: Theme.textPrimary
     contentItem: UiText {
         id: label

@@ -205,6 +205,13 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "15 min"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "30 min"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "60 min"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Interface sounds"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Short sounds for focus, OK, Back and panels; never over "
+                      "video or music"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Off"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Quiet"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Normal"),
 };
 QString daemonText(const QString &providerId, const QString &text) {
   if (providerId != QLatin1String(kDaemonProvider))
@@ -682,6 +689,7 @@ void SettingsCatalog::readPreferences() {
   bool light = m_lightField;
   bool follows = m_lightFollowsTime;
   int minutes = m_ambientMinutes;
+  QString sounds = m_interfaceSounds;
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
       continue;
@@ -701,14 +709,26 @@ void SettingsCatalog::readPreferences() {
                             parsed) != std::end(kAmbientMinutes))
           minutes = parsed;
       }
+      if (setting.id == QLatin1String("interface_sounds")) {
+        const auto parsed = valueFor(setting.kind, setting.valueJson, false)
+                                .toString();
+        if (parsed == QLatin1String("off") || parsed == QLatin1String("quiet") ||
+            parsed == QLatin1String("normal"))
+          sounds = parsed;
+      }
     }
   }
+  if (m_loaded && !m_unreachable)
+    m_interfaceSoundsKnown = true;
+  if (m_interfaceSoundsKnown && sounds.isEmpty())
+    sounds = QStringLiteral("quiet");
   if (light == m_lightField && follows == m_lightFollowsTime &&
-      minutes == m_ambientMinutes)
+      minutes == m_ambientMinutes && sounds == m_interfaceSounds)
     return;
   m_lightField = light;
   m_lightFollowsTime = follows;
   m_ambientMinutes = minutes;
+  m_interfaceSounds = sounds;
   emit preferencesChanged();
 }
 void SettingsCatalog::publish() {

@@ -16,13 +16,24 @@ const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The daemon's own settings. `search_engine` is listed only when engines
 /// are packaged (ADR-0066); its default is the first one. `light_field`,
-/// `ambient_timeout` (ADR-0112) and `light_follows_time` (ADR-0136) are the
-/// shell's presentation preferences.
-/// Titles are English source texts; the shell translates them.
+/// `ambient_timeout` (ADR-0112), `light_follows_time` and `interface_sounds`
+/// (ADR-0136) are the shell's presentation preferences. Titles are English
+/// source texts; the shell translates them.
 fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
     let timeouts: Vec<Value> = crate::storage::AMBIENT_TIMEOUTS
         .iter()
         .map(|minutes| serde_json::json!({"value": minutes.to_string(), "title": format!("{minutes} min")}))
+        .collect();
+    let sound_levels: Vec<Value> = crate::storage::INTERFACE_SOUND_LEVELS
+        .iter()
+        .map(|level| {
+            let title = match *level {
+                "off" => "Off",
+                "quiet" => "Quiet",
+                _ => "Normal",
+            };
+            serde_json::json!({"value": level, "title": title})
+        })
         .collect();
     let mut schema = vec![Setting {
         id: "browser_application".into(),
@@ -59,6 +70,15 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         kind: settings::KIND_ENUM.into(),
         value: r#""10""#.into(),
         constraints: serde_json::json!({ "options": timeouts }).to_string(),
+        enabled: true,
+    }, Setting {
+        id: "interface_sounds".into(),
+        category: "sound".into(),
+        title: "Interface sounds".into(),
+        description: "Short sounds for focus, OK, Back and panels; never over video or music".into(),
+        kind: settings::KIND_ENUM.into(),
+        value: r#""quiet""#.into(),
+        constraints: serde_json::json!({ "options": sound_levels }).to_string(),
         enabled: true,
     }];
     if let Some(first) = engines.first() {
@@ -102,6 +122,10 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
         map.insert(
             "ambient_timeout".into(),
             Value::String(config.ambient_timeout.to_string()),
+        );
+        map.insert(
+            "interface_sounds".into(),
+            Value::String(config.interface_sounds.clone()),
         );
         return map;
     }
@@ -391,6 +415,13 @@ impl Core {
                         .as_str()
                         .and_then(|minutes| minutes.parse().ok())
                         .ok_or(ErrorCode::InvalidArgument)?
+                }
+                "interface_sounds" => {
+                    config.interface_sounds = value
+                        .as_str()
+                        .filter(|level| crate::storage::INTERFACE_SOUND_LEVELS.contains(level))
+                        .ok_or(ErrorCode::InvalidArgument)?
+                        .into()
                 }
                 "search_engine" => config.search_engine = value.as_str().unwrap_or_default().into(),
                 _ => config.browser_application = value.as_str().unwrap_or_default().into(),

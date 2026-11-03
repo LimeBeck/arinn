@@ -135,7 +135,7 @@ class ImageContentTest(unittest.TestCase):
     def test_arch_build_image_has_every_build_dependency(self):
         build = stage(ARCH, "build")
         for name in ("base-devel", "git", "rust", "cmake", "ninja", "ccache", "qt6-base", "qt6-declarative",
-                     "qt6-svg", "qt6-tools", "curl", "libunwind", "openssl", "nodejs", "systemd",
+                     "qt6-svg", "qt6-multimedia", "qt6-tools", "curl", "libunwind", "openssl", "nodejs", "systemd",
                      "xorg-server-xvfb"):
             with self.subTest(package=name):
                 self.assertRegex(build, rf"(?<![\w-]){re.escape(name)}(?![\w-])")
@@ -150,7 +150,8 @@ class ImageContentTest(unittest.TestCase):
         archives = re.findall(r"^[0-9a-f]{64}  \./(\S+)\.7z$", pins, re.M)
         self.assertEqual(len(archives), len([line for line in pins.splitlines()
                                              if line and not line.startswith("#")]))
-        for name in ("qtbase", "qtdeclarative", "qtsvg", "qttools", "icu"):
+        self.assertIn("-m qtmultimedia", sdk)
+        for name in ("qtbase", "qtdeclarative", "qtsvg", "qtmultimedia", "qttools", "icu"):
             with self.subTest(archive=name):
                 self.assertTrue(any(archive.startswith(name + "-") for archive in archives), archives)
         requirements = (ROOT / "ci" / "images" / "arch" / "aqtinstall.txt").read_text()

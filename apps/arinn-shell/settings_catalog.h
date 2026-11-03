@@ -48,6 +48,10 @@ class SettingsCatalog : public QObject {
   Q_PROPERTY(bool lightFollowsTime READ lightFollowsTime NOTIFY preferencesChanged)
   Q_PROPERTY(int ambientTimeoutMinutes READ ambientTimeoutMinutes NOTIFY
                  preferencesChanged)
+  Q_PROPERTY(QString interfaceSoundsLevel READ interfaceSoundsLevel NOTIFY
+                 preferencesChanged)
+  Q_PROPERTY(bool interfaceSoundsLevelKnown READ interfaceSoundsLevelKnown NOTIFY
+                 preferencesChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
@@ -56,6 +60,8 @@ public:
   bool lightField() const { return m_lightField; }
   bool lightFollowsTime() const { return m_lightFollowsTime; }
   int ambientTimeoutMinutes() const { return m_ambientMinutes; }
+  QString interfaceSoundsLevel() const { return m_interfaceSounds; }
+  bool interfaceSoundsLevelKnown() const { return m_interfaceSoundsKnown; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -117,6 +123,8 @@ private:
   bool m_lightField = true;
   bool m_lightFollowsTime = true;
   int m_ambientMinutes = 10;
+  QString m_interfaceSounds;
+  bool m_interfaceSoundsKnown = false;
   QVariantList m_categories;
   QVariantList m_rows;
   // The screen state the last catalogChanged announced (#441).

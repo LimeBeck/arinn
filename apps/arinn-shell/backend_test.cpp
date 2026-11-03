@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
+#include "main_qml_test_support.h"
 #include "backend.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
@@ -35,8 +36,9 @@ private slots:
     configureShellWindows();
     QQmlApplicationEngine engine;
     auto *sessionGuard = createSessionLifecycle(&engine);
-    engine.rootContext()->setContextProperty("backend", &backend);
-    engine.rootContext()->setContextProperty("sessionGuard", sessionGuard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, sessionGuard, &interfaceSounds);
     installAssetImageProvider(&engine);
     engine.load(QUrl("qrc:/Main.qml"));
     QVERIFY(!engine.rootObjects().isEmpty());

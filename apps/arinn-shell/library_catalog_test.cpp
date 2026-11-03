@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "asset_images.h"
+#include "main_qml_test_support.h"
 #include "library_catalog.h"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -1184,8 +1185,9 @@ private slots:
       SessionGuardStandIn guard;
       QQmlApplicationEngine engine;
       installAssetImageProvider(&engine);
-      engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-      engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+      InterfaceSounds interfaceSounds;
+
+      installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
       engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
       auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
       QVERIFY(window);
@@ -1234,8 +1236,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window); window->show(); window->requestActivate();
@@ -1383,8 +1386,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -1469,9 +1473,9 @@ private slots:
               }
             });
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
@@ -1727,9 +1731,9 @@ private slots:
               }
             });
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
@@ -1858,9 +1862,9 @@ private slots:
               }
             });
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QLatin1Char('\n'))));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
@@ -2014,9 +2018,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2078,9 +2082,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2162,9 +2166,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2224,9 +2228,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2293,9 +2297,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2333,9 +2337,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);
@@ -2583,9 +2587,9 @@ private slots:
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
     installAssetImageProvider(&engine);
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"),
-                                             &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
     QVERIFY(window);

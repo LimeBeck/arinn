@@ -378,14 +378,24 @@ fn shell_preferences_default_and_validate() {
     std::fs::write(dir.join("config.toml"), "schema_version = 1\n").unwrap();
     let loaded = arinnd::storage::Config::load(&dir).unwrap();
     assert_eq!((loaded.light_field, loaded.ambient_timeout), (true, 10));
+    assert_eq!(loaded.interface_sounds, "quiet");
     let mut config = loaded;
     for minutes in arinnd::storage::AMBIENT_TIMEOUTS {
         config.ambient_timeout = minutes;
         config.validate().unwrap();
     }
+    for level in arinnd::storage::INTERFACE_SOUND_LEVELS {
+        config.interface_sounds = (*level).into();
+        config.validate().unwrap();
+    }
     for minutes in [0, 7, 61] {
         config.ambient_timeout = minutes;
         assert!(config.validate().is_err(), "{minutes}");
+    }
+    config.ambient_timeout = 10;
+    for level in ["", "loud", "OFF"] {
+        config.interface_sounds = level.into();
+        assert!(config.validate().is_err(), "{level}");
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -419,6 +429,12 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
             false,
             30,
             vec![],
+        ),
+        (
+            "interface_sounds = \"loud\"\n",
+            true,
+            10,
+            vec!["interface_sounds"],
         ),
     ] {
         std::fs::write(

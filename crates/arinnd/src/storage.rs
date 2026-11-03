@@ -152,16 +152,27 @@ pub struct Config {
     /// reads as the default.
     #[serde(default = "ambient_timeout")]
     pub ambient_timeout: u32,
+    /// Interface sound level (spec §5.6, ADR-0136): one of
+    /// [`INTERFACE_SOUND_LEVELS`]. Any other hand-edited value reads as the
+    /// default.
+    #[serde(default = "interface_sounds")]
+    pub interface_sounds: String,
 }
 /// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
 pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
+/// Interface sound levels the shell offers (ADR-0136).
+pub const INTERFACE_SOUND_LEVELS: [&str; 3] = ["off", "quiet", "normal"];
 fn ambient_timeout() -> u32 {
     10
+}
+fn interface_sounds() -> String {
+    "quiet".into()
 }
 
 static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
 static WARNED_LIGHT_FOLLOWS_TIME: std::sync::Once = std::sync::Once::new();
 static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
+static WARNED_INTERFACE_SOUNDS: std::sync::Once = std::sync::Once::new();
 
 /// Owner decision on #488: an invalid hand-edited preference never makes
 /// `config.toml` invalid. It is dropped from the parsed table, so it reads as
@@ -189,6 +200,15 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
             dropped.push("ambient_timeout");
         }
     }
+    if let Some(value) = table.get("interface_sounds") {
+        let offered = value
+            .as_str()
+            .is_some_and(|level| INTERFACE_SOUND_LEVELS.contains(&level));
+        if !offered {
+            table.remove("interface_sounds");
+            dropped.push("interface_sounds");
+        }
+    }
     dropped
 }
 
@@ -197,7 +217,8 @@ fn warn_invalid_preference(key: &'static str) {
     let once = match key {
         "light_field" => &WARNED_LIGHT_FIELD,
         "light_follows_time" => &WARNED_LIGHT_FOLLOWS_TIME,
-        _ => &WARNED_AMBIENT_TIMEOUT,
+        "ambient_timeout" => &WARNED_AMBIENT_TIMEOUT,
+        _ => &WARNED_INTERFACE_SOUNDS,
     };
     once.call_once(|| {
         eprintln!(
@@ -239,6 +260,7 @@ impl Default for Config {
             light_field: true,
             light_follows_time: true,
             ambient_timeout: ambient_timeout(),
+            interface_sounds: interface_sounds(),
         }
     }
 }
@@ -261,6 +283,9 @@ impl Config {
             validation::id(&self.search_engine)?;
         }
         if !AMBIENT_TIMEOUTS.contains(&self.ambient_timeout) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if !INTERFACE_SOUND_LEVELS.contains(&self.interface_sounds.as_str()) {
             return Err(ErrorCode::InvalidArgument);
         }
         for (id, instance) in &self.providers {

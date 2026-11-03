@@ -1,0 +1,1 @@
+- Defer `QSoundEffect` creation until `QMediaDevices::audioOutputs()` is non-empty ([#730](https://github.com/LimeBeck/arinn/pull/730), [#727](https://github.com/LimeBeck/arinn/issues/727)): no constructor preload; load on first play or `audioOutputsChanged`.

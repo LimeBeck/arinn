@@ -2024,6 +2024,26 @@
         <source>60 min</source>
         <translation>60 мин</translation>
     </message>
+    <message>
+        <source>Interface sounds</source>
+        <translation>Звуки интерфейса</translation>
+    </message>
+    <message>
+        <source>Short sounds for focus, OK, Back and panels; never over video or music</source>
+        <translation>Короткие звуки при фокусе, OK, «Назад» и панелях; не поверх видео и музыки</translation>
+    </message>
+    <message>
+        <source>Off</source>
+        <translation>Выкл.</translation>
+    </message>
+    <message>
+        <source>Quiet</source>
+        <translation>Тихо</translation>
+    </message>
+    <message>
+        <source>Normal</source>
+        <translation>Обычно</translation>
+    </message>
 </context>
 <context>
     <name>SettingsView</name>
@@ -2154,6 +2174,14 @@
     <message>
         <source>On</source>
         <translation>Вкл.</translation>
+    </message>
+    <message>
+        <source>Interface sounds unavailable</source>
+        <translation>Звуки интерфейса недоступны</translation>
+    </message>
+    <message>
+        <source>Restart Arinn after audio starts</source>
+        <translation>Перезапустите Arinn после появления звука</translation>
     </message>
     <message>
         <source>Unavailable. Its titles stay in the library as unavailable.</source>

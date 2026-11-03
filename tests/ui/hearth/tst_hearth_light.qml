@@ -38,7 +38,10 @@ TestCase {
                 { providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
                   title: "Folders", description: "Places to read", type: "path",
                   currentValue: ["/videos"], constraints: { directory: true, multiple: true, maxItems: 3 },
-                  enabled: true }
+                  enabled: true },
+                { providerId: "library", providerName: "Library", id: "locked", categoryId: "media",
+                  title: "Locked choice", description: "Cannot be changed now", type: "enum",
+                  currentValue: "a", constraints: { options: ["a"] }, enabled: false }
             ]
         }
     }
@@ -425,6 +428,8 @@ TestCase {
         compare(glow.period, "night");
         compare(glow.veilAmount, 0.22);
         compare(Ui.Theme.textHint, Ui.Theme.nightText3);
+        const homeRing = findChild(findChild(home, "entry-a"), "focusRing");
+        verify(homeRing !== null, "home focus ring");
         const checks = [
             ["category-media", () => settings.focusCategory(0)],
             ["setting-library-scan", () => settings.focusPart(0, "main")],
@@ -442,6 +447,23 @@ TestCase {
             verify(near(button.background.color, Ui.Theme.plateFocus),
                    name + " fill " + button.background.color);
             verify(Math.abs(button.background.color.a - 0.20) > 0.05, name + " still at 20%");
+            // The row's own outline. A keyboard pill inside the row is a
+            // Surface, so it has a ring of its own and a descendant walk
+            // would find that one first.
+            let ring = null;
+            const kids = button.children || [];
+            for (let n = 0; n < kids.length; ++n) {
+                if (kids[n].objectName === "focusRing") {
+                    ring = kids[n];
+                    break;
+                }
+            }
+            verify(ring !== null, name + " outline");
+            tryCompare(ring, "opacity", 1, 1000, name + " outline");
+            compare(ring.border.width, homeRing.border.width);
+            verify(near(ring.border.color, homeRing.border.color), name + " ring " + ring.border.color);
+            verify(near(ring.border.color, Ui.Theme.ring), name + " token");
+            compare(ring.radius, button.background.radius);
             if (name === "setting-library-scan") {
                 const surface = over(Ui.Theme.background, button.background.color);
                 rowRatio = veiled(glow, Ui.Theme.textHint, surface);
@@ -455,6 +477,35 @@ TestCase {
             }
         }
         verify(rowRatio >= Ui.Theme.textContrastMinimum);
+        // A locked row is inactive. Its plate is Theme.plateDisabled, not
+        // plateFocus, and it does not draw the focus outline. Night text-3
+        // on that plate is under textContrastMinimum; that is accepted.
+        verify(settings.focusPart(2, "main") !== false, "locked row");
+        const locked = named(settings, "setting-library-locked");
+        verify(locked !== null, "locked row");
+        tryCompare(locked, "activeFocus", true, 5000, "locked row");
+        verify(near(locked.background.color, Ui.Theme.plateDisabled),
+               "locked fill " + locked.background.color);
+        verify(!near(locked.background.color, Ui.Theme.plateFocus), "locked row uses the focus plate");
+        const lockedTitle = named(settings, "title-library-locked");
+        verify(lockedTitle !== null, "locked title");
+        verify(near(lockedTitle.color, Ui.Theme.textHint), "locked title " + lockedTitle.color);
+        let lockedRing = null;
+        const lockedKids = locked.children || [];
+        for (let n = 0; n < lockedKids.length; ++n) {
+            if (lockedKids[n].objectName === "focusRing") {
+                lockedRing = lockedKids[n];
+                break;
+            }
+        }
+        verify(lockedRing !== null, "locked outline");
+        compare(lockedRing.shown, false);
+        compare(lockedRing.opacity, 0);
+        const lockedSurface = over(Ui.Theme.background, locked.background.color);
+        const lockedRatio = veiled(glow, Ui.Theme.textHint, lockedSurface);
+        verify(lockedRatio < Ui.Theme.textContrastMinimum,
+               "inactive row is not held to the focus bar " + lockedRatio);
+        console.log("night textHint on a locked Settings row " + lockedRatio.toFixed(3) + ":1");
         settings.destroy();
         home.clockText = "12:00";
     }

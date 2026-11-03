@@ -1119,6 +1119,7 @@ FocusScope {
                     color: categoryButton.activeFocus ? Ui.Theme.plateFocus
                            : (categoryButton.chosen ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
                 }
+                Ui.FocusRing { shown: categoryButton.activeFocus; radius: 26 }
                 contentItem: Item {
                     Canvas {
                         id: categoryIcon
@@ -1368,9 +1369,12 @@ FocusScope {
                                 background: Rectangle {
                                     radius: 28
                                     color: settingButton.activeFocus
-                                           ? (rowScope.locked ? Qt.rgba(1, 1, 1, 0.12) : Ui.Theme.plateFocus)
+                                           ? (rowScope.locked ? Ui.Theme.plateDisabled : Ui.Theme.plateFocus)
                                            : Qt.rgba(1, 1, 1, 0.06)
                                 }
+                                // A locked row stays inactive: hint text on
+                                // plateDisabled, without the focus outline.
+                                Ui.FocusRing { shown: settingButton.activeFocus && !rowScope.locked; radius: 28 }
                                 contentItem: Item {
                                     Column {
                                         id: simpleText
@@ -1631,6 +1635,7 @@ FocusScope {
                                             Keys.onPressed: event => root.selectKey(pathButton, event, false)
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
                                             background: Rectangle { radius: 18; color: pathButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
+                                            Ui.FocusRing { shown: pathButton.activeFocus; radius: 18 }
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
@@ -1704,6 +1709,7 @@ FocusScope {
                                             Keys.onPressed: event => root.selectKey(removeButton, event, false)
                                             Keys.onReleased: event => root.selectKey(removeButton, event, true)
                                             background: Rectangle { radius: 18; color: removeButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
+                                            Ui.FocusRing { shown: removeButton.activeFocus; radius: 18 }
                                             contentItem: Ui.UiText {
                                                 text: removeButton.text
                                                 horizontalAlignment: Text.AlignHCenter
@@ -1730,6 +1736,7 @@ FocusScope {
                                     Keys.onPressed: event => root.selectKey(addButton, event, false)
                                     Keys.onReleased: event => root.selectKey(addButton, event, true)
                                     background: Rectangle { radius: 18; color: addButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
+                                    Ui.FocusRing { shown: addButton.activeFocus; radius: 18 }
                                     contentItem: Item {
                                         Keys.onPressed: event => root.pathFieldKeys(event, addEditor, addKeyboard)
                                         Ui.UiText {

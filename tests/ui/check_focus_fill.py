@@ -2,13 +2,16 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Fail when a shell screen hardcodes the day focus plate (#722).
+"""Fail when shell QML hardcodes the day focus plate (#722).
 
-Theme.plateFocus is the only focus fill. White at alpha 0.2 or 0.20, chosen
-because a control is focused, is the day plate and misses the night contrast
-bar. The scan covers HomeView and the screen QML under ui/screens. Theme.qml
-defines the 20% alpha and is not scanned. A fill that is not selected by
-focus, such as the Settings switch track, is not a focus plate.
+Theme.plateFocus is the only focus fill. A plate chosen because a control is
+focused — white Qt.rgba at alpha 0.2 or 0.20, a hex colour that carries an
+alpha channel (#AARRGGBB or #RRGGBBAA), or opacity 0.2 or 0.20 — is the day
+plate and misses the night contrast bar. The same selection includes
+isCurrentItem. The scan covers every apps/arinn-shell/ui/**/*.qml file.
+Theme.qml defines the 20% alpha and is not scanned. A fill that is not
+selected by focus, such as the Settings switch track or an artwork scrim, is
+not a focus plate.
 """
 
 import pathlib
@@ -19,17 +22,18 @@ _WHITE_20 = re.compile(
     r"Qt\.rgba\(\s*1(?:\.0+)?\s*,\s*1(?:\.0+)?\s*,\s*1(?:\.0+)?\s*,"
     r"\s*(?:0\.20?|\.20?)(?!\d)\s*\)"
 )
-_FOCUS = re.compile(r"\b(?:activeFocus|osdFocus|focused)\b")
+# Eight hex digits carry alpha, whether written #AARRGGBB or #RRGGBBAA.
+_HEX_ALPHA = re.compile(r"#[0-9A-Fa-f]{8}\b")
+_OPACITY_20 = re.compile(r"\bopacity\b[\s\S]*?(?:0\.20?|\.20?)(?!\d)")
+_FOCUS = re.compile(r"\b(?:activeFocus|osdFocus|focused|isCurrentItem)\b")
 _CONTINUATION_END = ("?", ":", "&&", "||", "+", ",", "(", "[", "{", "=")
 
 
 def screen_files(root: pathlib.Path) -> list[pathlib.Path]:
     ui = root / "apps" / "arinn-shell" / "ui"
-    files = [ui / "HomeView.qml"]
-    screens = ui / "screens"
-    if screens.is_dir():
-        files.extend(sorted(screens.rglob("*.qml")))
-    return [path for path in files if path.is_file()]
+    if not ui.is_dir():
+        return []
+    return sorted(path for path in ui.rglob("*.qml") if path.name != "Theme.qml")
 
 
 def strip_comments(text: str) -> str:
@@ -118,13 +122,20 @@ def _focus_condition(statement: str) -> bool:
     return stripped.startswith("if") and _FOCUS.search(stripped) is not None
 
 
+def _focus_plate(statement: str) -> bool:
+    return (
+        _WHITE_20.search(statement) is not None
+        or _HEX_ALPHA.search(statement) is not None
+        or _OPACITY_20.search(statement) is not None
+    )
+
+
 def offenders_in(text: str) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     previous = ""
     for line_no, statement in statements(strip_comments(text)):
-        if _WHITE_20.search(statement) and (
-            _FOCUS.search(statement) or _focus_condition(previous)
-        ):
+        selected = _FOCUS.search(statement) or _focus_condition(previous)
+        if selected and _focus_plate(statement):
             snippet = " ".join(statement.split())
             found.append((line_no, snippet))
         previous = statement

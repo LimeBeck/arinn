@@ -687,7 +687,8 @@ TestCase {
         tryCompare(child("heroTitle"), "fitStep", 0);
         compare(child("heroTitle").font.pixelSize, 96);
         compare(child("heroTitle").font.family, Ui.Theme.contentFontFamily);
-        compare(child("heroTitle").height, home.heroTwoLineSlot);
+        // Two lines at 68 px, line height 1.07: Math.round(72.76) * 2.
+        compare(child("heroTitle").height, 146);
         const rowY = child("continue").y;
         keyClick(Qt.Key_Right); focused("entry-long");
         tryCompare(child("heroTitle"), "fitStep", 1);
@@ -698,10 +699,10 @@ TestCase {
         const rowTop = child("continue").mapToItem(home, 0, 0).y;
         verify(bottom <= rowTop, "hero bottom " + bottom + " is above the Continue row at " + rowTop);
     }
-    // The hero reserves two lines at 68 px and bottom-aligns the title, so
-    // Continue, Favorites and New keep their y when focus moves between a
-    // one-line title and a two-line title. The meta stays heroRowGap above
-    // Continue, and the two-line title grows upward.
+    // The hero reserves two lines at 68 px (146 px) and bottom-aligns the
+    // title, so Continue, Favorites and New keep their y when focus moves
+    // between a one-line title and a two-line title. The meta stays 44 px
+    // above Continue, and the two-line title grows upward.
     function test_two_line_hero_keeps_the_row_gap() {
         home.continueEntries = [
             {id: "short", title: "Film", running: true},
@@ -718,9 +719,9 @@ TestCase {
         child("entry-short").forceActiveFocus(); focused("entry-short");
         tryCompare(child("heroTitle"), "fitStep", 0);
         compare(child("heroTitle").font.pixelSize, 96);
-        compare(child("heroTitle").height, home.heroTwoLineSlot);
+        compare(child("heroTitle").height, 146);
         compare(child("heroMeta").text, "Return");
-        tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "one-line gap " + gap());
+        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "one-line gap " + gap());
         const continueY = child("continue").y;
         const favoritesY = child("favorites").y;
         const newY = child("new").y;
@@ -728,16 +729,38 @@ TestCase {
         keyClick(Qt.Key_Right); focused("entry-long");
         tryCompare(child("heroTitle"), "fitStep", 1);
         compare(child("heroTitle").font.pixelSize, 68);
-        compare(child("heroTitle").height, home.heroTwoLineSlot);
+        compare(child("heroTitle").height, 146);
         compare(child("heroMeta").text, "Return");
         compare(child("continue").y, continueY);
         compare(child("favorites").y, favoritesY);
         compare(child("new").y, newY);
-        tryVerify(() => Math.abs(gap() - home.heroRowGap) < 1, 2000, "two-line gap " + gap());
+        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "two-line gap " + gap());
         verify(textTop() < oneLineTop - 20, "two-line title top " + textTop() + " grows up from " + oneLineTop);
+        // Absolute layout, not the properties that produce it. Hero y 150 is
+        // the brief. The gap under the meta is 44, Continue to Favorites is
+        // 300 and Favorites to New is 210, so the rows land at these y values
+        // and 94 px of the New poster stays on screen.
         compare(child("heroBox").y, 150);
-        verify(child("heroBox").y >= child("menuButton").y + child("menuButton").height,
-               "hero top " + child("heroBox").y + " clears the menu");
+        const menuBottom = child("menuButton").y + child("menuButton").height;
+        compare(menuBottom, 108);
+        verify(child("heroBox").y >= menuBottom,
+               "hero top " + child("heroBox").y + " clears the menu that ends at " + menuBottom);
+        verify(child("heroBox").y + child("heroBox").height <= child("continue").y,
+               "hero bottom overlaps Continue");
+        compare(child("continue").y, 418);
+        compare(child("favorites").y, 718);
+        compare(child("new").y, 928);
+        compare(child("favorites").y, child("continue").y + 300);
+        compare(child("new").y, child("favorites").y + 210);
+        compare(home.homeOffset, 0);
+        // The section title sits above the posters. What shows at the bottom
+        // of the screen is the top of the New poster.
+        const posterTop = child("entry-n").mapToItem(home, 0, 0).y;
+        const visibleNew = home.height - posterTop;
+        console.log("visible New poster at rest " + visibleNew.toFixed(1)
+                    + " px (poster y " + posterTop.toFixed(1) + ", row y "
+                    + child("new").y.toFixed(1) + ")");
+        verify(Math.abs(visibleNew - 94) < 1.5, "visible New " + visibleNew);
     }
 
     function test_hero_describes_the_focused_item() {

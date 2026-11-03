@@ -385,9 +385,15 @@ async fn the_shell_preferences_are_core_settings() {
         (
             light.category.as_str(),
             light.kind.as_str(),
-            light.value.as_str()
+            light.value.as_str(),
+            light.description.as_str()
         ),
-        ("appearance", "boolean", "true")
+        (
+            "appearance",
+            "boolean",
+            "true",
+            "A warm floor and a pool of light under the focused item. Off removes the floor and the pool"
+        )
     );
     let ambient = find(&settings, "ambient_timeout");
     assert_eq!(

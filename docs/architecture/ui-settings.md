@@ -30,7 +30,7 @@ Light follows the time of day, on by default) and `ambient_timeout` (Appearance 
 Ambient after: 5, 10, 15, 30 or 60 minutes, 10 by default). They are ordinary
 rows on this screen. `SettingsCatalog` also exposes them as `lightField`,
 `lightFollowsTime` and `ambientTimeoutMinutes` for `Main.qml`, which binds the
-light field behind Home to `lightField` and the time-of-day light to
+light field to `lightField` and the time-of-day light to
 `lightFollowsTime`. An invalid hand-edited value of any of these keys in `config.toml`
 reads as its default, with one warning line and no value in the log. The
 same source lists `browser_application` and, when search engines are

@@ -2005,8 +2005,8 @@
         <translation>Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет</translation>
     </message>
     <message>
-        <source>Soft light from the focused item&apos;s artwork behind Home</source>
-        <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
+        <source>A warm floor and a pool of light under the focused item. Off removes the floor and the pool</source>
+        <translation>Тёплый пол и пул света под выбранным элементом. Выключено — пол и пул убираются</translation>
     </message>
     <message>
         <source>Ambient after</source>

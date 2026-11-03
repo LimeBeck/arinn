@@ -191,7 +191,8 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "Soft light from the focused item's artwork behind Home"),
+                      "A warm floor and a pool of light under the focused item. "
+                      "Off removes the floor and the pool"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light follows the time of day"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
                       "Dims the floor light in the evening and at night and lays a "

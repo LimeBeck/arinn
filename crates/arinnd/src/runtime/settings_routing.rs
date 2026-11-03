@@ -37,7 +37,7 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         id: "light_field".into(),
         category: "appearance".into(),
         title: "Light field".into(),
-        description: "Soft light from the focused item's artwork behind Home".into(),
+        description: "A warm floor and a pool of light under the focused item. Off removes the floor and the pool".into(),
         kind: settings::KIND_BOOLEAN.into(),
         value: "true".into(),
         constraints: "{}".into(),

@@ -15,6 +15,11 @@
 namespace {
 InterfaceSounds *g_instance = nullptr;
 
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+bool g_testOutputsOverride = false;
+bool g_testOutputsPresent = false;
+#endif
+
 const char *resourceFor(const QString &name) {
   if (name == QLatin1String("tap"))
     return "qrc:/sounds/tap.wav";
@@ -44,6 +49,14 @@ const char *kAllSounds[] = {"tap",  "edge",   "select", "back", "open",
 InterfaceSounds::InterfaceSounds(QObject *parent) : QObject(parent) {
   g_instance = this;
   m_clock.start();
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  m_testOutputsOverride = g_testOutputsOverride;
+  m_testOutputsPresent = g_testOutputsPresent;
+#endif
+  // Sample once. An empty list latches unavailable before any QSoundEffect
+  // exists, and a later output does not clear it.
+  if (!outputsReported())
+    m_unavailableLatched = true;
   connect(&m_mediaDevices, &QMediaDevices::audioOutputsChanged, this,
           &InterfaceSounds::onAudioOutputsChanged);
 }
@@ -55,13 +68,25 @@ InterfaceSounds::~InterfaceSounds() {
 
 InterfaceSounds *InterfaceSounds::instance() { return g_instance; }
 
-bool InterfaceSounds::available() const {
+bool InterfaceSounds::outputsReported() const {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testOutputsOverride)
+    return m_testOutputsPresent;
+#endif
   return !QMediaDevices::audioOutputs().isEmpty();
 }
 
+bool InterfaceSounds::available() const { return !m_unavailableLatched; }
+
 void InterfaceSounds::onAudioOutputsChanged() {
-  emit availableChanged();
-  if (!available())
+  const bool wasAvailable = available();
+  // Devices that show up after a cold start are not recovery. An empty list
+  // before the first Ready latches for the rest of this process.
+  if (!m_seenReady && !outputsReported())
+    m_unavailableLatched = true;
+  if (wasAvailable != available())
+    emit availableChanged();
+  if (!available() || !outputsReported())
     return;
   reloadAllEffects();
 }
@@ -69,7 +94,7 @@ void InterfaceSounds::onAudioOutputsChanged() {
 void InterfaceSounds::resetAllEffects() { m_effects.clear(); }
 
 void InterfaceSounds::reloadAllEffects() {
-  if (QMediaDevices::audioOutputs().isEmpty()) {
+  if (!available() || !outputsReported()) {
     resetAllEffects();
     return;
   }
@@ -121,7 +146,7 @@ double InterfaceSounds::volume(bool repeat) const {
 }
 
 QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
-  if (QMediaDevices::audioOutputs().isEmpty())
+  if (!available() || !outputsReported())
     return nullptr;
   const auto found = m_effects.find(name);
   if (found != m_effects.end())
@@ -155,6 +180,7 @@ bool InterfaceSounds::waitForEffectReady(const QString &name) {
   for (int i = 0; i < 1000; ++i) {
     switch (effect->status()) {
     case QSoundEffect::Ready:
+      m_seenReady = true;
       return true;
     case QSoundEffect::Error:
       return false;
@@ -164,7 +190,10 @@ bool InterfaceSounds::waitForEffectReady(const QString &name) {
       break;
     }
   }
-  return effect->status() == QSoundEffect::Ready;
+  if (effect->status() != QSoundEffect::Ready)
+    return false;
+  m_seenReady = true;
+  return true;
 }
 
 bool InterfaceSounds::ensureLoaded(const QString &name) {
@@ -217,7 +246,7 @@ bool InterfaceSounds::playInternal(const QString &name, bool repeat,
     if (m_lastEdgeMs != 0 && now - m_lastEdgeMs < m_edgeIntervalMs)
       return false;
   }
-  if (QMediaDevices::audioOutputs().isEmpty())
+  if (!available() || !outputsReported())
     return false;
   if (!playEffectReady(name, repeat)) {
     resetAllEffects();
@@ -294,6 +323,19 @@ void InterfaceSounds::setTestFailNextDecodeOnce(const QString &name) {
 
 void InterfaceSounds::setTestFailPlayAttempts(int count) {
   m_testFailPlayAttempts = count;
+}
+
+void InterfaceSounds::setTestAudioOutputsPresent(bool present) {
+  g_testOutputsOverride = true;
+  g_testOutputsPresent = present;
+}
+
+void InterfaceSounds::clearTestAudioOutputs() { g_testOutputsOverride = false; }
+
+void InterfaceSounds::useTestAudioOutputs(bool present) {
+  m_testOutputsOverride = true;
+  m_testOutputsPresent = present;
+  onAudioOutputsChanged();
 }
 #endif
 

@@ -15,7 +15,9 @@ class QSoundEffect;
 // never blocks callers; level follows the setting and system mute; media guard
 // skips every sound except error while video or music plays. QSoundEffect
 // instances are created only after QMediaDevices reports a non-empty audio
-// output list (first play or audioOutputsChanged).
+// output list (first play or audioOutputsChanged). If no output is present
+// at start, or none is present before the first Ready decode, playback stays
+// unavailable for the life of the process.
 class InterfaceSounds : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString level READ level WRITE setLevel NOTIFY levelChanged)
@@ -24,8 +26,9 @@ class InterfaceSounds : public QObject {
                  outputMutedChanged)
   Q_PROPERTY(bool mediaActive READ mediaActive WRITE setMediaActive NOTIFY
                  mediaActiveChanged)
-  // False while Qt Multimedia reports no audio output. A cold start without
-  // Pulse stays false for the life of the process (owner decision, #730).
+  // Latched for this process (owner decision, #730). False when no audio
+  // output was present at start, or before the first Ready decode. A later
+  // output does not set it true.
   Q_PROPERTY(bool available READ available NOTIFY availableChanged)
 public:
   explicit InterfaceSounds(QObject *parent = nullptr);
@@ -67,6 +70,11 @@ public:
   bool playEdgeBumpWhileSuppressed(bool autoRepeat);
   void setTestFailNextDecodeOnce(const QString &name);
   void setTestFailPlayAttempts(int count);
+  // Copied into objects constructed until clearTestAudioOutputs().
+  static void setTestAudioOutputsPresent(bool present);
+  static void clearTestAudioOutputs();
+  // This object only. Does not change objects already constructed.
+  void useTestAudioOutputs(bool present);
 #endif
 
 signals:
@@ -88,6 +96,7 @@ private:
   void reloadAllEffects();
   void resetAllEffects();
   bool waitForEffectReady(const QString &name);
+  bool outputsReported() const;
 
   QString m_level;
   bool m_levelKnown = false;
@@ -101,11 +110,16 @@ private:
   qint64 m_lastEdgeMs = 0;
   QElapsedTimer m_clock;
   QMediaDevices m_mediaDevices{this};
+  // Set when an output list was empty before any cue reached Ready.
+  bool m_unavailableLatched = false;
+  bool m_seenReady = false;
   std::unordered_map<QString, std::unique_ptr<QSoundEffect>> m_effects;
 
 #ifdef ARINN_INTERFACE_SOUNDS_TEST
   QString m_testFailNextDecodeName;
   int m_testFailPlayAttempts = 0;
+  bool m_testOutputsOverride = false;
+  bool m_testOutputsPresent = false;
 #endif
 };
 

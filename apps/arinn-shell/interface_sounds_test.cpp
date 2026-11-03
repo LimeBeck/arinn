@@ -20,6 +20,7 @@ private slots:
   }
 
   void init() {
+    InterfaceSounds::clearTestAudioOutputs();
     m_events.clear();
     m_sounds.setLevel(QStringLiteral("normal"));
     m_sounds.setOutputMuted(false);
@@ -28,6 +29,8 @@ private slots:
     m_sounds.resetTapThrottle();
     m_sounds.resetEdgeThrottle();
   }
+
+  void cleanup() { InterfaceSounds::clearTestAudioOutputs(); }
 
   static bool hasAudioOutput() {
     return !QMediaDevices::audioOutputs().isEmpty();
@@ -47,6 +50,32 @@ private slots:
     QCOMPARE(fresh.effectStatus(QStringLiteral("tap")),
              static_cast<int>(QSoundEffect::Ready));
     QCOMPARE(fresh.effectStatus(QStringLiteral("open")),
+             static_cast<int>(QSoundEffect::Null));
+  }
+
+  void coldStartStaysUnavailableAfterOutputsAppear() {
+    InterfaceSounds::setTestAudioOutputsPresent(false);
+    InterfaceSounds cold;
+    QVERIFY(!cold.available());
+    cold.useTestAudioOutputs(true);
+    QVERIFY(!cold.available());
+    cold.setLevel(QStringLiteral("normal"));
+    cold.play(QStringLiteral("tap"));
+    QCOMPARE(cold.effectStatus(QStringLiteral("tap")),
+             static_cast<int>(QSoundEffect::Null));
+  }
+
+  void outputsLostBeforeReadyStayUnavailable() {
+    InterfaceSounds::setTestAudioOutputsPresent(true);
+    InterfaceSounds warm;
+    QVERIFY(warm.available());
+    warm.useTestAudioOutputs(false);
+    QVERIFY(!warm.available());
+    warm.useTestAudioOutputs(true);
+    QVERIFY(!warm.available());
+    warm.setLevel(QStringLiteral("normal"));
+    warm.play(QStringLiteral("open"));
+    QCOMPARE(warm.effectStatus(QStringLiteral("open")),
              static_cast<int>(QSoundEffect::Null));
   }
 

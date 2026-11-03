@@ -498,11 +498,13 @@ startup, ambient wake and errors. Qt Multimedia is a new runtime dependency
 that dependency if required by project policy.
 
 `QSoundEffect` objects are created only after `QMediaDevices::audioOutputs()`
-is non-empty. If the shell starts with an empty list, playback stays
-unavailable for that process even if Pulse starts later: there is no
-in-process recovery and no `paplay` or `libpulse` path. Settings › Sound shows
-a read-only row under Interface sounds (title and `text-2` detail) while
-`InterfaceSounds.available` is false, and hides it when an output is present.
+is non-empty, and only when playback is still available. `available` is
+latched for the process: an empty output list at start, or before the first
+Ready decode, keeps it false even if Pulse starts later. That is not
+in-process recovery, and there is no `paplay` or `libpulse` path. Settings ›
+Sound shows a read-only row under Interface sounds (title and `text-2`
+detail) while `available` is false. The row stays up when an output appears
+after that latch. It is hidden when an output was already present.
 `Backend::restartArinn()` remains the update exit (ADR-0098), so the row has
 no Restart action.
 

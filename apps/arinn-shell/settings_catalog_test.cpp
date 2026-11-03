@@ -578,13 +578,15 @@ private slots:
     // Defaults until the daemon has answered.
     QCOMPARE(catalog.lightField(), true);
     QCOMPARE(catalog.ambientTimeoutMinutes(), 10);
-    QCOMPARE(catalog.interfaceSoundsLevel(), QStringLiteral("quiet"));
+    QVERIFY(!catalog.interfaceSoundsLevelKnown());
+    QVERIFY(catalog.interfaceSoundsLevel().isEmpty());
     QSignalSpy changes(&catalog, &SettingsCatalog::preferencesChanged);
     QVERIFY(registerBus(daemon));
     catalog.refresh();
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
     QTRY_COMPARE(catalog.lightField(), false);
     QCOMPARE(catalog.ambientTimeoutMinutes(), 30);
+    QVERIFY(catalog.interfaceSoundsLevelKnown());
     QCOMPARE(catalog.interfaceSoundsLevel(), QStringLiteral("normal"));
     const auto row = rowAt(catalog, QStringLiteral("arinn"),
                            QStringLiteral("ambient_timeout"));

@@ -154,7 +154,8 @@ FocusScope {
             if (available(next)) {
                 if (focusIndex(next)) interfaceSounds.playNavigationTap(autoRepeat);
             } else {
-                interfaceSounds.playEdgeBump(autoRepeat);
+                if (event.key === Qt.Key_Right)
+                    interfaceSounds.playEdgeBump(autoRepeat);
                 edge(event.key, autoRepeat);
             }
         } else edge(event.key, autoRepeat);

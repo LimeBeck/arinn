@@ -710,14 +710,18 @@ void SettingsCatalog::readPreferences() {
           minutes = parsed;
       }
       if (setting.id == QLatin1String("interface_sounds")) {
-        const auto value = valueFor(setting.kind, setting.valueJson, false)
-                               .toString();
-        if (value == QLatin1String("off") || value == QLatin1String("quiet") ||
-            value == QLatin1String("normal"))
-          sounds = value;
+        const auto parsed = valueFor(setting.kind, setting.valueJson, false)
+                                .toString();
+        if (parsed == QLatin1String("off") || parsed == QLatin1String("quiet") ||
+            parsed == QLatin1String("normal"))
+          sounds = parsed;
       }
     }
   }
+  if (m_loaded && !m_unreachable)
+    m_interfaceSoundsKnown = true;
+  if (m_interfaceSoundsKnown && sounds.isEmpty())
+    sounds = QStringLiteral("quiet");
   if (light == m_lightField && follows == m_lightFollowsTime &&
       minutes == m_ambientMinutes && sounds == m_interfaceSounds)
     return;

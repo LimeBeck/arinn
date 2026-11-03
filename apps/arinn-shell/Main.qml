@@ -522,6 +522,13 @@ Window {
     }
     property bool hadFocus: false
     property bool interfaceStartupHeard: false
+    function playStartupIgnite() {
+        if (interfaceStartupHeard || !settingsCatalog.interfaceSoundsLevelKnown)
+            return;
+        interfaceStartupHeard = true;
+        if (settingsCatalog.interfaceSoundsLevel !== "off")
+            interfaceSounds.play("ignite");
+    }
     onActiveFocusItemChanged: {
         if (!focusFellToRoot()) {
             hadFocus = true;
@@ -542,10 +549,7 @@ Window {
         quickMenuOpener = null;
         quickMenuTarget = "";
     } else {
-        if (!interfaceStartupHeard) {
-            interfaceStartupHeard = true;
-            interfaceSounds.play("ignite");
-        }
+        playStartupIgnite();
         Qt.callLater(() => {
             // Returning from an external activity keeps the displayed route. Home
             // must not take focus behind Open services or another retained screen.
@@ -770,10 +774,15 @@ Window {
         onDownloadImported: message => downloadsView.showToast(message)
     }
     SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
+    Connections {
+        target: settingsCatalog
+        function onPreferencesChanged() { root.playStartupIgnite(); }
+    }
     Binding {
         target: interfaceSounds
         property: "level"
         value: settingsCatalog.interfaceSoundsLevel
+        when: settingsCatalog.interfaceSoundsLevelKnown
     }
     Binding {
         target: interfaceSounds

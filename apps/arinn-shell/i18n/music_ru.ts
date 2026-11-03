@@ -53,6 +53,7 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>Stopped</source>
       <translation>Остановлено</translation>
     </message>
+    <message><source>%1 · %2</source><translation>%1 · %2</translation></message>
   </context>
   <context>
     <name>MusicView</name>

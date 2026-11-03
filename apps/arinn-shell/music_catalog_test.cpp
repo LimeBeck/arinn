@@ -37,6 +37,7 @@ public:
   QHash<QString, QJsonObject> states;
   QHash<QString, QString> stateErrors;
   QHash<QString, int> pageReads;
+  QStringList commands;
   QString active = QStringLiteral("null");
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
@@ -59,6 +60,11 @@ public:
       return true;
     }
     const auto id = message.path().section(QStringLiteral("p_"), 1);
+    if(member == QLatin1String("Command")) {
+      const auto command=QJsonDocument::fromJson(message.arguments().at(1).toString().toUtf8()).object();
+      commands.append(command.value("action").toString());
+      bus.send(message.createReply(QString::fromUtf8(QJsonDocument(states.value(id)).toJson(QJsonDocument::Compact))));return true;
+    }
     if (member == QLatin1String("GetState")) {
       if (stateErrors.contains(id)) {
         const auto code = stateErrors.value(id);
@@ -156,6 +162,14 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(catalog.sourceId(), QStringLiteral("first"), 3000);
     QVERIFY(resets.count() >= 1);
     QTRY_COMPARE(catalog.state().value("account").toString(), QStringLiteral("local"));
+  }
+  void freshStationCanStartBeforeAnyTrackIsPlaying() {
+    daemon.providers={{"local","Fixture station source","g1"}};
+    auto initial=state({"selections"});initial["account"]="connected";initial["actions"]=QJsonArray{"play","radio"};
+    daemon.states.insert("local",initial);MusicCatalog catalog;
+    QTRY_COMPARE(catalog.state().value("account").toString(),QStringLiteral("connected"));
+    const auto before=daemon.commands.size();catalog.command(QStringLiteral("radio"),QStringLiteral("station:wave"));
+    QTRY_COMPARE(daemon.commands.size(),before+1);QCOMPARE(daemon.commands.last(),QStringLiteral("radio"));
   }
   // The Home card names the source of the active session.
   void theHomeCardNamesTheActiveSource() {

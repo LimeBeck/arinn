@@ -52,6 +52,10 @@ Deleting a playlist removes its metadata, never audio files.
 The last 32 command receipts are retained per endpoint, keyed by verified caller,
 generation and UUID. Retrying the same payload returns its receipt; reusing the
 UUID with another payload returns Conflict. Admission is bounded to 32 commands.
+The daemon retains at most 32 endpoint/generation ledgers, each with 32 receipts
+across callers (at most 1024 bounded receipts total); owner/generation loss removes
+that endpoint's ledger. A full ledger admission limit returns Unavailable before
+forwarding a new endpoint command.
 
 Starting play/radio while a music session is loading, playing or paused requires
 matching replaces_provider/replaces_session from the confirmation screen. The

@@ -351,7 +351,7 @@ impl Runtime {
             "playlists".into(),
         ];
         state.actions.retain(|a| a != "remove" || !state.continuous);
-        state.actions.push("scan".into());
+        state.actions.extend(["scan".into(), "radio".into()]);
         if let Some(current) = &mut state.current {
             current.track.artwork = format!("cover:{}", current.track.id);
             state.feedback = d
@@ -359,9 +359,7 @@ impl Runtime {
                 .get(&current.track.id)
                 .cloned()
                 .unwrap_or_default();
-            state
-                .actions
-                .extend(["like".into(), "dislike".into(), "radio".into()]);
+            state.actions.extend(["like".into(), "dislike".into()]);
         }
         for entry in state.history.iter_mut().chain(&mut state.upcoming) {
             entry.track.artwork = format!("cover:{}", entry.track.id);
@@ -792,6 +790,15 @@ impl Runtime {
         Ok(())
     }
     async fn pin(self: &Arc<Self>, id: &str) -> Result<(), ErrorCode> {
+        self.pin_with(id, |storage, bytes| storage.write(bytes))
+            .await
+    }
+    async fn pin_with<F>(self: &Arc<Self>, id: &str, write: F) -> Result<(), ErrorCode>
+    where
+        F: FnOnce(&Storage, &[u8]) -> Result<(), arinn_music_common::storage::Error>
+            + Send
+            + 'static,
+    {
         let this = self.clone();
         let id = id.to_owned();
         // Own the write and publication together if the caller times out.
@@ -813,19 +820,27 @@ impl Runtime {
             }
             let storage = this.pins.clone();
             let bytes = serde_json::to_vec(&pins).map_err(|_| ErrorCode::Internal)?;
-            tokio::task::spawn_blocking(move || {
-                storage
+            let result = tokio::task::spawn_blocking(move || {
+                let storage = storage
                     .lock()
-                    .map_err(|_| ErrorCode::Internal)?
-                    .write(&bytes)
-                    .map_err(|_| ErrorCode::Unavailable)
+                    .map_err(|_| arinn_music_common::storage::Error::Unavailable)?;
+                write(&storage, &bytes)
             })
             .await
-            .map_err(|_| ErrorCode::Internal)??;
+            .map_err(|_| ErrorCode::Internal)?;
+            let durability = matches!(result, Err(arinn_music_common::storage::Error::Durability));
+            if result.is_err() && !durability {
+                return Err(ErrorCode::Unavailable);
+            }
             d.pins = pins;
             d.cache.clear();
             d.revision += 1;
-            Ok(())
+            if durability {
+                d.feedback_error = Some(ErrorCode::Unavailable);
+                Err(ErrorCode::Unavailable)
+            } else {
+                Ok(())
+            }
         })
         .await
         .map_err(|_| ErrorCode::Internal)?
@@ -1075,5 +1090,65 @@ mod tests {
             "wire"
         );
         assert!(mock.finish().is_empty());
+    }
+    #[tokio::test]
+    async fn fresh_connected_catalogue_advertises_station_activation() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let state = fixture.runtime.state().await;
+        assert!(state.current.is_none());
+        assert!(state.actions.contains(&"radio".into()));
+        assert!(!state.actions.contains(&"like".into()));
+        assert!(mock.finish().is_empty());
+    }
+    #[tokio::test]
+    async fn post_rename_pin_sync_failure_publishes_committed_metadata() {
+        let fixture = Fixture::new();
+        fixture
+            .runtime
+            .playback
+            .radio(
+                vec![],
+                "batch".into(),
+                station("station:wave", "Fixture wave"),
+            )
+            .await
+            .unwrap();
+        let result = fixture
+            .runtime
+            .pin_with("station:wave", |storage, bytes| {
+                storage.write(bytes)?;
+                Err(arinn_music_common::storage::Error::Durability)
+            })
+            .await;
+        assert_eq!(result, Err(ErrorCode::Unavailable));
+        assert!(fixture.runtime.state().await.pinned);
+        let stored: Vec<Entity> = serde_json::from_slice(
+            &fixture
+                .runtime
+                .pins
+                .lock()
+                .unwrap()
+                .read()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(stored.len(), 1);
+        fixture.runtime.pin("station:wave").await.unwrap();
+        assert!(!fixture.runtime.state().await.pinned);
+        let stored: Vec<Entity> = serde_json::from_slice(
+            &fixture
+                .runtime
+                .pins
+                .lock()
+                .unwrap()
+                .read()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(stored.is_empty());
     }
 }

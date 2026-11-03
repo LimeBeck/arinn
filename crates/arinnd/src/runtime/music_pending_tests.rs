@@ -254,3 +254,44 @@ async fn timed_out_start_is_settled_before_another_start_can_run() {
     );
     std::fs::remove_dir_all(folder).unwrap();
 }
+
+#[tokio::test]
+async fn receipt_memory_is_bounded_across_callers_and_freed_on_owner_loss() {
+    let coordinator = Coordinator::default();
+    {
+        let mut registry = coordinator.registry.lock().await;
+        for n in 0..1000 {
+            registry.record((
+                format!(":1.{n}"),
+                "endpoint".into(),
+                "generation".into(),
+                play(),
+                Ok("{}".into()),
+            ));
+        }
+        assert_eq!(registry.ledger.len(), 32);
+        for n in 1..32 {
+            let id = format!("endpoint-{n}");
+            assert!(registry.admits(&id, "generation"));
+            registry.record((
+                ":1.1".into(),
+                id,
+                "generation".into(),
+                play(),
+                Ok("{}".into()),
+            ));
+        }
+        assert!(!registry.admits("extra-endpoint", "generation"));
+        assert!(registry.admits("endpoint", "generation"));
+        assert!(registry.ledger.len() <= 1024);
+    }
+    coordinator.forget("endpoint").await;
+    let registry = coordinator.registry.lock().await;
+    assert!(registry.admits("extra-endpoint", "generation"));
+    assert!(
+        !registry
+            .ledger
+            .iter()
+            .any(|(_, id, _, _, _)| id == "endpoint")
+    );
+}

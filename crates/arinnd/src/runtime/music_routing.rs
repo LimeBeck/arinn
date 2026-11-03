@@ -27,6 +27,35 @@ struct Registry {
     states: BTreeMap<String, Cached>,
     ledger: std::collections::VecDeque<Receipt>,
 }
+impl Registry {
+    fn admits(&self, id: &str, generation: &str) -> bool {
+        let endpoints: std::collections::HashSet<_> = self
+            .ledger
+            .iter()
+            .map(|(_, id, g, _, _)| (id.as_str(), g.as_str()))
+            .collect();
+        endpoints.contains(&(id, generation)) || endpoints.len() < 32
+    }
+    fn record(&mut self, receipt: Receipt) {
+        let id = receipt.1.clone();
+        let generation = receipt.2.clone();
+        self.ledger.push_back(receipt);
+        while self
+            .ledger
+            .iter()
+            .filter(|(_, i, g, _, _)| i == &id && g == &generation)
+            .count()
+            > 32
+        {
+            let index = self
+                .ledger
+                .iter()
+                .position(|(_, i, g, _, _)| i == &id && g == &generation)
+                .unwrap();
+            self.ledger.remove(index);
+        }
+    }
+}
 pub(super) struct Coordinator {
     gate: Mutex<()>,
     slots: tokio::sync::Semaphore,
@@ -45,6 +74,7 @@ impl Coordinator {
     pub(super) async fn forget(&self, id: &str) {
         let mut r = self.registry.lock().await;
         r.states.remove(id);
+        r.ledger.retain(|(_, endpoint, _, _, _)| endpoint != id);
         if r.pending.as_ref().is_some_and(|p| p.id == id) {
             r.pending = None;
         }
@@ -421,6 +451,9 @@ impl MusicEndpoint {
         }
         {
             let registry = self.core.music.registry.lock().await;
+            if !registry.admits(&self.id, generation) {
+                return Err(ErrorCode::Unavailable.into());
+            }
             if let Some((_, _, _, previous, result)) =
                 registry.ledger.iter().find(|(c, id, g, request, _)| {
                     c == &client
@@ -485,28 +518,13 @@ impl MusicEndpoint {
         }
         .await;
         let mut registry = self.core.music.registry.lock().await;
-        registry.ledger.push_back((
-            client.clone(),
+        registry.record((
+            client,
             self.id.clone(),
             generation.into(),
             command,
             result.clone(),
         ));
-        while registry
-            .ledger
-            .iter()
-            .filter(|(c, id, g, _, _)| c == &client && id == &self.id && g == generation)
-            .count()
-            > 32
-        {
-            if let Some(index) = registry
-                .ledger
-                .iter()
-                .position(|(c, id, g, _, _)| c == &client && id == &self.id && g == generation)
-            {
-                registry.ledger.remove(index);
-            }
-        }
         result.map_err(Into::into)
     }
 }

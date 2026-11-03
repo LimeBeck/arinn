@@ -28,7 +28,9 @@ add_test(NAME shell-startup-home COMMAND dbus-run-session --
 qt_add_executable(arinn-interface-sounds-test interface_sounds_test.cpp interface_sounds.cpp interface_sounds.h)
 qt_add_resources(arinn-interface-sounds-test ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
     FILES ${ARINN_UI_SOUND_FILES})
-target_link_libraries(arinn-interface-sounds-test PRIVATE Qt6::Multimedia Qt6::Qml Qt6::Test)
+target_compile_definitions(arinn-interface-sounds-test PRIVATE
+    ARINN_SOUNDS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sounds")
+target_link_libraries(arinn-interface-sounds-test PRIVATE Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
 add_test(NAME interface-sounds COMMAND arinn-interface-sounds-test)
 set_tests_properties(interface-sounds PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 

@@ -79,6 +79,7 @@ private:
 };
 
 int main(int argc, char **argv) {
+  Q_INIT_RESOURCE(ui_sounds);
   QGuiApplication app(argc, argv);
   InterfaceSoundsTest test;
   return QTest::qExec(&test, argc, argv);

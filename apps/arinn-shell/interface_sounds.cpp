@@ -5,6 +5,8 @@
 #include "interface_sounds.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
+#include <QFile>
 #include <QSoundEffect>
 #include <QQmlEngine>
 
@@ -31,6 +33,17 @@ const char *resourceFor(const QString &name) {
   if (name == QLatin1String("error"))
     return "qrc:/sounds/error.wav";
   return nullptr;
+}
+
+QUrl sourceUrlFor(const QString &name) {
+#ifdef ARINN_SOUNDS_SOURCE_DIR
+  const QString path =
+      QString(ARINN_SOUNDS_SOURCE_DIR) + QLatin1Char('/') + name + QStringLiteral(".wav");
+  if (QFile::exists(path))
+    return QUrl::fromLocalFile(path);
+#endif
+  const char *url = resourceFor(name);
+  return url ? QUrl(QString::fromLatin1(url)) : QUrl();
 }
 } // namespace
 
@@ -84,11 +97,11 @@ QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
   const auto found = m_effects.find(name);
   if (found != m_effects.end())
     return found->second.get();
-  const char *url = resourceFor(name);
-  if (!url)
+  const QUrl url = sourceUrlFor(name);
+  if (url.isEmpty())
     return nullptr;
   auto effect = std::make_unique<QSoundEffect>(this);
-  effect->setSource(QUrl(QString::fromLatin1(url)));
+  effect->setSource(url);
   effect->setLoopCount(1);
   auto *raw = effect.get();
   m_effects.emplace(name, std::move(effect));

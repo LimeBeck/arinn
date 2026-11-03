@@ -1881,6 +1881,16 @@ fn link_series(
 ) {
     let mut pool = existing;
     let named_folders = named_series_folders(rows, rules);
+    // An incremental import prepares metadata only for its own episode, which
+    // need not be the first existing row of the name-grouped series.
+    let mut named_metas = HashMap::new();
+    for row in rows.iter().filter(|row| row.kind == "episode") {
+        if row.series_key.starts_with("name:")
+            && let Some(meta) = metas.get(&row.id)
+        {
+            named_metas.entry(row.series_key.clone()).or_insert(meta);
+        }
+    }
     let mut created: HashMap<String, String> = HashMap::new();
     let episodes: Vec<usize> = rows
         .iter()
@@ -1926,7 +1936,10 @@ fn link_series(
         series.inode = inode;
         series.parent_id.clear();
         series.available = rows[index].available;
-        if let Some(meta) = metas.get(&rows[index].id) {
+        if let Some(meta) = metas
+            .get(&rows[index].id)
+            .or_else(|| named_metas.get(&key).copied())
+        {
             if key.starts_with("name:") {
                 series.has_year = meta.has_year;
                 series.year = meta.year;
@@ -2257,12 +2270,35 @@ mod tests {
         store.scan(&settings).unwrap();
         assert_eq!(store.snapshot().unwrap().1, after);
         assert_eq!(store.resumes().unwrap(), resumes);
+        let root_id = store.root_id(&root).unwrap();
+        fs::remove_file(season.join("tvshow.nfo")).unwrap();
+        store
+            .upsert_file(
+                &root_id,
+                &root,
+                &season.join("Show 2nd Season - 02.mkv"),
+                &settings,
+            )
+            .unwrap();
+        let refreshed = store.snapshot().unwrap().1;
+        let refreshed = refreshed.iter().find(|i| i.kind == "series").unwrap();
+        assert_eq!(refreshed.title, "Show");
+        assert!(!refreshed.has_year);
+        fs::write(season.join("tvshow.nfo"), "<tvshow><title>Локальное название</title><year>2026</year><plot>Описание сериала.</plot></tvshow>").unwrap();
+        store.scan(&settings).unwrap();
         // A second season must still join the same series, without choosing
         // one of two sibling folders as the source of series-wide metadata.
         let other = root.join("Show 3rd Season");
         fs::create_dir_all(&other).unwrap();
         fs::write(other.join("Show 3rd Season - 01.mkv"), b"video").unwrap();
-        store.scan(&settings).unwrap();
+        store
+            .upsert_file(
+                &root_id,
+                &root,
+                &other.join("Show 3rd Season - 01.mkv"),
+                &settings,
+            )
+            .unwrap();
         let items = store.snapshot().unwrap().1;
         let grouped: Vec<_> = items.iter().filter(|i| i.kind == "series").collect();
         assert_eq!(grouped.len(), 1);
@@ -2278,6 +2314,8 @@ mod tests {
                 .all(|i| i.parent_id == id)
         );
         assert_eq!(store.resumes().unwrap(), resumes);
+        store.scan(&settings).unwrap();
+        assert_eq!(store.snapshot().unwrap().1, items);
         drop(store);
         fs::remove_dir_all(dir).unwrap();
     }

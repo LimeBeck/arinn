@@ -32,9 +32,9 @@ target_link_libraries(arinn-interface-sounds-test PRIVATE Qt6::Multimedia Qt6::Q
 add_test(NAME interface-sounds COMMAND arinn-interface-sounds-test)
 set_tests_properties(interface-sounds PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h interface_sounds.cpp interface_sounds.h)
+qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
-target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test Qt6::Multimedia)
+target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
 set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/Focus.qml ui/InputMode.qml ui/UiText.qml ui/FontWeightAxis.qml ui/LogicalCanvas.qml
@@ -44,11 +44,21 @@ set(ARINN_PRESENTATION_FILES
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml ui/artwork.js
     ui/fonts/Onest.ttf ui/fonts/Ysabeau.ttf)
-foreach(target arinn-shell arinn-shell-test)
-    qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
+set(ARINN_MAIN_QML_TEST_TARGETS
+    arinn-shell-test arinn-session-lifecycle-test arinn-browser-catalog-test
+    arinn-media-catalog-test arinn-library-catalog-test arinn-quick-menu-test
+    arinn-launch-screen-test arinn-external-keyboard-test)
+foreach(target ${ARINN_MAIN_QML_TEST_TARGETS})
+    target_sources(${target} PRIVATE interface_sounds.cpp interface_sounds.h)
+    target_link_libraries(${target} PRIVATE Qt6::Multimedia)
     qt_add_resources(${target} ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES ${ARINN_UI_SOUND_FILES})
 endforeach()
+foreach(target arinn-shell arinn-shell-test)
+    qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
+endforeach()
+qt_add_resources(arinn-shell ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
+    FILES ${ARINN_UI_SOUND_FILES})
 
 # Development-only component gallery: no backend, bus registration or platform
 # actions. Screens and their states live in tests/ui/visual (#567).
@@ -97,7 +107,7 @@ target_link_libraries(arinn-catalog-test PRIVATE Qt6::DBus Qt6::Test)
 add_test(NAME application-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-catalog-test>)
 
 qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-browser-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-browser-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-browser-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME browser-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-browser-catalog-test>)
@@ -138,7 +148,7 @@ endforeach()
 
 qt_add_executable(arinn-media-catalog-test media_catalog_test.cpp media_catalog.cpp media_catalog.h
     browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-media-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-media-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-media-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME media-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-media-catalog-test>)
@@ -149,7 +159,7 @@ set_tests_properties(media-catalog PROPERTIES ENVIRONMENT
 qt_add_executable(arinn-quick-menu-test quick_menu_test.cpp backend.cpp backend.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
     library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-quick-menu-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-quick-menu-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-quick-menu-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME quick-menu COMMAND dbus-run-session -- $<TARGET_FILE:arinn-quick-menu-test>)
@@ -161,7 +171,7 @@ set_tests_properties(quick-menu PROPERTIES ENVIRONMENT
 qt_add_executable(arinn-launch-screen-test launch_screen_test.cpp backend.cpp backend.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
     library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-launch-screen-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-launch-screen-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-launch-screen-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME launch-screen COMMAND dbus-run-session -- $<TARGET_FILE:arinn-launch-screen-test>)
@@ -170,7 +180,7 @@ set_tests_properties(launch-screen PROPERTIES ENVIRONMENT
 
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-library-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
 add_test(NAME library-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-library-catalog-test>)
@@ -210,7 +220,7 @@ qt_add_executable(arinn-external-keyboard-test external_keyboard_test.cpp
     browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
     media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h
     settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
-target_link_libraries(arinn-external-keyboard-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_link_libraries(arinn-external-keyboard-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-external-keyboard-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml"
     ARINN_PANEL_QML="${CMAKE_CURRENT_SOURCE_DIR}/ui/KeyboardPanel.qml")

@@ -6,6 +6,7 @@
 // the panel on Back, Home and a lock, all against a fake daemon on a private
 // session bus.
 #include "asset_images.h"
+#include "main_qml_test_support.h"
 #include "external_keyboard.h"
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -286,8 +287,9 @@ private slots:
     BackendStandIn backend;
     GuardStandIn guard;
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextProperty(QStringLiteral("backend"), &backend);
-    engine.rootContext()->setContextProperty(QStringLiteral("sessionGuard"), &guard);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
     installAssetImageProvider(&engine);
     engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
     QVERIFY(!engine.rootObjects().isEmpty());

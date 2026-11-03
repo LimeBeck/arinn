@@ -28,9 +28,9 @@ TestCase {
         tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
         verify(Ui.Theme.contentFontFamily.length > 0);
         verify(Ui.Theme.contentFontFamily !== Ui.Theme.fontFamily);
-        compare(Ui.Theme.background, "#0F1115");
-        compare(Ui.Theme.ember, "#FF8A3D");
-        compare(Ui.Theme.chip, "#1C1E23");
+        compare(Ui.Theme.background, "#0f1115");
+        compare(Ui.Theme.ember, "#ff8a3d");
+        compare(Ui.Theme.chip, "#1c1e23");
         compare(Ui.Theme.hearthLightness, 0.44);
         compare(Ui.Theme.hearthChroma, 0.07);
         compare(Ui.Theme.hearthHue, 55);

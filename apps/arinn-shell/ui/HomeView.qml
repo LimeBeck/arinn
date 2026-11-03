@@ -845,13 +845,15 @@ FocusScope {
                 }
                 // Fixed hero box (ADR-0136): 240 px, so a two-line title does not
                 // push the Continue row. The brief's y 150 would end at 390,
-                // over the row that still sits at 372; y 132 ends on that row.
+                // over the row that still sits at 372. The box starts at y 128:
+                // the meta line's descent sits a few pixels below the box, and
+                // that line ends on the row.
                 // The title fits in steps (96 on one line, 68 on two). Lines
                 // are 1.07 em apart; Qt keeps the last line at the face's own
                 // spacing, and that descent is the gap to the meta line.
                 Column {
                     objectName: "heroBox"
-                    x: 120; y: 132; width: 1300; height: 240; spacing: 4
+                    x: 120; y: 128; width: 1300; height: 240; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
                     Row {
                         spacing: 12

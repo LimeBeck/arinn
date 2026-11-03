@@ -589,6 +589,10 @@
         <translation>Продолжить</translation>
     </message>
     <message>
+        <source>Now running</source>
+        <translation>Сейчас запущено</translation>
+    </message>
+    <message>
         <source>New</source>
         <translation>Новое</translation>
     </message>

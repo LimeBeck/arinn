@@ -47,22 +47,32 @@ TestCase {
         return Math.abs(a.r - b.r) < 0.004 && Math.abs(a.g - b.g) < 0.004
             && Math.abs(a.b - b.b) < 0.004 && Math.abs(a.a - b.a) < 0.004;
     }
-    // Lowest contrast of `textColor` on the lit field, with the veil. The
-    // pool sits under each sample at the daytime floor hue, which is the
-    // brightest the light can be there.
-    function weakestContrast(glow, textColor) {
-        let worst = 99, bx = 0, by = 0;
+    // Source-over of a translucent coat on an opaque base.
+    function over(base, coat) {
+        const a = coat.a;
+        return Qt.rgba(coat.r * a + base.r * (1 - a),
+                       coat.g * a + base.g * (1 - a),
+                       coat.b * a + base.b * (1 - a), 1);
+    }
+    // Contrast of text on a surface, both under this light's veil.
+    function veiled(glow, textColor, surface) {
+        return Ui.Theme.contrast(Ui.Theme.veilOver(textColor, glow.veilAmount),
+                                 Ui.Theme.veilOver(surface, glow.veilAmount));
+    }
+    // Brightest lit pixel. The pool sits under each sample at the daytime
+    // floor hue, which is the brightest the light can be there.
+    function brightestLit(glow) {
+        let best = null, bestLum = -1, bx = 0, by = 0;
         for (let iy = 0; iy <= 40; ++iy) {
             const y = glow.height * iy / 40;
             for (let ix = 0; ix <= 20; ++ix) {
                 const x = glow.width * ix / 20;
                 const bg = glow.litColorAt(x, y, x, glow.floorHueDay);
-                const c = Ui.Theme.contrast(Ui.Theme.veilOver(textColor, glow.veilAmount),
-                                             Ui.Theme.veilOver(bg, glow.veilAmount));
-                if (c < worst) { worst = c; bx = x; by = y; }
+                const lum = Ui.Theme.relativeLuminance(bg);
+                if (lum > bestLum) { bestLum = lum; best = bg; bx = x; by = y; }
             }
         }
-        return {contrast: worst, x: bx, y: by};
+        return {color: best, x: bx, y: by};
     }
     function focused(name) { tryCompare(child(name), "activeFocus", true, 5000, name); }
     function createHome() {
@@ -247,34 +257,84 @@ TestCase {
         player.destroy();
         wait(0);
     }
-    // Weakest text, with the veil, at the brightest point of the light
-    // (bottom centre, pool under the sample, hue 55°). Night text-3 holds
-    // at least 4.8:1 (#722). The brief's 0.71 does not. Evening hints hold
-    // at least 4.5:1; the day hint does not, which is why it is raised.
+    // Night text-3 holds textContrastMinimum on every night surface (#722):
+    // the veiled background, a resting plate, the night focused plate, Home
+    // and Applications at their brightest light, and Settings and Downloads
+    // under the 22% veil. The day focus fill does not. Evening hints hold
+    // 4.5:1 on the evening light; the day hint does not.
     function test_night_and_evening_text_holds_contrast() {
         const glow = child("ambientGlow");
+        const minimum = Ui.Theme.textContrastMinimum;
         home.clockText = "23:30";
+        home.screen = "home";
         compare(glow.period, "night");
         compare(Ui.Theme.period, "night");
         compare(Ui.Theme.textPrimary, glow.oklch(0.97, 0.006, 75, 1));
         compare(Ui.Theme.textSecondary, glow.oklch(0.84, 0.008, 75, 1));
         compare(Ui.Theme.textHint, glow.oklch(0.761, 0.008, 75, 1));
         compare(Ui.Theme.textHint, Ui.Theme.nightText3);
+        compare(Ui.Theme.plateFocusNightAlpha, 0.095);
+        verify(near(Ui.Theme.plateFocus, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusNightAlpha)));
         verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
         verify(near(child("heroMeta").color, Ui.Theme.textSecondary), child("heroMeta").color);
-        const flat = Ui.Theme.veiledContrast(Ui.Theme.textHint, glow.veilAmount);
-        verify(flat >= 4.8, "night text-3 on the flat background " + flat);
-        const night = weakestContrast(glow, Ui.Theme.textHint);
-        const brief = weakestContrast(glow, glow.oklch(0.71, 0.008, 75, 1));
-        const oneStepDown = weakestContrast(glow, glow.oklch(0.760, 0.008, 75, 1));
-        verify(night.y > glow.height * 0.9, "brightest point y " + night.y);
-        verify(night.contrast >= 4.8, "night text-3 at the brightest light " + night.contrast);
-        verify(brief.contrast < 4.8, "brief text-3 0.71 at that point " + brief.contrast);
-        verify(oneStepDown.contrast < 4.8, "0.760 at that point " + oneStepDown.contrast);
-        console.log("night text-3 at the brightest light " + night.contrast.toFixed(3)
-                    + ":1 (brief 0.71 is " + brief.contrast.toFixed(3) + ":1, 0.760 is "
-                    + oneStepDown.contrast.toFixed(3) + ":1, flat background "
-                    + flat.toFixed(3) + ":1)");
+
+        const text = Ui.Theme.textHint;
+        const flat = Ui.Theme.background;
+        const plate = over(flat, Ui.Theme.plate);
+        const focused = over(flat, Ui.Theme.plateFocus);
+        compare(glow.strength, 1);
+        const homeLit = brightestLit(glow);
+        verify(homeLit.y > glow.height * 0.9, "brightest point y " + homeLit.y);
+        home.screen = "applications";
+        compare(glow.strength, 0.6);
+        const appsLit = brightestLit(glow);
+        home.screen = "home";
+
+        const surfaces = [
+            ["veiled background", veiled(glow, text, flat)],
+            ["plate", veiled(glow, text, plate)],
+            ["focused plate", veiled(glow, text, focused)],
+            ["home", veiled(glow, text, homeLit.color)],
+            ["applications", veiled(glow, text, appsLit.color)]
+        ];
+        const settings = createTemporaryObject(settingsFactory, suite, {clockText: "23:30", lightFollowsTime: true});
+        verify(settings);
+        const settingsGlow = findChild(settings, "settingsVeilGlow");
+        verify(settingsGlow && !settingsGlow.lit);
+        compare(settingsGlow.veilAmount, 0.22);
+        const settingsField = settingsGlow.litColorAt(settingsGlow.width / 2, settingsGlow.height / 2, 0, 55);
+        surfaces.push(["settings", veiled(settingsGlow, text, settingsField)]);
+        settings.destroy();
+        const downloads = createTemporaryObject(downloadsFactory, suite, {clockText: "23:30", lightFollowsTime: true});
+        verify(downloads);
+        const downloadsGlow = findChild(downloads, "downloadsVeilGlow");
+        verify(downloadsGlow && !downloadsGlow.lit);
+        compare(downloadsGlow.veilAmount, 0.22);
+        const downloadsField = downloadsGlow.litColorAt(downloadsGlow.width / 2, downloadsGlow.height / 2, 0, 55);
+        surfaces.push(["downloads", veiled(downloadsGlow, text, downloadsField)]);
+        downloads.destroy();
+
+        let report = "night text-3";
+        for (let i = 0; i < surfaces.length; ++i) {
+            verify(surfaces[i][1] >= minimum, surfaces[i][0] + " " + surfaces[i][1]);
+            report += " " + surfaces[i][0] + " " + surfaces[i][1].toFixed(3);
+        }
+        const brief = glow.oklch(0.71, 0.008, 75, 1);
+        const oneStepDown = glow.oklch(0.760, 0.008, 75, 1);
+        const dayFill = over(flat, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusAlpha));
+        const fillUp = over(flat, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusNightAlpha + 0.001));
+        const briefHome = veiled(glow, brief, homeLit.color);
+        const downHome = veiled(glow, oneStepDown, homeLit.color);
+        const dayFocus = veiled(glow, text, dayFill);
+        const fillStep = veiled(glow, text, fillUp);
+        verify(briefHome < minimum, "brief text-3 0.71 on Home " + briefHome);
+        verify(downHome < minimum, "0.760 on Home " + downHome);
+        verify(dayFocus < minimum, "day focus fill " + dayFocus);
+        verify(fillStep < minimum, "focus fill one step lighter " + fillStep);
+        console.log(report + ":1 (brief 0.71 on Home " + briefHome.toFixed(3)
+                    + ":1, 0.760 on Home " + downHome.toFixed(3)
+                    + ":1, day focus fill " + dayFocus.toFixed(3)
+                    + ":1, fill +0.001 " + fillStep.toFixed(3) + ":1)");
 
         home.clockText = "20:30";
         compare(glow.period, "evening");
@@ -282,21 +342,25 @@ TestCase {
         verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
         compare(Ui.Theme.textHint, Ui.Theme.eveningText3);
         compare(Ui.Theme.textHint, glow.oklch(0.778, 0.008, 75, 1));
-        const evening = weakestContrast(glow, Ui.Theme.textHint);
-        const dayHint = weakestContrast(glow, glow.oklch(0.66, 0.008, 75, 1));
-        const eveningDown = weakestContrast(glow, glow.oklch(0.777, 0.008, 75, 1));
-        verify(evening.y > glow.height * 0.9, "evening brightest y " + evening.y);
-        verify(evening.contrast >= 4.5, "evening hint at the brightest light " + evening.contrast);
-        verify(dayHint.contrast < 4.5, "day hint at that point " + dayHint.contrast);
-        verify(eveningDown.contrast < 4.5, "0.777 at that point " + eveningDown.contrast);
-        console.log("evening hint at the brightest light " + evening.contrast.toFixed(3)
-                    + ":1 (day hint is " + dayHint.contrast.toFixed(3) + ":1)");
+        verify(near(Ui.Theme.plateFocus, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusAlpha)));
+        compare(glow.strength, 1);
+        const eveningLit = brightestLit(glow);
+        verify(eveningLit.y > glow.height * 0.9, "evening brightest y " + eveningLit.y);
+        const evening = veiled(glow, Ui.Theme.textHint, eveningLit.color);
+        const dayHint = veiled(glow, glow.oklch(0.66, 0.008, 75, 1), eveningLit.color);
+        const eveningDown = veiled(glow, glow.oklch(0.777, 0.008, 75, 1), eveningLit.color);
+        verify(evening >= 4.5, "evening hint at the brightest light " + evening);
+        verify(dayHint < 4.5, "day hint at that point " + dayHint);
+        verify(eveningDown < 4.5, "0.777 at that point " + eveningDown);
+        console.log("evening hint at the brightest light " + evening.toFixed(3)
+                    + ":1 (day hint is " + dayHint.toFixed(3) + ":1)");
 
         home.clockText = "12:00";
         compare(glow.period, "day");
         compare(Ui.Theme.textPrimary, glow.oklch(0.95, 0.008, 75, 1));
         verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
         compare(Ui.Theme.textHint, glow.oklch(0.66, 0.008, 75, 1));
+        verify(near(Ui.Theme.plateFocus, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusAlpha)));
         const flatDay = Ui.Theme.contrast(Ui.Theme.textHint, Ui.Theme.background);
         verify(flatDay >= 4.5, "day text-3 on Charcoal " + flatDay);
     }

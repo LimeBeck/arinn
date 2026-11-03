@@ -63,7 +63,7 @@ Text {
     // family check cannot recurse.
     onFontChanged: {
         Theme.applyWeight(uiText);
-        if (fitSteps && fitSteps.length && font.family !== fittedFamily)
+        if (fitSteps && fitSteps.length && uiText.font.family !== fittedFamily)
             fit();
     }
     Component.onCompleted: {

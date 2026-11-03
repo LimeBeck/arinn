@@ -233,7 +233,7 @@ TestCase {
         const title = child("powerTitle");
         compare(title.text, "Power");
         compare(title.font.pixelSize, 52);
-        compare(title.font.weight, 600);
+        compare(title.font.weight, 700);
         const sleep = child("sleepButton");
         compare(sleep.height, 112);
         compare(sleep.cornerRadius, 30);

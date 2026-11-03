@@ -9,16 +9,22 @@ QtObject {
     // floor and pool centres the light paints from.
     readonly property color background: "#0F1115"
     readonly property color plate: Qt.rgba(1, 1, 1, 0.06)
-    readonly property color plateFocus: Qt.rgba(1, 1, 1, 0.20)
     // Daytime text, oklch(0.95/0.80/0.66 0.008 75).
     readonly property color dayText1: oklch(0.95, 0.008, 75, 1)
     readonly property color dayText2: oklch(0.80, 0.008, 75, 1)
     readonly property color dayText3: oklch(0.66, 0.008, 75, 1)
+    // Night contrast bar for the weakest text (#722). The brief names 4.8
+    // and WCAG AA is 4.5; the owner has not chosen. Every night surface is
+    // checked against this one value.
+    readonly property real textContrastMinimum: 4.8
     // Night text (#722). Text-1 and text-2 are the brief's. Text-3 in the
-    // brief is 0.71: on Charcoal, under the 22% veil, at the brightest
-    // floor-and-pool pixel (the pool under the sample, hue 55°, night
-    // scale 0.6) that is about 4.07:1. 0.761 is the smallest thousandth of
-    // OKLCH L that holds 4.8:1 there. That step above the brief is not
+    // brief is 0.71. On Charcoal, under the 22% veil, that is about 4.07:1
+    // on the brightest Home light, 4.38:1 on a resting plate and 4.36:1 in
+    // Applications, so it misses both 4.8 and 4.5. 0.761 is the smallest
+    // thousandth of OKLCH L that holds textContrastMinimum on those
+    // surfaces. The focused plate is not what sets it: its day fill would
+    // need 0.845, and the night fill is darker instead. A 4.5 bar would
+    // allow 0.741 with that same fill. The step above the brief is not
     // confirmed by the owner yet.
     readonly property color nightText1: oklch(0.97, 0.006, 75, 1)
     readonly property color nightText2: oklch(0.84, 0.008, 75, 1)
@@ -55,6 +61,17 @@ QtObject {
             return "night";
         return "day";
     }
+    // Day and evening keep the light focus fill, white at 20%. At night that
+    // fill is the bright surface under the old hint (about 2.9:1). White at
+    // 9.5% is the lightest night fill that still holds textContrastMinimum
+    // for night text-3; 9.6% falls short. Designer guidance, not yet an
+    // owner decision. A focused plate drawn on the brightest Home light is
+    // still brighter than the light alone, and this fill does not cover that.
+    readonly property real plateFocusAlpha: 0.20
+    readonly property real plateFocusNightAlpha: 0.095
+    readonly property color plateFocus: period === "night"
+        ? Qt.rgba(1, 1, 1, plateFocusNightAlpha)
+        : Qt.rgba(1, 1, 1, plateFocusAlpha)
     readonly property color textPrimary: period === "night" ? nightText1 : dayText1
     readonly property color textSecondary: period === "night" ? nightText2 : dayText2
     readonly property color textHint: period === "night" ? nightText3 : period === "evening" ? eveningText3 : dayText3

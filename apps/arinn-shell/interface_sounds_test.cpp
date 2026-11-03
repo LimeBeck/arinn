@@ -23,6 +23,7 @@ private slots:
   void init() {
     m_events.clear();
     m_sounds.setTapIntervalMs(0);
+    m_sounds.resetTapThrottle();
   }
 
   void mediaGuardBlocksEverythingExceptError() {

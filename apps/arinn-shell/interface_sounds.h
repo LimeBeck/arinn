@@ -39,6 +39,7 @@ public:
 
   // Tests shorten tap spacing without waiting in real time.
   void setTapIntervalMs(int ms) { m_tapIntervalMs = ms; }
+  void resetTapThrottle() { m_lastTapMs = 0; }
 
 signals:
   void levelChanged();

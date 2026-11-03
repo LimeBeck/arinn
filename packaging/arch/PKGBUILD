@@ -54,6 +54,11 @@ build() {
     symbol_cmake=("-DCMAKE_C_FLAGS=${CFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn"
                   "-DCMAKE_CXX_FLAGS=${CXXFLAGS:-} -g1 -ffile-prefix-map=${PWD}=/usr/src/arinn")
   fi
+  # XFCE session smoke needs a lock-provider stub (#749). It is not
+  # installed. Build it before the release binaries: test-support rebuilds
+  # this crate, and the release build below restores the binaries the
+  # package installs. Cargo leaves the extra bin in the target directory.
+  cargo build --frozen --release -p arinn-platform-x11 --features test-support --bin arinn-xfce-test-screensaver
   cargo build --frozen --release
   cargo build --frozen --release --example private-systemd
   # No build RPATH: the binary is installed from the build tree and must not

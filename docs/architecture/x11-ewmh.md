@@ -452,6 +452,11 @@ ARINN_XVFB=/absolute/path/to/Xvfb cargo test -p arinn-platform-x11 -- --include-
 ARINN_PLATFORM_BACKEND=ewmh cargo test -p arinnd selected_adapter_owner_excludes_the_other_backend
 ```
 
+Package install smoke has no debug tree. The Arch and Debian package builds
+compile `arinn-xfce-test-screensaver` into the release target directory before
+the binaries they install, leave that stub out of the package, and the smoke
+jobs pass the file as `ARINN_XFCE_SCREENSAVER_STUB`.
+
 The keyboard's ignored tests spawn their own Xvfb too. They check that:
 
 - the key reaches the worker and not the application;

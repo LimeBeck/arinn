@@ -280,6 +280,13 @@ fn titled_season_dir(name: &str, rules: &Rules) -> Option<(String, Option<i32>, 
     Some((title, year, season))
 }
 
+/// The identity already inferred from a named season folder. Metadata may use
+/// that folder without turning it into a separate directory-based series.
+pub(crate) fn named_season_series_key(name: &str, rules: &Rules) -> Option<String> {
+    let (title, _, _) = titled_season_dir(name, rules)?;
+    Some(format!("name:{}", normalize_key(&title)))
+}
+
 pub fn read_nfo(path: &Path, root: &Path) -> Option<Nfo> {
     let root = root.canonicalize().ok()?;
     let canon = path.canonicalize().ok()?;

@@ -1,0 +1,1 @@
+- Package install smoke builds the XFCE lock-provider stub (`arinn-xfce-test-screensaver`) and passes it to the session tests. The stub is not installed ([#749](https://github.com/LimeBeck/arinn/issues/749)).

@@ -5,7 +5,7 @@ in [ADR-0033](../adr/0033-ci-cd-and-releases.md) and
 [ADR-0086](../adr/0086-automatic-master-prereleases.md).
 
 Package CI artifacts contain both distributable files and internal smoke-test
-helpers, including `private-systemd`. Publication jobs download these mixed
+helpers, including `private-systemd` and `arinn-xfce-test-screensaver`. Publication jobs download these mixed
 artifacts into `incoming/`. `scripts/stage-release-assets.py` copies only Arinn
 Arch packages, optional Arch debug packages, source archives and Debian packages
 (including optional `arinn-dbgsym` packages)

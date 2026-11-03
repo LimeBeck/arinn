@@ -1,0 +1,1 @@
+- Read local series NFO and artwork from an unambiguous named season folder while preserving series grouping, content ids and progress ([#746](https://github.com/LimeBeck/arinn/issues/746)); see [resolution rules](docs/architecture/library-season-artwork.md).

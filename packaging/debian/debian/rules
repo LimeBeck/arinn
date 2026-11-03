@@ -23,6 +23,11 @@ override_dh_auto_configure:
 	cargo fetch --locked --target $$(rustc --print host-tuple)
 
 override_dh_auto_build:
+	# XFCE session smoke needs a lock-provider stub (#749). It is not
+	# installed. Build it before the release binaries: test-support rebuilds
+	# this crate, and the release build below restores the binaries the
+	# package installs. Cargo leaves the extra bin in the target directory.
+	cargo build --frozen --release -p arinn-platform-x11 --features test-support --bin arinn-xfce-test-screensaver
 	cargo build --frozen --release
 	cargo build --frozen --release --example private-systemd
 	cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release $(SENTRY_CMAKE_FLAGS)

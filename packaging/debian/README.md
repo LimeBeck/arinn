@@ -26,8 +26,8 @@ After `sudo apt install ./packaging/debian/arinn_*.deb`:
 
 ```sh
 ARINN_TEST_MANAGER=/path/to/private-systemd dbus-run-session -- python tests/package/smoke.py
-python tests/package/session.py
+ARINN_XFCE_SCREENSAVER_STUB=/path/to/arinn-xfce-test-screensaver python tests/package/session.py
 python tests/package/uninstall.py
 ```
 
-Build `private-systemd` with `cargo build --release --example private-systemd` from the source tree; it is not installed by the package.
+Build `private-systemd` with `cargo build --release --example private-systemd` from the source tree; it is not installed by the package. The session checks need the XFCE lock-provider stub from `cargo build --release -p arinn-platform-x11 --features test-support --bin arinn-xfce-test-screensaver`. Package builds produce both helpers under `target/release` and do not install the stub.

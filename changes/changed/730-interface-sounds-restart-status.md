@@ -1,0 +1,1 @@
+- When the shell starts with no audio output, interface sounds stay silent until Arinn is started again ([#730](https://github.com/LimeBeck/arinn/pull/730), [#727](https://github.com/LimeBeck/arinn/issues/727)). Settings › Sound shows a read-only status under Interface sounds and hides it when an output is present. Starting Pulse later does not recover playback in that process.

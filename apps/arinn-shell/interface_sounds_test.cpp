@@ -35,6 +35,8 @@ private slots:
 
   void noSoundEffectsUntilAudioOutputAndLoadOrPlay() {
     InterfaceSounds fresh;
+    QCOMPARE(fresh.available(), hasAudioOutput());
+    QCOMPARE(m_sounds.available(), hasAudioOutput());
     QCOMPARE(fresh.effectStatus(QStringLiteral("tap")),
              static_cast<int>(QSoundEffect::Null));
     QCOMPARE(fresh.effectStatus(QStringLiteral("open")),

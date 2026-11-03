@@ -24,6 +24,9 @@ class InterfaceSounds : public QObject {
                  outputMutedChanged)
   Q_PROPERTY(bool mediaActive READ mediaActive WRITE setMediaActive NOTIFY
                  mediaActiveChanged)
+  // False while Qt Multimedia reports no audio output. A cold start without
+  // Pulse stays false for the life of the process (owner decision, #730).
+  Q_PROPERTY(bool available READ available NOTIFY availableChanged)
 public:
   explicit InterfaceSounds(QObject *parent = nullptr);
   ~InterfaceSounds() override;
@@ -36,6 +39,7 @@ public:
   void setOutputMuted(bool muted);
   bool mediaActive() const { return m_mediaActive; }
   void setMediaActive(bool active);
+  bool available() const;
 
   // Generic sounds (select, kindle, ignite, error, …).
   Q_INVOKABLE void play(const QString &name, bool repeat = false);
@@ -69,6 +73,7 @@ signals:
   void levelChanged();
   void outputMutedChanged();
   void mediaActiveChanged();
+  void availableChanged();
   void played(const QString &name, bool repeat);
 
 private slots:

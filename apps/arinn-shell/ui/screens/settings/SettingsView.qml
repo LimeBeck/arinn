@@ -1545,6 +1545,42 @@ FocusScope {
                                     }
                                 }
                             }
+                            // Late Pulse: Qt Multimedia stays dead in this
+                            // process. Read-only title and detail under the
+                            // volume row. Backend.restartArinn() is the update
+                            // exit (ADR-0098), not a Settings restart — without
+                            // the systemd unit the shell exits and does not
+                            // come back — so there is no action here.
+                            Rectangle {
+                                id: soundsUnavailable
+                                objectName: row.id === "interface_sounds" ? "interface-sounds-unavailable" : ""
+                                visible: row.id === "interface_sounds" && interfaceSounds && interfaceSounds.available === false
+                                width: parent.width
+                                height: Math.max(112, soundsUnavailableText.implicitHeight + 40)
+                                radius: 28
+                                color: Qt.rgba(1, 1, 1, 0.06)
+                                Column {
+                                    id: soundsUnavailableText
+                                    x: 32
+                                    y: Math.max(20, Math.round((parent.height - height) / 2))
+                                    width: parent.width - 64
+                                    spacing: 6
+                                    Ui.UiText {
+                                        objectName: soundsUnavailable.visible ? "interface-sounds-unavailable-title" : ""
+                                        width: parent.width
+                                        text: qsTr("Interface sounds unavailable")
+                                        role: "control"
+                                        color: Ui.Theme.textPrimary
+                                    }
+                                    Ui.UiText {
+                                        objectName: soundsUnavailable.visible ? "interface-sounds-unavailable-detail" : ""
+                                        width: parent.width
+                                        text: qsTr("Restart Arinn after audio starts")
+                                        role: "meta"
+                                        color: Ui.Theme.textSecondary
+                                    }
+                                }
+                            }
                             Column {
                                 id: pathColumn
                                 visible: rowScope.multiple

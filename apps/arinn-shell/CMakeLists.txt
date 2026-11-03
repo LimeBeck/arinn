@@ -317,7 +317,7 @@ qt_add_lrelease(TS_FILES ${ARINN_TS_FILES}
 qt_add_executable(arinn-translations-test translations_test.cpp)
 target_link_libraries(arinn-translations-test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME translations COMMAND arinn-translations-test)
-foreach(target arinn-shell arinn-translations-test)
+foreach(target arinn-shell arinn-translations-test arinn-ui-test)
     qt_add_resources(${target} translations PREFIX "/i18n"
         BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${ARINN_QM_FILES})
 endforeach()

@@ -345,6 +345,8 @@ RU = {
     "30 min": "30 мин",
     "60 min": "60 мин",
     "Interface sounds": "Звуки интерфейса",
+    "Interface sounds unavailable": "Звуки интерфейса недоступны",
+    "Restart Arinn after audio starts": "Перезапустите Arinn после появления звука",
     "Short sounds for focus, OK, Back and panels; never over video or music": "Короткие звуки при фокусе, OK, «Назад» и панелях; не поверх видео и музыки",
     "Off": "Выкл.",
     "Quiet": "Тихо",

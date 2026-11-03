@@ -28,6 +28,10 @@ private slots:
     // A folder or path leaves the list; nothing is deleted (§5.6, handoff
     // LF-6: «Убрать», never «Удалить»; #558).
     QCOMPARE(QCoreApplication::translate("SettingsView", "Remove"), QStringLiteral("Убрать"));
+    QCOMPARE(QCoreApplication::translate("SettingsView", "Interface sounds unavailable"),
+             QStringLiteral("Звуки интерфейса недоступны"));
+    QCOMPARE(QCoreApplication::translate("SettingsView", "Restart Arinn after audio starts"),
+             QStringLiteral("Перезапустите Arinn после появления звука"));
     QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Media"), QStringLiteral("Медиа"));
     // Library tabs are named by the shell, not by the provider (#431).
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));

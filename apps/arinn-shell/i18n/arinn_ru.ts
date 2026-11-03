@@ -2176,6 +2176,14 @@
         <translation>Вкл.</translation>
     </message>
     <message>
+        <source>Interface sounds unavailable</source>
+        <translation>Звуки интерфейса недоступны</translation>
+    </message>
+    <message>
+        <source>Restart Arinn after audio starts</source>
+        <translation>Перезапустите Arinn после появления звука</translation>
+    </message>
+    <message>
         <source>Unavailable. Its titles stay in the library as unavailable.</source>
         <translation>Недоступна. Фильмы из неё остаются в библиотеке как недоступные.</translation>
     </message>

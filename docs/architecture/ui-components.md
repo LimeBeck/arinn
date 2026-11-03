@@ -497,6 +497,15 @@ startup, ambient wake and errors. Qt Multimedia is a new runtime dependency
 (`qt6-multimedia` in packaging); reserve a technical ADR number before accepting
 that dependency if required by project policy.
 
+`QSoundEffect` objects are created only after `QMediaDevices::audioOutputs()`
+is non-empty. If the shell starts with an empty list, playback stays
+unavailable for that process even if Pulse starts later: there is no
+in-process recovery and no `paplay` or `libpulse` path. Settings › Sound shows
+a read-only row under Interface sounds (title and `text-2` detail) while
+`InterfaceSounds.available` is false, and hides it when an output is present.
+`Backend::restartArinn()` remains the update exit (ADR-0098), so the row has
+no Restart action.
+
 Verification: `interface-sounds` and `ui-sounds-render` CTest targets;
 `settings-catalog` and daemon settings tests. Listening check on the owner's
 setup: not run.

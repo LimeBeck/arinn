@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <QtCore/QAnimationDriver>
+#include <QtCore/QDebug>
 #include <QtCore/QElapsedTimer>
+#include <QtCore/QLocale>
 #include <QtCore/QObject>
 #include <QtCore/QTimer>
+#include <QtCore/QTranslator>
 #include <QtCore/QtGlobal>
 #include <QtGui/QGuiApplication>
 #include <QtGui/QStyleHints>
@@ -101,15 +104,30 @@ public:
 // the production shell context property.
 class InterfaceSoundsStub : public QObject {
   Q_OBJECT
+  Q_PROPERTY(bool available READ available WRITE setAvailable NOTIFY availableChanged)
 
 public:
   using QObject::QObject;
+  bool available() const { return m_available; }
+  void setAvailable(bool value) {
+    if (m_available == value)
+      return;
+    m_available = value;
+    emit availableChanged();
+  }
   Q_INVOKABLE void play(const QString &, bool = false) {}
   Q_INVOKABLE void playNavigationTap(bool) {}
   Q_INVOKABLE void playEdgeBump(bool) {}
   Q_INVOKABLE void playOpen() {}
   Q_INVOKABLE void playClose() {}
   Q_INVOKABLE void playBack() {}
+
+signals:
+  void availableChanged();
+
+private:
+  // Component tests that do not exercise the late-Pulse status keep the row hidden.
+  bool m_available = true;
 };
 
 class ArinnUiTestSetup : public QObject
@@ -119,6 +137,14 @@ class ArinnUiTestSetup : public QObject
 public slots:
     void applicationAvailable()
     {
+        if (qEnvironmentVariable("ARINN_UI_LOCALE") == QLatin1String("ru")) {
+            auto *translator = new QTranslator(QCoreApplication::instance());
+            if (!translator->load(QLocale(QStringLiteral("ru_RU")), QStringLiteral("arinn"),
+                                  QStringLiteral("_"), QStringLiteral(":/i18n")))
+                qWarning("Russian interface catalogue failed to load");
+            else
+                QCoreApplication::installTranslator(translator);
+        }
         if (!qEnvironmentVariableIsSet("ARINN_CAPTURE_STILL_ANIMATIONS"))
             return;
         captureDriver = new CaptureAnimationDriver;
@@ -133,6 +159,9 @@ public slots:
                                                   new CaptureAnimation(engine));
         engine->rootContext()->setContextProperty(QStringLiteral("interfaceSounds"),
                                                   new InterfaceSoundsStub(engine));
+        engine->rootContext()->setContextProperty(
+            QStringLiteral("captureSoundsStatusDir"),
+            qEnvironmentVariable("ARINN_CAPTURE_SOUNDS_STATUS"));
     }
 };
 

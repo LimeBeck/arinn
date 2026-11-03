@@ -55,8 +55,13 @@ InterfaceSounds::~InterfaceSounds() {
 
 InterfaceSounds *InterfaceSounds::instance() { return g_instance; }
 
+bool InterfaceSounds::available() const {
+  return !QMediaDevices::audioOutputs().isEmpty();
+}
+
 void InterfaceSounds::onAudioOutputsChanged() {
-  if (QMediaDevices::audioOutputs().isEmpty())
+  emit availableChanged();
+  if (!available())
     return;
   reloadAllEffects();
 }

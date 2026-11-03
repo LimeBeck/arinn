@@ -92,12 +92,6 @@ impl Daemon {
         },))
     }
 }
-fn error(result: zbus::Result<String>) -> String {
-    match result {
-        Err(zbus::Error::MethodError(name, _, _)) => name.to_string(),
-        _ => panic!("expected safe method error"),
-    }
-}
 fn members(xml: &str, interface: &str) -> Vec<String> {
     let start = xml
         .find(&format!("<interface name=\"{interface}\">"))

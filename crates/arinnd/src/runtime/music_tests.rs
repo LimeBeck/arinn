@@ -34,9 +34,10 @@ struct Script {
     actions: Vec<String>,
     delay: Option<(String, Duration)>,
     fail: Option<(String, ErrorCode)>,
+    receipts: std::collections::HashMap<(String, String), String>,
 }
 #[derive(Clone, Default)]
-struct Fake(Arc<StdMutex<Script>>);
+struct Fake(Arc<StdMutex<Script>>, Arc<tokio::sync::Mutex<()>>);
 impl Fake {
     fn playing(session: &str) -> Self {
         let fake = Self::default();
@@ -78,10 +79,15 @@ impl Fake {
     async fn command(
         &self,
         _generation: &str,
-        _client: &str,
+        client: &str,
         command: &str,
     ) -> production::Result<String> {
         let command: Command = music::decode(command)?;
+        let _serial = self.1.lock().await;
+        let key = (client.to_owned(), command.request_id.clone());
+        if let Some(receipt) = self.0.lock().unwrap().receipts.get(&key) {
+            return Ok(receipt.clone());
+        }
         let (delay, fail) = {
             let mut s = self.0.lock().unwrap();
             s.actions.push(command.action.clone());
@@ -115,7 +121,10 @@ impl Fake {
             }
             _ => {}
         }
-        Ok(music::encode(&self.0.lock().unwrap().state).unwrap())
+        let mut script = self.0.lock().unwrap();
+        let receipt = music::encode(&script.state).unwrap();
+        script.receipts.insert(key, receipt.clone());
+        Ok(receipt)
     }
 }
 
@@ -402,10 +411,11 @@ async fn a_timed_out_start_becomes_active_and_fences_the_next_start() {
     assert_eq!(error(f.send("a", &command("play", "y")).await), "Conflict");
     assert_eq!(f.active().await.unwrap().provider_id, "b");
     assert!(!f.a.actions().contains(&"play".to_owned()));
-    // The timeout was not a receipt: the retry reaches the provider again.
+    // The provider receipt settles the transport timeout without replaying
+    // the audio mutation. A subsequent daemon retry returns that receipt.
     f.b.0.lock().unwrap().delay = None;
     ok(f.send("b", &play).await);
-    assert_eq!(f.b.actions(), ["play", "play"]);
+    assert_eq!(f.b.actions(), ["play"]);
 }
 
 /// Review of #710: next/previous/resume/retry on a provider with an ended

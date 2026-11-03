@@ -127,7 +127,7 @@ void InterfaceSounds::play(const QString &name, bool repeat) {
     return;
   if (name == QLatin1String("tap")) {
     const qint64 now = m_clock.elapsed();
-    if (now - m_lastTapMs < m_tapIntervalMs)
+    if (m_lastTapMs != 0 && now - m_lastTapMs < m_tapIntervalMs)
       return;
   }
   auto *effect = effectFor(name);

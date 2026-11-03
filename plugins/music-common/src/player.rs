@@ -606,21 +606,46 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(20));
         };
-        // SAFETY: signals only processes this test started.
-        unsafe {
-            assert_eq!(libc::kill(pid, 0), 0, "the fixture player runs");
-            libc::kill(provider.id() as libc::pid_t, libc::SIGKILL);
-        }
+        // Pin the owned fixture's identity before its provider exits. A
+        // container's PID 1 may leave it as a zombie, for which kill(pid, 0)
+        // still succeeds despite the process having exited.
+        let descriptor = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) } as i32;
+        assert!(descriptor >= 0, "open the owned fixture pidfd");
+        // SAFETY: pidfd_open returned a new descriptor owned by this test.
+        let handle =
+            unsafe { <std::os::fd::OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(descriptor) };
+        let mut event = libc::pollfd {
+            fd: handle.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: event describes one valid descriptor; zero timeout only probes.
+        assert_eq!(
+            unsafe { libc::poll(&mut event, 1, 0) },
+            0,
+            "the fixture player runs"
+        );
+        provider.kill().unwrap();
         provider.wait().unwrap();
-        let begun = Instant::now();
-        // The player is not our child: it is gone once kill(pid, 0) fails.
-        while unsafe { libc::kill(pid, 0) } == 0 {
-            if begun.elapsed() > Duration::from_secs(5) {
-                unsafe { libc::kill(pid, libc::SIGKILL) };
-                panic!("the audio process outlived its provider");
+        // A readable pidfd means exit, independently of orphan reaping.
+        // SAFETY: event and its owned descriptor remain valid during poll.
+        let exited = unsafe { libc::poll(&mut event, 1, 5000) };
+        if exited == 0 {
+            // SAFETY: the pidfd identifies only our fixture, without PID reuse.
+            unsafe {
+                libc::syscall(
+                    libc::SYS_pidfd_send_signal,
+                    handle.as_raw_fd(),
+                    libc::SIGKILL,
+                    std::ptr::null::<libc::siginfo_t>(),
+                    0,
+                );
             }
-            std::thread::sleep(Duration::from_millis(20));
         }
+        assert!(
+            exited > 0 && event.revents & libc::POLLIN != 0,
+            "the audio process outlived its provider"
+        );
         let _ = std::fs::remove_dir_all(directory);
     }
     #[test]

@@ -64,7 +64,7 @@ FocusScope {
     signal selected(var entry)
     signal activated(string entryId)
     signal actionsRequested(string entryId)
-    signal edge(int key)
+    signal edge(int key, bool autoRepeat)
     signal focusLost()
     signal scrolled()
     signal dpadRequested()
@@ -146,13 +146,18 @@ FocusScope {
         if (![Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) return;
         dpadRequested();
         event.accepted = true;
+        const autoRepeat = event.isAutoRepeat;
         if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
             const step = event.key === Qt.Key_Left ? -1 : 1;
             let next = selectedIndex + step;
             while (next >= 0 && next < count && !available(next)) next += step;
-            if (available(next)) focusIndex(next);
-            else edge(event.key);
-        } else edge(event.key);
+            if (available(next)) {
+                if (focusIndex(next)) interfaceSounds.playNavigationTap(autoRepeat);
+            } else {
+                interfaceSounds.playEdgeBump(autoRepeat);
+                edge(event.key, autoRepeat);
+            }
+        } else edge(event.key, autoRepeat);
     }
     UiText { width: parent.width; text: root.title; role: "section"; maximumLineCount: 1; elide: Text.ElideRight }
     Flickable {

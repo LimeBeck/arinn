@@ -70,7 +70,7 @@ Window {
             quickMenuOpener = activityBehind ? null : activeFocusItem;
             quickMenuTarget = "";
             quickMenuOpen = true;
-            interfaceSounds.play("open");
+            interfaceSounds.playOpen();
             // The sheet takes the place of the "Opening…" and "Starting…"
             // progress, as Home does (§6.5): the launch keeps running, and
             // only its dialog (failure or timeout) is drawn above the sheet
@@ -89,7 +89,7 @@ Window {
     // shell, return focus to the opener.
     function quickMenuBack() {
         if (!quickMenuOpen) return;
-        interfaceSounds.play("close");
+        interfaceSounds.playClose();
         quickMenuOpen = false;
         const target = backend.returnWindow || quickMenuTarget;
         quickMenuTarget = "";
@@ -522,14 +522,9 @@ Window {
     }
     property bool hadFocus: false
     property bool interfaceStartupHeard: false
-    property var interfaceFocusSoundItem: null
     onActiveFocusItemChanged: {
         if (!focusFellToRoot()) {
             hadFocus = true;
-            if (visible && active && activeFocusItem !== interfaceFocusSoundItem) {
-                interfaceFocusSoundItem = activeFocusItem;
-                interfaceSounds.play("tap");
-            }
             return;
         }
         const fell = hadFocus;

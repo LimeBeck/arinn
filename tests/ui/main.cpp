@@ -105,6 +105,11 @@ class InterfaceSoundsStub : public QObject {
 public:
   using QObject::QObject;
   Q_INVOKABLE void play(const QString &, bool = false) {}
+  Q_INVOKABLE void playNavigationTap(bool) {}
+  Q_INVOKABLE void playEdgeBump(bool) {}
+  Q_INVOKABLE void playOpen() {}
+  Q_INVOKABLE void playClose() {}
+  Q_INVOKABLE void playBack() {}
 };
 
 class ArinnUiTestSetup : public QObject

@@ -13,10 +13,10 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/platform/keyboard"
 qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h interface_sounds.cpp interface_sounds.h)
 target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
+set(ARINN_UI_SOUND_DIR "${CMAKE_CURRENT_SOURCE_DIR}/sounds")
 set(ARINN_UI_SOUND_FILES
-    sounds/tap.wav sounds/edge.wav sounds/select.wav sounds/back.wav
-    sounds/open.wav sounds/close.wav sounds/ignite.wav sounds/kindle.wav
-    sounds/error.wav)
+    tap.wav edge.wav select.wav back.wav open.wav close.wav ignite.wav
+    kindle.wav error.wav)
 target_link_libraries(arinn-shell PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Multimedia)
 qt_add_executable(arinn-startup-home-test startup_home_test.cpp)
 target_link_libraries(arinn-startup-home-test PRIVATE Qt6::DBus Qt6::Test)
@@ -26,11 +26,10 @@ add_dependencies(arinn-startup-home-test arinn-shell)
 add_test(NAME shell-startup-home COMMAND dbus-run-session --
     $<TARGET_FILE:arinn-startup-home-test>)
 qt_add_executable(arinn-interface-sounds-test interface_sounds_test.cpp interface_sounds.cpp interface_sounds.h)
-qt_add_resources(arinn-interface-sounds-test ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
-    FILES ${ARINN_UI_SOUND_FILES})
-target_compile_definitions(arinn-interface-sounds-test PRIVATE
-    ARINN_SOUNDS_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/sounds")
+qt_add_resources(arinn-interface-sounds-test ui_sounds PREFIX "/sounds"
+    BASE "${ARINN_UI_SOUND_DIR}" FILES ${ARINN_UI_SOUND_FILES})
 target_link_libraries(arinn-interface-sounds-test PRIVATE Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
+target_compile_definitions(arinn-interface-sounds-test PRIVATE ARINN_INTERFACE_SOUNDS_TEST)
 add_test(NAME interface-sounds COMMAND arinn-interface-sounds-test)
 set_tests_properties(interface-sounds PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
@@ -49,7 +48,7 @@ set(ARINN_PRESENTATION_FILES
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 endforeach()
-qt_add_resources(arinn-shell ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
+qt_add_resources(arinn-shell ui_sounds PREFIX "/sounds" BASE "${ARINN_UI_SOUND_DIR}"
     FILES ${ARINN_UI_SOUND_FILES})
 
 # Development-only component gallery: no backend, bus registration or platform
@@ -226,7 +225,7 @@ set(ARINN_MAIN_QML_TEST_TARGETS
 foreach(target ${ARINN_MAIN_QML_TEST_TARGETS})
     target_sources(${target} PRIVATE interface_sounds.cpp interface_sounds.h)
     target_link_libraries(${target} PRIVATE Qt6::Multimedia)
-    qt_add_resources(${target} ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
+    qt_add_resources(${target} ui_sounds PREFIX "/sounds" BASE "${ARINN_UI_SOUND_DIR}"
         FILES ${ARINN_UI_SOUND_FILES})
 endforeach()
 # The same cases on an isolated Xvfb with Qt's xcb platform: the panel is

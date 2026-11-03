@@ -4,6 +4,7 @@
 #include "interface_sounds.h"
 
 #include <QGuiApplication>
+#include <QSoundEffect>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -18,17 +19,38 @@ private slots:
     m_sounds.setLevel(QStringLiteral("normal"));
     m_sounds.setOutputMuted(false);
     m_sounds.setMediaActive(false);
+    const char *names[] = {"tap",  "edge",   "select", "back", "open",
+                           "close", "ignite", "kindle", "error"};
+    for (const char *name : names) {
+      QVERIFY2(m_sounds.ensureLoaded(QString::fromLatin1(name)),
+               name);
+      QCOMPARE(m_sounds.effectStatus(QString::fromLatin1(name)),
+               static_cast<int>(QSoundEffect::Ready));
+    }
   }
 
   void init() {
     m_events.clear();
+    m_sounds.setLevel(QStringLiteral("normal"));
+    m_sounds.setOutputMuted(false);
+    m_sounds.setMediaActive(false);
     m_sounds.setTapIntervalMs(0);
     m_sounds.resetTapThrottle();
+    m_sounds.resetEdgeThrottle();
+  }
+
+  void embeddedResourcesReachReady() {
+    const char *names[] = {"tap",  "edge",   "select", "back", "open",
+                           "close", "ignite", "kindle", "error"};
+    for (const char *name : names) {
+      QCOMPARE(m_sounds.effectStatus(QString::fromLatin1(name)),
+               static_cast<int>(QSoundEffect::Ready));
+    }
   }
 
   void mediaGuardBlocksEverythingExceptError() {
     m_sounds.setMediaActive(true);
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     m_sounds.play(QStringLiteral("select"));
     QCOMPARE(m_events.size(), 0);
     m_sounds.play(QStringLiteral("error"));
@@ -39,36 +61,67 @@ private slots:
 
   void levelOffIsSilent() {
     m_sounds.setLevel(QStringLiteral("off"));
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 0);
     m_sounds.setLevel(QStringLiteral("quiet"));
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 1);
   }
 
   void muteSilencesPlayback() {
-    m_sounds.setLevel(QStringLiteral("normal"));
     m_sounds.setOutputMuted(true);
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 0);
     m_sounds.setOutputMuted(false);
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 1);
   }
 
-  void tapThrottleAndRepeatGain() {
-    m_sounds.setLevel(QStringLiteral("normal"));
-    m_sounds.setOutputMuted(false);
+  void navigationTapThrottleAndAutoRepeatFlag() {
     m_sounds.setTapIntervalMs(40);
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 1);
     QCOMPARE(m_events.last().second, false);
-    m_sounds.play(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
     QCOMPARE(m_events.size(), 1);
     QTest::qWait(45);
-    m_sounds.play(QStringLiteral("tap"), true);
+    m_sounds.playNavigationTap(true);
     QCOMPARE(m_events.size(), 2);
     QCOMPARE(m_events.last().second, true);
+  }
+
+  void edgeBumpOncePerPhysicalPress() {
+    m_sounds.setTapIntervalMs(0);
+    m_sounds.playEdgeBump(false);
+    QCOMPARE(m_events.size(), 1);
+    QCOMPARE(m_events.last().first, QStringLiteral("edge"));
+    m_sounds.playEdgeBump(true);
+    QCOMPARE(m_events.size(), 1);
+    m_sounds.playEdgeBump(false);
+    QCOMPARE(m_events.size(), 1);
+    m_sounds.resetEdgeThrottle();
+    m_sounds.setTapIntervalMs(40);
+    m_sounds.playEdgeBump(false);
+    QCOMPARE(m_events.size(), 2);
+    m_sounds.playEdgeBump(false);
+    QCOMPARE(m_events.size(), 2);
+  }
+
+  void openBackCloseSuppressNavigationTap() {
+    QVERIFY(!m_sounds.playNavigationTapWhileSuppressed(false));
+    QCOMPARE(m_events.size(), 0);
+    m_sounds.playOpen();
+    QCOMPARE(m_events.size(), 1);
+    QCOMPARE(m_events.last().first, QStringLiteral("open"));
+    m_sounds.playBack();
+    QCOMPARE(m_events.size(), 2);
+    QCOMPARE(m_events.last().first, QStringLiteral("back"));
+    m_sounds.playClose();
+    QCOMPARE(m_events.size(), 3);
+    QCOMPARE(m_events.last().first, QStringLiteral("close"));
+    m_sounds.playNavigationTap(false);
+    QCOMPARE(m_events.size(), 4);
+    QCOMPARE(m_events.last().first, QStringLiteral("tap"));
   }
 
 private:

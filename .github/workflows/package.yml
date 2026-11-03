@@ -116,6 +116,9 @@ jobs:
           test -f "$ARINN_QT_FLOOR_PREFIX/lib/cmake/Qt6/Qt6Config.cmake"
           su builder -c "cd pkg && CARGO_HOME='$cache/home' CARGO_TARGET_DIR='$target' ARINN_SYMBOLS_DIR='$GITHUB_WORKSPACE/pkg/sentry-symbols' ARINN_QT_FLOOR_PREFIX='$ARINN_QT_FLOOR_PREFIX' makepkg --noconfirm --cleanbuild $NOCHECK"
           cp "$target/release/examples/private-systemd" pkg/private-systemd
+          # The smoke image has no Cargo tree. The stub is a test helper,
+          # not a package file (#749).
+          cp "$target/release/arinn-xfce-test-screensaver" pkg/arinn-xfce-test-screensaver
       - name: Qt floor check
         # No packaged binary imports a Qt version tag above the floor, a
         # private Qt symbol or a symbol the floor Qt does not export (#416).
@@ -144,6 +147,7 @@ jobs:
             pkg/*.pkg.tar.zst
             pkg/*.tar.gz
             pkg/private-systemd
+            pkg/arinn-xfce-test-screensaver
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -183,8 +187,10 @@ jobs:
         # a dependency the package forgot to declare (#614).
         env:
           ARINN_REQUIRE_DESKTOP_VALIDATE: "1"
+          ARINN_XFCE_SCREENSAVER_STUB: ${{ github.workspace }}/pkg/arinn-xfce-test-screensaver
         run: |
           pacman -S --noconfirm --needed desktop-file-utils
+          chmod +x "$ARINN_XFCE_SCREENSAVER_STUB"
           python tests/package/session.py
       - name: Uninstall cleanly
         run: |
@@ -260,6 +266,7 @@ jobs:
           path: |
             packaging/debian/*.deb
             packaging/debian/private-systemd
+            packaging/debian/arinn-xfce-test-screensaver
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -303,8 +310,10 @@ jobs:
         # a dependency the package forgot to declare (#614).
         env:
           ARINN_REQUIRE_DESKTOP_VALIDATE: "1"
+          ARINN_XFCE_SCREENSAVER_STUB: ${{ github.workspace }}/pkg/arinn-xfce-test-screensaver
         run: |
           apt-get install -y --no-install-recommends desktop-file-utils
+          chmod +x "$ARINN_XFCE_SCREENSAVER_STUB"
           python3 tests/package/session.py
       - name: Uninstall cleanly
         run: |

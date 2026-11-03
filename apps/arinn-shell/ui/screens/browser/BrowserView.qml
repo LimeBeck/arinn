@@ -766,25 +766,14 @@ FocusScope {
                         }
                         Rectangle {
                             anchors.fill: parent
-                            radius: 26
-                            color: plate.activeFocus ? Ui.Theme.plateFocus : Ui.Theme.plate
+                            radius: Ui.Theme.containerRadius
+                            color: plate.activeFocus ? Ui.Theme.plateContainer : "transparent"
                             Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
                         }
-                        Rectangle {
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            height: 1
-                            color: Qt.rgba(1, 1, 1, 0.08)
-                            visible: !plate.activeFocus
-                        }
-                        Rectangle {
+                        Ui.FocusRing {
                             anchors.fill: parent
-                            radius: 26
-                            color: "transparent"
-                            border.width: 3
-                            border.color: Ui.Theme.ring
-                            opacity: plate.activeFocus ? 1 : 0
+                            shown: plate.activeFocus
+                            radius: Ui.Theme.containerRadius
                         }
                         Item {
                             objectName: "chip-" + modelData.id

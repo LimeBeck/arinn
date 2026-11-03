@@ -45,10 +45,13 @@ FocusScope {
     property string detailEntryId: ""
     property string detailOpenerId: ""
     property bool detailRailActive: false
+    // True while an episode still has focus, so the rest of that rail dims.
+    property bool episodeStillFocused: false
     onDetailRailActiveChanged: hoverDelay.restart()
     onDetailEntryIdChanged: {
         if (episodeFlick) episodeFlick.resetScroll();
         detailRailActive = false;
+        episodeStillFocused = false;
         if (!detailEntryId.length) {
             detailOpenerId = "";
         } else if (detailOpenerId.length && detailOpenerId !== detailEntryId) {
@@ -350,8 +353,8 @@ FocusScope {
             ctx.lineTo(3, 6); ctx.closePath(); ctx.stroke();
         }
     }
-    // The editable HTML prototype uses the same transparent pill for view,
-    // category and season selection. White fill belongs only to remote focus.
+    // View, category and season pills are containers: no plate at rest, an
+    // 8% plate and a rim in focus (ADR-0136). The pill radius stays 32.
     component LibraryPill: Ui.Surface {
         id: pill
         property bool selected: false
@@ -361,9 +364,12 @@ FocusScope {
         implicitHeight: 64
         height: 64
         cornerRadius: 32
-        focusScale: 1.06
+        focusScale: 1
+        focusLift: 0
+        liftFromBottom: false
+        shapeRole: "container"
         restingColor: "transparent"
-        focusedColor: Ui.Theme.textPrimary
+        focusedColor: Ui.Theme.plateContainer
         transform: Translate { y: 0 }
         background: Rectangle { radius: 32; color: pill.activeFocus ? pill.focusedColor : "transparent" }
         contentItem: Ui.UiText {
@@ -372,7 +378,7 @@ FocusScope {
             text: pill.text
             font.pixelSize: 28
             font.weight: 600
-            color: pill.activeFocus ? Ui.Theme.ink : pill.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+            color: pill.activeFocus || pill.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
@@ -528,6 +534,7 @@ FocusScope {
     }
     function focusDetailAction() {
         detailRailActive = false;
+        episodeStillFocused = false;
         const entry = detailEntry;
         const button = entry && entry.missing ? detailRemove : detailPlay;
         if (button && button.visible)
@@ -594,6 +601,7 @@ FocusScope {
         detailOpenerId = id;
         episodeFlick.resetScroll();
         detailRailActive = false;
+        episodeStillFocused = false;
         detailEntryId = target.id;
         episodeIndex = 0;
         seasonIndex = 0;
@@ -614,6 +622,7 @@ FocusScope {
     function closeDetail() {
         const id = detailOpenerId || detailEntryId;
         detailRailActive = false;
+        episodeStillFocused = false;
         detailEntryId = "";
         detailOpenerId = "";
         Qt.callLater(() => { if (ownsFocus && visible && enabled) focusPosterById(id); });
@@ -964,9 +973,13 @@ FocusScope {
         implicitWidth: folderBackLabel.implicitWidth + 100
         height: 64
         cornerRadius: 32
-        focusScale: 1.06
+        focusScale: Ui.Theme.contentFocusScale
+        focusLift: 0
+        liftFromBottom: false
+        rimEnabled: false
+        shapeRole: "action"
         transform: Translate { y: 0 }
-        restingColor: Qt.rgba(1, 1, 1, 0.13)
+        restingColor: Ui.Theme.plateAction
         focusedColor: Ui.Theme.textPrimary
         z: 4
         visible: root.folderMode && root.folderTrail.length > 0 && !root.detailOpen
@@ -1040,7 +1053,7 @@ FocusScope {
                         objectName: "skeleton-" + index
                         width: root.posterWidth
                         height: root.posterHeight
-                        radius: 20
+                        radius: Ui.Theme.posterRadius
                     }
                     Rectangle {
                         y: root.posterHeight + 16
@@ -1100,14 +1113,19 @@ FocusScope {
                             objectName: "poster-" + modelData.id
                             width: root.posterWidth
                             height: root.posterHeight
-                            cornerRadius: 20
-                            focusScale: modelData.kind === "folder" ? 1.02 : 1.06
+                            cornerRadius: Ui.Theme.posterRadius
+                            focusScale: modelData.kind === "folder" ? 1.02 : Ui.Theme.contentFocusScale
+                            focusLift: modelData.kind === "folder" ? 0 : Ui.Theme.contentFocusLift
+                            liftFromBottom: modelData.kind !== "folder"
+                            rimEnabled: modelData.kind === "folder"
+                            shapeRole: modelData.kind === "folder" ? "container" : "content"
                             transform: Translate { y: modelData.kind === "folder" ? 0 : poster.lift }
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
-                            restingColor: !cell.posterHasSource ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
-                            focusedColor: restingColor
+                            restingColor: modelData.kind === "folder" ? "transparent"
+                                    : !cell.posterHasSource ? Qt.rgba(0.21, 0.21, 0.23, 1) : root.standInColor(modelData.id)
+                            focusedColor: modelData.kind === "folder" ? Ui.Theme.plateContainer : restingColor
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: Ui.InputMode.keyPressed()
@@ -1122,7 +1140,7 @@ FocusScope {
                             contentItem: Item {
                                 Rectangle {
                                     anchors.fill: parent
-                                    radius: 20
+                                    radius: poster.cornerRadius
                                     visible: !posterImage.ready
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: modelData.kind === "folder" ? "#292c31" : Qt.rgba(0.29, 0.29, 0.31, 1) }
@@ -1135,6 +1153,18 @@ FocusScope {
                                     anchors.fill: parent
                                     cornerRadius: poster.cornerRadius
                                     source: cell.posterHasSource ? modelData.artwork : ""
+                                }
+                                Ui.ArtworkFocus {
+                                    shown: poster.activeFocus && modelData.kind !== "folder"
+                                    artworkRadius: poster.cornerRadius
+                                }
+                                Ui.CastLight {
+                                    z: -1
+                                    shown: poster.activeFocus && modelData.kind !== "folder"
+                                    width: parent.width * Ui.Theme.castWidthRatio
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    anchors.top: parent.bottom
+                                    anchors.topMargin: -Math.round(Ui.Theme.castHeight * 0.4)
                                 }
                                 Item {
                                     objectName: "posterPlate-" + modelData.id
@@ -1221,7 +1251,7 @@ FocusScope {
                         Item {
                             id: caption
                             objectName: "posterCaption-" + modelData.id
-                            property real lift: poster.activeFocus ? (root.pointerMode ? 6 : 14) : 0
+                            property real lift: poster.lift
                             x: 4
                             y: root.posterHeight + 16
                             width: parent.width - 8
@@ -1436,11 +1466,15 @@ FocusScope {
                         objectName: "detailPlay"
                         visible: !!(root.detailEntry && !root.detailEntry.missing)
                         busy: root.launchingDetail
+                        primary: true
                         text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         onDpadRequested: Ui.InputMode.keyPressed()
-                        onActiveFocusChanged: if (activeFocus) root.detailRailActive = false
+                        onActiveFocusChanged: if (activeFocus) {
+                            root.detailRailActive = false;
+                            root.episodeStillFocused = false;
+                        }
                         onActivated: root.playRequested(root.detailEntryId)
                     }
                     Ui.ActionButton {
@@ -1506,7 +1540,10 @@ FocusScope {
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: Ui.InputMode.keyPressed()
-                            onActiveFocusChanged: if (activeFocus) root.detailRailActive = true
+                            onActiveFocusChanged: if (activeFocus) {
+                                root.detailRailActive = true;
+                                root.episodeStillFocused = false;
+                            }
                             onActivated: root.focusSeason(index)
                         }
                     }
@@ -1583,8 +1620,14 @@ FocusScope {
                                     objectName: "episode-" + modelData.id
                                     width: 420
                                     height: 236
-                                    cornerRadius: 22
-                                    focusScale: 1.06
+                                    cornerRadius: Ui.Theme.stillRadius
+                                    focusScale: Ui.Theme.contentFocusScale
+                                    focusLift: Ui.Theme.contentFocusLift
+                                    liftFromBottom: true
+                                    rimEnabled: false
+                                    shapeRole: "content"
+                                    rowBrightness: still.activeFocus || !root.episodeStillFocused ? 1
+                                            : Ui.Theme.rowLitBrightness
                                     text: modelData.title || ""
                                     enabled: modelData.enabled !== false
                                     busy: root.operationPending && root.launchingId === modelData.id
@@ -1597,6 +1640,7 @@ FocusScope {
                                         if (!activeFocus)
                                             return;
                                         root.detailRailActive = true;
+                                        root.episodeStillFocused = true;
                                         root.episodeIndex = index;
                                         episodeFlick.reveal(episodeCell);
                                     }
@@ -1605,7 +1649,7 @@ FocusScope {
                                         Rectangle {
                                             objectName: "episodePlate-" + modelData.id
                                             anchors.fill: parent
-                                            radius: 22
+                                            radius: still.cornerRadius
                                             visible: !stillImage.ready
                                             gradient: Gradient {
                                                 GradientStop { position: 0.0; color: Qt.rgba(0.29, 0.29, 0.31, 1) }
@@ -1624,22 +1668,34 @@ FocusScope {
                                             source: modelData.artwork ? modelData.artwork : ""
                                         }
                                         Rectangle {
-                                            visible: modelData.progress > 0
+                                            objectName: "episodeShade-" + modelData.id
+                                            anchors.fill: parent
+                                            radius: still.cornerRadius
+                                            color: "black"
+                                            opacity: Math.max(0, 1 - still.rowBrightness)
+                                            z: 8
+                                        }
+                                        Ui.ProgressTrack {
+                                            objectName: "episodeProgress-" + modelData.id
                                             anchors.left: parent.left
                                             anchors.right: parent.right
                                             anchors.bottom: parent.bottom
-                                            anchors.leftMargin: 20
-                                            anchors.rightMargin: 20
-                                            anchors.bottomMargin: 18
-                                            height: 6
-                                            radius: 3
-                                            color: Qt.rgba(1, 1, 1, 0.25)
-                                            Rectangle {
-                                                width: parent.width * Math.max(0, Math.min(1, modelData.progress || 0))
-                                                height: parent.height
-                                                radius: parent.radius
-                                                color: Ui.Theme.ember
-                                            }
+                                            line: true
+                                            visible: (modelData.progress || 0) > 0
+                                            value: modelData.progress || 0
+                                            z: 9
+                                        }
+                                        Ui.ArtworkFocus {
+                                            shown: still.activeFocus
+                                            artworkRadius: still.cornerRadius
+                                        }
+                                        Ui.CastLight {
+                                            z: -1
+                                            shown: still.activeFocus
+                                            width: parent.width * Ui.Theme.castWidthRatio
+                                            anchors.horizontalCenter: parent.horizontalCenter
+                                            anchors.top: parent.bottom
+                                            anchors.topMargin: -Math.round(Ui.Theme.castHeight * 0.4)
                                         }
                                     }
                                     Rectangle {
@@ -1667,7 +1723,7 @@ FocusScope {
                                     x: 4
                                     y: 236 + 16
                                     width: parent.width - 8
-                                    property real lift: still.activeFocus ? (root.pointerMode ? -4 : -10) : 0
+                                    property real lift: still.lift
                                     transform: Translate { y: episodeCaption.lift }
                                     Ui.UiText {
                                         id: episodeLabel

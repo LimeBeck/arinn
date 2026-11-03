@@ -1115,11 +1115,10 @@ FocusScope {
                 Keys.onPressed: event => root.selectKey(categoryButton, event, false)
                 Keys.onReleased: event => root.selectKey(categoryButton, event, true)
                 background: Rectangle {
-                    radius: 26
-                    color: categoryButton.activeFocus ? Ui.Theme.plateFocus
-                           : (categoryButton.chosen ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                    radius: Ui.Theme.containerRadius
+                    color: categoryButton.activeFocus ? Ui.Theme.plateContainer : "transparent"
                 }
-                Ui.FocusRing { shown: categoryButton.activeFocus; radius: 26 }
+                Ui.FocusRing { shown: categoryButton.activeFocus; radius: Ui.Theme.containerRadius }
                 contentItem: Item {
                     Canvas {
                         id: categoryIcon
@@ -1367,15 +1366,15 @@ FocusScope {
                                 Keys.onPressed: event => root.selectKey(settingButton, event, false)
                                 Keys.onReleased: event => root.selectKey(settingButton, event, true)
                                 background: Rectangle {
-                                    radius: 28
+                                    radius: Ui.Theme.containerRadius
                                     color: settingButton.activeFocus
-                                           ? (rowScope.locked ? Ui.Theme.plateDisabled : Ui.Theme.plateFocus)
-                                           : Qt.rgba(1, 1, 1, 0.06)
+                                           ? (rowScope.locked ? Ui.Theme.plateDisabled : Ui.Theme.plateContainer)
+                                           : "transparent"
                                 }
-                                // Focused and locked: the ring shows where focus is.
+                                // Focused and locked: the rim shows where focus is.
                                 // The plate stays plateDisabled and the text stays
                                 // the hint colour, so the row still reads as locked.
-                                Ui.FocusRing { shown: settingButton.activeFocus; radius: 28 }
+                                Ui.FocusRing { shown: settingButton.activeFocus; radius: Ui.Theme.containerRadius }
                                 contentItem: Item {
                                     Column {
                                         id: simpleText
@@ -1554,8 +1553,8 @@ FocusScope {
                                 Rectangle {
                                     width: parent.width
                                     height: pathIntro.implicitHeight + 28
-                                    radius: 28
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    radius: Ui.Theme.containerRadius
+                                    color: "transparent"
                                     Column {
                                         id: pathIntro
                                         x: 32
@@ -1635,8 +1634,8 @@ FocusScope {
                                             onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
                                             Keys.onPressed: event => root.selectKey(pathButton, event, false)
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
-                                            background: Rectangle { radius: 18; color: pathButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
-                                            Ui.FocusRing { shown: pathButton.activeFocus; radius: 18 }
+                                            background: Rectangle { radius: Ui.Theme.containerRadius; color: pathButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                            Ui.FocusRing { shown: pathButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
@@ -1709,8 +1708,8 @@ FocusScope {
                                             onClicked: root.removePath(row, index)
                                             Keys.onPressed: event => root.selectKey(removeButton, event, false)
                                             Keys.onReleased: event => root.selectKey(removeButton, event, true)
-                                            background: Rectangle { radius: 18; color: removeButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
-                                            Ui.FocusRing { shown: removeButton.activeFocus; radius: 18 }
+                                            background: Rectangle { radius: Ui.Theme.containerRadius; color: removeButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                            Ui.FocusRing { shown: removeButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Ui.UiText {
                                                 text: removeButton.text
                                                 horizontalAlignment: Text.AlignHCenter
@@ -1736,8 +1735,8 @@ FocusScope {
                                     onClicked: if (!full) root.openEditor(row, "add", "")
                                     Keys.onPressed: event => root.selectKey(addButton, event, false)
                                     Keys.onReleased: event => root.selectKey(addButton, event, true)
-                                    background: Rectangle { radius: 18; color: addButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
-                                    Ui.FocusRing { shown: addButton.activeFocus; radius: 18 }
+                                    background: Rectangle { radius: Ui.Theme.containerRadius; color: addButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                    Ui.FocusRing { shown: addButton.activeFocus; radius: Ui.Theme.containerRadius }
                                     contentItem: Item {
                                         Keys.onPressed: event => root.pathFieldKeys(event, addEditor, addKeyboard)
                                         Ui.UiText {

@@ -81,17 +81,18 @@ TestCase {
         const card = createTemporaryObject(cardFactory, suite);
         card.forceActiveFocus();
         tryCompare(card, "activeFocus", true);
-        tryCompare(card, "scale", 1.06);
-        compare(card.lift, -6);
+        tryCompare(card, "scale", Ui.Theme.contentFocusScale);
+        compare(card.lift, Ui.Theme.contentFocusLift);
+        compare(card.transformOrigin, Item.Bottom);
         const ring = findChild(card, "focusRing");
         verify(ring.z > card.contentItem.z);
         tryCompare(ring, "opacity", 1);
         card.pointerMode = true;
-        tryCompare(card, "scale", 1.03);
+        tryCompare(card, "scale", 1.02);
         compare(card.lift, -2);
         keyPress(Qt.Key_Space);
         tryCompare(card, "down", true);
-        tryVerify(() => card.scale < 1.03);
+        tryVerify(() => card.scale < 1.02);
         keyRelease(Qt.Key_Space);
     }
     function test_artwork_loading() {
@@ -112,7 +113,8 @@ TestCase {
     function test_artwork_is_centre_cropped_and_released() {
         const card = createTemporaryObject(cardFactory, suite, {artwork: portraitFixture});
         compare(card.width, 400);
-        compare(card.height, 225);
+        compare(card.frameHeight, 225);
+        compare(card.height, 225 + Ui.Theme.contentCaptionHeight);
         const canvas = findChild(card, "cardArtworkCanvas");
         verify(canvas);
         tryCompare(canvas, "showsArtwork", true);
@@ -159,11 +161,13 @@ TestCase {
     }
     function test_poster_text_stays_inside_the_card(data) {
         const card = createTemporaryObject(cardFactory, suite, {
-            width: 180, height: 270, text: data.title, subtitle: data.subtitle, showProgress: true, progress: 0.3
+            width: 180, text: data.title, subtitle: data.subtitle, showProgress: true, progress: 0.3
         });
+        compare(card.frameHeight, 270);
         const title = findChild(card, "cardTitle");
         const subtitle = findChild(card, "cardSubtitle");
         tryVerify(() => title.width > 0);
+        verify(title.mapToItem(card, 0, 0).y >= card.frameHeight, "the title sits below the image");
         for (const text of [title, subtitle]) {
             if (!text.visible)
                 continue;

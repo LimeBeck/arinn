@@ -80,7 +80,7 @@ QtObject {
     // the focus fill. It still draws the focus ring. Its text stays the
     // hint colour. Night text-3 on this plate is about 4.54:1, under
     // textContrastMinimum; that is accepted because the row cannot be
-    // changed. Unfocused, the row keeps the resting plate.
+    // changed. Unfocused, a container row has no plate (ADR-0136).
     readonly property real plateDisabledAlpha: 0.12
     readonly property color plateDisabled: Qt.rgba(1, 1, 1, plateDisabledAlpha)
     readonly property color textPrimary: period === "night" ? nightText1 : dayText1
@@ -93,6 +93,39 @@ QtObject {
     readonly property color mat: Qt.rgba(11 / 255, 12 / 255, 15 / 255, 0.95)
     readonly property int matThickness: 5
     readonly property color rim: oklch(0.97, 0.03, 70, 1)
+    // Rim light (ADR-0136, D-7): 2 px, full at the bottom and faint at the top.
+    readonly property int rimThickness: 2
+    readonly property color rimBottom: oklch(0.98, 0.03, 70, 1)
+    readonly property color rimMid: oklch(0.97, 0.02, 70, 0.30)
+    readonly property color rimTop: Qt.rgba(1, 1, 1, 0.06)
+    // Faint warm bounce inside the bottom edge of focused artwork.
+    readonly property color bounce: oklch(0.95, 0.04, 70, 0.45)
+    // Shape roles. Posters r10, stills and cards r12, objects r18, containers r20.
+    readonly property int posterRadius: 10
+    readonly property int stillRadius: 12
+    readonly property int objectRadius: 18
+    readonly property int containerRadius: 20
+    // Plates by role. Containers have none at rest. plateFocus stays the
+    // night-aware fill from #722 for controls that still use it.
+    readonly property color plateAction: Qt.rgba(1, 1, 1, 0.07)
+    readonly property color platePrimary: Qt.rgba(1, 1, 1, 0.14)
+    readonly property color plateContainer: Qt.rgba(1, 1, 1, 0.08)
+    readonly property color plateObject: Qt.rgba(1, 1, 1, 0.035)
+    readonly property color plateObjectFocus: Qt.rgba(1, 1, 1, 0.09)
+    readonly property real contentFocusScale: 1.04
+    readonly property real contentFocusLift: -8
+    readonly property real rowLitBrightness: 0.82
+    readonly property real rowDimBrightness: 0.62
+    readonly property int edgeFadeStart: 24
+    readonly property int edgeFadeEnd: 112
+    readonly property int emberLine: 4
+    readonly property int emberBand: 2
+    // Caption under a still (18 + 28 + 4 + 24) and under a poster (14 + 24 + 4 + 24).
+    readonly property int contentCaptionHeight: 74
+    readonly property int posterCaptionHeight: 66
+    readonly property int rowGap: 12
+    readonly property real castWidthRatio: 0.84
+    readonly property int castHeight: 34
     // Floor centre oklch(0.44 0.07 55). The pool's centre lightness is 0.50;
     // its chroma falls from 0.10 to 0.065 at hue 240°. Hue comes from the
     // focused item, so the pool has no single colour.
@@ -187,6 +220,13 @@ QtObject {
     // Contrast after the veil is composited over the text and the flat background.
     function veiledContrast(textColor, veilAlpha) {
         return contrast(veilOver(textColor, veilAlpha), veilOver(background, veilAlpha));
+    }
+    // Cast under focused artwork: the prototype's pool hue at 45%, oklch(0.72 …).
+    function castColor(hueDegrees) {
+        const hue = isFinite(hueDegrees) ? hueDegrees : hearthHue;
+        const distance = Math.abs(((hue - 240 + 540) % 360) - 180);
+        const cool = Math.max(0, 1 - distance / 70);
+        return oklch(0.72, 0.085 - 0.03 * cool + 0.02, hue, 0.45);
     }
     function identityColor(identity) {
         const text = String(identity || "");

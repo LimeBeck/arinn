@@ -155,10 +155,13 @@ TestCase {
         verify(waitForRendering(home));
         tryVerify(() => plain(1860, y), 5000, "a card shows past the safe edge at rest");
 
-        // The first card's glow reaches left of x 120; its clip makes room.
+        // The first card's focus reaches the screen fade at x 24.
         first.forceActiveFocus();
         tryCompare(first, "activeFocus", true);
-        tryVerify(() => clipEdges(first)[0] === 72);
+        tryVerify(() => Math.round(home.screenX) === Ui.Theme.safeLeft, 5000,
+                  "screen x " + home.screenX);
+        tryVerify(() => clipEdges(first)[0] === Ui.Theme.edgeFadeStart, 5000,
+                  "clip left " + clipEdges(first)[0]);
 
         // In pointer mode the last whole card can take focus without a
         // scroll. Its glow gets room on the right; the next card stays hidden.
@@ -231,26 +234,29 @@ TestCase {
         mouseMove(suite, 10, suite.height - 10);
         home.pointerMode = true;
 
-        // The focused first card crosses the left edge: it is cut at x 120.
+        // The focused first card crosses the left of the row and stays
+        // visible through the screen fade (x 24 to x 112), not a hard cut.
         first.forceActiveFocus();
         tryCompare(first, "activeFocus", true);
-        tryVerify(() => clipEdges(first)[0] === 72);
+        tryVerify(() => Math.round(home.screenX) === Ui.Theme.safeLeft, 5000,
+                  "screen x " + home.screenX);
+        tryVerify(() => clipEdges(first)[0] === Ui.Theme.edgeFadeStart, 5000,
+                  "clip left " + clipEdges(first)[0]);
         viewport.contentX = 100;
-        tryVerify(() => clipEdges(first)[0] === 120);
-        verify(waitForRendering(home));
-        tryVerify(() => plain(100, y, 30), 5000, "the focused card shows left of x 120");
+        tryVerify(() => clipEdges(first)[0] === Ui.Theme.edgeFadeStart);
+        const fade = findChild(home, "rowEdgeFade");
+        verify(fade !== null && fade.visible);
+        compare(Math.round(fade.mapToItem(suite, 0, 0).x), Ui.Theme.edgeFadeStart);
+        compare(Math.round(fade.width), Ui.Theme.edgeFadeEnd - Ui.Theme.edgeFadeStart);
 
-        // The focused second card sits 40 px inside the left edge, so its
-        // glow needs the margin, while 8 px of the first card stay inside.
-        // The first card is still cut at x 120.
+        // The focused second card's clip reaches the same fade. The first
+        // card is still painted as it crosses the left of the screen.
         second.forceActiveFocus();
         tryCompare(second, "activeFocus", true);
         viewport.contentX = 392;
-        tryVerify(() => clipEdges(second)[0] === 160 - 48);
+        tryVerify(() => clipEdges(second)[0] === 160 - home.leftBleed);
         compare(slotOf(first).painted, true);
-        compare(clipEdges(first)[0], 120);
-        verify(waitForRendering(home));
-        tryVerify(() => plain(100, y, 30), 5000, "the neighbour shows left of x 120");
+        compare(clipEdges(first)[0], Ui.Theme.edgeFadeStart);
 
         // The focused fifth card ends at the safe right edge, then crosses it.
         viewport.contentX = 432;

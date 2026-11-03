@@ -402,8 +402,8 @@ TestCase {
         const flatDay = Ui.Theme.contrast(Ui.Theme.textHint, Ui.Theme.background);
         verify(flatDay >= 4.5, "day text-3 on Charcoal " + flatDay);
     }
-    // A focused Settings plate uses Theme.plateFocus. White at 20% leaves
-    // night text-3 under textContrastMinimum; the night fill holds it.
+    // A focused Settings row is a container: an 8% plate and the rim.
+    // White at 20% leaves night text-3 under textContrastMinimum; 8% holds it.
     function test_settings_focus_fill_holds_night_hint_contrast() {
         const settings = createTemporaryObject(nightSettingsFactory, suite);
         verify(settings);
@@ -444,7 +444,7 @@ TestCase {
             const button = named(settings, name);
             verify(button !== null, name);
             tryCompare(button, "activeFocus", true, 5000, name);
-            verify(near(button.background.color, Ui.Theme.plateFocus),
+            verify(near(button.background.color, Ui.Theme.plateContainer),
                    name + " fill " + button.background.color);
             verify(Math.abs(button.background.color.a - 0.20) > 0.05, name + " still at 20%");
             // The row's own outline. A keyboard pill inside the row is a
@@ -460,9 +460,8 @@ TestCase {
             }
             verify(ring !== null, name + " outline");
             tryCompare(ring, "opacity", 1, 1000, name + " outline");
-            compare(ring.border.width, homeRing.border.width);
-            verify(near(ring.border.color, homeRing.border.color), name + " ring " + ring.border.color);
-            verify(near(ring.border.color, Ui.Theme.ring), name + " token");
+            compare(ring.thickness, homeRing.thickness);
+            compare(ring.thickness, Ui.Theme.rimThickness);
             compare(ring.radius, button.background.radius);
             if (name === "setting-library-scan") {
                 const surface = over(Ui.Theme.background, button.background.color);
@@ -477,13 +476,13 @@ TestCase {
             }
         }
         verify(rowRatio >= Ui.Theme.textContrastMinimum);
-        // A locked row keeps the resting plate until it is focused. Focus
-        // uses Theme.plateDisabled, not plateFocus, and draws the same
-        // outline as the other rows. The title stays hint text. Night
-        // text-3 on that plate is under textContrastMinimum; that is accepted.
+        // A locked row has no plate until it is focused. Focus uses
+        // Theme.plateDisabled, not the container plate, and draws the same
+        // rim as the other rows. The title stays hint text. Night text-3 on
+        // that plate is under textContrastMinimum; that is accepted.
         const locked = named(settings, "setting-library-locked");
         verify(locked !== null, "locked row");
-        verify(near(locked.background.color, Qt.rgba(1, 1, 1, 0.06)),
+        verify(locked.background.color.a < 0.01,
                "unfocused locked fill " + locked.background.color);
         verify(settings.focusPart(2, "main") !== false, "locked row");
         tryCompare(locked, "activeFocus", true, 5000, "locked row");
@@ -504,9 +503,8 @@ TestCase {
         verify(lockedRing !== null, "locked outline");
         compare(lockedRing.shown, true);
         tryCompare(lockedRing, "opacity", 1, 1000, "locked outline");
-        compare(lockedRing.border.width, homeRing.border.width);
-        verify(near(lockedRing.border.color, homeRing.border.color), "locked ring " + lockedRing.border.color);
-        verify(near(lockedRing.border.color, Ui.Theme.ring), "locked ring token");
+        compare(lockedRing.thickness, homeRing.thickness);
+        compare(lockedRing.thickness, Ui.Theme.rimThickness);
         compare(lockedRing.radius, locked.background.radius);
         const lockedSurface = over(Ui.Theme.background, locked.background.color);
         const lockedRatio = veiled(glow, Ui.Theme.textHint, lockedSurface);

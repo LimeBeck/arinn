@@ -1,0 +1,7 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors -->
+<!-- SPDX-License-Identifier: GPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
+  <rect width="800" height="450" fill="#14161c"/>
+  <rect y="360" width="800" height="90" fill="#2a241c"/>
+  <circle cx="140" cy="120" r="36" fill="#3a342c"/>
+</svg>

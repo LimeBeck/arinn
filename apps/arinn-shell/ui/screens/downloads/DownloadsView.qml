@@ -479,17 +479,13 @@ FocusScope {
                             Accessible.name: (modelData.title || "") + ". " + root.statusLine(modelData)
                             Rectangle {
                                 anchors.fill: parent
-                                radius: 30
-                                color: row.activeFocus ? Ui.Theme.plateFocus : Ui.Theme.plate
+                                radius: Ui.Theme.containerRadius
+                                color: row.activeFocus ? Ui.Theme.plateContainer : "transparent"
                             }
-                            Rectangle {
+                            Ui.FocusRing {
                                 anchors.fill: parent
-                                radius: 30
-                                z: 3
-                                color: "transparent"
-                                border.width: 3
-                                border.color: Ui.Theme.ring
-                                opacity: row.activeFocus ? 1 : 0
+                                shown: row.activeFocus
+                                radius: Ui.Theme.containerRadius
                             }
                             QueueArtwork {
                                 objectName: "artwork-" + row.modelData.id

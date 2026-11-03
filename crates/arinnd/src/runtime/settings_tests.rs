@@ -441,6 +441,69 @@ async fn the_shell_preferences_are_core_settings() {
     );
 }
 
+/// ADR-0136: Appearance › Light follows the time of day, a boolean of the
+/// `arinn` source, on by default and stored in `config.toml`.
+#[tokio::test]
+async fn light_follows_the_time_of_day_is_a_core_setting() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, settings) = api.get_settings("arinn").await.unwrap();
+    settings::validate_schema(&settings).unwrap();
+    let setting = settings
+        .iter()
+        .find(|s| s.id == "light_follows_time")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (
+            setting.category.as_str(),
+            setting.kind.as_str(),
+            setting.value.as_str(),
+            setting.title.as_str()
+        ),
+        (
+            "appearance",
+            "boolean",
+            "true",
+            "Light follows the time of day"
+        )
+    );
+    let path = api
+        .set_value("arinn", &generation, "light_follows_time", "false", &rid())
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let config = Config::load(&f.folder.join("config")).unwrap();
+    assert!(!config.light_follows_time);
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    assert_eq!(
+        settings
+            .iter()
+            .find(|s| s.id == "light_follows_time")
+            .unwrap()
+            .value,
+        "false"
+    );
+    assert_eq!(
+        error_name(
+            api.set_value(
+                "arinn",
+                &generation,
+                "light_follows_time",
+                r#""yes""#,
+                &rid()
+            )
+            .await
+        ),
+        "org.arinn.Error1.InvalidArgument"
+    );
+    assert!(
+        !Config::load(&f.folder.join("config"))
+            .unwrap()
+            .light_follows_time
+    );
+}
+
 /// Owner decision on #488: a hand-edited invalid timeout does not break the
 /// daemon's settings; it reads as the default.
 #[tokio::test]

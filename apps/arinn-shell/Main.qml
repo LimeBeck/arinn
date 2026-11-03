@@ -875,8 +875,10 @@ Window {
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress
             muted: systemStatus.muted
-            // Settings › Appearance › Light field (ADR-0112).
+            // Settings › Appearance › Light field (ADR-0112) and
+            // Light follows the time of day (ADR-0136).
             ambientEnabled: settingsCatalog.lightField
+            lightFollowsTime: settingsCatalog.lightFollowsTime
             wifi: systemStatus.wifi
             wifiLevel: systemStatus.wifiLevel
             network: systemStatus.network
@@ -1068,6 +1070,9 @@ Window {
                     if (home.screen === "library") home.returnFromLibraryDetail();
                 }
             }
+            ambientEnabled: settingsCatalog.lightField
+            lightFollowsTime: settingsCatalog.lightFollowsTime
+            clockText: home.clockText
             onPlayRequested: entryId => libraryCatalog.launch(entryId)
             onEpisodeRequested: (entryId, episodeId) => libraryCatalog.launch(episodeId)
             onRetryRequested: libraryCatalog.refresh()

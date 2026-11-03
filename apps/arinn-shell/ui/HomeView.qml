@@ -118,8 +118,8 @@ FocusScope {
     // unknown. A cable shows "wired" and a crossed-out Wi-Fi shows
     // "disconnected"; "other" and unknown show nothing (#408).
     property string network: ""
-    // True while an Activity background is shown (ADR-0027): the ambient
-    // light field then stays off.
+    // True while an Activity background is shown (ADR-0027): the light
+    // field then stays off, as it did before the hearth floor.
     property bool ambientSuppressed: false
     // The last frame of the Activity behind Home (§12.3), empty for none.
     // Near while the Activity's own card has focus, otherwise far (handoff
@@ -133,6 +133,8 @@ FocusScope {
             || (returnIsWebService && focusedEntry.id === "current-service"))
     // Settings › Appearance › Light field (spec §15, ADR-0112).
     property bool ambientEnabled: true
+    // Settings › Appearance › Light follows the time of day (spec §5.6, ADR-0136).
+    property bool lightFollowsTime: true
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: InputMode.pointerActive
     property bool actionsEnabled: false
@@ -381,10 +383,15 @@ FocusScope {
         return (pool || []).find(entry => entry && entry.id === focusedEntry.id) || focusedEntry;
     }
     readonly property var hero: describe(homeRow, heroEntry)
-    // The light field follows the focused Continue or Favorites item; the
-    // open-services summary has no single hue.
-    readonly property var ambientEntry: (homeRow === "continue" || homeRow === "favorites")
-        && heroEntry && heroEntry.id && heroEntry.kind !== "more" ? heroEntry : null
+    // The pool takes the focused content item. The open-services summary has
+    // no single hue. Applications use the focused tile.
+    readonly property var lightEntry: {
+        if (screen === "applications")
+            return focusedEntry && focusedEntry.id ? focusedEntry : null;
+        if (screen === "home" && (homeRow === "continue" || homeRow === "favorites" || homeRow === "new"))
+            return heroEntry && heroEntry.id && heroEntry.kind !== "more" ? heroEntry : null;
+        return null;
+    }
 
     function rowItems() { return [continueRow, favoritesRow, newRow]; }
     function restoreHome() {
@@ -624,11 +631,16 @@ FocusScope {
         objectName: "ambientGlow"
         anchors.fill: parent
         visible: !root.coveredByScreen
-        lit: root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed
-             && root.ambientEnabled
-             && root.ambientEntry !== null && root.homeRow !== "new"
-        source: root.ambientEntry ? (root.ambientEntry.artwork || "") : ""
-        tint: root.ambientEntry ? Theme.identityColor(root.ambientEntry.visualIdentity || root.ambientEntry.id) : "transparent"
+        veilParent: root
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+        // Home and Applications are content screens. An Activity background
+        // still suppresses the field (ADR-0027). The pool takes the focused item.
+        lit: root.ambientEnabled && (root.screen === "applications"
+             || (root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed))
+        strength: root.screen === "applications" ? 0.8 : 1
+        source: root.lightEntry ? (root.lightEntry.artwork || "") : ""
+        tint: root.lightEntry ? Theme.identityColor(root.lightEntry.visualIdentity || root.lightEntry.id) : "transparent"
     }
     Item {
         id: content

@@ -15,8 +15,9 @@ const SCHEMA_TIMEOUT: Duration = Duration::from_secs(2);
 const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The daemon's own settings. `search_engine` is listed only when engines
-/// are packaged (ADR-0066); its default is the first one. `light_field` and
-/// `ambient_timeout` are the shell's presentation preferences (ADR-0112).
+/// are packaged (ADR-0066); its default is the first one. `light_field`,
+/// `ambient_timeout` (ADR-0112) and `light_follows_time` (ADR-0136) are the
+/// shell's presentation preferences.
 /// Titles are English source texts; the shell translates them.
 fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
     let timeouts: Vec<Value> = crate::storage::AMBIENT_TIMEOUTS
@@ -37,6 +38,15 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         category: "appearance".into(),
         title: "Light field".into(),
         description: "Soft light from the focused item's artwork behind Home".into(),
+        kind: settings::KIND_BOOLEAN.into(),
+        value: "true".into(),
+        constraints: "{}".into(),
+        enabled: true,
+    }, Setting {
+        id: "light_follows_time".into(),
+        category: "appearance".into(),
+        title: "Light follows the time of day".into(),
+        description: "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light".into(),
         kind: settings::KIND_BOOLEAN.into(),
         value: "true".into(),
         constraints: "{}".into(),
@@ -85,6 +95,10 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
             );
         }
         map.insert("light_field".into(), Value::Bool(config.light_field));
+        map.insert(
+            "light_follows_time".into(),
+            Value::Bool(config.light_follows_time),
+        );
         map.insert(
             "ambient_timeout".into(),
             Value::String(config.ambient_timeout.to_string()),
@@ -371,6 +385,7 @@ impl Core {
             // The value already passed the schema check.
             match setting {
                 "light_field" => config.light_field = value.as_bool().unwrap_or(true),
+                "light_follows_time" => config.light_follows_time = value.as_bool().unwrap_or(true),
                 "ambient_timeout" => {
                     config.ambient_timeout = value
                         .as_str()

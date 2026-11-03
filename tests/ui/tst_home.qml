@@ -965,6 +965,11 @@ TestCase {
         ];
         child("entry-film").forceActiveFocus(); focused("entry-film");
         tryVerify(() => glow.shown && Math.abs(glow.hue - 30) <= 3, 5000, "artwork hue " + glow.hue);
+        const film = child("entry-film");
+        const filmX = film.mapToItem(glow, film.width / 2, film.height / 2).x;
+        tryVerify(() => Math.abs(glow.poolCenter - filmX) < 16, 3000,
+                  "pool " + glow.poolCenter + " card " + filmX);
+        verify(Math.abs(glow.poolCenterY - glow.height * 1.08) < 2);
         keyClick(Qt.Key_Right); focused("entry-plain");
         compare(glow.tint, Qt.tint(Ui.Theme.identityColor("plain"), "transparent"));
         const identity = glow.toOklch(glow.tint).h;
@@ -997,6 +1002,91 @@ TestCase {
         keyClick(Qt.Key_Down); keyClick(Qt.Key_Return);
         compare(home.screen, "library");
         verify(!glow.lit);
+    }
+    // ADR-0136: cool hues reduce pool chroma from 0.10 to 0.065 at 240°,
+    // and the reduction is gone 70° away from that hue.
+    function test_cool_hue_chroma_is_capped() {
+        const glow = child("ambientGlow");
+        compare(glow.poolChroma(240), 0.065);
+        compare(glow.poolChroma(170), 0.10);
+        compare(glow.poolChroma(310), 0.10);
+        const mid = glow.poolChroma(205);
+        verify(Math.abs(mid - 0.0825) < 0.001, "mid chroma " + mid);
+        let coolId = "";
+        for (let i = 0; i < 80 && !coolId; ++i) {
+            const id = "hue" + i;
+            const h = glow.toOklch(Qt.color(Ui.Theme.identityColor(id))).h;
+            const distance = Math.abs(((h - 240 + 540) % 360) - 180);
+            if (distance < 25)
+                coolId = id;
+        }
+        verify(coolId.length > 0, "a cool identity");
+        home.continueEntries = [{id: coolId, title: "Cool", kind: "media"}];
+        child("entry-" + coolId).forceActiveFocus();
+        focused("entry-" + coolId);
+        const identity = glow.toOklch(Qt.color(Ui.Theme.identityColor(coolId))).h;
+        tryVerify(() => glow.shown && Math.abs(glow.hue - identity) < 0.5, 5000, "shown " + glow.hue);
+        verify(glow.poolChroma(glow.hue) < 0.09);
+        verify(glow.poolChroma(glow.hue) >= 0.065);
+    }
+    // Evening from 19:00, night from 23:00, by the shell clock. The setting
+    // keeps the daytime light (spec §5.6, ADR-0136).
+    function test_time_of_day_and_its_setting() {
+        const glow = child("ambientGlow");
+        compare(home.lightFollowsTime, true);
+        compare(glow.followsTime, true);
+        const expect = (hour, period, scale, veil, floorHue) => {
+            glow.hour = hour;
+            compare(glow.period, period);
+            compare(glow.lightScale, scale);
+            compare(glow.veilAmount, veil);
+            compare(glow.floorHue, floorHue);
+        };
+        expect(6, "day", 1, 0, 55);
+        expect(18, "day", 1, 0, 55);
+        expect(19, "evening", 0.85, 0.06, 50);
+        expect(22, "evening", 0.85, 0.06, 50);
+        expect(23, "night", 0.6, 0.22, 47);
+        expect(5, "night", 0.6, 0.22, 47);
+        glow.hour = -1;
+        home.clockText = "21:15";
+        compare(glow.period, "evening");
+        home.clockText = "23:00";
+        compare(glow.period, "night");
+        home.clockText = "06:00";
+        compare(glow.period, "day");
+        home.lightFollowsTime = false;
+        compare(glow.followsTime, false);
+        glow.hour = 23;
+        compare(glow.period, "day");
+        compare(glow.lightScale, 1);
+        compare(glow.veilAmount, 0);
+        compare(glow.floorHue, 55);
+        home.lightFollowsTime = true;
+        compare(glow.period, "night");
+        verify(child("hearthVeil").visible);
+        // Night text values stay on the light, ready for the token task.
+        compare(glow.nightText2, glow.oklch(0.84, 0.008, 75, 1));
+    }
+    // Handoff rule: light under text stays at or below L 0.48. Measured by
+    // compositing the same gradient stops the small canvases paint, in sRGB
+    // source-over on the screen background, then reading OKLab L. The pool
+    // is placed under every sample. Daytime hue 55° is the brightest case.
+    function test_light_under_text_stays_within_l_048() {
+        const glow = child("ambientGlow");
+        glow.hour = 12;
+        compare(glow.period, "day");
+        compare(glow.strength, 1);
+        const floor = child("hearthFloor");
+        verify(floor.width * 5 <= glow.width + 5);
+        verify(floor.height * 5 <= glow.height + 5);
+        const worst = glow.brightestLightness();
+        verify(worst.l <= 0.48, "brightest " + worst.l);
+        const title = child("heroTitle");
+        const at = title.mapToItem(glow, title.width / 2, title.height);
+        const underTitle = glow.lightnessAt(at.x, at.y, at.x, 55);
+        verify(underTitle <= 0.48, "hero " + underTitle);
+        verify(underTitle < worst.l);
     }
     // §12.3: the Activity's last frame replaces the plain background behind
     // Home, near while its own card has focus and far otherwise. Focus never

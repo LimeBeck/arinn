@@ -2,29 +2,180 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Window
 
-// The warm light field behind Home (handoff "Light field", #368). Three
-// radial layers keyed to one hue: the dominant colour of the focused item's
-// artwork, or its identity colour when it has none. The field is painted once
-// per hue into a small canvas and scaled up, so no full-resolution art is
-// blurred per frame (spec §6.5). It follows focus with a 900 ms cross-fade
-// after a short settle delay, so fast scrolling does not flicker.
+// Hearth light (ADR-0136, #723): a dark ceiling, a warm floor and a pool
+// under the focused item. The floor and the pool are painted once into a
+// small canvas and scaled up. Artwork is sampled at 24×24; nothing
+// full-resolution is blurred (spec §6.5).
+//
+// Colours are local on purpose. Hearth light 1/6 (#722) owns the shared
+// tokens and is on hold; these oklch values are the brief's, grouped so a
+// later change can point them at those tokens.
+//
+//   floor   oklch(0.44 0.07 55) at its centre, 22% below the bottom edge
+//   pool    oklch(0.50 c′ h), c′ 0.10 down to 0.065 at hue 240°
+//   ceiling black at 50% across the top 44% of the height
+//   veil    rgb(12 7 2) at 6% in the evening and 22% at night
+//
+// Night text in the brief is text-1 oklch(0.97 …), text-2 0.84, text-3 0.71
+// (the issue's "text-1 oklch(0.84 …)" is that text-2). Applying it is a
+// token change, so the constants sit here and Theme still paints the text.
 Item {
     id: root
+    clip: true
+
     // Artwork of the focused item; empty uses `tint`.
     property url source: ""
     // Identity colour of the focused item; transparent means no item.
     property color tint: "transparent"
-    // False fades the field out (nothing focused, another screen, an
-    // Activity background shown).
+    // Light field (Settings › Appearance › Light field). Off fades the
+    // ceiling, the floor and the pool. The screen is then flat.
     property bool lit: true
-    // Field opacity: 1 on Home, 0.6 in Library (handoff).
+    // 1 on Home, 0.8 on Applications, 0.6 in the Library, 0.5 on a detail.
     property real strength: 1
-    // Hue in degrees of the field on screen; NaN while none is shown.
+    // Settings › Appearance › Light follows the time of day. Off keeps day.
+    property bool followsTime: true
+    // The shell's clock, "HH:mm". Empty keeps daytime, so a screen with no
+    // clock yet is not tied to the wall clock. `hour` wins when set, so a
+    // test can pin a period. Production passes the shell clock every minute.
+    property string clockText: ""
+    property int hour: -1
+    // Where the warm veil is parented, above the screen's content.
+    // A second host of this light sets `veilEnabled` off so the veils do
+    // not stack.
+    property Item veilParent: null
+    property int veilZ: 8
+    property bool veilEnabled: true
+    // Hue in degrees of the pool on screen; NaN while none is shown.
     readonly property real hue: layers.itemAt(front) ? layers.itemAt(front).hue : NaN
     readonly property bool shown: lit && !isNaN(hue)
+    // Target and on-screen horizontal centre of the pool, in this item.
+    property real poolX: width / 2
+    readonly property real poolCenter: pools.x + pools.width / 2
+    readonly property real poolCenterY: pools.y + pools.height / 2
     property int front: 0
     property real pendingHue: NaN
+    property bool poolReady: false
+    property real pendingX: width / 2
+    property Item anchor: null
+    // The window that owns focus. Read on this item: Window.window from a
+    // Timer is not an Item and does not resolve.
+    readonly property var hostWindow: Window.window
+
+    // Brief values, one place (#722 replaces them with tokens).
+    readonly property real floorLightness: 0.44
+    readonly property real floorChroma: 0.07
+    readonly property real floorHueDay: 55
+    readonly property real poolLightness: 0.50
+    readonly property real poolChromaWarm: 0.10
+    readonly property real poolChromaCool: 0.065
+    readonly property color nightText1: oklch(0.97, 0.006, 75, 1)
+    readonly property color nightText2: oklch(0.84, 0.008, 75, 1)
+    readonly property color nightText3: oklch(0.71, 0.008, 75, 1)
+
+    readonly property int shownHour: {
+        if (hour >= 0 && hour <= 23)
+            return hour;
+        const match = /^(\d{1,2}):(\d{2})$/.exec(clockText || "");
+        if (match) {
+            const parsed = parseInt(match[1], 10);
+            if (parsed >= 0 && parsed <= 23)
+                return parsed;
+        }
+        return 12;
+    }
+    // Day 06:00–18:59, evening 19:00–22:59, night 23:00–05:59 (spec §5.6).
+    readonly property string period: {
+        if (!followsTime)
+            return "day";
+        const h = shownHour;
+        if (h >= 19 && h < 23)
+            return "evening";
+        if (h >= 23 || h < 6)
+            return "night";
+        return "day";
+    }
+    readonly property real lightScale: period === "night" ? 0.6 : period === "evening" ? 0.85 : 1
+    readonly property real veilAmount: period === "night" ? 0.22 : period === "evening" ? 0.06 : 0
+    // Warmer is a lower hue: evening −5°, night −8°.
+    readonly property real floorHue: floorHueDay - (period === "night" ? 8 : period === "evening" ? 5 : 0)
+
+    // 1 at hue 240°, 0 once the hue is 70° or more away. Chroma falls from
+    // 0.10 to 0.065 across that span (brief, *Colour*).
+    function poolChroma(hueDegrees) {
+        const distance = Math.abs(((hueDegrees - 240 + 540) % 360) - 180);
+        const cool = Math.max(0, 1 - distance / 70);
+        return poolChromaWarm - (poolChromaWarm - poolChromaCool) * cool;
+    }
+    // Shared with the canvases below. Piecewise linear, matching
+    // CanvasGradient colour stops.
+    function floorStopList() { return [[0, 0.95], [0.225, 0.7125], [0.45, 0.475], [0.725, 0.2375], [1, 0]]; }
+    function poolStopList() { return [[0, 0.95], [0.21, 0.76125], [0.42, 0.4275], [0.71, 0.21375], [1, 0]]; }
+    function pieceAlpha(t, stops) {
+        if (t <= stops[0][0])
+            return stops[0][1];
+        if (t >= 1)
+            return 0;
+        for (let i = 0; i < stops.length - 1; ++i) {
+            const t0 = stops[i][0], a0 = stops[i][1];
+            const t1 = stops[i + 1][0], a1 = stops[i + 1][1];
+            if (t >= t0 && t <= t1)
+                return a0 + (a1 - a0) * ((t - t0) / (t1 - t0));
+        }
+        return 0;
+    }
+    function addStops(gradient, color, stops) {
+        for (let i = 0; i < stops.length; ++i)
+            gradient.addColorStop(stops[i][0], Qt.rgba(color.r, color.g, color.b, stops[i][1]));
+    }
+    // OKLab L of the ceiling, floor and pool composited over the screen
+    // background at a pixel. The pool is taken under `poolAtX` (the focused
+    // item). This is the handoff's "light under text" measurement: the same
+    // stops the canvases paint, evaluated in sRGB source-over, then OKLab.
+    // It does not include the warm veil, which darkens further.
+    function lightnessAt(x, y, poolAtX, hueDegrees) {
+        if (width < 2 || height < 2)
+            return 0;
+        const nx = x / width, ny = y / height;
+        const px = (poolAtX === undefined ? poolX : poolAtX) / width;
+        const amount = (lit ? strength : 0);
+        const ceilA = (ny < 0.44 ? 0.5 * (1 - ny / 0.44) : 0) * amount;
+        const floorT = Math.hypot((nx - 0.5) / 1.0, (ny - 1.22) / 0.62);
+        const floorA = (floorT <= 1 ? pieceAlpha(floorT, floorStopList()) : 0) * amount;
+        const poolT = Math.hypot((nx - px) / 0.30, (ny - 1.08) / 0.42);
+        const poolA = (poolT <= 1 ? pieceAlpha(poolT, poolStopList()) : 0) * amount;
+        const floor = oklch(floorLightness * lightScale, floorChroma, floorHue, 1);
+        const h = hueDegrees === undefined ? (isNaN(hue) ? floorHueDay : hue) : hueDegrees;
+        const pool = oklch(poolLightness * lightScale, poolChroma(h), h, 1);
+        const bg = Theme.background;
+        let r = bg.r, g = bg.g, b = bg.b;
+        const over = (cr, cg, cb, a) => {
+            r = cr * a + r * (1 - a);
+            g = cg * a + g * (1 - a);
+            b = cb * a + b * (1 - a);
+        };
+        over(0, 0, 0, ceilA);
+        over(floor.r, floor.g, floor.b, floorA);
+        over(pool.r, pool.g, pool.b, poolA);
+        return toOklch(Qt.rgba(r, g, b, 1)).l;
+    }
+    // The brightest point of the field in daytime. The pool is placed under
+    // each sample, which is the brightest it can sit there, at hue 55° (the
+    // warm case; other hues composite no brighter).
+    function brightestLightness() {
+        let best = 0, bx = 0, by = 0;
+        const day = period;
+        for (let iy = 0; iy <= 40; ++iy) {
+            const y = height * iy / 40;
+            for (let ix = 0; ix <= 20; ++ix) {
+                const x = width * ix / 20;
+                const l = lightnessAt(x, y, x, floorHueDay);
+                if (l > best) { best = l; bx = x; by = y; }
+            }
+        }
+        return {l: best, x: bx, y: by, period: day};
+    }
 
     // sRGB colour -> OKLCH {l, c, h}.
     function toOklch(color) {
@@ -60,48 +211,125 @@ Item {
     }
     function show(hueDegrees) {
         pendingHue = hueDegrees;
-        if (isNaN(hueDegrees)) return;
+        if (isNaN(hueDegrees))
+            return;
         const front = layers.itemAt(root.front);
-        if (front && front.hue === hueDegrees) return;
+        if (front && front.hue === hueDegrees)
+            return;
         const back = layers.itemAt(1 - root.front);
+        if (!back)
+            return;
         // The hidden layer may still hold this hue from an earlier focus.
-        if (back.hue === hueDegrees) root.front = back.index;
-        else back.paintHue(hueDegrees);
+        if (back.hue === hueDegrees)
+            root.front = back.index;
+        else
+            back.paintHue(hueDegrees);
+    }
+    function anchorCenter() {
+        if (!anchor || width <= 0)
+            return width > 0 ? width / 2 : 0;
+        const point = anchor.mapToItem(root, anchor.width / 2, anchor.height / 2);
+        return isFinite(point.x) ? point.x : width / 2;
+    }
+    function placePool() {
+        const x = anchorCenter();
+        pendingX = x;
+        if (!poolReady) {
+            poolX = x;
+            if (width > 0)
+                poolReady = true;
+        } else {
+            poolX = x;
+        }
     }
     function settle() {
+        placePool();
         if (source.toString().length) {
-            if (sample.status === Image.Ready) sampler.requestPaint();
+            if (sample.status === Image.Ready)
+                sampler.requestPaint();
             // Loading: the sample's status change samples it. A failed load
             // keeps the identity colour.
-            else if (sample.status !== Image.Loading) show(tintHue());
-        } else show(tintHue());
+            else if (sample.status !== Image.Loading)
+                show(tintHue());
+        } else {
+            show(tintHue());
+        }
+    }
+    function insideHost(item) {
+        const host = veilParent || parent;
+        let cursor = item;
+        while (cursor) {
+            if (cursor === host)
+                return true;
+            cursor = cursor.parent;
+        }
+        return false;
     }
     onSourceChanged: settleTimer.restart()
     onTintChanged: settleTimer.restart()
+    onWidthChanged: if (width > 0 && !poolReady) settle()
+    onLightScaleChanged: repaintColours()
+    onFloorHueChanged: if (floorCanvas.width > 0) floorCanvas.requestPaint()
     Component.onCompleted: settle()
     Timer { id: settleTimer; interval: 200; onTriggered: root.settle() }
+    Timer {
+        interval: 50
+        repeat: true
+        running: root.visible && root.width > 0
+        onTriggered: {
+            const win = root.hostWindow;
+            const item = win ? win.activeFocusItem : null;
+            if (!item || item === root || !root.insideHost(item))
+                return;
+            const point = item.mapToItem(root, item.width / 2, item.height / 2);
+            if (!isFinite(point.x))
+                return;
+            if (item !== root.anchor) {
+                root.anchor = item;
+                root.pendingX = point.x;
+                settleTimer.restart();
+            } else if (Math.abs(point.x - root.pendingX) > 2) {
+                root.pendingX = point.x;
+                settleTimer.restart();
+            }
+        }
+    }
+    function repaintColours() {
+        if (floorCanvas.width > 0)
+            floorCanvas.requestPaint();
+        for (let i = 0; i < 2; ++i) {
+            const layer = layers.itemAt(i);
+            if (layer && !isNaN(layer.hue))
+                layer.paintHue(layer.hue);
+        }
+    }
 
     // A small decode of the artwork; the sampler reads its average colour.
     Image {
         id: sample
         visible: false
         source: root.source
-        sourceSize.width: 24; sourceSize.height: 24
+        sourceSize.width: 24
+        sourceSize.height: 24
         asynchronous: true
         onStatusChanged: {
-            if (status === Image.Ready && !settleTimer.running) sampler.requestPaint();
-            else if (status === Image.Error && !settleTimer.running) root.show(root.tintHue());
+            if (status === Image.Ready && !settleTimer.running)
+                sampler.requestPaint();
+            else if (status === Image.Error && !settleTimer.running)
+                root.show(root.tintHue());
         }
     }
     Canvas {
         id: sampler
-        width: 24; height: 24
+        width: 24
+        height: 24
         opacity: 0
         renderTarget: Canvas.Image
         onPaint: {
             const ctx = getContext("2d");
             ctx.reset();
-            if (sample.status !== Image.Ready) return;
+            if (sample.status !== Image.Ready)
+                return;
             ctx.drawImage(sample, 0, 0, width, height);
             const data = ctx.getImageData(0, 0, width, height).data;
             // Chroma-weighted mean in OKLab: the dominant hue, not grey.
@@ -113,54 +341,127 @@ Item {
                 b += w * Math.sin(lch.h * Math.PI / 180);
                 weight += w;
             }
-            if (weight / (data.length / 4) < 0.02) { root.show(root.tintHue()); return; }
+            if (weight / (data.length / 4) < 0.02) {
+                root.show(root.tintHue());
+                return;
+            }
             const h = Math.atan2(b, a) * 180 / Math.PI;
             root.show(Math.round(h < 0 ? h + 360 : h));
         }
     }
-    Repeater {
-        id: layers
-        model: 2
-        // A quarter-resolution field, scaled up with filtering.
+
+    // Ceiling, floor and pool. `lit` fades all three (the light field).
+    Item {
+        id: field
+        anchors.fill: parent
+        opacity: root.lit ? root.strength : 0
+        Behavior on opacity { NumberAnimation { duration: 600; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing } }
+
+        // Black 50% at the top edge, gone at 44% of the height.
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.5) }
+                GradientStop { position: 0.44; color: Qt.rgba(0, 0, 0, 0) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0) }
+            }
+        }
+        // Floor: ellipse 100% × 62% (CSS radii), centred 22% below the edge.
         Canvas {
-            id: layer
-            required property int index
-            property real hue: NaN
-            property real painting: NaN
-            objectName: "ambientLayer" + index
-            width: root.width / 5; height: root.height / 5
-            scale: 5; transformOrigin: Item.TopLeft
+            id: floorCanvas
+            objectName: "hearthFloor"
+            width: Math.max(1, root.width / 5)
+            height: Math.max(1, root.height / 5)
+            scale: 5
+            transformOrigin: Item.TopLeft
             smooth: true
             renderTarget: Canvas.Image
-            opacity: root.lit && root.front === index && !isNaN(hue) ? root.strength : 0
-            Behavior on opacity { NumberAnimation { duration: Theme.lightDuration; easing.type: Easing.OutCubic } }
-            function paintHue(h) { painting = h; requestPaint(); }
             onPaint: {
                 const ctx = getContext("2d");
                 ctx.reset();
-                if (isNaN(painting)) return;
-                // Handoff: three radial layers, never lighter than L 0.48.
-                const field = [[0.55, 0.70, 0.74, 0.22, root.oklch(0.48, 0.10, painting, 0.8)],
-                               [0.38, 0.45, 0.36, 0.58, root.oklch(0.42, 0.09, painting - 7, 0.4)],
-                               [0.40, 0.40, 1.00, 0.90, root.oklch(0.32, 0.06, painting + 18, 0.45)]];
-                for (const [rx, ry, cx, cy, color] of field) {
-                    ctx.save();
-                    ctx.translate(cx * width, cy * height);
-                    ctx.scale(rx * width, ry * height);
-                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
-                    gradient.addColorStop(0, color);
-                    gradient.addColorStop(0.7, Qt.rgba(color.r, color.g, color.b, 0));
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(-2, -2, 4, 4);
-                    ctx.restore();
+                if (root.width < 2)
+                    return;
+                const color = root.oklch(root.floorLightness * root.lightScale, root.floorChroma, root.floorHue, 1);
+                ctx.save();
+                ctx.translate(0.5 * width, 1.22 * height);
+                ctx.scale(width, 0.62 * height);
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+                root.addStops(gradient, color, root.floorStopList());
+                ctx.fillStyle = gradient;
+                ctx.fillRect(-2, -2, 4, 4);
+                ctx.restore();
+            }
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+            Component.onCompleted: requestPaint()
+        }
+        // Pool: ellipse 30% × 42%, centred 8% below the edge. Both hue
+        // layers move together; the 900 ms cross-fade is their opacity.
+        Item {
+            id: pools
+            width: root.width * 0.60
+            height: root.height * 0.84
+            x: root.poolX - width / 2
+            y: root.height * 1.08 - height / 2
+            Behavior on x { enabled: root.poolReady; NumberAnimation { duration: Theme.lightDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing } }
+            Repeater {
+                id: layers
+                model: 2
+                Canvas {
+                    id: layer
+                    required property int index
+                    property real hue: NaN
+                    property real painting: NaN
+                    objectName: "ambientLayer" + index
+                    width: Math.max(1, pools.width / 5)
+                    height: Math.max(1, pools.height / 5)
+                    scale: 5
+                    transformOrigin: Item.TopLeft
+                    smooth: true
+                    renderTarget: Canvas.Image
+                    opacity: !isNaN(hue) && root.front === index ? 1 : 0
+                    Behavior on opacity { NumberAnimation { duration: Theme.lightDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing } }
+                    function paintHue(h) { painting = h; requestPaint(); }
+                    onPaint: {
+                        const ctx = getContext("2d");
+                        ctx.reset();
+                        if (isNaN(painting) || width < 2)
+                            return;
+                        const color = root.oklch(root.poolLightness * root.lightScale,
+                                                 root.poolChroma(painting), painting, 1);
+                        ctx.save();
+                        ctx.translate(width / 2, height / 2);
+                        ctx.scale(width / 2, height / 2);
+                        const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+                        // Centre alpha 0.95, 45% of that at 42% of the radius.
+                        root.addStops(gradient, color, root.poolStopList());
+                        ctx.fillStyle = gradient;
+                        ctx.fillRect(-1.2, -1.2, 2.4, 2.4);
+                        ctx.restore();
+                    }
+                    onPainted: {
+                        if (isNaN(painting))
+                            return;
+                        hue = painting;
+                        if (painting === root.pendingHue)
+                            root.front = index;
+                    }
+                    onWidthChanged: if (!isNaN(hue)) requestPaint()
+                    onHeightChanged: if (!isNaN(hue)) requestPaint()
                 }
             }
-            onPainted: {
-                if (isNaN(painting)) return;
-                hue = painting;
-                // A later focus may already want another hue.
-                if (painting === root.pendingHue) root.front = index;
-            }
         }
+    }
+
+    // Warm veil over the whole screen, including text and artwork. It never
+    // covers video: the player does not host this light (brief, *Time of day*).
+    Rectangle {
+        id: veil
+        objectName: "hearthVeil"
+        parent: root.veilParent || root
+        anchors.fill: parent
+        z: root.veilParent ? root.veilZ : -1
+        visible: root.veilEnabled && root.visible && root.veilAmount > 0
+        color: Qt.rgba(12 / 255, 7 / 255, 2 / 255, root.veilAmount)
     }
 }

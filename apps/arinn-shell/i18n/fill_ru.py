@@ -338,6 +338,8 @@ RU = {
     "Used when typed text is not an address": "Используется, если введённый текст — не адрес",
     "Light field": "Световой фон",
     "Soft light from the focused item's artwork behind Home": "Мягкий свет от обложки выбранного элемента за главным экраном",
+    "Light follows the time of day": "Свет следует за временем суток",
+    "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light": "Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет",
     "Ambient after": "Заставка через",
     "Idle time on an Arinn screen before the ambient screen appears": "Время бездействия на экране Arinn до появления заставки",
     "5 min": "5 мин",

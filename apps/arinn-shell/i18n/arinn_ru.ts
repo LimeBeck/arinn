@@ -1997,6 +1997,14 @@
         <translation>Световой фон</translation>
     </message>
     <message>
+        <source>Light follows the time of day</source>
+        <translation>Свет следует за временем суток</translation>
+    </message>
+    <message>
+        <source>Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light</source>
+        <translation>Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет</translation>
+    </message>
+    <message>
         <source>Soft light from the focused item&apos;s artwork behind Home</source>
         <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
     </message>

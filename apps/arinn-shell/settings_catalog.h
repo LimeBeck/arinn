@@ -45,6 +45,7 @@ class SettingsCatalog : public QObject {
   // (ADR-0112). Defaults until the daemon has answered; the last known value
   // while it is away.
   Q_PROPERTY(bool lightField READ lightField NOTIFY preferencesChanged)
+  Q_PROPERTY(bool lightFollowsTime READ lightFollowsTime NOTIFY preferencesChanged)
   Q_PROPERTY(int ambientTimeoutMinutes READ ambientTimeoutMinutes NOTIFY
                  preferencesChanged)
 public:
@@ -53,6 +54,7 @@ public:
   QVariantList categories() const { return m_categories; }
   QVariantList rows() const { return m_rows; }
   bool lightField() const { return m_lightField; }
+  bool lightFollowsTime() const { return m_lightFollowsTime; }
   int ambientTimeoutMinutes() const { return m_ambientMinutes; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
@@ -113,6 +115,7 @@ private:
   void syncDeferred();
   void readPreferences();
   bool m_lightField = true;
+  bool m_lightFollowsTime = true;
   int m_ambientMinutes = 10;
   QVariantList m_categories;
   QVariantList m_rows;

@@ -135,10 +135,18 @@ FocusScope {
         const step = row && row.constraints ? Number(row.constraints.step) : 1;
         return isFinite(step) && step >= 1 ? step : 1;
     }
+    // A save error is a daemon error code or a failed operation state; the
+    // code word never reaches the screen (§15).
     function daemonErrorText(code) {
         if (!code) return "";
         if (code === "Timeout") return qsTr("Arinn did not reply. Try again.");
-        return String(code);
+        if (code === "InvalidArgument") return qsTr("This value is not accepted.");
+        if (code === "Unavailable") return qsTr("The service is not available. Try again later.");
+        if (code === "Conflict") return qsTr("The settings changed. Try again.");
+        if (code === "NotFound") return qsTr("This setting is no longer available.");
+        if (code === "PermissionDenied") return qsTr("This setting cannot be changed.");
+        if (code === "Cancelled" || code === "cancelled") return qsTr("Saving was cancelled.");
+        return qsTr("Something went wrong. Try again.");
     }
     function detailLine(row) {
         if (!row) return "";

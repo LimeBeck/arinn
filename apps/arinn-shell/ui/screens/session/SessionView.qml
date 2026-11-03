@@ -41,7 +41,12 @@ FocusScope {
         if (operationState === "Timeout") return qsTr("The player did not answer in time.");
         if (operationState === "InvalidArgument") return qsTr("That position is not valid.");
         if (operationState === "Unavailable") return qsTr("The session is not available.");
-        return operationState;
+        if (operationState === "NotFound") return qsTr("The session has ended.");
+        if (operationState === "Conflict") return qsTr("The player changed. Try again.");
+        if (operationState === "PermissionDenied") return qsTr("That is not allowed.");
+        if (operationState === "Cancelled" || operationState === "cancelled") return qsTr("Cancelled.");
+        // Internal, a failed state or a code this shell does not know (§15).
+        return qsTr("Something went wrong. Try again.");
     }
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     readonly property real progressFraction: {

@@ -7,6 +7,7 @@
 #include <QDeadlineTimer>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QRegularExpression>
 #include <QSet>
 #include <QUuid>
@@ -18,6 +19,83 @@
 #include <limits>
 #include <time.h>
 namespace {
+// A track's language tag ("eng", "en", "pt-BR") as a language name in the
+// shell's language, so no raw tag reaches the screen (§15). Common
+// languages come from the catalogue; another language Qt knows gets its own
+// name ("Svenska"); a tag Qt does not know stays as sent.
+QString languageName(const QString &tag) {
+  const auto code = tag.section(QRegularExpression(QStringLiteral("[-_]")), 0, 0)
+                        .toLower();
+  if (code == QLatin1String("und"))
+    return QCoreApplication::translate("MediaCatalog", "Unknown language");
+  const auto language = code.isEmpty()
+                            ? QLocale::AnyLanguage
+                            : QLocale::codeToLanguage(code, QLocale::AnyLanguageCode);
+  switch (language) {
+  case QLocale::English:
+    return QCoreApplication::translate("MediaCatalog", "English");
+  case QLocale::Russian:
+    return QCoreApplication::translate("MediaCatalog", "Russian");
+  case QLocale::Ukrainian:
+    return QCoreApplication::translate("MediaCatalog", "Ukrainian");
+  case QLocale::Belarusian:
+    return QCoreApplication::translate("MediaCatalog", "Belarusian");
+  case QLocale::Kazakh:
+    return QCoreApplication::translate("MediaCatalog", "Kazakh");
+  case QLocale::German:
+    return QCoreApplication::translate("MediaCatalog", "German");
+  case QLocale::French:
+    return QCoreApplication::translate("MediaCatalog", "French");
+  case QLocale::Spanish:
+    return QCoreApplication::translate("MediaCatalog", "Spanish");
+  case QLocale::Italian:
+    return QCoreApplication::translate("MediaCatalog", "Italian");
+  case QLocale::Portuguese:
+    return QCoreApplication::translate("MediaCatalog", "Portuguese");
+  case QLocale::Dutch:
+    return QCoreApplication::translate("MediaCatalog", "Dutch");
+  case QLocale::Polish:
+    return QCoreApplication::translate("MediaCatalog", "Polish");
+  case QLocale::Czech:
+    return QCoreApplication::translate("MediaCatalog", "Czech");
+  case QLocale::Swedish:
+    return QCoreApplication::translate("MediaCatalog", "Swedish");
+  case QLocale::Finnish:
+    return QCoreApplication::translate("MediaCatalog", "Finnish");
+  case QLocale::NorwegianBokmal:
+    return QCoreApplication::translate("MediaCatalog", "Norwegian");
+  case QLocale::Danish:
+    return QCoreApplication::translate("MediaCatalog", "Danish");
+  case QLocale::Hungarian:
+    return QCoreApplication::translate("MediaCatalog", "Hungarian");
+  case QLocale::Greek:
+    return QCoreApplication::translate("MediaCatalog", "Greek");
+  case QLocale::Turkish:
+    return QCoreApplication::translate("MediaCatalog", "Turkish");
+  case QLocale::Arabic:
+    return QCoreApplication::translate("MediaCatalog", "Arabic");
+  case QLocale::Hebrew:
+    return QCoreApplication::translate("MediaCatalog", "Hebrew");
+  case QLocale::Hindi:
+    return QCoreApplication::translate("MediaCatalog", "Hindi");
+  case QLocale::Japanese:
+    return QCoreApplication::translate("MediaCatalog", "Japanese");
+  case QLocale::Chinese:
+    return QCoreApplication::translate("MediaCatalog", "Chinese");
+  case QLocale::Korean:
+    return QCoreApplication::translate("MediaCatalog", "Korean");
+  case QLocale::AnyLanguage:
+  case QLocale::C:
+    return tag;
+  default:
+    break;
+  }
+  const QLocale locale(language);
+  const auto name = locale.nativeLanguageName();
+  if (name.isEmpty())
+    return tag;
+  return locale.toUpper(name.left(1)) + name.mid(1);
+}
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 constexpr auto sessionPage =
@@ -253,15 +331,17 @@ bool MediaCatalog::timelineAvailable() const {
 }
 QVariantMap MediaCatalog::trackMap(const TrackRow &track) const {
   QStringList parts;
-  if (!track.language.isEmpty())
-    parts.append(track.language);
+  const auto language =
+      track.language.isEmpty() ? QString() : languageName(track.language);
+  if (!language.isEmpty())
+    parts.append(language);
   if (!track.codec.isEmpty())
     parts.append(track.codec);
   if (track.channels > 0)
     parts.append(QString::number(track.channels));
   auto label = track.label;
   if (label.isEmpty())
-    label = track.language.isEmpty() ? track.id : track.language;
+    label = language.isEmpty() ? track.id : language;
   return QVariantMap{{QStringLiteral("id"), track.id},
                      {QStringLiteral("label"), label},
                      {QStringLiteral("detail"), parts.join(QStringLiteral(" · "))}};

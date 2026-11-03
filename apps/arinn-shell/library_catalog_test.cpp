@@ -9,7 +9,9 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QSignalSpy>
+#include <QTranslator>
 #include <QTest>
 #include <QUuid>
 #include <QtDBus>
@@ -833,6 +835,18 @@ private slots:
                                   QStringLiteral("Other")}));
   }
   void catalogueSeriesMissingAndResume() {
+    // §15: the duration unit comes from the catalogue.
+    struct UnitTranslator : QTranslator {
+      bool isEmpty() const override { return false; }
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (qstrcmp(context, "LibraryCatalog") == 0 && qstrcmp(source, "%1 min") == 0)
+          return QStringLiteral("%1 мин");
+        return {};
+      }
+    } units;
+    QVERIFY(QCoreApplication::installTranslator(&units));
+    const auto removeUnits = qScopeGuard([&] { QCoreApplication::removeTranslator(&units); });
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
                            QStringLiteral("film")},
@@ -905,7 +919,7 @@ private slots:
     QCOMPARE(episodes.at(0).toMap().value(QStringLiteral("title")).toString(),
              QStringLiteral("Pilot"));
     QCOMPARE(episodes.at(0).toMap().value(QStringLiteral("duration")).toString(),
-             QStringLiteral("40 min"));
+             QStringLiteral("40 мин"));
     QCOMPARE(episodes.at(0).toMap().value(QStringLiteral("seasonId")).toString(),
              QStringLiteral("s1"));
     QCOMPARE(episodes.at(0).toMap().value(QStringLiteral("number")).toInt(), 1);

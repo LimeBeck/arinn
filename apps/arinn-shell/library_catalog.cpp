@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "library_catalog.h"
+#include <QLocale>
 #include "asset_images.h"
 #include <QDeadlineTimer>
 #include <QHash>
@@ -45,9 +46,13 @@ QString formatDuration(qint64 us) {
   if (us < 0)
     return {};
   const auto seconds = us / 1000000;
+  // The unit through the catalogue and the number in the locale's format
+  // (§15).
   if (seconds < 60)
-    return QString::number(seconds) + QStringLiteral(" s");
-  return QString::number(seconds / 60) + QStringLiteral(" min");
+    return QCoreApplication::translate("LibraryCatalog", "%1 s")
+        .arg(QLocale().toString(seconds));
+  return QCoreApplication::translate("LibraryCatalog", "%1 min")
+      .arg(QLocale().toString(seconds / 60));
 }
 QString errorCode(const QDBusMessage &reply) {
   auto name = reply.errorName();

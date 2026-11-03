@@ -4,7 +4,9 @@
 [Desktop Entry]
 Type=Application
 Name=Return to Arinn
+Name[ru]=Вернуться в Arinn
 Comment=Log out; the next login starts the Arinn TV session
+Comment[ru]=Выйти из системы; при следующем входе запустится ТВ-сеанс Arinn
 Icon=org.arinn.Shell
 Exec=/usr/lib/arinn/arinn-session-switch arinn --prompt
 Terminal=false

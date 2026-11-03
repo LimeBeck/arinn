@@ -1201,8 +1201,10 @@ FocusScope {
                                         anchors.right: parent.right
                                         anchors.bottom: parent.bottom
                                         text: modelData.title || ""
+                                        font.family: Ui.Theme.contentFontFamily
                                         font.pixelSize: 26
                                         font.weight: 600
+                                        font.features: ({ "tnum": 1, "lnum": 1 })
                                         maximumLineCount: 3
                                         elide: Text.ElideRight
                                     }
@@ -1693,6 +1695,7 @@ FocusScope {
                                                 font.family: Ui.Theme.contentFontFamily
                                                 font.pixelSize: 30
                                                 font.weight: 600
+                                                font.features: ({ "tnum": 1, "lnum": 1 })
                                                 lineHeight: 1.15
                                                 color: still.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
                                                 wrapMode: Text.WordWrap

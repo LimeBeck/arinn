@@ -3,7 +3,7 @@
 
 # Hearth light prototype
 
-The interactive answer to the [Hearth light brief](../../briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)). The owner accepted the direction on 2026-11-02 ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)); the defaults are the owner's decisions, and the review panel keeps the rejected alternatives for comparison. It shows the accepted visual direction next to the current look, with synthesised interface sounds. It is a design reference for the shell implementation, not shell code; the historical handoff stays unchanged.
+The interactive answer to the [Hearth light brief](../../briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)). The owner accepted the direction on 2026-11-02 ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)); the defaults are the owner's decisions, and the review panel keeps the rejected alternatives for comparison. It shows the accepted visual direction next to the current look, with synthesised interface sounds. It is a design reference for the shell implementation, not shell code; the historical handoff stays unchanged. The shell's content-title face is Playfair Display 600 ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md)). This prototype keeps `ysabeau` as the font-lab default; `?font=playfair` is the shipped face. Ysabeau and Literata are not content-title faces in the shell.
 
 Serve the repository root, then open the prototype:
 

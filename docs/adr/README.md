@@ -149,5 +149,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 | [0133](0133-sentry-noise-and-stable-grouping.md) | Less Sentry noise and grouping that survives edits | Accepted | — |
 | [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
-| [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | — |
+| [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | 0137 |
+| [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
 <!-- register:end -->

@@ -124,11 +124,12 @@ from titles. `kind` may be `film` or `series` for the detail eyebrow only.
 | `launchingId` | Presentation id of the item whose launch is in progress |
 | `columns` | Poster columns. `0` uses the seven-column frame; a positive value overrides it |
 
-`noArt` draws a plate with a film glyph and the title (handoff §05, *Missing
-artwork*). The bound catalogue sets it when the poster id is empty. An entry
+`noArt` draws a plate with a film glyph and the title in the content face,
+Playfair Display 600 (handoff §05, *Missing artwork*;
+[ADR-0137](../adr/0137-playfair-display-for-content-titles.md)). The bound catalogue sets it when the poster id is empty. An entry
 without an `artwork` URL shows the same plate, and a poster URL shows it
 until the image is ready, and leaves it there when the image does not arrive.
-An episode still without a ready image is a numbered title card on Charcoal: the number in the content face at 76 px, the title at 30 px. The caption under it then shows only the duration. Down from the action lands on the selected season, then on the first episode with progress. Focusing the rail moves it to y 180, dims the copy to 0.18 and the backdrop to brightness 0.45 ([#725](https://github.com/LimeBeck/arinn/issues/725)). `fanart` is the
+An episode still without a ready image is a numbered title card on Charcoal: the number in the content face at 76 px, the title in the same face at 30 px. The caption under it then shows only the duration. Down from the action lands on the selected season, then on the first episode with progress. Focusing the rail moves it to y 180, dims the copy to 0.18 and the backdrop to brightness 0.45 ([#725](https://github.com/LimeBeck/arinn/issues/725)). `fanart` is the
 detail backdrop URL. Without one, the coloured stand-in stays. The view never
 paints the prototype's `poster`, `backdrop` or `still` labels (#610).
 

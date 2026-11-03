@@ -19,7 +19,7 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours (the Hearth light palette: Charcoal `#0F1115`, warm day text, `chip`, `mat`, `rim`, `hearth` and the pool centre, plus `nightText1..3` and `eveningText3`), radii, timing, fonts and named typography roles. Onest for system text and Ysabeau for `hero` (96/600), `detailTitle` (104/600) and `display` (220/600, the Ambient clock face), with tabular numerals and, on content roles, lining figures. Each weight is applied to the font's `wght` axis (see *Font weights*). Eyebrows are sentence case (26/500). Page titles are Onest 56/600 with no negative tracking. `fitSteps` (`[[size, lines], …]`) fits a content title: the first step whose rendered text is not elided wins, and `fitStep` reports it. `fit()` writes `fittedPixelSize` and `fittedLineCount`; `font.pixelSize` and `maximumLineCount` stay bound to those properties, so a later text or font change is measured again and clearing the steps returns the role size ([ADR-0136](../adr/0136-hearth-light-visual-direction.md), [#722](https://github.com/LimeBeck/arinn/issues/722)) |
+| `Theme`, `UiText` | Shared colours (the Hearth light palette: Charcoal `#0F1115`, warm day text, `chip`, `mat`, `rim`, `hearth` and the pool centre, plus `nightText1..3` and `eveningText3`), radii, timing, fonts and named typography roles. Onest for system text and Playfair Display for `hero` (96/600), `detailTitle` (104/600) and `display` (220/600, the Ambient clock face), with tabular numerals and, on content roles, lining figures. Each weight is applied to the font's `wght` axis (see *Font weights*). Eyebrows are sentence case (26/500). Page titles are Onest 56/600 with no negative tracking. `fitSteps` (`[[size, lines], …]`) fits a content title: the first step whose rendered text is not elided wins, and `fitStep` reports it. `fit()` writes `fittedPixelSize` and `fittedLineCount`; `font.pixelSize` and `maximumLineCount` stay bound to those properties, so a later text or font change is measured again and clearing the steps returns the role size ([ADR-0136](../adr/0136-hearth-light-visual-direction.md), [ADR-0137](../adr/0137-playfair-display-for-content-titles.md), [#722](https://github.com/LimeBeck/arinn/issues/722)) |
 | `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface`, `FocusRing` | Focus, press, disabled and busy treatment. `shapeRole` selects the plate: content and containers have none at rest, actions use `plateAction` (primary `platePrimary`), objects use `plateObject`. Content and objects focus at scale 1.04 from the bottom edge, lifted 8 px. `FocusRing` is the 2 px rim (`rimBottom` to `rimTop`), not a white ring; Settings category, row, path, remove and add use it with an 8% plate. `activated()` intent |
@@ -118,27 +118,30 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 
-Ysabeau, the content-title face of the Hearth light direction
-([ADR-0136](../adr/0136-hearth-light-visual-direction.md), D-2), is bundled
-unchanged as `ui/fonts/Ysabeau.ttf` from the Google Fonts `ofl/ysabeau`
-directory (`Ysabeau[wght].ttf`, SHA-256
-`aa6df9f1f6cb1180f7c00fffb5ae2734ba66aa5f58defd173a9247ca11dffcf4`):
-[font source](https://github.com/google/fonts/tree/main/ofl/ysabeau),
-[upstream project](https://github.com/CatharsisFonts/Ysabeau).
-Copyright 2023 The Ysabeau Project Authors. License: SIL Open Font License 1.1,
-in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`. The owner
-approved bundling this face; the pull request that adds the file still needs
-the owner's review. It is a variable font with a `wght` axis and is weighted
-through the same `Theme.applyWeight` path as Onest. Its default figures are
-old-style, so the content roles turn on the `lnum` feature. The `display`
-role is this face at 220/600 for the Ambient clock. The Ambient screen still
-draws its handoff clock at 160/500 until that screen's own task; the settings
-integer readout keeps Onest 112/700 and does not use `display`.
+Playfair Display, the content-title face
+([ADR-0137](../adr/0137-playfair-display-for-content-titles.md), revising
+[ADR-0136](../adr/0136-hearth-light-visual-direction.md) D-2), is bundled
+unchanged as `ui/fonts/PlayfairDisplay.ttf` from the Google Fonts
+`ofl/playfairdisplay` directory (`PlayfairDisplay[wght].ttf`, SHA-256
+`c40f2293766a503bc70cce9e512ef844a4ccb7cbcde792fe2ea31d191917d8d6`):
+[font source](https://github.com/google/fonts/tree/main/ofl/playfairdisplay),
+[upstream project](https://github.com/clauseggers/Playfair-Display).
+Copyright 2017 The Playfair Display Project Authors. License: SIL Open Font
+License 1.1, in `LICENSES/OFL-1.1.txt`, with the binary annotated in
+`REUSE.toml` the same way as Onest. The owner approved this face; the pull
+request that adds the file still needs the owner's review. It is a variable
+font with a `wght` axis from 400 to 900 (default 400; SemiBold is 600) and is
+weighted through the same `Theme.applyWeight` path as Onest. Content roles
+request `lnum` and `tnum`. The face has lining figures and no tabular-figures
+feature, so `tnum` does not change it. Ysabeau is no longer bundled. The
+`display` role is this face at 220/600 for the Ambient clock. The Ambient
+screen still draws its handoff clock at 160/500 until that screen's own task;
+the settings integer readout keeps Onest 112/700 and does not use `display`.
 
 ## Font weights
 
 Onest is a variable font: one face with a `wght` axis from 100 to 900 and
-named instances. Ysabeau, used by the content roles, is weighted the same way. Qt does not match those instances by `font.weight` for an
+named instances. Playfair Display, used by the content roles, is weighted the same way. Qt does not match those instances by `font.weight` for an
 application font. In the Qt 6.10.2 dev container and in CI on Arch with
 Qt 6.12.0 (offscreen, fontconfig), every `font.weight` and
 `font.styleName` rendered as the default 400, while
@@ -198,7 +201,7 @@ lists only services without a card of their own, matched by `serviceId`, never b
 title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
 a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
-([#364](https://github.com/LimeBeck/arinn/issues/364)). The title is Ysabeau and
+([#364](https://github.com/LimeBeck/arinn/issues/364)). The title is Playfair Display 600 and
 fits in steps, 96 px on one line or 68 px on two
 ([#722](https://github.com/LimeBeck/arinn/issues/722)). The block starts at y 150
 and the title slot is two lines at 68 px, bottom-aligned, so a one-line title

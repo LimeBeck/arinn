@@ -104,7 +104,7 @@ The image of the hearth is a metaphor, not an illustration.
 A clean, modern, highly legible family for system text, and a warmer face with a hand for content titles.
 
 - **System text: Onest.** High legibility on a TV, good Cyrillic, an expressive semibold for headings and a calm regular for secondary text, without a techno or futuristic character.
-- **Content titles: Ysabeau** (OFL-1.1, full Cyrillic), a humanist sans-serif with calligraphic forms, weight 600, lining figures: the hero, the detail title, the player title, episode title cards and the Ambient clock. A film's name written with a hand, next to plain system text, is the most recognisable typographic trait of Arinn. Book serifs are avoided: set large they look like a printed document.
+- **Content titles: Playfair Display** (OFL-1.1, Latin and Cyrillic), weight 600, lining figures: the hero, the detail title, the player title, episode title cards, the title card and plate without artwork, and the Ambient clock. A film's name in this display serif, next to plain system text, is the typographic trait of Arinn. Literata is not used for content titles. Owner decision on 2026-11-03 ([#751](https://github.com/LimeBeck/arinn/issues/751), [ADR-0137](../../adr/0137-playfair-display-for-content-titles.md)).
 - No uppercase letter-spaced eyebrows. Hierarchy comes from size and family, not from bold against extra bold.
 
 The wordmark Arinn uses the same visual language; a small customisation is allowed later.

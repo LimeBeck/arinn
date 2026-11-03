@@ -5,9 +5,9 @@ import QtQuick
 import QtTest
 import "../../apps/arinn-shell/ui" as Ui
 
-// Hearth light typography (ADR-0136, #722): content titles in Ysabeau with
-// lining figures, system text in Onest, sentence-case eyebrows, and content
-// titles that fit in steps instead of eliding at their largest size.
+// Content titles in Playfair Display 600 with lining figures, system text
+// in Onest (ADR-0137, #751). Sentence-case eyebrows, and content titles
+// that fit in steps instead of eliding at their largest size.
 TestCase {
     id: suite
     name: "Typography"
@@ -34,8 +34,9 @@ TestCase {
     }
 
     function test_content_face_loads() {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
-        verify(Ui.Theme.contentFontFamily.length > 0);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
+        compare(Ui.Theme.playfair.name, "Playfair Display");
+        compare(Ui.Theme.contentFontFamily, "Playfair Display");
         verify(Ui.Theme.contentFontFamily !== Ui.Theme.fontFamily);
         compare(Ui.Theme.background, "#0f1115");
         compare(Ui.Theme.ember, "#ff8a3d");
@@ -63,6 +64,7 @@ TestCase {
         compare(item.font.pixelSize, data.size);
         compare(item.font.weight, 600);
         compare(item.font.letterSpacing, 0);
+        compare(item.font.variableAxes["wght"], 600);
         // Lining figures: a year or a clock never uses old-style figures.
         compare(item.font.features["lnum"], 1);
         compare(item.font.features["tnum"], 1);
@@ -87,9 +89,9 @@ TestCase {
     }
 
     // The heavier content weight draws more ink than 400: the wght axis
-    // reaches Ysabeau as it reaches Onest (#546).
+    // reaches Playfair Display as it reaches Onest (#546).
     function test_content_weight_reaches_the_axis() {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
         const regular = make({role: "hero", text: "Hamburgefonstiv", wrapMode: Text.NoWrap});
         regular.font.weight = 400;
         const heavy = make({role: "hero", text: "Hamburgefonstiv", wrapMode: Text.NoWrap, y: 200});
@@ -106,7 +108,7 @@ TestCase {
         ];
     }
     function test_hero_fits_in_steps(data) {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
         const item = make({role: "hero", width: 1300, elide: Text.ElideRight,
                            fitSteps: [[96, 1], [68, 2]], text: data.text});
         compare(item.fitStep, data.step);
@@ -123,7 +125,7 @@ TestCase {
         ];
     }
     function test_detail_fits_in_steps(data) {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
         const item = make({role: "detailTitle", width: 1140, elide: Text.ElideRight,
                            fitSteps: [[104, 2], [80, 3]], text: data.text});
         compare(item.fitStep, data.step);
@@ -134,7 +136,7 @@ TestCase {
 
     // A later, shorter title goes back to the largest step.
     function test_fit_returns_to_the_largest_step() {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
         const item = make({role: "hero", width: 1300, elide: Text.ElideRight, fitSteps: [[96, 1], [68, 2]],
                            text: "Путешествие на край долгой ночи и обратно"});
         compare(item.font.pixelSize, 68);
@@ -173,7 +175,7 @@ TestCase {
     // bound to those, and a caller's line-count binding stays bound to its
     // source. Changing the text measures again through the same bindings.
     function test_fit_keeps_the_size_and_line_bindings() {
-        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        tryCompare(Ui.Theme.playfair, "status", FontLoader.Ready);
         const item = make({role: "hero", width: 1300, elide: Text.ElideRight,
                            fitSteps: [[96, 1], [68, 2]],
                            text: "Путешествие на край долгой ночи и обратно"});

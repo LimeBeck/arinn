@@ -5,7 +5,7 @@
 
 A visual identity pass that makes Arinn recognisable without giving up anything a living-room interface needs. Issue [#721](https://github.com/LimeBeck/arinn/issues/721).
 
-**Status:** accepted by the owner on 2026-11-02 (decisions D-1…D-10 below; [ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)). Proposed earlier the same day. On 2026-11-02 the owner reviewed the design review below, approved every proposal and asked the agent to act as the designer. This brief and the [Hearth light prototype](../../prototypes/hearth-light/README.md) are the designer's answer. The owner's answers are recorded in [*Owner decisions*](#owner-decisions). A second round on 2026-11-02 followed the designer's own review of the first prototype (see [*Second round*](#second-round)); the owner's first reaction was that the startup animation works. The historical handoff and Brand Guide v0.1 stay unchanged. With the owner's acceptance this brief and the prototype amend the handoff as the visual contract ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md), amending [ADR-0019](../../../adr/0019-design-handoff-contract.md)); [Brand Guide v0.2](../../brand/brand-guide-v0.2.md) and [specification §15](../../../specifications/arinn-specification.md#15-design-contract) carry the decisions. The shell is changed by separate implementation tasks.
+**Status:** accepted by the owner on 2026-11-02 (decisions D-1…D-10 below; [ADR-0136](../../../adr/0136-hearth-light-visual-direction.md)). Proposed earlier the same day. On 2026-11-02 the owner reviewed the design review below, approved every proposal and asked the agent to act as the designer. This brief and the [Hearth light prototype](../../prototypes/hearth-light/README.md) are the designer's answer. The owner's answers are recorded in [*Owner decisions*](#owner-decisions). A second round on 2026-11-02 followed the designer's own review of the first prototype (see [*Second round*](#second-round)); the owner's first reaction was that the startup animation works. The historical handoff and Brand Guide v0.1 stay unchanged. With the owner's acceptance this brief and the prototype amend the handoff as the visual contract ([ADR-0136](../../../adr/0136-hearth-light-visual-direction.md), amending [ADR-0019](../../../adr/0019-design-handoff-contract.md)); [Brand Guide v0.2](../../brand/brand-guide-v0.2.md) and [specification §15](../../../specifications/arinn-specification.md#15-design-contract) carry the decisions. The shell is changed by separate implementation tasks. **Content titles, revised 2026-11-03:** Playfair Display 600, including the title card and plate without artwork. Literata is not used. UI text stays Onest ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md), [#751](https://github.com/LimeBeck/arinn/issues/751)). The typography table below is the current face list. Earlier sentences that name Ysabeau or Literata as the chosen face record the 2026-11-02 review.
 
 ## Problem
 
@@ -45,7 +45,7 @@ They confirm the diagnosis and add constraints that synthetic fixtures hide:
 | Real artwork is bright, saturated and busy (animation, illustrated posters). Captions overlaid on a gradient become hard to read on light artwork. | Captions go **below** the image (shape roles). The Ember line gets a 2 px Charcoal band above it, so it stays visible on light artwork. The row light (other rows at 0.62) keeps bright artwork from competing with the focused item. |
 | The colour light field turns the whole screen one hue (a green cast across Home). | The floor light stays low and capped in chroma; the room keeps its warm floor under any artwork. |
 | Long titles are common. The Home hero cuts them to one line with an ellipsis, and the detail title is cut after two lines. | The hero has a fixed height and fits the title in steps: 96 on one line, otherwise 68 on two. The detail title steps from 104 (two lines) to 80 (three). The prototype measures the text, not its length (screenshots 12 and 14). |
-| A poster without artwork shows a letter monogram on a plate. | A missing poster becomes a **title card**: the title in Ysabeau on a Charcoal card (screenshot 13). It reads as a deliberate book cover, not a broken image. |
+| A poster without artwork shows a letter monogram on a plate. | A missing poster becomes a **title card**: the title in Playfair Display 600 on a Charcoal card (screenshot 13). It reads as a deliberate cover, not a broken image. |
 | Episodes without their own stills repeat the series image on every card. | When episode stills are missing, the rail uses title cards with the episode number, not the same image repeated. |
 | Favourites mix provider icons, letter monograms and a search glyph; long names wrap to two lines inside tiles. | Every icon sits in the same neutral chip. On the shelf, a name is one line, at most 360 px, with an ellipsis (the prototype has one such name). |
 | Metadata is often sparse: a year and a synopsis, no runtime, rating or genre. | Layouts must not depend on the meta line being full. The content title and the light carry the screen when the meta line is short. |
@@ -68,7 +68,7 @@ In the A1 mark the Ember dot sits at the base of the letter. The light of a hear
 
 1. **Light from below.** A low, warm floor light is the atmosphere of every content screen. The focused item stands in a pool of that light, which follows focus along the floor.
 2. **The lit row, the dark room.** The row in focus is in the light, the other rows recede. The rest of the screen is not covered with plates. Containers are dark until focus reaches them.
-3. **Content titles have a hand, system text does not.** Film and series titles are set in Ysabeau, a sans-serif with calligraphic forms, so a name reads like it was written for that film. Menus, settings and labels stay in Onest. (The first round used the book serif Literata; see *Font lab*.)
+3. **Content titles have a hand, system text does not.** Film and series titles are set in Playfair Display 600, so a name reads as a title. Menus, settings and labels stay in Onest. (The first round used the book serif Literata, then Ysabeau; see *Font lab*. Both are retired for this role.)
 4. **Colour belongs to content and light.** Artwork brings colour. An application without artwork gives its identity hue to the light, not to a pastel square.
 5. **One Ember.** Orange stays rare: running, progress, current section, done, toggle on, and the startup ignition. It is never a fill and never a focus colour.
 
@@ -80,7 +80,7 @@ The [prototype](../../prototypes/hearth-light/README.md) switches between these 
 
 | Variant | Light | Content titles | Shapes and plates | Monograms | Focus | Favourites |
 | --- | --- | --- | --- | --- | --- | --- |
-| **A. Hearth light** (recommended) | Floor light + pool | Ysabeau (first round: Literata) | Three roles, no rest plates on containers | Neutral | Rim light from below | Text shelf |
+| **A. Hearth light** (recommended) | Floor light + pool | Playfair Display 600 (first rounds: Literata, then Ysabeau) | Three roles, no rest plates on containers | Neutral | Rim light from below | Text shelf |
 | A′. Hearth light, Source Serif | as A | Source Serif 4 | as A | as A | as A | as A |
 | B. Hearth light, sans | as A | Onest 600 | as A | as A | as A | as A |
 | C. Calm (conservative) | Current glow | Onest 700 | Three roles, no rest plates | Neutral | White ring | Tiles |
@@ -140,16 +140,16 @@ Contrast stays within the ratios above in every period. The shell uses its own c
 
 ### Typography
 
-- **Content titles** (hero, detail, player title, episode title cards, Ambient clock): **Ysabeau**, weight 600, no tracking, sentence case, lining figures. Ysabeau is a humanist sans-serif with calligraphic forms, full Cyrillic, licensed OFL-1.1, and a variable `wght` axis; the shell needs the same `wght`-axis handling as Onest (#546). It keeps the warmth the serif was chosen for without the look of a printed document.
+- **Content titles** (hero, detail, player title, episode title cards, the title card and plate without artwork, Ambient clock): **Playfair Display**, weight 600, no tracking, sentence case, lining figures. Latin and Cyrillic. Licensed OFL-1.1, with a variable `wght` axis; the shell uses the same `wght`-axis handling as Onest (#546). Ysabeau and Literata are not content-title faces ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md)).
 - **System text** stays **Onest**. Page titles of system screens (Library, Applications, Settings) are Onest 600 at 56 with no negative tracking, so they stop looking heavier than the hero.
 - **No uppercase eyebrows.** The eyebrow becomes sentence case, Onest 500 26, `text-2`, and carries an Ember dot only when something is running.
 - Hierarchy comes from size and family, not from bold versus extra bold.
 
 | Role | Family | Size / weight / tracking |
 | --- | --- | --- |
-| display (Ambient clock) | Ysabeau | 220 / 600 / 0, lining figures |
-| hero | Ysabeau | 96 / 600 / 0 |
-| detail title | Ysabeau | 104 / 600 / 0 |
+| display (Ambient clock) | Playfair Display | 220 / 600 / 0, lining figures |
+| hero | Playfair Display | 96 / 600 / 0 |
+| detail title | Playfair Display | 104 / 600 / 0 |
 | page title | Onest | 56 / 600 / 0 |
 | section | Onest | 30 / 600 / 0 |
 | body, control | Onest | 30 / 400 or 600 / 0 |
@@ -197,7 +197,7 @@ The prototype covers these. Measurements are for the 1920 × 1080 canvas.
 ### Home
 
 - **Top bar** (y 56): mark 36 + "Arinn" Onest 600 30, **without a pill plate**. Status on the right without plates: Ember ↓ + "82 %", Wi-Fi, clock 30/500.
-- **Hero** (x 120, y 150, fixed height 240): eyebrow "Film · 2024" or "Series · S1 E4", or Ember dot + "Running now"; title Ysabeau 96 on one line or 68 on two; meta 28 right under the title. Nothing below the hero moves when the title changes. It describes the focused item, never repeating the row label above it. The current duplicate "CONTINUE" / "Continue" disappears.
+- **Hero** (x 120, y 150, fixed height 240): eyebrow "Film · 2024" or "Series · S1 E4", or Ember dot + "Running now"; title Playfair Display 96 on one line or 68 on two; meta 28 right under the title. Nothing below the hero moves when the title changes. It describes the focused item, never repeating the row label above it. The current duplicate "CONTINUE" / "Continue" disappears.
 - **Continue** (label y 404; one activity plus at most four resumable entries, spec §5.1): 16:9 cards 448 × 252, r12, gap 32, caption below (title 28/600, subtitle 24/500), Ember line along the bottom of the image.
 - **Favourites as a shelf** (label y 836): names in a line, Onest 600 32, items 88 high with 28 px side padding and a 28 px gap; provider icons in a neutral chip 56, no letter chips (D-10). At rest `text-2` and no plates. In focus a container plate with the rim, and the pool moves under it. A running application has an Ember dot after its name. It replaces the row of identical 264 × 132 tiles, reads like the names on a shelf and takes half the height (D-3).
 - **New**: posters 180 × 270, r10. Its label peeks at the bottom edge. Focusing it scrolls the page and hides the hero, as now.
@@ -213,14 +213,14 @@ Title Onest 600 56. Text tabs: selected = `text-1` + Ember dot under the label; 
 
 ### Detail
 
-Full-bleed backdrop with the current scrims; floor light at 50 %. Eyebrow, Ysabeau 104 title, meta, a synopsis of three lines at most. Actions: primary pill "Continue from 1:13:42", secondary pills with a 7 % plate. Ember fill on a faint 360 × 4 track + "1 h 32 min left".
+Full-bleed backdrop with the current scrims; floor light at 50 %. Eyebrow, Playfair Display 104 title, meta, a synopsis of three lines at most. Actions: primary pill "Continue from 1:13:42", secondary pills with a 7 % plate. Ember fill on a faint 360 × 4 track + "1 h 32 min left".
 
 **Series** (handoff 07): the copy sits at y 180 with the primary action "Continue · S1 E4" and the season rail below it. Rules for the rail:
 
 - Down from the action lands on the *selected* season tab, then on the *current* episode the first time, not on the first one.
 - Focusing the rail moves the page up so the rail sits at y 180, dims the copy to 0.18 and the backdrop to brightness 0.45, so episode captions stay readable over bright artwork.
 - Episode stills are 420 × 236, r12, with a check badge when watched and the Ember line on the current one.
-- **An episode without its own still is a numbered title card**: the number in Ysabeau 76 at the top, the title in Ysabeau 30 at the bottom, on Charcoal. The caption under it then shows only the duration, because the card already names the episode. The series image is never repeated on every card (screenshot 33).
+- **An episode without its own still is a numbered title card**: the number in Playfair Display 76 at the top, the title in Playfair Display 30 at the bottom, on Charcoal. The caption under it then shows only the duration, because the card already names the episode. The series image is never repeated on every card (screenshot 33).
 - Back from the rail returns to the primary action; the next Back leaves the detail.
 
 ### Applications
@@ -229,11 +229,11 @@ Groups as rows of object tiles 300 × 168 (r18, chip 64, name 30/600) with the i
 
 ### Player OSD
 
-Ysabeau title top left. Timeline: 4 px track at 20 % white, Ember fill, knob only in focus. **One play/pause control**, previous and next as round icon buttons, then the subtitle and audio chips. The current capability-dump row (Play, Pause, Play/Pause, Seek, …) is an implementation deviation to fix separately. While media plays, navigating the OSD is silent (see *Sound*).
+Playfair Display title top left. Timeline: 4 px track at 20 % white, Ember fill, knob only in focus. **One play/pause control**, previous and next as round icon buttons, then the subtitle and audio chips. The current capability-dump row (Play, Pause, Play/Pause, Seek, …) is an implementation deviation to fix separately. While media plays, navigating the OSD is silent (see *Sound*).
 
 ### Ambient
 
-The signature screen. Black (`#07080A`), a very low hearth light at the lower left that breathes over 14 s (opacity 0.85 ↔ 1, under the threshold of noticing). Ysabeau 220 clock at the lower left, the date in Onest 30, Ember dot + "<application> is paused". The block drifts by up to 24 px every minute against burn-in. At night everything sits at 55 %.
+The signature screen. Black (`#07080A`), a very low hearth light at the lower left that breathes over 14 s (opacity 0.85 ↔ 1, under the threshold of noticing). Playfair Display 220 clock at the lower left, the date in Onest 30, Ember dot + "<application> is paused". The block drifts by up to 24 px every minute against burn-in. At night everything sits at 55 %.
 
 ### Startup: ignition
 
@@ -311,11 +311,13 @@ The agent does not decide these ([ADR-0037](../../../adr/0037-agent-autonomy-and
 | D-9 | Applications | Tiles with identity light · shelf · plain tiles | **Tiles with identity light** | **Tiles with identity light** |
 | D-10 | Letter monograms on the favourites shelf | Provider icons only · letters too | **Icons only** | **Icons only** |
 
+D-2 was revised on 2026-11-03. Content titles, including the title card and plate without artwork, use **Playfair Display 600**. Literata is not kept for that plate. Onest stays the UI face ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md), [#751](https://github.com/LimeBeck/arinn/issues/751)). The row above records the 2026-11-02 answer.
+
 ### Proposed brand guide text (D-6)
 
 Brand Guide v0.1 is a historical source and is not edited. An accepted D-6 adds a v0.2 next to it, replacing section 5 with:
 
-> The interface is a dark, quiet room with one warm light low in it. Content screens are lit from below: a warm floor light, and a pool of light under the item in focus. Containers stay dark until focus reaches them; the focused row is lit, the rest of the room recedes. Content titles are set in a face with a hand (Ysabeau), system text in a plain sans-serif (Onest). Colour comes from content and from the light, never from decoration. Large, readable elements, horizontal rows and an obvious focus remain.
+> The interface is a dark, quiet room with one warm light low in it. Content screens are lit from below: a warm floor light, and a pool of light under the item in focus. Containers stay dark until focus reaches them; the focused row is lit, the rest of the room recedes. Content titles are set in a face with a hand (Ysabeau; revised 2026-11-03 to Playfair Display, [ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md)), system text in a plain sans-serif (Onest). Colour comes from content and from the light, never from decoration. Large, readable elements, horizontal rows and an obvious focus remain.
 
 and the last sentence of section 15 with:
 
@@ -342,14 +344,14 @@ After the first prototype the designer reviewed it at sofa scale (screenshots re
 
 ### Font lab
 
-After accepting the direction the owner found Literata on Home odd, "like my coursework": a book serif set large reads like a printed document. The prototype gained a switch for the content-title face (review panel, `font=` parameter) with twelve OFL-1.1 faces with Cyrillic: Literata, Playfair Display, Prata, Cormorant Garamond, Bona Nova, Brygada 1918, Piazzolla, Ysabeau, Tenor Sans, Jost, Geologica and Onest. They were compared on the Home hero, a long title, the detail screen and the Ambient clock. The book serifs (Literata, Brygada 1918, Cormorant Garamond) share the problem; Playfair Display and Prata read as cinema posters but are common in glossy print; Jost and Geologica lose most of the difference from Onest; Tenor Sans is too thin from the sofa. **Ysabeau** keeps the warmth and the hand without the document look, and pairs with Onest as two sans-serifs of different temperament. The owner chose it (D-2).
+After accepting the direction the owner found Literata on Home odd, "like my coursework": a book serif set large reads like a printed document. The prototype gained a switch for the content-title face (review panel, `font=` parameter) with twelve OFL-1.1 faces with Cyrillic: Literata, Playfair Display, Prata, Cormorant Garamond, Bona Nova, Brygada 1918, Piazzolla, Ysabeau, Tenor Sans, Jost, Geologica and Onest. They were compared on the Home hero, a long title, the detail screen and the Ambient clock. The book serifs (Literata, Brygada 1918, Cormorant Garamond) share the problem; Playfair Display and Prata read as cinema posters but are common in glossy print; Jost and Geologica lose most of the difference from Onest; Tenor Sans is too thin from the sofa. **Ysabeau** keeps the warmth and the hand without the document look, and pairs with Onest as two sans-serifs of different temperament. The owner chose it (D-2). On 2026-11-03 the owner replaced that choice: content titles, including the title card without artwork, use Playfair Display 600, and Literata is not used there ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md)).
 
 ## After acceptance
 
 1. Done in [#721](https://github.com/LimeBeck/arinn/issues/721): the owner's decisions above, [ADR-0136](../../../adr/0136-hearth-light-visual-direction.md), [Brand Guide v0.2](../../brand/brand-guide-v0.2.md) and the specification (§5, §5.6, §15).
 2. This brief and the prototype are the visual contract for the areas they cover; the historical handoff applies to everything else.
 3. Implementation tasks, each with its own issue and the existing UI comparison (`scripts/ui-compare.py`):
-    - tokens and typography (`Theme.qml`, `UiText.qml`, Ysabeau as a resource, `REUSE.toml` entry, owner-gated);
+    - tokens and typography (`Theme.qml`, `UiText.qml`, the content-title face as a resource, `REUSE.toml` entry, owner-gated); the face is Playfair Display ([ADR-0137](../../../adr/0137-playfair-display-for-content-titles.md));
     - the light system (`AmbientGlow.qml` → floor + pool + cast);
     - shape roles, captions below the image, the Ember line;
     - focus: rim, lift from the bottom edge, row light;

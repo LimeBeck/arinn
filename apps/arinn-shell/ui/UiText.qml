@@ -7,7 +7,7 @@ Text {
     id: uiText
     // Named roles keep action labels at least 26 logical pixels.
     // [pixel size, weight, letter spacing, content face]. Content titles use
-    // Ysabeau; everything else stays Onest (ADR-0136, D-2). Eyebrows are
+    // Playfair Display; everything else stays Onest (ADR-0137). Eyebrows are
     // sentence case: the role does not space letters out for capitals.
     property string role: "body"
     readonly property var typography: ({
@@ -49,8 +49,9 @@ Text {
     maximumLineCount: fittedLineCount >= 0 ? fittedLineCount : 2147483647
     font.weight: metrics[1]
     font.letterSpacing: metrics[2]
-    // Lining figures for content titles: Ysabeau's default figures are
-    // old-style, which a clock or a year must not use.
+    // Lining figures for content titles. A clock or a year must not use
+    // old-style figures. Playfair Display has lnum; it has no tnum feature,
+    // so the tabular request is a no-op on this face (ADR-0137).
     font.features: contentFace ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
     color: Theme.textPrimary
     wrapMode: Text.WordWrap

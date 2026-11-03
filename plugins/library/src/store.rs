@@ -893,7 +893,14 @@ impl Store {
             .into_iter()
             .filter(|row| row.kind == "series")
             .collect();
-        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        link_series(
+            root,
+            &mut rows,
+            series_existing,
+            &metas,
+            &mut descriptions,
+            &self.configured_rules,
+        );
         self.replace_root(root_id, &rows, &descriptions)
     }
 
@@ -954,7 +961,14 @@ impl Store {
             .filter(|item| item.kind == "series")
             .collect();
         rows.push(row);
-        link_series(root, &mut rows, series_existing, &metas, &mut descriptions);
+        link_series(
+            root,
+            &mut rows,
+            series_existing,
+            &metas,
+            &mut descriptions,
+            &self.configured_rules,
+        );
         self.replace_root(root_id, &rows, &descriptions)?;
         let parent = path
             .parent()
@@ -1809,14 +1823,74 @@ fn file_row(root_id: &str, file: DiskFile, old: Option<Row>) -> Row {
     }
 }
 
+/// A name-grouped series can have local metadata without changing its identity.
+/// Never choose one sibling season or borrow a mixed folder's series sidecars.
+fn named_series_folders(rows: &[Row], rules: &Rules) -> HashMap<String, String> {
+    let mut parents: HashMap<&str, Option<&Path>> = HashMap::new();
+    let mut owners: HashMap<&Path, Option<&str>> = HashMap::new();
+    for row in rows.iter().filter(|row| row.kind != "series") {
+        let Some(parent) = Path::new(&row.rel_path).parent() else {
+            continue;
+        };
+        let owner = (row.kind == "episode").then_some(row.series_key.as_str());
+        owners
+            .entry(parent)
+            .and_modify(|known| {
+                if *known != owner {
+                    *known = None;
+                }
+            })
+            .or_insert(owner);
+        if row.kind == "episode" && row.series_key.starts_with("name:") {
+            parents
+                .entry(&row.series_key)
+                .and_modify(|known| {
+                    if *known != Some(parent) {
+                        *known = None;
+                    }
+                })
+                .or_insert(Some(parent));
+        }
+    }
+    parents
+        .into_iter()
+        .filter_map(|(key, parent)| {
+            let parent = parent?;
+            if parent.as_os_str().is_empty()
+                || !parent
+                    .components()
+                    .all(|part| matches!(part, Component::Normal(_)))
+                || owners.get(parent) != Some(&Some(key))
+                || parse::named_season_series_key(parent.file_name()?.to_str()?, rules).as_deref()
+                    != Some(key)
+            {
+                return None;
+            }
+            Some((key.to_string(), parent.to_str()?.to_string()))
+        })
+        .collect()
+}
+
 fn link_series(
     root: &Path,
     rows: &mut Vec<Row>,
     existing: Vec<Row>,
     metas: &HashMap<String, SeriesMeta>,
     descriptions: &mut HashMap<String, String>,
+    rules: &Rules,
 ) {
     let mut pool = existing;
+    let named_folders = named_series_folders(rows, rules);
+    // An incremental import prepares metadata only for its own episode, which
+    // need not be the first existing row of the name-grouped series.
+    let mut named_metas = HashMap::new();
+    for row in rows.iter().filter(|row| row.kind == "episode") {
+        if row.series_key.starts_with("name:")
+            && let Some(meta) = metas.get(&row.id)
+        {
+            named_metas.entry(row.series_key.clone()).or_insert(meta);
+        }
+    }
     let mut created: HashMap<String, String> = HashMap::new();
     let episodes: Vec<usize> = rows
         .iter()
@@ -1839,6 +1913,11 @@ fn link_series(
             continue;
         }
         let dir = key.strip_prefix("dir:").unwrap_or("").to_string();
+        let metadata_dir = if dir.is_empty() {
+            named_folders.get(&key).map(String::as_str).unwrap_or("")
+        } else {
+            &dir
+        };
         let inode = series_inode(root, &dir);
         let position = pool.iter().position(|row| {
             row.series_key == key || (inode.is_some() && !dir.is_empty() && row.inode == inode)
@@ -1849,11 +1928,22 @@ fn link_series(
             blank_series(&rows[index].root_id, &key, inode)
         };
         series.series_key = key.clone();
-        series.rel_path = key.clone();
+        series.rel_path = if metadata_dir.is_empty() {
+            key.clone()
+        } else {
+            format!("dir:{metadata_dir}")
+        };
         series.inode = inode;
         series.parent_id.clear();
         series.available = rows[index].available;
-        if let Some(meta) = metas.get(&rows[index].id) {
+        if let Some(meta) = metas
+            .get(&rows[index].id)
+            .or_else(|| named_metas.get(&key).copied())
+        {
+            if key.starts_with("name:") {
+                series.has_year = meta.has_year;
+                series.year = meta.year;
+            }
             if !meta.title.is_empty() {
                 series.title = meta.title.clone();
             }
@@ -1862,9 +1952,9 @@ fn link_series(
                 series.year = meta.year;
             }
         }
-        if !dir.is_empty() {
+        if !metadata_dir.is_empty() {
             descriptions.insert(series.id.clone(), String::new());
-            if let Some(nfo) = parse::read_nfo(&root.join(&dir).join("tvshow.nfo"), root) {
+            if let Some(nfo) = parse::read_nfo(&root.join(metadata_dir).join("tvshow.nfo"), root) {
                 descriptions.insert(series.id.clone(), nfo.description.unwrap_or_default());
                 if let Some(title) = nfo.title {
                     series.title = title;
@@ -1874,9 +1964,13 @@ fn link_series(
                     series.year = year;
                 }
             }
-            let (poster, fanart) = parse::artwork(root, &root.join(&dir), "*");
+            let (poster, fanart) = parse::artwork(root, &root.join(metadata_dir), "*");
             series.poster_id = art_id(poster.is_some(), &series.poster_id);
             series.fanart_id = art_id(fanart.is_some(), &series.fanart_id);
+        } else if key.starts_with("name:") {
+            series.poster_id.clear();
+            series.fanart_id.clear();
+            descriptions.insert(series.id.clone(), String::new());
         }
         let id = series.id.clone();
         rows[index].parent_id = id.clone();
@@ -2094,6 +2188,245 @@ mod tests {
     use std::sync::{LazyLock, Mutex};
 
     static PROGRESS_SQL: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+    #[test]
+    fn named_season_sidecars_refresh_without_changing_series_identity() {
+        let dir = std::env::temp_dir().join(format!("arinn-season-art-{}", Uuid::new_v4()));
+        let root = dir.join("media");
+        let season = root.join("Show 2nd Season");
+        fs::create_dir_all(&season).unwrap();
+        for number in 1..=2 {
+            fs::write(
+                season.join(format!("Show 2nd Season - {number:02}.mkv")),
+                b"video",
+            )
+            .unwrap();
+        }
+        let settings = Settings {
+            roots: vec![root.clone()],
+            probe: false,
+            ..Settings::default()
+        };
+        let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(MountTables::default());
+        store.scan(&settings).unwrap();
+        let before = store.snapshot().unwrap().1;
+        let id = before
+            .iter()
+            .find(|i| i.kind == "series")
+            .unwrap()
+            .id
+            .clone();
+        let episode = before.iter().find(|i| i.kind == "episode").unwrap();
+        store
+            .set_progress(&episode.id, 12_000_000, 120_000_000, false)
+            .unwrap();
+        let resumes = store.resumes().unwrap();
+        let additions = store.additions().unwrap();
+        fs::write(season.join("tvshow.nfo"), "<tvshow><title>Локальное название</title><year>2026</year><plot>Описание сериала.</plot></tvshow>").unwrap();
+        let jpeg = b"\xff\xd8\xff\xe0fixture";
+        let png = b"\x89PNG\r\n\x1a\nfixture";
+        fs::write(season.join("poster.jpg"), jpeg).unwrap();
+        fs::write(season.join("fanart.png"), png).unwrap();
+        store.scan(&settings).unwrap();
+        let after = store.snapshot().unwrap().1;
+        let series = after.iter().find(|i| i.kind == "series").unwrap();
+        assert_eq!(series.id, id);
+        assert_eq!(series.title, "Локальное название");
+        assert!(series.has_year && series.year == 2026);
+        assert_eq!(store.descriptions().unwrap()[&id], "Описание сериала.");
+        for (asset, bytes) in [
+            (&series.poster, jpeg.as_slice()),
+            (&series.fanart, png.as_slice()),
+        ] {
+            assert!(!asset.is_empty());
+            assert_eq!(
+                store
+                    .asset_source(asset, &settings.roots)
+                    .unwrap()
+                    .read()
+                    .unwrap()
+                    .data,
+                bytes
+            );
+        }
+        assert_eq!(store.resumes().unwrap(), resumes);
+        assert_eq!(store.additions().unwrap(), additions);
+        assert!(before.iter().all(|old| {
+            after
+                .iter()
+                .any(|new| new.id == old.id && new.parent_id == old.parent_id)
+        }));
+        assert_eq!(
+            store
+                .load_all()
+                .unwrap()
+                .iter()
+                .find(|r| r.id == id)
+                .unwrap()
+                .series_key,
+            "name:show"
+        );
+        store.scan(&settings).unwrap();
+        assert_eq!(store.snapshot().unwrap().1, after);
+        assert_eq!(store.resumes().unwrap(), resumes);
+        let root_id = store.root_id(&root).unwrap();
+        fs::remove_file(season.join("tvshow.nfo")).unwrap();
+        store
+            .upsert_file(
+                &root_id,
+                &root,
+                &season.join("Show 2nd Season - 02.mkv"),
+                &settings,
+            )
+            .unwrap();
+        let refreshed = store.snapshot().unwrap().1;
+        let refreshed = refreshed.iter().find(|i| i.kind == "series").unwrap();
+        assert_eq!(refreshed.title, "Show");
+        assert!(!refreshed.has_year);
+        fs::write(season.join("tvshow.nfo"), "<tvshow><title>Локальное название</title><year>2026</year><plot>Описание сериала.</plot></tvshow>").unwrap();
+        store.scan(&settings).unwrap();
+        // A second season must still join the same series, without choosing
+        // one of two sibling folders as the source of series-wide metadata.
+        let other = root.join("Show 3rd Season");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("Show 3rd Season - 01.mkv"), b"video").unwrap();
+        store
+            .upsert_file(
+                &root_id,
+                &root,
+                &other.join("Show 3rd Season - 01.mkv"),
+                &settings,
+            )
+            .unwrap();
+        let items = store.snapshot().unwrap().1;
+        let grouped: Vec<_> = items.iter().filter(|i| i.kind == "series").collect();
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].id, id);
+        assert_eq!(grouped[0].title, "Show");
+        assert!(!grouped[0].has_year);
+        assert!(grouped[0].poster.is_empty() && grouped[0].fanart.is_empty());
+        assert!(!store.descriptions().unwrap().contains_key(&id));
+        assert!(
+            items
+                .iter()
+                .filter(|i| i.kind == "episode")
+                .all(|i| i.parent_id == id)
+        );
+        assert_eq!(store.resumes().unwrap(), resumes);
+        store.scan(&settings).unwrap();
+        assert_eq!(store.snapshot().unwrap().1, items);
+        drop(store);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn named_series_do_not_borrow_root_or_mixed_folder_sidecars() {
+        for folder in ["", "Season 2"] {
+            let dir = std::env::temp_dir().join(format!("arinn-season-mixed-{}", Uuid::new_v4()));
+            let root = dir.join("media");
+            let parent = root.join(folder);
+            fs::create_dir_all(&parent).unwrap();
+            for title in ["Alpha", "Beta"] {
+                fs::write(parent.join(format!("{title} S02E01.mkv")), b"video").unwrap();
+            }
+            fs::write(
+                parent.join("tvshow.nfo"),
+                "<tvshow><title>Wrong series</title><plot>Wrong plot</plot></tvshow>",
+            )
+            .unwrap();
+            fs::write(parent.join("poster.jpg"), b"\xff\xd8\xff\xe0fixture").unwrap();
+            let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+            store.use_mount_tables(MountTables::default());
+            let settings = Settings {
+                roots: vec![root],
+                probe: false,
+                ..Settings::default()
+            };
+            store.scan(&settings).unwrap();
+            let items = store.snapshot().unwrap().1;
+            let series: Vec<_> = items.iter().filter(|i| i.kind == "series").collect();
+            assert_eq!(series.len(), 2);
+            for item in series {
+                assert!(["Alpha", "Beta"].contains(&item.title.as_str()));
+                assert!(item.poster.is_empty() && item.fanart.is_empty());
+                assert!(!store.descriptions().unwrap().contains_key(&item.id));
+            }
+            drop(store);
+            fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn named_season_sidecars_cannot_escape_the_root() {
+        let dir = std::env::temp_dir().join(format!("arinn-season-boundary-{}", Uuid::new_v4()));
+        let root = dir.join("media");
+        let parent = root.join("Show TV2");
+        fs::create_dir_all(&parent).unwrap();
+        fs::write(parent.join("01.mkv"), b"video").unwrap();
+        fs::write(
+            dir.join("outside.nfo"),
+            "<tvshow><title>Outside</title><plot>Outside plot</plot></tvshow>",
+        )
+        .unwrap();
+        fs::write(dir.join("outside.jpg"), b"\xff\xd8\xff\xe0fixture").unwrap();
+        std::os::unix::fs::symlink(dir.join("outside.nfo"), parent.join("tvshow.nfo")).unwrap();
+        std::os::unix::fs::symlink(dir.join("outside.jpg"), parent.join("poster.jpg")).unwrap();
+        let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(MountTables::default());
+        store
+            .scan(&Settings {
+                roots: vec![root],
+                probe: false,
+                ..Settings::default()
+            })
+            .unwrap();
+        let items = store.snapshot().unwrap().1;
+        let series = items.iter().find(|i| i.kind == "series").unwrap();
+        assert_eq!(series.title, "Show");
+        assert!(series.poster.is_empty());
+        assert!(!store.descriptions().unwrap().contains_key(&series.id));
+        drop(store);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn partial_import_does_not_make_a_generic_season_folder_exclusive() {
+        let dir = std::env::temp_dir().join(format!("arinn-season-partial-{}", Uuid::new_v4()));
+        let root = dir.join("media");
+        let parent = root.join("Season 2");
+        fs::create_dir_all(&parent).unwrap();
+        let settings = Settings {
+            roots: vec![root.clone()],
+            probe: false,
+            ..Settings::default()
+        };
+        let mut store = Store::open(&dir.join("library.sqlite3")).unwrap();
+        store.use_mount_tables(MountTables::default());
+        store.scan(&settings).unwrap();
+        let root_id = store.root_id(&root).unwrap();
+        for name in ["Alpha S02E01.mkv", "Beta S02E01.mkv"] {
+            fs::write(parent.join(name), b"video").unwrap();
+        }
+        fs::write(
+            parent.join("tvshow.nfo"),
+            "<tvshow><title>Wrong series</title><plot>Wrong plot</plot></tvshow>",
+        )
+        .unwrap();
+        fs::write(parent.join("poster.jpg"), b"\xff\xd8\xff\xe0fixture").unwrap();
+        // Only Alpha has reached the catalogue, as during an individual import
+        // or a truncated scan. The bare season folder does not identify a show.
+        store
+            .upsert_file(&root_id, &root, &parent.join("Alpha S02E01.mkv"), &settings)
+            .unwrap();
+        let items = store.snapshot().unwrap().1;
+        let series = items.iter().find(|i| i.kind == "series").unwrap();
+        assert_eq!(series.title, "Alpha");
+        assert!(series.poster.is_empty() && series.fanart.is_empty());
+        assert!(!store.descriptions().unwrap().contains_key(&series.id));
+        drop(store);
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     fn capture_progress_sql(event: rusqlite::trace::TraceEvent<'_>) {
         if let rusqlite::trace::TraceEvent::Stmt(_, sql) = event {

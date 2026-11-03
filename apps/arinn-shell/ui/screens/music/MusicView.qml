@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Templates as T
 import QtQuick.Window
 import "../.." as Ui
 FocusScope {
@@ -151,9 +151,10 @@ FocusScope {
     }
     Rectangle {
         enabled: !root.pendingPlay; x: 120; y: 278; width: 1160; height: 76; radius: 24; color: Ui.Theme.plate; visible: root.mode === "catalogue"
-        TextField {
+        T.TextField {
             id: search; objectName:"musicSearch"; anchors.fill: parent; anchors.margins: 14; anchors.rightMargin: searchKeyboardButton.width + 28; placeholderText: qsTr("Search this source"); font.pixelSize: 28; color: Ui.Theme.textPrimary; placeholderTextColor:Ui.Theme.textHint
             background: Rectangle { color: "transparent" }
+            Ui.UiText {anchors.fill:parent;visible:!search.text.length && !search.preeditText.length;text:search.placeholderText;role:"control";font.pixelSize:28;color:Ui.Theme.textHint;verticalAlignment:Text.AlignVCenter}
             onTextChanged: searchDelay.restart()
             Keys.onDownPressed: root.belowSearch()
             Keys.onUpPressed: Ui.Focus.take(sourcePicker)
@@ -231,7 +232,7 @@ FocusScope {
             Ui.UiText { width: parent.width; role: "hero"; text: root.current.title || qsTr("Nothing is playing"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
             Ui.UiText { width: parent.width; role: "section"; text: root.current.artist || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
             Ui.UiText { width: parent.width; role: "body"; text: root.current.album || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
-            Slider { id: seek; objectName:"musicSeek"; height:32; stepSize:10000000;
+            T.Slider { id: seek; objectName:"musicSeek"; height:32; stepSize:10000000;
                 Keys.onRightPressed:{seek.increase();root.catalog.transport("seek","","",Math.round(seek.value));}
                 Keys.onLeftPressed:{seek.decrease();root.catalog.transport("seek","","",Math.round(seek.value));} KeyNavigation.down: playButton; width: parent.width; from: 0; to: root.current.duration_us || 1; value: root.player.position_us || 0; enabled: root.supported("seek"); Accessible.name: qsTr("Playback position"); onMoved: root.catalog.transport("seek", "", "", Math.round(value))
                 background: Rectangle {x:seek.leftPadding;y:seek.topPadding+(seek.availableHeight-height)/2;width:seek.availableWidth;height:4;radius:2;color:Ui.Theme.plateAction

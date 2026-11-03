@@ -493,10 +493,9 @@ impl Playback {
                         d.queue.advance().map_err(|_| ErrorCode::NotFound)?;
                     } else if let Some(track) =
                         d.queue.previous().map_err(|_| ErrorCode::NotFound)?
+                        && d.station.is_none()
                     {
-                        if d.station.is_none() {
-                            d.tail.push_front(track);
-                        }
+                        d.tail.push_front(track);
                     }
                     if let Some(event) = skipped {
                         let _ = self.events.send(event);

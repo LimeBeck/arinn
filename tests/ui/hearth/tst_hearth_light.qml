@@ -43,6 +43,27 @@ TestCase {
         }
     }
     function child(name) { const item = findChild(home, name); verify(item !== null, name); return item; }
+    function near(a, b) {
+        return Math.abs(a.r - b.r) < 0.004 && Math.abs(a.g - b.g) < 0.004
+            && Math.abs(a.b - b.b) < 0.004 && Math.abs(a.a - b.a) < 0.004;
+    }
+    // Lowest contrast of `textColor` on the lit field, with the veil. The
+    // pool sits under each sample at the daytime floor hue, which is the
+    // brightest the light can be there.
+    function weakestContrast(glow, textColor) {
+        let worst = 99, bx = 0, by = 0;
+        for (let iy = 0; iy <= 40; ++iy) {
+            const y = glow.height * iy / 40;
+            for (let ix = 0; ix <= 20; ++ix) {
+                const x = glow.width * ix / 20;
+                const bg = glow.litColorAt(x, y, x, glow.floorHueDay);
+                const c = Ui.Theme.contrast(Ui.Theme.veilOver(textColor, glow.veilAmount),
+                                             Ui.Theme.veilOver(bg, glow.veilAmount));
+                if (c < worst) { worst = c; bx = x; by = y; }
+            }
+        }
+        return {contrast: worst, x: bx, y: by};
+    }
     function focused(name) { tryCompare(child(name), "activeFocus", true, 5000, name); }
     function createHome() {
         mouseMove(suite, 10, 10);
@@ -225,6 +246,59 @@ TestCase {
         verify(findChild(player, "downloadsVeilGlow") === null);
         player.destroy();
         wait(0);
+    }
+    // Weakest text, with the veil, at the brightest point of the light
+    // (bottom centre, pool under the sample, hue 55°). Night text-3 holds
+    // at least 4.8:1 (#722). The brief's 0.71 does not. Evening hints hold
+    // at least 4.5:1; the day hint does not, which is why it is raised.
+    function test_night_and_evening_text_holds_contrast() {
+        const glow = child("ambientGlow");
+        home.clockText = "23:30";
+        compare(glow.period, "night");
+        compare(Ui.Theme.period, "night");
+        compare(Ui.Theme.textPrimary, glow.oklch(0.97, 0.006, 75, 1));
+        compare(Ui.Theme.textSecondary, glow.oklch(0.84, 0.008, 75, 1));
+        compare(Ui.Theme.textHint, glow.oklch(0.761, 0.008, 75, 1));
+        compare(Ui.Theme.textHint, Ui.Theme.nightText3);
+        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
+        verify(near(child("heroMeta").color, Ui.Theme.textSecondary), child("heroMeta").color);
+        const flat = Ui.Theme.veiledContrast(Ui.Theme.textHint, glow.veilAmount);
+        verify(flat >= 4.8, "night text-3 on the flat background " + flat);
+        const night = weakestContrast(glow, Ui.Theme.textHint);
+        const brief = weakestContrast(glow, glow.oklch(0.71, 0.008, 75, 1));
+        const oneStepDown = weakestContrast(glow, glow.oklch(0.760, 0.008, 75, 1));
+        verify(night.y > glow.height * 0.9, "brightest point y " + night.y);
+        verify(night.contrast >= 4.8, "night text-3 at the brightest light " + night.contrast);
+        verify(brief.contrast < 4.8, "brief text-3 0.71 at that point " + brief.contrast);
+        verify(oneStepDown.contrast < 4.8, "0.760 at that point " + oneStepDown.contrast);
+        console.log("night text-3 at the brightest light " + night.contrast.toFixed(3)
+                    + ":1 (brief 0.71 is " + brief.contrast.toFixed(3) + ":1, 0.760 is "
+                    + oneStepDown.contrast.toFixed(3) + ":1, flat background "
+                    + flat.toFixed(3) + ":1)");
+
+        home.clockText = "20:30";
+        compare(glow.period, "evening");
+        compare(Ui.Theme.textPrimary, glow.oklch(0.95, 0.008, 75, 1));
+        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
+        compare(Ui.Theme.textHint, Ui.Theme.eveningText3);
+        compare(Ui.Theme.textHint, glow.oklch(0.778, 0.008, 75, 1));
+        const evening = weakestContrast(glow, Ui.Theme.textHint);
+        const dayHint = weakestContrast(glow, glow.oklch(0.66, 0.008, 75, 1));
+        const eveningDown = weakestContrast(glow, glow.oklch(0.777, 0.008, 75, 1));
+        verify(evening.y > glow.height * 0.9, "evening brightest y " + evening.y);
+        verify(evening.contrast >= 4.5, "evening hint at the brightest light " + evening.contrast);
+        verify(dayHint.contrast < 4.5, "day hint at that point " + dayHint.contrast);
+        verify(eveningDown.contrast < 4.5, "0.777 at that point " + eveningDown.contrast);
+        console.log("evening hint at the brightest light " + evening.contrast.toFixed(3)
+                    + ":1 (day hint is " + dayHint.contrast.toFixed(3) + ":1)");
+
+        home.clockText = "12:00";
+        compare(glow.period, "day");
+        compare(Ui.Theme.textPrimary, glow.oklch(0.95, 0.008, 75, 1));
+        verify(near(child("heroTitle").color, Ui.Theme.textPrimary), child("heroTitle").color);
+        compare(Ui.Theme.textHint, glow.oklch(0.66, 0.008, 75, 1));
+        const flatDay = Ui.Theme.contrast(Ui.Theme.textHint, Ui.Theme.background);
+        verify(flatDay >= 4.5, "day text-3 on Charcoal " + flatDay);
     }
     // Handoff rule: light under text stays at or below L 0.48. Measured by
     // compositing the same gradient stops the small canvases paint, in sRGB

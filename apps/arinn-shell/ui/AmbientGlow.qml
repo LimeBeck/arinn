@@ -9,17 +9,14 @@ import QtQuick.Window
 // small canvas and scaled up. Artwork is sampled at 24×24; nothing
 // full-resolution is blurred (spec §6.5).
 //
-// Colours are local on purpose. Hearth light 1/6 (#722) owns the shared
-// tokens and is on hold; these oklch values are the brief's, grouped so a
-// later change can point them at those tokens.
+// Floor and pool centres are Theme tokens (#722). This light publishes the
+// period; Theme paints night text and the evening hint from it. This item
+// does not choose text colours.
 //
-//   floor   oklch(0.44 0.07 55) at its centre, 22% below the bottom edge
-//   pool    oklch(0.50 c′ h), c′ 0.10 down to 0.065 at hue 240°
+//   floor   Theme.hearth, oklch(0.44 0.07 55), 22% below the bottom edge
+//   pool    lightness Theme.poolLightness, chroma warm→cool, hue of the item
 //   ceiling black at 50% across the top 44% of the height
 //   veil    rgb(12 7 2) at 6% in the evening and 22% at night
-//
-// Night text is not painted here. Its colours and the night contrast
-// belong to the token task (#722).
 Item {
     id: root
     clip: true
@@ -62,13 +59,13 @@ Item {
     // Timer is not an Item and does not resolve.
     readonly property var hostWindow: Window.window
 
-    // Brief values, one place (#722 replaces them with tokens).
-    readonly property real floorLightness: 0.44
-    readonly property real floorChroma: 0.07
-    readonly property real floorHueDay: 55
-    readonly property real poolLightness: 0.50
-    readonly property real poolChromaWarm: 0.10
-    readonly property real poolChromaCool: 0.065
+    // Brief centres, owned by Theme (#722).
+    readonly property real floorLightness: Theme.hearthLightness
+    readonly property real floorChroma: Theme.hearthChroma
+    readonly property real floorHueDay: Theme.hearthHue
+    readonly property real poolLightness: Theme.poolLightness
+    readonly property real poolChromaWarm: Theme.poolChromaWarm
+    readonly property real poolChromaCool: Theme.poolChromaCool
 
     // Publishing keeps one period when several hosts of this light are alive.
     function publishClock() {

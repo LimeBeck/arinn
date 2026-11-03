@@ -548,9 +548,10 @@ FocusScope {
                     Ui.UiText {
                         objectName: "titleLabel"
                         text: root.title
+                        // Content title (ADR-0136, D-2). The OSD keeps 48 px;
+                        // the hero role supplies Ysabeau, weight 600 and lining figures.
+                        role: "hero"
                         font.pixelSize: 48
-                        font.weight: 700
-                        font.letterSpacing: -0.96
                         elide: Text.ElideRight
                         width: 1400
                     }
@@ -831,10 +832,7 @@ FocusScope {
                         spacing: 8
                         Ui.UiText {
                             text: qsTr("Playback")
-                            font.pixelSize: 24
-                            font.weight: 600
-                            font.letterSpacing: 1.9
-                            font.capitalization: Font.AllUppercase
+                            role: "eyebrow"
                             color: Ui.Theme.textSecondary
                         }
                         Ui.UiText {

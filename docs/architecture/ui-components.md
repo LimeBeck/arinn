@@ -19,7 +19,7 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals, each weight applied to the font's `wght` axis (see *Font weights*) |
+| `Theme`, `UiText` | Shared colours (the Hearth light palette: Charcoal `#0F1115`, warm day text, `chip`, `mat`, `rim`, `hearth` and the pool centre, plus `nightText1..3` and `eveningText3`), radii, timing, fonts and named typography roles. Onest for system text and Ysabeau for `hero` (96/600), `detailTitle` (104/600) and `display` (220/600, the Ambient clock face), with tabular numerals and, on content roles, lining figures. Each weight is applied to the font's `wght` axis (see *Font weights*). Eyebrows are sentence case (26/500). Page titles are Onest 56/600 with no negative tracking. `fitSteps` (`[[size, lines], …]`) fits a content title: the first step whose rendered text is not elided wins, and `fitStep` reports it ([ADR-0136](../adr/0136-hearth-light-visual-direction.md), [#722](https://github.com/LimeBeck/arinn/issues/722)) |
 | `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
@@ -28,7 +28,7 @@ models into these properties and routing emitted actions to the daemon.
 | `AppTile` | `text`, neutral `monogram`, `running`. The name is 26 px on up to two lines, wrapped with `Text.Wrap` and then elided, so "Site or search" shows whole; this departs from handoff 01, which elides to one line (owner decision on [#656](https://github.com/LimeBeck/arinn/issues/656), 2026-11-01) |
 | `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
-| `AmbientGlow` | Hearth light (ADR-0136): a black ceiling over the top 44% (50% at the top edge), a warm floor ellipse and a pool under the focused item. `source` is artwork, else `tint` is the identity colour; `lit` and `strength` (1 Home, 0.6 Applications, 0.6 Library, 0.5 detail) fade the field. The pool's hue is the dominant hue of a 24×24 artwork decode, chroma 0.10 reduced to 0.065 at hue 240°. Floor and pool are painted once into a one-fifth-resolution canvas and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred. `followsTime` with `clockText` or `hour` selects day, evening (19:00, light 85%, veil 6%) and night (23:00, light 60%, veil 22%). Night text, and the brief's night contrast of about 4.8:1 under the veil, are [Hearth light 1/6](https://github.com/LimeBeck/arinn/issues/722). This light does not change text colours. Settings and Downloads host the warm veil only: the floor and the pool stay off, and the veil is not removed when those screens open. The player does not host it, so video stays uncovered. Applications use strength 0.6, with the Library; the prototype's `updateLight()` value 0.8 is not used. The cases live in `tests/ui/hearth` (`ctest -R '^hearth-light$'`), a separate process from `ui-components`, which aborts on `Qt.Key_MediaPause` in `tst_home.qml` ([#733](https://github.com/LimeBeck/arinn/issues/733)). Light under text stays at or below L 0.48, measured by compositing those same stops |
+| `AmbientGlow` | Hearth light (ADR-0136): a black ceiling over the top 44% (50% at the top edge), a warm floor ellipse and a pool under the focused item. `source` is artwork, else `tint` is the identity colour; `lit` and `strength` (1 Home, 0.6 Applications, 0.6 Library, 0.5 detail) fade the field. The pool's hue is the dominant hue of a 24×24 artwork decode, chroma 0.10 reduced to 0.065 at hue 240°. Floor and pool are painted once into a one-fifth-resolution canvas and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred. `followsTime` with `clockText` or `hour` selects day, evening (19:00, light 85%, veil 6%) and night (23:00, light 60%, veil 22%). Day text is `oklch(0.95/0.80/0.66 0.008 75)` on Charcoal. At night, Theme text becomes text-1 `oklch(0.97 0.006 75)`, text-2 `0.84` and text-3 `0.761`. Evening keeps the day titles and raises hints to text-3 `oklch(0.778 0.008 75)`. The brief's night text-3 `0.71` is about 4.07:1 at the brightest floor-and-pool pixel under the 22% veil; `0.761` is the smallest thousandth of OKLCH L that holds 4.8:1 there, and that step above the brief is not confirmed by the owner. Day text-3 is about 2.95:1 at the same point in the evening, so hints rise to `0.778`, the smallest thousandth that holds 4.5:1. Floor and pool centres are the `Theme` tokens `hearthLightness` 0.44, `hearthChroma` 0.07, `hearthHue` 55, `poolLightness` 0.50, `poolChromaWarm` 0.10 and `poolChromaCool` 0.065. This light does not choose text colours; Theme does, from the period the light publishes. Settings and Downloads host the warm veil only: the floor and the pool stay off, and the veil is not removed when those screens open. The player does not host it, so video stays uncovered. Applications use strength 0.6, with the Library; the prototype's `updateLight()` value 0.8 is not used. The cases live in `tests/ui/hearth` (`ctest -R '^hearth-light$'`), a separate process from `ui-components`, which aborts on `Qt.Key_MediaPause` in `tst_home.qml` ([#733](https://github.com/LimeBeck/arinn/issues/733)). Light under text stays at or below L 0.48, measured by compositing those same stops |
 | `LineIcon` | The single shared line-icon component: `name` (a Material Symbols name from the handoff), `color`, size from `width`/`height` on a 24-unit grid. Icons are drawn in code on a `Canvas`; the shell ships no icon font, so rendering does not depend on installed fonts or the Qt version. Today: the on-screen keyboard icons and Open services `bookmark_add`/`bookmark_added`. A new handoff icon (such as the Close icon of [#565](https://github.com/LimeBeck/arinn/issues/565)) is added here, not as a glyph or a second component |
 | `StatusPane` | Explicit `kind` (empty/loading/error/unavailable), `title`, `description`, `actionText`; `actionRequested()` intent |
 
@@ -115,10 +115,27 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 
+Ysabeau, the content-title face of the Hearth light direction
+([ADR-0136](../adr/0136-hearth-light-visual-direction.md), D-2), is bundled
+unchanged as `ui/fonts/Ysabeau.ttf` from the Google Fonts `ofl/ysabeau`
+directory (`Ysabeau[wght].ttf`, SHA-256
+`aa6df9f1f6cb1180f7c00fffb5ae2734ba66aa5f58defd173a9247ca11dffcf4`):
+[font source](https://github.com/google/fonts/tree/main/ofl/ysabeau),
+[upstream project](https://github.com/CatharsisFonts/Ysabeau).
+Copyright 2023 The Ysabeau Project Authors. License: SIL Open Font License 1.1,
+in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`. The owner
+approved bundling this face; the pull request that adds the file still needs
+the owner's review. It is a variable font with a `wght` axis and is weighted
+through the same `Theme.applyWeight` path as Onest. Its default figures are
+old-style, so the content roles turn on the `lnum` feature. The `display`
+role is this face at 220/600 for the Ambient clock. The Ambient screen still
+draws its handoff clock at 160/500 until that screen's own task; the settings
+integer readout keeps Onest 112/700 and does not use `display`.
+
 ## Font weights
 
 Onest is a variable font: one face with a `wght` axis from 100 to 900 and
-named instances. Qt does not match those instances by `font.weight` for an
+named instances. Ysabeau, used by the content roles, is weighted the same way. Qt does not match those instances by `font.weight` for an
 application font. In the Qt 6.10.2 dev container and in CI on Arch with
 Qt 6.12.0 (offscreen, fontconfig), every `font.weight` and
 `font.styleName` rendered as the default 400, while
@@ -179,7 +196,12 @@ lists only services without a card of their own, matched by `serviceId`, never b
 title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
 a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
-([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
+([#364](https://github.com/LimeBeck/arinn/issues/364)). It sits in a fixed 240 px
+box: the title is Ysabeau and fits in steps, 96 px on one line or 68 px on two,
+so the Continue row does not move
+([#722](https://github.com/LimeBeck/arinn/issues/722)). The brief's y 150 would
+overlap the row, which is still at y 372; the box starts at y 132 so it ends
+on that row. `downloadActive` and
 `downloadProgress` drive the status-area download chip. `muted`, `wifi` and
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
 chip and the clock, only while known; `network` (`wired` or `disconnected`)

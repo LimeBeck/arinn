@@ -122,23 +122,22 @@ TestCase {
         compare(bold.item.font.variableAxes["wght"], 500);
     }
 
-    // A role's weight renders (title 700, section 600), also when the role
-    // changes later; a weight set on the instance overrides it.
+    // A role's weight renders (page title 600, body 400), also when the role
+    // changes later; a weight set on the instance overrides it. Page titles
+    // are 600 (ADR-0136), so 700 is an instance override, not a role.
     function test_role_and_changed_weight() {
         const body = render(uiTextFactory, 400);
         const backdrop = createTemporaryObject(backdropFactory, suite);
         const title = createTemporaryObject(uiTextFactory, backdrop, {role: "title"});
         title.font.pixelSize = 64;
         title.font.letterSpacing = 0;
-        compare(title.font.weight, 700);
-        tryVerify(() => title.contentWidth > body.advance);
-        const bold = title.contentWidth;
-        title.role = "section";
         compare(title.font.weight, 600);
-        tryVerify(() => title.contentWidth > body.advance && title.contentWidth < bold);
+        tryVerify(() => title.contentWidth > body.advance);
+        const mid = title.contentWidth;
         title.role = "body";
+        compare(title.font.weight, 400);
         tryCompare(title, "contentWidth", body.advance);
         title.font.weight = 700;
-        tryCompare(title, "contentWidth", bold);
+        tryVerify(() => title.contentWidth > mid);
     }
 }

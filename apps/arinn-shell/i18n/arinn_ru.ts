@@ -577,14 +577,6 @@
         <translation>Браузер недоступен</translation>
     </message>
     <message>
-        <source>NOW RUNNING</source>
-        <translation>СЕЙЧАС ЗАПУЩЕНО</translation>
-    </message>
-    <message>
-        <source>CONTINUE</source>
-        <translation>ПРОДОЛЖИТЬ</translation>
-    </message>
-    <message>
         <source>Make yourself at home</source>
         <translation>Добро пожаловать</translation>
     </message>
@@ -747,10 +739,6 @@
     <message>
         <source>Opens full screen</source>
         <translation>Откроется на весь экран</translation>
-    </message>
-    <message>
-        <source>OPEN SERVICES</source>
-        <translation>ОТКРЫТЫЕ СЕРВИСЫ</translation>
     </message>
     <message>
         <source>%1 of %2</source>

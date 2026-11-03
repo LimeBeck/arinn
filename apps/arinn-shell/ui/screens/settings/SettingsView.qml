@@ -1224,7 +1224,6 @@ FocusScope {
             height: 40
             verticalAlignment: Text.AlignVCenter
             role: "eyebrow"
-            font.capitalization: Font.AllUppercase
             color: Ui.Theme.textSecondary
             text: {
                 const category = root.currentCategory();
@@ -1801,7 +1800,6 @@ FocusScope {
                     Ui.UiText {
                         width: parent.width - optionPosition.implicitWidth - 16
                         role: "eyebrow"
-                        font.capitalization: Font.AllUppercase
                         color: Ui.Theme.textSecondary
                         text: {
                             const row = root.choosingRow || root.integerRowData || root.stringRowData;
@@ -2041,7 +2039,11 @@ FocusScope {
                                         id: integerReadout
                                         objectName: "integerValue"
                                         text: String(root.integerDraft)
-                                        role: "display"
+                                        // System readout. `display` is the Ambient clock
+                                        // face (Ysabeau 220, ADR-0136), not this number.
+                                        font.pixelSize: 112
+                                        font.weight: 700
+                                        font.letterSpacing: -3.36
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                     Ui.UiText {

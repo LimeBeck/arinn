@@ -62,6 +62,10 @@ override_dh_auto_install:
 	install -Dm644 plugins/library/library.toml debian/arinn/usr/share/arinn/plugins/library.toml
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-mpv debian/arinn/usr/lib/arinn/plugins/arinn-plugin-mpv
 	install -Dm644 plugins/mpv/mpv.toml debian/arinn/usr/share/arinn/plugins/mpv.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-music-local debian/arinn/usr/lib/arinn/plugins/arinn-plugin-music-local
+	install -Dm644 plugins/music-local/music-local.toml debian/arinn/usr/share/arinn/plugins/music-local.toml
+	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-yandex-music debian/arinn/usr/lib/arinn/plugins/arinn-plugin-yandex-music
+	install -Dm644 plugins/yandex-music/yandex-music.toml debian/arinn/usr/share/arinn/plugins/yandex-music.toml
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-transmission debian/arinn/usr/lib/arinn/plugins/arinn-plugin-transmission
 	install -Dm644 plugins/transmission/transmission.toml debian/arinn/usr/share/arinn/plugins/transmission.toml
 	install -Dm755 "$(CARGO_TARGET_DIR)"/release/arinn-plugin-chrome debian/arinn/usr/lib/arinn/plugins/arinn-plugin-chrome

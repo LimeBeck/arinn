@@ -20,6 +20,7 @@ pub mod library;
 pub mod media;
 pub mod media_association;
 pub mod media_window;
+pub mod music;
 pub mod platform;
 pub mod production;
 pub mod return_association;

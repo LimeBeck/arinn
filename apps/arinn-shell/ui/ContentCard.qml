@@ -8,6 +8,16 @@ Surface {
     id: root
     shapeRole: "content"
     property string subtitle: ""
+    property string statusText: ""
+    readonly property bool focusWithin: activeFocus || secondaryAction.activeFocus
+    property string secondaryIcon: ""
+    property string secondaryText: ""
+    property bool secondaryEnabled: true
+    signal secondaryActivated()
+    Keys.onRightPressed: event => {
+        if (secondaryAction.visible && secondaryAction.enabled) Focus.take(secondaryAction);
+        else event.accepted = false;
+    }
     property url artwork: ""
     property bool running: false
     property bool showProgress: false
@@ -188,6 +198,27 @@ Surface {
             anchors.top: frame.bottom
             anchors.topMargin: -Math.round(Theme.castHeight * 0.4)
         }
+        UiText {
+            x: 24; y: 20; width: parent.width - 120
+            text: root.statusText; visible: text.length > 0
+            role: "caption"; textFormat: Text.PlainText; z: 2
+        }
+        Surface {
+            id: secondaryAction; objectName: "cardSecondaryAction"
+            x: parent.width - width - 20; y: root.frameHeight - height - 20; z: 3
+            width: 72; height: 72; cornerRadius: 36
+            visible: root.secondaryIcon.length > 0
+            focusedColor: Theme.textPrimary
+            enabled: root.secondaryEnabled || activeFocus
+            opacity: root.busy ? 0.6 : 1
+            text: root.secondaryText
+            contentItem: Item {
+                LineIcon {anchors.centerIn:parent;width:32;height:32;name:root.secondaryIcon;color:secondaryAction.activeFocus ? Theme.ink : Theme.textPrimary}
+            }
+            onActivated: if(!root.busy && root.secondaryEnabled)root.secondaryActivated()
+            Keys.onLeftPressed: Focus.take(root)
+            onDpadRequested: root.dpadRequested()
+        }
         Column {
             objectName: "cardCaption"
             z: 1
@@ -198,6 +229,7 @@ Surface {
             UiText {
                 objectName: "cardTitle"
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.busy ? qsTr("Loading…") : root.text
                 role: "caption"
                 font.pixelSize: root.compact ? 24 : 28
@@ -210,6 +242,7 @@ Surface {
             UiText {
                 objectName: "cardSubtitle"
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.subtitle
                 role: "caption"
                 color: Theme.textSecondary

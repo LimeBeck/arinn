@@ -218,8 +218,11 @@ FocusScope {
     function rowClearsHeader(row) { return rowHeaderOpacity(row) >= 1; }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
-    readonly property var sections: [qsTr("Home"), qsTr("Library"), qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")]
-    readonly property var routes: ["home", "library", "downloads", "applications", "settings"]
+    property string musicTitle: ""
+    readonly property var sections: [qsTr("Home"), qsTr("Library")].concat(musicTitle.length ? [musicTitle] : []).concat([qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")])
+    readonly property var routes: ["home", "library"].concat(musicTitle.length ? ["music"] : []).concat(["downloads", "applications", "settings"])
+    signal musicRequested()
+    signal musicTransportRequested()
     signal libraryEntryRequested(string entryId)
     signal libraryResumeRequested(string entryId)
     signal entryRequested(string entryId)
@@ -583,6 +586,7 @@ FocusScope {
     function activate(entryId) {
         interfaceSounds.play("select");
         const entry = entryById(entryId);
+        if (entry && entry.kind === "music") { musicRequested(); return; }
         if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
@@ -599,8 +603,8 @@ FocusScope {
         if (!returnActivityId) {
             activityNotice.visible = true;
             noticeTimer.restart();
-            if (navOpen && navIndex === 6)
-                Focus.take(navItems.itemAt(5));
+            if (navOpen && navIndex === sections.length + 1)
+                Focus.take(navItems.itemAt(sections.length));
         }
     }
     Component.onCompleted: Qt.callLater(restoreScreen)
@@ -647,8 +651,9 @@ FocusScope {
         }
     }
     function navIcon(index) {
-        const names = ["home", "library", "download", "apps", "settings", "public", "screen", "power", "close"];
-        return names[index] || "";
+        const icons = {home: "home", library: "library", music: "volume_up", downloads: "download", applications: "apps", settings: "settings"};
+        return index < root.routes.length ? icons[root.routes[index]] || ""
+            : ["public", "screen", "power", "close"][index - root.routes.length] || "";
     }
     function moveNavigation(step, autoRepeat) {
         let next = navIndex + step;
@@ -934,6 +939,7 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
+                    onSecondaryActivated: entryId => { const entry=root.entryById(entryId); if(entry && entry.kind === "music") {interfaceSounds.play("select");root.musicTransportRequested();} }
                     onEdge: (key, autoRepeat) => {
                         if (key === Qt.Key_Left || key === Qt.Key_Right) {
                             if (key === Qt.Key_Right) return;
@@ -1176,6 +1182,7 @@ FocusScope {
         Item {
             id: navigationPanel
             objectName: "navigationPanel"
+            readonly property int sectionStep: root.musicTitle.length ? 70 : 84
             width: 660
             height: parent.height
             Rectangle {
@@ -1197,7 +1204,7 @@ FocusScope {
             Rectangle {
                 objectName: "navigationHairline"
                 x: 104; width: 452; height: 1
-                y: navBrand.y + navBrand.height + 52 + 5 * 84 + 18
+                y: navBrand.y + navBrand.height + 52 + root.sections.length * navigationPanel.sectionStep + 18
                 color: Qt.rgba(1, 1, 1, 0.08)
             }
             Repeater {
@@ -1210,18 +1217,18 @@ FocusScope {
                     objectName: "nav-" + index
                     x: 104
                     y: {
-                        if (index === 7) return navigationPanel.height - 148 - height;
-                        if (index === 8) return navigationPanel.height - 56 - height;
+                        if (index === root.sections.length + 2) return navigationPanel.height - 148 - height;
+                        if (index === root.sections.length + 3) return navigationPanel.height - 56 - height;
                         const top = navBrand.y + navBrand.height + 52;
-                        if (index < 5) return top + index * 84;
-                        const after = top + 5 * 84 + 37;
-                        if (index === 5) return after;
+                        if (index < root.sections.length) return top + index * navigationPanel.sectionStep;
+                        const after = top + root.sections.length * navigationPanel.sectionStep + 37;
+                        if (index === root.sections.length) return after;
                         return after + (root.currentServiceTitle.length ? 104 : 84);
                     }
                     width: 452
-                    height: index === 5 && root.currentServiceTitle.length ? 104 : 84
+                    height: index < root.sections.length ? navigationPanel.sectionStep : index === root.sections.length && root.currentServiceTitle.length ? 104 : 84
                     text: modelData
-                    visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
+                    visible: index !== root.sections.length + 1 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
                     shapeRole: "container"
                     focusScale: 1
                     focusLift: 0
@@ -1230,10 +1237,10 @@ FocusScope {
                     restingColor: "transparent"
                     focusedColor: Theme.plateContainer
                     readonly property color labelColor: activeFocus ? Theme.textPrimary : Theme.textSecondary
-                    readonly property bool sectionDot: index < 5 && root.routes[index] === root.screen
-                    readonly property bool activityDot: (index === 5 && root.returnIsWebService
+                    readonly property bool sectionDot: index < root.sections.length && root.routes[index] === root.screen
+                    readonly property bool activityDot: (index === root.sections.length && root.returnIsWebService
                             && (root.currentServiceTitle.length > 0 || root.openServiceCount > 0))
-                            || (index === 6 && visible)
+                            || (index === root.sections.length + 1 && visible)
                     contentItem: Item {
                         Rectangle {
                             objectName: "navCurrentDot"
@@ -1266,10 +1273,10 @@ FocusScope {
                                     maximumLineCount: 1; elide: Text.ElideRight
                                 }
                                 UiText {
-                                    objectName: index === 5 ? "openServicesSubline" : ""
+                                    objectName: index === root.sections.length ? "openServicesSubline" : ""
                                     width: parent.width
-                                    visible: index === 5 && root.currentServiceTitle.length > 0
-                                    text: index === 5 ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
+                                    visible: index === root.sections.length && root.currentServiceTitle.length > 0
+                                    text: index === root.sections.length ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
                                     role: "caption"
                                     color: Theme.textSecondary
                                     maximumLineCount: 1; elide: Text.ElideRight
@@ -1277,8 +1284,8 @@ FocusScope {
                             }
                         }
                         Rectangle {
-                            objectName: index === 5 ? "openServicesBadge" : ""
-                            visible: index === 5 && root.openServiceCount > 0
+                            objectName: index === root.sections.length ? "openServicesBadge" : ""
+                            visible: index === root.sections.length && root.openServiceCount > 0
                             anchors.right: parent.right
                             anchors.rightMargin: 20
                             anchors.verticalCenter: parent.verticalCenter
@@ -1288,17 +1295,17 @@ FocusScope {
                             color: Theme.ember
                             UiText {
                                 id: openServicesCount
-                                objectName: index === 5 ? "openServicesCount" : ""
+                                objectName: index === root.sections.length ? "openServicesCount" : ""
                                 anchors.centerIn: parent
-                                text: index === 5 ? String(root.openServiceCount) : ""
+                                text: index === root.sections.length ? String(root.openServiceCount) : ""
                                 font.pixelSize: 24
                                 font.weight: 600
                                 color: Theme.ink
                             }
                         }
                         UiText {
-                            objectName: index === 2 ? "downloadNavPercent" : ""
-                            visible: index === 2 && root.downloadActive
+                            objectName: root.routes[index] === "downloads" ? "downloadNavPercent" : ""
+                            visible: root.routes[index] === "downloads" && root.downloadActive
                             anchors.right: parent.right
                             anchors.rightMargin: 24
                             anchors.verticalCenter: parent.verticalCenter
@@ -1313,10 +1320,10 @@ FocusScope {
                     onActiveFocusChanged: if (activeFocus) root.navIndex = index
                     onDpadRequested: InputMode.keyPressed()
                     onActivated: {
-                        if (index < 5) root.selectSection(index);
-                        else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
-                        else if (index === 6) root.returnRequested(root.returnActivityId);
-                        else if (index === 7) root.powerRequested();
+                        if (index < root.sections.length) root.selectSection(index);
+                        else if (index === root.sections.length) { root.navOpen = false; root.openServicesRequested(); }
+                        else if (index === root.sections.length + 1) root.returnRequested(root.returnActivityId);
+                        else if (index === root.sections.length + 2) root.powerRequested();
                         else root.closeShellRequested();
                     }
                     Keys.onTabPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }

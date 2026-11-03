@@ -743,6 +743,8 @@ mod assets;
 mod download;
 mod library;
 mod media;
+mod music;
+pub use music::{MusicCatalogue, MusicHandler, MusicService, run_music_on};
 mod settings;
 pub use assets::AssetHandler;
 pub use download::{

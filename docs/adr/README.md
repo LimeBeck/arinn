@@ -148,5 +148,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0128](0128-configurable-library-recognition.md) | Configurable season and episode recognition rules in the library | Accepted | — |
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 | [0133](0133-sentry-noise-and-stable-grouping.md) | Less Sentry noise and grouping that survives edits | Accepted | — |
+| [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
 | [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | — |
 <!-- register:end -->

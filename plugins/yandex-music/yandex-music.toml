@@ -1,0 +1,8 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+id = "yandex-music"
+name = "Yandex Music"
+version = "0.0.1"
+api_version = 1
+executable = "/usr/lib/arinn/plugins/arinn-plugin-yandex-music"
+capabilities = ["music"]

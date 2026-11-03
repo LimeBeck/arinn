@@ -31,6 +31,10 @@ Canvas {
         ctx.lineJoin = "round";
         ctx.beginPath();
         switch (root.name) {
+        case "play":
+            ctx.moveTo(7,4);ctx.lineTo(20,12);ctx.lineTo(7,20);ctx.closePath();ctx.fill();break;
+        case "pause":
+            ctx.rect(6,4,4,16);ctx.rect(14,4,4,16);ctx.fill();break;
         case "keyboard":
         case "keyboard_hide":
             ctx.roundedRect(2.5, root.name === "keyboard" ? 5 : 3, 19, 13, 2, 2);

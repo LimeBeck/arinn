@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 Arinn contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+[package]
+name = "arinn-plugin-music-local"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+license = "GPL-3.0-or-later"
+repository.workspace = true
+
+[dependencies]
+arinn-music-common = { path = "../music-common" }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+arinn-protocol.workspace = true
+arinn-plugin-sdk.workspace = true
+tokio.workspace = true
+zbus.workspace = true
+uuid.workspace = true

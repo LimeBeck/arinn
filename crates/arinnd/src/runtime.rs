@@ -91,6 +91,7 @@ mod launch_guard;
 mod library_routing;
 mod media_links;
 mod media_routing;
+mod music_routing;
 mod progress;
 mod settings_routing;
 mod system_control;
@@ -98,7 +99,14 @@ mod system_status;
 mod web_icons;
 
 /// Capability sets the daemon routes; anything else is incompatible.
-const ROUTED: &[&str] = &["application", "browser", "media", "library", "download"];
+const ROUTED: &[&str] = &[
+    "application",
+    "browser",
+    "media",
+    "library",
+    "download",
+    "music",
+];
 struct State {
     providers: BTreeMap<String, Provider>,
     error: String,
@@ -113,6 +121,7 @@ struct State {
 }
 #[derive(Clone)]
 pub struct Core {
+    music: Arc<music_routing::Coordinator>,
     state: Arc<Mutex<State>>,
     reload_lock: Arc<Mutex<()>>,
     maintenance: Arc<Mutex<()>>,
@@ -162,6 +171,7 @@ impl Core {
         let epoch = Uuid::new_v4().to_string();
         let windows = crate::windows::Windows::new(&epoch);
         Self {
+            music: Arc::new(music_routing::Coordinator::default()),
             state: Arc::new(Mutex::new(State {
                 providers: BTreeMap::new(),
                 error: String::new(),
@@ -244,10 +254,21 @@ impl Core {
             .remove::<library_routing::LibraryEndpoint, _>(path.clone())
             .await;
         let _ = server
+            .remove::<music_routing::MusicEndpoint, _>(path.clone())
+            .await;
+        let _ = server
             .remove::<assets::AssetsEndpoint, _>(path.clone())
             .await;
     }
     pub async fn export_platform(&self) -> Result<(), ErrorCode> {
+        self.connection
+            .object_server()
+            .at(
+                production::PATH,
+                music_routing::Controller { core: self.clone() },
+            )
+            .await
+            .map_err(|_| ErrorCode::Internal)?;
         self.windows.start(&self.connection).await?;
         let core = self.clone();
         tokio::spawn(async move {
@@ -515,7 +536,17 @@ impl Core {
                 self.unavailable(id, &owner).await;
             }
             let server = self.connection.object_server();
-            let exported = if new.capability() == "download" {
+            let exported = if new.capability() == "music" {
+                server
+                    .at(
+                        new.info.path.clone(),
+                        music_routing::MusicEndpoint {
+                            core: self.clone(),
+                            id: id.clone(),
+                        },
+                    )
+                    .await
+            } else if new.capability() == "download" {
                 server
                     .at(
                         new.info.path.clone(),
@@ -578,7 +609,7 @@ impl Core {
             };
             exported.map_err(|_| ErrorCode::Internal)?;
             // Media and library asset ids resolve through Assets1 (ADR-0062).
-            if ["media", "library"].contains(&new.capability()) {
+            if ["media", "library", "music"].contains(&new.capability()) {
                 server
                     .at(
                         new.info.path.clone(),
@@ -694,6 +725,7 @@ impl Core {
                 state.library_hierarchy_ready.remove(id);
                 state.library_additions.remove(id);
                 state.library_additions_seen.remove(id);
+                self.music.forget(id).await;
             }
             if let Some(p) = state.providers.get_mut(id) {
                 if p.owner != owner {
@@ -840,7 +872,9 @@ impl Core {
             .get(&id)
             .map(|p| p.capability().to_owned())
             .unwrap_or_default();
-        if capability == "download" {
+        if capability == "music" {
+            self.watch_music(id, owner, generation).await;
+        } else if capability == "download" {
             self.watch_downloads(id, owner, generation).await;
         } else if capability == "library" {
             self.watch_library(id, owner, generation).await;

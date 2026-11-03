@@ -1,10 +1,11 @@
 # Music design brief
 
-Status: proposed for owner review, 2026-11-01. Parent
+Status: brief merged in [#695](https://github.com/LimeBeck/arinn/pull/695), 2026-11-01; [visual prototype](prototypes/music/README.md) and local/Yandex backend foundations consolidated in [MR #710](https://github.com/LimeBeck/arinn/pull/710), task [#707](https://github.com/LimeBeck/arinn/issues/707), at the owner's request on 2026-11-02. Layout B is selected; full visual acceptance and service feasibility remain pending. Parent
 [#677](https://github.com/LimeBeck/arinn/issues/677), discovery task
 [#694](https://github.com/LimeBeck/arinn/issues/694).
-This is the input to visual design, not a finished design or permission to
-implement it. [Feasibility and proposed requirements](../architecture/music-discovery.md)
+The owner authorized implementation of local music and Yandex in this unified
+MR; this brief does not establish completion or support for other candidates.
+[Feasibility and proposed requirements](../architecture/music-discovery.md)
 define the candidate-source limits. Existing [UI components](../architecture/ui-components.md)
 remain the visual baseline; historical handoff assets are unchanged.
 
@@ -32,7 +33,8 @@ is assumed. The navigation entry and these defaults require owner review.
 | Album / playlist | Artwork, title, creator/source, explicit Play and ordered track rows | Opening detail never starts playback. Unavailable tracks stay readable with reasons; actions reflect capabilities |
 | Now playing | Artwork, title/artist/album, source/device, confirmed transport state, seek and queue entry | A stable transport focus order; controls without capability are absent or disabled with an explanation |
 | Queue | Current entry and ordered upcoming entries; supported play-next/add/remove/reorder actions | Menu opens an action sheet; Back restores the exact opener. Never offer mutations an upstream queue cannot confirm |
-| Connection / settings | Connect, cancel, reconnect, disconnect; local-root selection and scan status | Never request a password/token in the ordinary music UI. Setup failure has a clear recovery action; no assumed QR/device-code support |
+| Connection / settings | Connect, cancel, reconnect, disconnect; local-root selection and scan status | Never request a password/token in the ordinary music UI. Yandex uses the owner-requested CloudMus-style device-code flow; show verification link, user code, expiry and waiting/cancel/retry states. Other providers need their own qualified flow; QR support is not assumed |
+| Home / Continue music card | Current artwork, track, artist, source/station and playing/paused status; separate Play/Pause icon | Opening the card returns to the same player/queue without restarting. The transport action preserves Home focus |
 
 Illustrative structure for visual exploration, not a pixel specification:
 
@@ -54,6 +56,33 @@ Cancel with safe initial focus. Never imply mixed-source queue support.
 
 ## Interaction rules to illustrate
 
+Owner-directed refinement: use icons for Play/Pause, Previous/Next, seek and
+Queue, including the compact player and Home card, rather than English transport
+words. Keep accessible names, visible keyboard/remote focus and focused-control
+labels; the Play/Pause icon and accessible action name change with confirmed
+state. Like/dislike icons retain distinct selected states. Descriptive navigation,
+station titles and recovery actions keep readable text.
+Place player actions in one horizontal row, grouped by transport, queue/seek and
+feedback/radio, while keeping the Play/Pause action prominent. Do not stack the
+compact icon groups into separate rows at the 1080p/4K target sizes.
+The owner requested several alternatives before selecting a final arrangement;
+the [control-layout comparison](prototypes/music/control-layouts.md) proposes a
+linear row, balanced groups with centered transport, and a minimal row with an
+overflow sheet. These are review alternatives, not three permanent user settings.
+The owner selected **B: balanced groups with centered transport** on 2026-11-01.
+Use feedback on the left, Previous/Play-Pause/Next centered in the information
+column, and Queue/Seek/Track radio on the right. The prototype now uses B by
+default; A and C remain comparison references. This visual decision does not
+qualify provider integrations or close the implementation tracker.
+
+The proposed Home music card belongs to the existing Continue row and follows its
+400×225 content-card geometry. Artwork, track and artist identify current music;
+source and station distinguish My Wave from an album or ordinary playlist. A
+separate icon action toggles Play/Pause, while opening the card returns to the
+same session. This is a proposed Home projection, not a production Activity or
+favorite-station contract. The prototype has playing and paused captures; adding
+a station shortcut to Favorites remains a separate owner-reviewed scope choice.
+
 - Back dismisses the topmost sheet/keyboard, then returns through detail to
   catalogue, restoring focused entity and scroll. At Music root it returns to
   Home under existing navigation rules. Home shows Home without destroying a
@@ -69,6 +98,37 @@ Cancel with safe initial focus. Never imply mixed-source queue support.
 - Show unsupported controls distinctly from temporary failures. Pending commands
   have visible progress and cannot be repeated accidentally; display confirmed
   playback/queue state rather than optimistic success.
+
+## Personal selections and continuous radio
+
+Owner-directed addition on 2026-11-01 after reviewing
+[CloudMus](https://github.com/cloudmus/cloudmus): design provider-owned discovery
+alongside ordinary music-library browsing. Add a For you source landing with
+personal playlists and a distinct station treatment: My Wave, personal mixes and
+radio from a track where the provider supports them. A daily playlist remains
+finite unless its provider explicitly reports a continuous session.
+
+Show the station name on Now playing and Queue. A continuous queue displays the
+loaded upcoming window and the promise of more tracks, not a total track count
+or duration for the station. Cover normal replenishment, loading, an empty buffer,
+failure/retry, stopping, and replacement with Cancel initially focused. Current
+playback survives a refill failure; late batches from a stopped/replaced station
+must not reappear. Do not offer whole-queue shuffle/repeat or edit actions merely
+because ordinary playlists have them.
+
+Track menus expose Radio from this track only with the relevant capability.
+Pin/unpin stations for quick access. Like and dislike are separate account
+actions with distinct selected, pending and failure states; a dislike need not
+cut off the current track, but may change upcoming recommendations. Display
+service-confirmed state in production; the prototype only explores local fixture
+transitions. Keep playback start, natural completion and explicit skip distinct
+when preparing the future contract; service-specific feedback stays in providers.
+
+The [prototype](prototypes/music/README.md) includes explicit synthetic Yandex
+and YouTube radio review scenes. Normal source selection still shows unresolved
+availability and never grants a connection or playback capability. The research
+report's MU-11–MU-15 capture these proposed requirements. Production service
+permission, account integration, persistent pins and feedback sync are untested.
 
 ## Required state sheets
 

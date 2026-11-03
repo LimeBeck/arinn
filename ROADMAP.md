@@ -260,7 +260,7 @@ Candidates: Steam provider (library, artwork, recent games), ES-DE provider, Jel
 
 ### Music
 
-**Status:** Discovery in progress (2026-11-01), [#694](https://github.com/LimeBeck/arinn/issues/694); [provider research and proposed requirements](docs/architecture/music-discovery.md) and [design brief](docs/design/music-design-brief.md) prepared for owner review. Owner request on 2026-11-01; tracking: [#677](https://github.com/LimeBeck/arinn/issues/677). Visual design, API contracts and implementation have not started; no provider is qualified. This entry does not change MVP acceptance criteria, phase status or the stable-Plugin-API gate for Phase 6 implementation.
+**Status:** Design and implementation in progress (2026-11-02), consolidated in one [MR #710](https://github.com/LimeBeck/arinn/pull/710), task [#707](https://github.com/LimeBeck/arinn/issues/707), at the owner's request. [Provider research and proposed requirements](docs/architecture/music-discovery.md) and [design brief](docs/design/music-design-brief.md) merged in [#695](https://github.com/LimeBeck/arinn/pull/695); the [offline visual prototype and 1080p/4K captures](docs/design/prototypes/music/README.md), selected layout B and local/Yandex backend foundations now share that MR. Design PR #700 and task #698 are superseded by this unified delivery. Original owner request: 2026-11-01; parent tracking: [#677](https://github.com/LimeBeck/arinn/issues/677). Proposed ADR-0134 and native protocol/daemon/UI integration now accompany the local executable and Yandex account lifecycle in that MR. Yandex catalogue, stream playback and radio are implemented against synthetic fixtures. Artwork and native playlist actions are implemented. Native/package qualification, full visual acceptance and live Yandex qualification remain pending; no provider is qualified. This entry does not change MVP acceptance criteria, phase status or the stable-Plugin-API gate for Phase 6 implementation.
 
 Goal: browse and play music through one native Arinn interface, with tracks, albums, playlists and search supplied by separate providers. Opening service websites is not the intended music experience.
 
@@ -277,8 +277,18 @@ Work proceeds in this order:
 1. Define requirements and check each service's API, authentication, playback and subscription restrictions. Record supported features and blockers before promising provider support; define local library scanning and metadata requirements.
 2. Design the shared music experience: source selection, search, artists, albums, playlists, track lists, playback queue and player controls. Include remote navigation and focus, account connection, loading, empty, unavailable and error states. Review the design before implementation.
 3. Specify the provider contract and playback ownership through an API review (R-09, R-10). Keep service-specific integration in providers and route shell commands through the daemon.
-4. Implement the shared interface and providers that pass the feasibility checks in separately scoped tasks, after their contracts and dependencies are ready. Keep blocked candidates tracked with their restrictions and evidence; the owner decides whether to defer them or approve an alternative. Do not treat a blocked candidate as implemented or silently remove it from the requested scope.
+4. Implement the shared interface and providers that pass the feasibility checks after their contracts and dependencies are ready. The owner authorized one combined design/API/UI/local/Yandex MR (#710); other providers remain separately scoped. Keep blocked candidates tracked with their restrictions and evidence; the owner decides whether to defer them or approve an alternative. Do not treat a blocked candidate as implemented or silently remove it from the requested scope.
 5. Verify browsing, search, playback and queue behaviour, account and service failures, local file availability and remote navigation. Qualify each provider separately; require explicit permission for real-desktop operator tests.
+
+The design scope also includes provider-owned personal selections and continuous
+radio (My Wave, personal mixes and radio from a track), station pins and supported
+feedback. The prototype distinguishes finite playlists from replenished queues
+and covers refill/loading/retry, exhausted-buffer and feedback failure states;
+see [MU-11–MU-15](docs/architecture/music-discovery.md#proposed-common-requirements).
+Recommendations remain provider-owned; this is not an Arinn recommendation engine
+or evidence of a qualified streaming integration.
+The owner selected player layout B (balanced groups with centered transport) on
+2026-11-01; it is the [prototype](docs/design/prototypes/music/README.md) default.
 
 ## Backlog
 

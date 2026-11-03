@@ -111,6 +111,12 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} browser_screen PREFIX "/" FILES ${ARINN_BROWSER_FILES})
 endforeach()
 
+set(ARINN_MUSIC_FILES ui/screens/music/qmldir ui/screens/music/MusicView.qml
+    ui/screens/music/MusicIcon.qml ui/screens/music/MusicButton.qml ui/screens/music/MusicArtwork.qml)
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} music_screen PREFIX "/" FILES ${ARINN_MUSIC_FILES})
+endforeach()
+
 set(ARINN_SETTINGS_FILES ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} settings_screen PREFIX "/" FILES ${ARINN_SETTINGS_FILES})
@@ -246,7 +252,7 @@ set_tests_properties(external-keyboard-x11 PROPERTIES
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
     arinn-browser-catalog-test arinn-media-catalog-test arinn-library-catalog-test
     arinn-quick-menu-test arinn-launch-screen-test arinn-external-keyboard-test)
-    target_sources(${target} PRIVATE activity_background.cpp activity_background.h)
+    target_sources(${target} PRIVATE activity_background.cpp activity_background.h music_catalog.cpp music_catalog.h)
     target_link_libraries(${target} PRIVATE arinn-background-frame-gate)
     target_sources(${target} PRIVATE browse_catalog.cpp browse_catalog.h
         keyboard_model.cpp keyboard_model.h
@@ -306,6 +312,8 @@ file(GLOB ARINN_I18N_QML CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/*/*.qml")
 file(GLOB ARINN_I18N_CPP CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 list(FILTER ARINN_I18N_CPP EXCLUDE REGEX "(_test|_fixture)\\.cpp$")
+list(FILTER ARINN_I18N_QML EXCLUDE REGEX "/screens/music/")
+list(FILTER ARINN_I18N_CPP EXCLUDE REGEX "/music_catalog\\.cpp$")
 set(ARINN_TS_FILES "${CMAKE_CURRENT_SOURCE_DIR}/i18n/arinn_ru.ts")
 qt_add_lupdate(TS_FILES ${ARINN_TS_FILES}
     SOURCES ${ARINN_I18N_QML} ${ARINN_I18N_CPP}
@@ -328,4 +336,27 @@ add_test(NAME translations-complete COMMAND ${CMAKE_COMMAND}
     -DTS=${ARINN_TS_FILES}
     "-DSOURCES=${ARINN_I18N_QML};${ARINN_I18N_CPP}"
     -DWORK=${CMAKE_CURRENT_BINARY_DIR}/i18n-check
+    -P "${PROJECT_SOURCE_DIR}/tests/ui/check_translations.cmake")
+
+qt_add_executable(arinn-music-catalog-test music_catalog_test.cpp music_catalog.cpp music_catalog.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-music-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-music-catalog-test PRIVATE ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
+add_test(NAME music-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-catalog-test>)
+
+# Music has its own catalogue while #718 updates the shared shell translations.
+set(ARINN_MUSIC_TS "${CMAKE_CURRENT_SOURCE_DIR}/i18n/music_ru.ts")
+set(ARINN_MUSIC_TRANSLATION_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/music_catalog.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicView.qml")
+qt_add_lupdate(TS_FILES ${ARINN_MUSIC_TS}
+    SOURCES ${ARINN_MUSIC_TRANSLATION_SOURCES}
+    LUPDATE_TARGET arinn_music_lupdate OPTIONS -no-obsolete -locations none)
+qt_add_lrelease(TS_FILES ${ARINN_MUSIC_TS}
+    LRELEASE_TARGET arinn_music_lrelease QM_FILES_OUTPUT_VARIABLE ARINN_MUSIC_QM)
+qt_add_resources(arinn-shell music_translations PREFIX "/i18n"
+    BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${ARINN_MUSIC_QM})
+add_test(NAME music-translations-complete COMMAND ${CMAKE_COMMAND}
+    -DLUPDATE=$<TARGET_FILE:Qt6::lupdate> -DTS=${ARINN_MUSIC_TS}
+    "-DSOURCES=${ARINN_MUSIC_TRANSLATION_SOURCES}"
+    -DWORK=${CMAKE_CURRENT_BINARY_DIR}/music-i18n-check
     -P "${PROJECT_SOURCE_DIR}/tests/ui/check_translations.cmake")

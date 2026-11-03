@@ -65,6 +65,7 @@ FocusScope {
     readonly property real leftBleed: Math.max(glowMargin, fadeInset)
     signal selected(var entry)
     signal activated(string entryId)
+    signal secondaryActivated(string entryId)
     signal actionsRequested(string entryId)
     signal edge(int key, bool autoRepeat)
     signal focusLost()
@@ -97,6 +98,8 @@ FocusScope {
         const found = shown.findIndex(entry => entry.id === selectedId);
         selectedIndex = found >= 0 ? found : Math.max(0, previous - 1);
         if (activeFocus) {
+            const card=cards.itemAt(selectedIndex);
+            if(found>=0 && card && card.item && (card.item.activeFocus || card.item.focusWithin===true))return;
             if (!restore()) focusLost();
         }
     }
@@ -303,6 +306,11 @@ FocusScope {
                                     text: entryLoader.modelData.title
                                     visualIdentity: entryLoader.modelData.visualIdentity || entryLoader.modelData.id
                                     subtitle: entryLoader.modelData.subtitle || ""
+                                    statusText: entryLoader.modelData.statusText || ""
+                                    secondaryIcon: entryLoader.modelData.secondaryIcon || ""
+                                    secondaryText: entryLoader.modelData.secondaryText || ""
+                                    secondaryEnabled: entryLoader.modelData.secondaryEnabled !== false
+                                    onSecondaryActivated: {entryLoader.chosen();root.secondaryActivated(entryLoader.modelData.id);}
                                     artwork: entryLoader.modelData.artwork || ""
                                     stack: entryLoader.modelData.stack || []
                                     running: entryLoader.modelData.running || false
@@ -313,7 +321,7 @@ FocusScope {
                                     pointerMode: root.pointerMode
                                     // A hidden card must not take focus from the pointer.
                                     hoverFocusEnabled: root.hoverFocusEnabled && slot.painted
-                                    onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                                    onFocusWithinChanged: if (focusWithin) entryLoader.chosen()
                                     onActivated: root.activated(entryLoader.modelData.id)
                                     onDpadRequested: root.dpadRequested()
                                 }

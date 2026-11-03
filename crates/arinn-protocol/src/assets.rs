@@ -13,7 +13,7 @@ use zbus::zvariant::Type;
 
 pub const PROVIDER_INTERFACE: &str = "org.arinn.AssetProvider1";
 pub const INTERFACE: &str = "org.arinn.Assets1";
-/// Feature flag a `media` or `library` provider lists when it serves assets.
+/// Feature flag a `media`, `library` or `music` provider lists when it serves assets.
 pub const FEATURE_ASSETS: &str = "AssetProvider1";
 /// Largest asset in bytes: a 4K poster or fanart fits comfortably.
 pub const MAX_ASSET_BYTES: usize = 8 * 1024 * 1024;

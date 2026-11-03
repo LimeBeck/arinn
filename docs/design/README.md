@@ -48,6 +48,8 @@ The handoff declares colours, typography, sizes, radii, focus and motion timings
 
 ## Working prototypes
 
+- [Music](prototypes/music/README.md) ([#707](https://github.com/LimeBeck/arinn/issues/707), unified [MR #710](https://github.com/LimeBeck/arinn/pull/710), parent [#677](https://github.com/LimeBeck/arinn/issues/677)): standalone offline prototype of catalogue/search, player/queue, source selection and unavailable states with 1080p/4K captures. Design and backend foundations share one delivery MR; production provider integration remains pending.
+
 - [Library navigation](prototypes/library-navigation/README.md) (#629 / #630): editable derivative of the interactive HTML/JS prototype for Catalogue/Folders, physical directory navigation and season groups. Prepared at the owner's request on 2026-11-01; review the prototype before further shell presentation changes. The historical handoff remains unchanged.
 - [Hearth light](prototypes/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)): interactive answer to the *Hearth light* brief. Home, navigation, Library, detail, Applications, player, Ambient and startup in the proposed direction, a live switch to the current look and the other variants, and synthesised interface sounds. Accepted by the owner on 2026-11-02 (ADR-0136); the historical handoff stays unchanged.
 

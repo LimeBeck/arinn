@@ -76,10 +76,11 @@ QtObject {
     readonly property color plateFocus: period === "night"
         ? Qt.rgba(1, 1, 1, plateFocusNightAlpha)
         : Qt.rgba(1, 1, 1, plateFocusAlpha)
-    // A locked Settings row is inactive, not focused. White at 12% is its
-    // plate. Night text-3 on it is about 4.54:1, under textContrastMinimum;
-    // that is accepted because the row cannot be changed and does not draw
-    // the focus ring.
+    // A locked Settings row, while focused, uses white at 12% instead of
+    // the focus fill. It still draws the focus ring. Its text stays the
+    // hint colour. Night text-3 on this plate is about 4.54:1, under
+    // textContrastMinimum; that is accepted because the row cannot be
+    // changed. Unfocused, the row keeps the resting plate.
     readonly property real plateDisabledAlpha: 0.12
     readonly property color plateDisabled: Qt.rgba(1, 1, 1, plateDisabledAlpha)
     readonly property color textPrimary: period === "night" ? nightText1 : dayText1

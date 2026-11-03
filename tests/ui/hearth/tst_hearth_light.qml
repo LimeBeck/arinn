@@ -477,12 +477,15 @@ TestCase {
             }
         }
         verify(rowRatio >= Ui.Theme.textContrastMinimum);
-        // A locked row is inactive. Its plate is Theme.plateDisabled, not
-        // plateFocus, and it does not draw the focus outline. Night text-3
-        // on that plate is under textContrastMinimum; that is accepted.
-        verify(settings.focusPart(2, "main") !== false, "locked row");
+        // A locked row keeps the resting plate until it is focused. Focus
+        // uses Theme.plateDisabled, not plateFocus, and draws the same
+        // outline as the other rows. The title stays hint text. Night
+        // text-3 on that plate is under textContrastMinimum; that is accepted.
         const locked = named(settings, "setting-library-locked");
         verify(locked !== null, "locked row");
+        verify(near(locked.background.color, Qt.rgba(1, 1, 1, 0.06)),
+               "unfocused locked fill " + locked.background.color);
+        verify(settings.focusPart(2, "main") !== false, "locked row");
         tryCompare(locked, "activeFocus", true, 5000, "locked row");
         verify(near(locked.background.color, Ui.Theme.plateDisabled),
                "locked fill " + locked.background.color);
@@ -499,8 +502,12 @@ TestCase {
             }
         }
         verify(lockedRing !== null, "locked outline");
-        compare(lockedRing.shown, false);
-        compare(lockedRing.opacity, 0);
+        compare(lockedRing.shown, true);
+        tryCompare(lockedRing, "opacity", 1, 1000, "locked outline");
+        compare(lockedRing.border.width, homeRing.border.width);
+        verify(near(lockedRing.border.color, homeRing.border.color), "locked ring " + lockedRing.border.color);
+        verify(near(lockedRing.border.color, Ui.Theme.ring), "locked ring token");
+        compare(lockedRing.radius, locked.background.radius);
         const lockedSurface = over(Ui.Theme.background, locked.background.color);
         const lockedRatio = veiled(glow, Ui.Theme.textHint, lockedSurface);
         verify(lockedRatio < Ui.Theme.textContrastMinimum,

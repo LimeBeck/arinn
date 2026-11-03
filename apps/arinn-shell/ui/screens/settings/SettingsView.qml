@@ -1372,9 +1372,10 @@ FocusScope {
                                            ? (rowScope.locked ? Ui.Theme.plateDisabled : Ui.Theme.plateFocus)
                                            : Qt.rgba(1, 1, 1, 0.06)
                                 }
-                                // A locked row stays inactive: hint text on
-                                // plateDisabled, without the focus outline.
-                                Ui.FocusRing { shown: settingButton.activeFocus && !rowScope.locked; radius: 28 }
+                                // Focused and locked: the ring shows where focus is.
+                                // The plate stays plateDisabled and the text stays
+                                // the hint colour, so the row still reads as locked.
+                                Ui.FocusRing { shown: settingButton.activeFocus; radius: 28 }
                                 contentItem: Item {
                                     Column {
                                         id: simpleText

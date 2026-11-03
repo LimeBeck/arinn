@@ -4,9 +4,9 @@
 
 #include "interface_sounds.h"
 
+#include <QAudioDevice>
 #include <QCoreApplication>
 #include <QEventLoop>
-#include <QAudioDevice>
 #include <QMediaDevices>
 #include <QResource>
 #include <QSoundEffect>
@@ -44,7 +44,6 @@ const char *kAllSounds[] = {"tap",  "edge",   "select", "back", "open",
 InterfaceSounds::InterfaceSounds(QObject *parent) : QObject(parent) {
   g_instance = this;
   m_clock.start();
-  preloadAllEffects();
   connect(&m_mediaDevices, &QMediaDevices::audioOutputsChanged, this,
           &InterfaceSounds::onAudioOutputsChanged);
 }
@@ -59,15 +58,19 @@ InterfaceSounds *InterfaceSounds::instance() { return g_instance; }
 void InterfaceSounds::onAudioOutputsChanged() {
   if (QMediaDevices::audioOutputs().isEmpty())
     return;
-  resetAllEffects();
-  preloadAllEffects();
+  reloadAllEffects();
 }
 
 void InterfaceSounds::resetAllEffects() { m_effects.clear(); }
 
-void InterfaceSounds::preloadAllEffects() {
+void InterfaceSounds::reloadAllEffects() {
+  if (QMediaDevices::audioOutputs().isEmpty()) {
+    resetAllEffects();
+    return;
+  }
+  resetAllEffects();
   for (const char *name : kAllSounds)
-    waitForEffectDecode(QString::fromLatin1(name));
+    waitForEffectReady(QString::fromLatin1(name));
 }
 
 void InterfaceSounds::setLevel(const QString &level) {
@@ -113,6 +116,8 @@ double InterfaceSounds::volume(bool repeat) const {
 }
 
 QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
+  if (QMediaDevices::audioOutputs().isEmpty())
+    return nullptr;
   const auto found = m_effects.find(name);
   if (found != m_effects.end())
     return found->second.get();
@@ -128,35 +133,39 @@ QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
 }
 
 bool InterfaceSounds::resourceEmbedded(const QString &name) const {
-  return QResource(
-             QStringLiteral(":/sounds/%1.wav").arg(name).toUtf8())
+  return QResource(QStringLiteral(":/sounds/%1.wav").arg(name).toUtf8())
       .isValid();
 }
 
-bool InterfaceSounds::waitForEffectDecode(const QString &name) {
+bool InterfaceSounds::waitForEffectReady(const QString &name) {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testFailNextDecodeName == name) {
+    m_testFailNextDecodeName.clear();
+    return false;
+  }
+#endif
   auto *effect = effectFor(name);
   if (!effect)
     return false;
   for (int i = 0; i < 1000; ++i) {
-    const auto status = effect->status();
-    if (status != QSoundEffect::Loading && status != QSoundEffect::Null)
+    switch (effect->status()) {
+    case QSoundEffect::Ready:
       return true;
-    QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+    case QSoundEffect::Error:
+      return false;
+    case QSoundEffect::Loading:
+    case QSoundEffect::Null:
+      QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+      break;
+    }
   }
-  return effect->status() != QSoundEffect::Loading &&
-         effect->status() != QSoundEffect::Null;
+  return effect->status() == QSoundEffect::Ready;
 }
 
 bool InterfaceSounds::ensureLoaded(const QString &name) {
-  if (!resourceEmbedded(name) || !waitForEffectDecode(name))
+  if (!resourceEmbedded(name))
     return false;
-  auto *effect = effectFor(name);
-  if (!effect)
-    return false;
-  if (effect->status() == QSoundEffect::Ready)
-    return true;
-  return QMediaDevices::audioOutputs().isEmpty() &&
-         effect->status() != QSoundEffect::Loading;
+  return waitForEffectReady(name);
 }
 
 int InterfaceSounds::effectStatus(const QString &name) const {
@@ -166,8 +175,25 @@ int InterfaceSounds::effectStatus(const QString &name) const {
   return static_cast<int>(found->second->status());
 }
 
+bool InterfaceSounds::playEffectReady(const QString &name, bool repeat) {
+  if (!waitForEffectReady(name))
+    return false;
+  auto *effect = effectFor(name);
+  if (!effect || effect->status() != QSoundEffect::Ready)
+    return false;
+  effect->setVolume(static_cast<float>(volume(repeat)));
+  effect->play();
+  return true;
+}
+
 bool InterfaceSounds::playInternal(const QString &name, bool repeat,
                                    bool throttleTap, bool throttleEdge) {
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  if (m_testFailPlayAttempts > 0) {
+    --m_testFailPlayAttempts;
+    return false;
+  }
+#endif
   if (!m_levelKnown || m_level == QLatin1String("off") || m_outputMuted)
     return false;
   if (m_mediaActive && name != QLatin1String("error"))
@@ -186,16 +212,13 @@ bool InterfaceSounds::playInternal(const QString &name, bool repeat,
     if (m_lastEdgeMs != 0 && now - m_lastEdgeMs < m_edgeIntervalMs)
       return false;
   }
-  if (!waitForEffectDecode(name))
+  if (QMediaDevices::audioOutputs().isEmpty())
     return false;
-  auto *effect = effectFor(name);
-  if (!effect || effect->status() != QSoundEffect::Ready) {
-    if (!QMediaDevices::audioOutputs().isEmpty())
-      resetAllEffects();
-    return false;
+  if (!playEffectReady(name, repeat)) {
+    resetAllEffects();
+    if (!playEffectReady(name, repeat))
+      return false;
   }
-  effect->setVolume(static_cast<float>(volume(repeat)));
-  effect->play();
   emit played(name, repeat);
   if (name == QLatin1String("tap"))
     m_lastTapMs = m_clock.elapsed();
@@ -260,7 +283,13 @@ bool InterfaceSounds::playEdgeBumpWhileSuppressed(bool autoRepeat) {
   return played;
 }
 
-void InterfaceSounds::recreateEffectsForTest() { onAudioOutputsChanged(); }
+void InterfaceSounds::setTestFailNextDecodeOnce(const QString &name) {
+  m_testFailNextDecodeName = name;
+}
+
+void InterfaceSounds::setTestFailPlayAttempts(int count) {
+  m_testFailPlayAttempts = count;
+}
 #endif
 
 void registerInterfaceSounds() {

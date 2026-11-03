@@ -33,6 +33,21 @@ private slots:
     return !QMediaDevices::audioOutputs().isEmpty();
   }
 
+  void noSoundEffectsUntilAudioOutputAndLoadOrPlay() {
+    InterfaceSounds fresh;
+    QCOMPARE(fresh.effectStatus(QStringLiteral("tap")),
+             static_cast<int>(QSoundEffect::Null));
+    QCOMPARE(fresh.effectStatus(QStringLiteral("open")),
+             static_cast<int>(QSoundEffect::Null));
+    if (!hasAudioOutput())
+      return;
+    QVERIFY(fresh.ensureLoaded(QStringLiteral("tap")));
+    QCOMPARE(fresh.effectStatus(QStringLiteral("tap")),
+             static_cast<int>(QSoundEffect::Ready));
+    QCOMPARE(fresh.effectStatus(QStringLiteral("open")),
+             static_cast<int>(QSoundEffect::Null));
+  }
+
   void embeddedResourcesExistAndDecode() {
     const char *names[] = {"tap",  "edge",   "select", "back", "open",
                            "close", "ignite", "kindle", "error"};
@@ -170,15 +185,25 @@ private slots:
     QCOMPARE(m_events.last().first, QStringLiteral("tap"));
   }
 
-  void audioOutputsChangedRecreatesEffects() {
-    const char *names[] = {"tap", "edge", "select"};
-    for (const char *name : names)
-      QVERIFY(m_sounds.resourceEmbedded(QString::fromLatin1(name)));
+  void playRetriesAfterFailedDecodeInSameCall() {
     if (!hasAudioOutput())
       QSKIP("No audio output device");
-    QVERIFY(m_sounds.ensureLoaded(QStringLiteral("tap")));
-    m_sounds.recreateEffectsForTest();
-    QVERIFY(m_sounds.ensureLoaded(QStringLiteral("tap")));
+    m_sounds.setLevel(QStringLiteral("normal"));
+    m_sounds.setTestFailNextDecodeOnce(QStringLiteral("tap"));
+    m_sounds.playNavigationTap(false);
+    QCOMPARE(m_events.size(), 1);
+    QCOMPARE(m_events.last().first, QStringLiteral("tap"));
+  }
+
+  void lateAudioRecoverOnSecondPlayWithoutOutputSignal() {
+    if (!hasAudioOutput())
+      QSKIP("No audio output device");
+    m_sounds.setLevel(QStringLiteral("normal"));
+    m_sounds.setTestFailPlayAttempts(1);
+    m_sounds.playNavigationTap(false);
+    QCOMPARE(m_events.size(), 0);
+    m_sounds.playNavigationTap(false);
+    QCOMPARE(m_events.size(), 1);
   }
 
 private:

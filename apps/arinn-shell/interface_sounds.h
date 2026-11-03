@@ -13,7 +13,9 @@ class QSoundEffect;
 
 // Pre-rendered Hearth light interface sounds (ADR-0136, spec §5.6). Playback
 // never blocks callers; level follows the setting and system mute; media guard
-// skips every sound except error while video or music plays.
+// skips every sound except error while video or music plays. QSoundEffect
+// instances are created only after QMediaDevices reports a non-empty audio
+// output list (first play or audioOutputsChanged).
 class InterfaceSounds : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString level READ level WRITE setLevel NOTIFY levelChanged)
@@ -59,7 +61,8 @@ public:
 #ifdef ARINN_INTERFACE_SOUNDS_TEST
   bool playNavigationTapWhileSuppressed(bool autoRepeat);
   bool playEdgeBumpWhileSuppressed(bool autoRepeat);
-  void recreateEffectsForTest();
+  void setTestFailNextDecodeOnce(const QString &name);
+  void setTestFailPlayAttempts(int count);
 #endif
 
 signals:
@@ -74,11 +77,12 @@ private slots:
 private:
   bool playInternal(const QString &name, bool repeat, bool throttleTap,
                     bool throttleEdge);
+  bool playEffectReady(const QString &name, bool repeat);
   double volume(bool repeat) const;
   QSoundEffect *effectFor(const QString &name);
-  void preloadAllEffects();
+  void reloadAllEffects();
   void resetAllEffects();
-  bool waitForEffectDecode(const QString &name);
+  bool waitForEffectReady(const QString &name);
 
   QString m_level;
   bool m_levelKnown = false;
@@ -93,6 +97,11 @@ private:
   QElapsedTimer m_clock;
   QMediaDevices m_mediaDevices{this};
   std::unordered_map<QString, std::unique_ptr<QSoundEffect>> m_effects;
+
+#ifdef ARINN_INTERFACE_SOUNDS_TEST
+  QString m_testFailNextDecodeName;
+  int m_testFailPlayAttempts = 0;
+#endif
 };
 
 void registerInterfaceSounds();

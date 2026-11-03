@@ -20,7 +20,10 @@ private slots:
     m_sounds.setMediaActive(false);
   }
 
-  void init() { m_events.clear(); }
+  void init() {
+    m_events.clear();
+    m_sounds.setTapIntervalMs(0);
+  }
 
   void mediaGuardBlocksEverythingExceptError() {
     m_sounds.setMediaActive(true);

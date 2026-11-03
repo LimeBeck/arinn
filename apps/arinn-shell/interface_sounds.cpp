@@ -125,7 +125,7 @@ void InterfaceSounds::play(const QString &name, bool repeat) {
     return;
   if (m_mediaActive && name != QLatin1String("error"))
     return;
-  if (name == QLatin1String("tap")) {
+  if (name == QLatin1String("tap") && m_tapIntervalMs > 0) {
     const qint64 now = m_clock.elapsed();
     if (m_lastTapMs != 0 && now - m_lastTapMs < m_tapIntervalMs)
       return;

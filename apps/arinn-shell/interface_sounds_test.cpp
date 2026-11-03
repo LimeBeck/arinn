@@ -79,7 +79,7 @@ private:
   InterfaceSounds m_sounds;
   QList<QPair<QString, bool>> m_events;
 
-  InterfaceSoundsTest() {
+  void initTestCase() {
     connect(&m_sounds, &InterfaceSounds::played, this,
             [this](const QString &name, bool repeat) {
               m_events.append({name, repeat});

@@ -34,6 +34,9 @@ public:
 
   Q_INVOKABLE void play(const QString &name, bool repeat = false);
 
+  // Tests wait for asynchronous QSoundEffect decoding (headless CI).
+  bool ensureLoaded(const QString &name);
+
   // Tests shorten tap spacing without waiting in real time.
   void setTapIntervalMs(int ms) { m_tapIntervalMs = ms; }
 

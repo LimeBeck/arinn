@@ -521,9 +521,15 @@ Window {
         return visible && active && (!activeFocusItem || activeFocusItem === contentItem);
     }
     property bool hadFocus: false
+    property bool interfaceStartupHeard: false
+    property var interfaceFocusSoundItem: null
     onActiveFocusItemChanged: {
         if (!focusFellToRoot()) {
             hadFocus = true;
+            if (visible && active && activeFocusItem !== interfaceFocusSoundItem) {
+                interfaceFocusSoundItem = activeFocusItem;
+                interfaceSounds.play("tap");
+            }
             return;
         }
         const fell = hadFocus;
@@ -541,6 +547,10 @@ Window {
         quickMenuOpener = null;
         quickMenuTarget = "";
     } else {
+        if (!interfaceStartupHeard) {
+            interfaceStartupHeard = true;
+            interfaceSounds.play("ignite");
+        }
         Qt.callLater(() => {
             // Returning from an external activity keeps the displayed route. Home
             // must not take focus behind Open services or another retained screen.
@@ -782,22 +792,6 @@ Window {
         target: interfaceSounds
         property: "mediaActive"
         value: root.interfaceMediaActive
-    }
-    property bool interfaceStartupHeard: false
-    onVisibleChanged: {
-        if (!visible || interfaceStartupHeard)
-            return;
-        interfaceStartupHeard = true;
-        interfaceSounds.play("ignite");
-    }
-    property var interfaceFocusSoundItem: null
-    onActiveFocusItemChanged: {
-        if (!visible || !active || focusFellToRoot())
-            return;
-        if (activeFocusItem === interfaceFocusSoundItem)
-            return;
-        interfaceFocusSoundItem = activeFocusItem;
-        interfaceSounds.play("tap");
     }
     KeyboardMonitor { id: keyboardMonitor }
     // Every key press and pointer movement in the shell feeds the one input

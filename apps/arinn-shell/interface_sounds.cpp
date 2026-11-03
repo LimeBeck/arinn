@@ -95,6 +95,18 @@ QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
   return raw;
 }
 
+bool InterfaceSounds::ensureLoaded(const QString &name) {
+  auto *effect = effectFor(name);
+  if (!effect)
+    return false;
+  if (effect->isLoaded())
+    return true;
+  for (int i = 0; i < 1000 && effect->status() != QSoundEffect::Ready; ++i) {
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+  }
+  return effect->isLoaded();
+}
+
 void InterfaceSounds::play(const QString &name, bool repeat) {
   if (m_level == QLatin1String("off") || m_outputMuted)
     return;

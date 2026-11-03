@@ -1,10 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
-//
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "interface_sounds.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QSignalSpy>
 #include <QTest>
 
@@ -22,13 +21,7 @@ private slots:
     for (const char *name :
          {"tap", "edge", "select", "back", "open", "close", "ignite", "kindle",
           "error"}) {
-      QSignalSpy ready(&m_sounds, &InterfaceSounds::played);
-      for (int attempt = 0; attempt < 300 && ready.isEmpty(); ++attempt) {
-        m_sounds.play(QString::fromLatin1(name));
-        QCoreApplication::processEvents();
-        QTest::qWait(5);
-      }
-      QVERIFY2(!ready.isEmpty(), name);
+      QVERIFY2(m_sounds.ensureLoaded(QString::fromLatin1(name)), name);
     }
     m_events.clear();
   }
@@ -85,5 +78,10 @@ private:
   QList<QPair<QString, bool>> m_events;
 };
 
-QTEST_MAIN(InterfaceSoundsTest)
+int main(int argc, char **argv) {
+  QGuiApplication app(argc, argv);
+  InterfaceSoundsTest test;
+  return QTest::qExec(&test, argc, argv);
+}
+
 #include "interface_sounds_test.moc"

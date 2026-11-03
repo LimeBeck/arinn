@@ -97,6 +97,16 @@ public:
     Q_INVOKABLE bool idle() const { return !captureDriver || captureDriver->idle(); }
 };
 
+// HomeView and Main.qml call play(); component tests load those files without
+// the production shell context property.
+class InterfaceSoundsStub : public QObject {
+  Q_OBJECT
+
+public:
+  using QObject::QObject;
+  Q_INVOKABLE void play(const QString &, bool = false) {}
+};
+
 class ArinnUiTestSetup : public QObject
 {
     Q_OBJECT
@@ -116,6 +126,8 @@ public slots:
     {
         engine->rootContext()->setContextProperty(QStringLiteral("captureAnimation"),
                                                   new CaptureAnimation(engine));
+        engine->rootContext()->setContextProperty(QStringLiteral("interfaceSounds"),
+                                                  new InterfaceSoundsStub(engine));
     }
 };
 

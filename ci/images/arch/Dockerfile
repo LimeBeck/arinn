@@ -42,7 +42,6 @@ ARG QT_VERSION=6.8.3
 RUN pacman -Syu --noconfirm --needed base-devel git rust cmake ninja ccache \
       qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools curl libunwind openssl \
       nodejs systemd xorg-server-xvfb ffmpeg \
-
  && rm -rf /var/cache/pacman/pkg/* \
  && useradd --create-home builder
 COPY --from=qt-sdk /opt/qt/${QT_VERSION}/gcc_64 /opt/qt/${QT_VERSION}/gcc_64

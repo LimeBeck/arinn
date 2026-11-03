@@ -648,7 +648,7 @@ TestCase {
         verify(findChild(more, "stackChip-2") !== null);
         verify(findChild(more, "stackChip-3") === null);
         more.forceActiveFocus(); focused("entry-open-services-more");
-        compare(child("heroEyebrow").text, "OPEN SERVICES");
+        compare(child("heroEyebrow").text, "Open services");
         compare(child("heroTitle").text, "4 more open");
         compare(child("heroMeta").text, "Page 2 · Page 3 · Page 4 · Page 5");
     }
@@ -689,12 +689,12 @@ TestCase {
             {id: "s", title: "Search", hint: "Type an address or a search"}
         ];
         child("entry-a").forceActiveFocus(); focused("entry-a");
-        compare(child("heroEyebrow").text, "NOW RUNNING");
+        compare(child("heroEyebrow").text, "Now running");
         verify(child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Player");
         compare(child("heroMeta").text, "Return");
         keyClick(Qt.Key_Right); focused("entry-film");
-        compare(child("heroEyebrow").text, "CONTINUE");
+        compare(child("heroEyebrow").text, "Continue");
         verify(!child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Film");
         compare(child("heroMeta").text, "1:13:42 of 2:46:00 · 1 h 32 min left");
@@ -703,16 +703,16 @@ TestCase {
         keyClick(Qt.Key_Right); focused("entry-live");
         compare(child("heroMeta").text, "Playing");
         child("entry-f").forceActiveFocus(); focused("entry-f");
-        compare(child("heroEyebrow").text, "FAVORITES · ONLINE");
+        compare(child("heroEyebrow").text, "Favorites · Online");
         compare(child("heroTitle").text, "Favorite");
         compare(child("heroMeta").text, "Opens full screen");
         home.openShortcutIds = ["f"];
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-g");
-        compare(child("heroEyebrow").text, "FAVORITES · GAMES");
+        compare(child("heroEyebrow").text, "Favorites · Games");
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-s");
-        compare(child("heroEyebrow").text, "FAVORITES");
+        compare(child("heroEyebrow").text, "Favorites");
         compare(child("heroMeta").text, "Type an address or a search");
         // The hero follows the presented entry, not a stale snapshot.
         home.favoriteEntries = [{id: "f", title: "Favorite"}, {id: "g", title: "Game", group: "games"},
@@ -791,7 +791,7 @@ TestCase {
         // A link to a tab that is not open keeps the media card.
         compare(child("entry-stale").text, "Stale");
         tabCard.forceActiveFocus(); focused("entry-m");
-        compare(child("heroEyebrow").text, "NOW RUNNING");
+        compare(child("heroEyebrow").text, "Now running");
         compare(child("heroMeta").text, "Paused · Return");
         keyClick(Qt.Key_Return);
         compare(tabRequests.count, 1);

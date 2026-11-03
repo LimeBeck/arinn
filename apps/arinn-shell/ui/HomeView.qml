@@ -338,13 +338,13 @@ FocusScope {
     // (#364, handoff 01–03).
     function describe(row, entry) {
         if (!entry || !entry.id)
-            return {eyebrow: qsTr("CONTINUE"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
+            return {eyebrow: qsTr("Continue"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
         if (row === "favorites") {
             const group = groupTitles[entry.group];
             const open = !!entry.running || openShortcutIds.indexOf(entry.id) >= 0;
             const unavailable = entry.unavailable || (browserUnavailable && entry.webShortcut);
             return {
-                eyebrow: (group ? favoritesTitle + " · " + group : favoritesTitle).toUpperCase(),
+                eyebrow: group ? favoritesTitle + " · " + group : favoritesTitle,
                 title: entry.title || "",
                 meta: unavailable ? (browserUnavailable && entry.webShortcut ? qsTr("Unavailable") : entry.subtitle || "")
                     : entry.hint ? entry.hint : open ? qsTr("Running · Return") : qsTr("Opens full screen"),
@@ -352,7 +352,7 @@ FocusScope {
             };
         }
         if (entry.kind === "more")
-            return {eyebrow: qsTr("OPEN SERVICES"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
+            return {eyebrow: qsTr("Open services"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
         if (entry.kind === "media") {
             // The provider's own line (an episode, an artist), not the card's.
             const detail = entry.detail !== undefined ? entry.detail : entry.subtitle || "";
@@ -365,15 +365,15 @@ FocusScope {
                     : qsTr("%1 of %2").arg(formatTime(position)).arg(formatTime(entry.durationUs)) + " · " + left;
             } else if (entry.running && !meta)
                 meta = qsTr("Playing");
-            return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: meta, live: false};
+            return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: meta, live: false};
         }
         if (entry.kind === "tab")
-            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+            return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.subtitle + " · " + qsTr("Return"), live: true};
         if (entry.running)
-            return {eyebrow: qsTr("NOW RUNNING"), title: entry.title || "",
+            return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
-        return {eyebrow: qsTr("CONTINUE"), title: entry.title || "", meta: entry.subtitle || "", live: false};
+        return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: entry.subtitle || "", live: false};
     }
     // The focused entry as currently presented; a stale snapshot otherwise.
     readonly property var heroEntry: {
@@ -829,8 +829,11 @@ FocusScope {
                     y: root.homeOffset
                     Behavior on y { NumberAnimation { duration: 450; easing.type: Easing.OutCubic } }
                 }
+                // A fixed hero box: the title fits in steps (96 on one line,
+                // 68 on two) so nothing below it moves (ADR-0136).
                 Column {
-                    x: 120; y: 136; width: 1300; spacing: 14
+                    objectName: "heroBox"
+                    x: 120; y: 120; width: 1300; height: 240; spacing: 10
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
                     Row {
                         spacing: 12
@@ -842,7 +845,7 @@ FocusScope {
                         }
                         UiText { objectName: "heroEyebrow"; role: "eyebrow"; text: root.hero.eyebrow; color: Theme.textSecondary }
                     }
-                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; maximumLineCount: 1; elide: Text.ElideRight }
+                    UiText { objectName: "heroTitle"; width: parent.width; role: "hero"; text: root.hero.title; fitSteps: [[96, 1], [68, 2]]; lineHeight: 1.08; elide: Text.ElideRight }
                     UiText { objectName: "heroMeta"; width: parent.width; role: "meta"; font.pixelSize: 28; text: root.hero.meta; maximumLineCount: 1; elide: Text.ElideRight; color: Theme.textSecondary }
                 }
                 HomeRow {
@@ -1130,7 +1133,7 @@ FocusScope {
                 } else root.closeShortcutEditorRequested();
             }
         }
-        Rectangle { anchors.fill: parent; color: "#E6131416"; MouseArea { anchors.fill: parent } }
+        Rectangle { anchors.fill: parent; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.9); MouseArea { anchors.fill: parent } }
         Rectangle {
             x: 410; y: 155; width: 1100; height: 770; radius: 40; color: Theme.background
             border.color: Theme.ring

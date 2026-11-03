@@ -1201,7 +1201,6 @@ FocusScope {
             height: 40
             verticalAlignment: Text.AlignVCenter
             role: "eyebrow"
-            font.capitalization: Font.AllUppercase
             color: Ui.Theme.textSecondary
             text: {
                 const category = root.currentCategory();
@@ -1778,7 +1777,6 @@ FocusScope {
                     Ui.UiText {
                         width: parent.width - optionPosition.implicitWidth - 16
                         role: "eyebrow"
-                        font.capitalization: Font.AllUppercase
                         color: Ui.Theme.textSecondary
                         text: {
                             const row = root.choosingRow || root.integerRowData || root.stringRowData;

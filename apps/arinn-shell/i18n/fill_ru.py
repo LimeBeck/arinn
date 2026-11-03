@@ -64,8 +64,6 @@ RU = {
     "Favorites": "Избранное",
     "Continue": "Продолжить",
     "New": "Новое",
-    "CONTINUE": "ПРОДОЛЖИТЬ",
-    "NOW RUNNING": "СЕЙЧАС ЗАПУЩЕНО",
     "Now running": "Сейчас запущено",
     "Online": "Онлайн",
     "Games": "Игры",
@@ -89,7 +87,6 @@ RU = {
     "%n more open": "Открыто ещё: %n",
     "Open: %n": "Открыто: %n",
     "All open services": "Все открытые сервисы",
-    "OPEN SERVICES": "ОТКРЫТЫЕ СЕРВИСЫ",
     # Home hero, Continue cards and status area (#364, #365, #367)
     "Opens full screen": "Откроется на весь экран",
     "Running · Return": "Запущено · Вернуться",

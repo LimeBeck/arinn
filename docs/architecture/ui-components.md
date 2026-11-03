@@ -19,7 +19,7 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals, each weight applied to the font's `wght` axis (see *Font weights*) |
+| `Theme`, `UiText` | Shared colours (the Hearth light palette: Charcoal background, warm text, `chip`, `mat`, `rim`, `hearth`), radii, timing, fonts and named typography roles; Onest for system text and Ysabeau for the content roles `hero` (96/600) and `detail` (104/600), with tabular numerals (content roles also lining figures), each weight applied to the font's `wght` axis (see *Font weights*). Eyebrows are sentence case (26/500); page titles 56/600 without negative tracking. `fitSteps` (`[[size, lines], …]`) fits a content title: the first step whose text is not elided wins, `fitStep` reports it ([ADR-0136](../adr/0136-hearth-light-visual-direction.md)) |
 | `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
 | `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
@@ -114,6 +114,19 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 [upstream project](https://github.com/googlefonts/onest).
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
+
+Ysabeau, the content-title face of the Hearth light direction
+([ADR-0136](../adr/0136-hearth-light-visual-direction.md), D-2), is bundled
+unchanged as `ui/fonts/Ysabeau.ttf` from the Google Fonts `ofl/ysabeau`
+directory (`Ysabeau[wght].ttf`, SHA-256
+`aa6df9f1f6cb1180f7c00fffb5ae2734ba66aa5f58defd173a9247ca11dffcf4`):
+[font source](https://github.com/google/fonts/tree/main/ofl/ysabeau),
+[upstream project](https://github.com/CatharsisFonts/Ysabeau).
+Copyright 2023 The Ysabeau Project Authors. License: SIL Open Font License 1.1,
+in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`. It is a
+variable font with a `wght` axis and is weighted through the same
+`Theme.applyWeight` path as Onest. Its default figures are old-style, so the
+content roles turn on the `lnum` feature.
 
 ## Font weights
 

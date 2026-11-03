@@ -1296,7 +1296,6 @@ FocusScope {
                 Ui.UiText {
                     objectName: "detailEyebrow"
                     role: "eyebrow"
-                    font.capitalization: Font.AllUppercase
                     text: root.detailEntry && root.detailEntry.kind === "series" ? qsTr("Series")
                             : root.detailEntry && root.detailEntry.kind === "film" ? qsTr("Film") : ""
                     visible: text.length > 0
@@ -1305,9 +1304,11 @@ FocusScope {
                 Ui.UiText {
                     objectName: "detailTitle"
                     width: parent.width
-                    role: "display"
+                    role: "detail"
                     text: root.detailEntry ? (root.detailEntry.title || "") : ""
-                    maximumLineCount: 2
+                    // 104 on up to two lines, 80 on up to three (ADR-0136).
+                    fitSteps: [[104, 2], [80, 3]]
+                    lineHeight: 1.06
                     elide: Text.ElideRight
                 }
                 Ui.UiText {

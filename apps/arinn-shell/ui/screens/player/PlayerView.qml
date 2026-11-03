@@ -831,10 +831,7 @@ FocusScope {
                         spacing: 8
                         Ui.UiText {
                             text: qsTr("Playback")
-                            font.pixelSize: 24
-                            font.weight: 600
-                            font.letterSpacing: 1.9
-                            font.capitalization: Font.AllUppercase
+                            role: "eyebrow"
                             color: Ui.Theme.textSecondary
                         }
                         Ui.UiText {

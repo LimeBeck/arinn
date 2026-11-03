@@ -6,23 +6,56 @@ import QtQuick
 Text {
     id: uiText
     // Named roles keep action labels at least 26 logical pixels.
+    // [pixel size, weight, letter spacing, content face]. Content titles (hero,
+    // detail) use Ysabeau, everything else Onest (ADR-0136, D-2). Eyebrows are
+    // sentence case: no role spaces letters out for capitals.
     property string role: "body"
     readonly property var typography: ({
-        display: [112, 700, -3.36], hero: [84, 700, -2.1],
-        title: [56, 700, -1.12], section: [30, 600, 0],
-        body: [30, 400, 0], control: [30, 600, 0],
-        meta: [26, 500, 0], eyebrow: [24, 600, 1.92], caption: [24, 500, 0]
+        display: [112, 700, -3.36, false], hero: [96, 600, 0, true],
+        detail: [104, 600, 0, true],
+        title: [56, 600, 0, false], section: [30, 600, 0, false],
+        body: [30, 400, 0, false], control: [30, 600, 0, false],
+        meta: [26, 500, 0, false], eyebrow: [26, 500, 0, false], caption: [24, 500, 0, false]
     })
     readonly property var metrics: typography[role] || typography.body
-    font.family: Theme.fontFamily
+    readonly property bool contentFace: metrics[3] === true
+    // Steps for a content title, largest first: [[pixel size, max lines], …].
+    // The first step whose text fits without eliding wins; the last one
+    // elides. Empty: the role's size and the instance's maximumLineCount.
+    property var fitSteps: []
+    // The step in use, -1 without fitSteps.
+    property int fitStep: -1
+    font.family: contentFace ? Theme.contentFontFamily : Theme.fontFamily
     font.pixelSize: metrics[0]
     font.weight: metrics[1]
     font.letterSpacing: metrics[2]
-    font.features: ({ "tnum": 1 })
+    // Lining figures for content titles: Ysabeau's default figures are
+    // old-style, which a clock or a year must not use.
+    font.features: contentFace ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
     color: Theme.textPrimary
     wrapMode: Text.WordWrap
+
+    // Measures the rendered text at each step; layout runs on each change of
+    // size or line count, so `truncated` is current when it is read.
+    function fit() {
+        if (!fitSteps || !fitSteps.length)
+            return;
+        for (let i = 0; i < fitSteps.length; ++i) {
+            fitStep = i;
+            font.pixelSize = fitSteps[i][0];
+            maximumLineCount = fitSteps[i][1];
+            if (!truncated)
+                return;
+        }
+    }
+    onTextChanged: fit()
+    onWidthChanged: fit()
+    onFitStepsChanged: fit()
     // The weight, the role's or one set on the instance, reaches the
     // variable font's wght axis (#546).
     onFontChanged: Theme.applyWeight(uiText)
-    Component.onCompleted: Theme.applyWeight(uiText)
+    Component.onCompleted: {
+        Theme.applyWeight(uiText);
+        fit();
+    }
 }

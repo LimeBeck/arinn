@@ -1,5 +1,7 @@
 # Arinn design
 
+**Visual contract:** since 2026-11-02 the design handoff is amended by the *Hearth light* direction ([ADR-0136](../adr/0136-hearth-light-visual-direction.md)): the [Hearth light brief](briefs/hearth-light/README.md) and [prototype](prototypes/hearth-light/README.md) define what they cover, the handoff the rest, and [Brand Guide v0.2](brand/brand-guide-v0.2.md) is the brand reference.
+
 The current design handoff dates from 2026-10-09 and lives in [`handoff/`](handoff/README.md). The packages delivered by the project owner were copied with the one deliberate change described under *Licensing*; the 2026-10-01 addition was accepted by the owner from an agent brief, and the 2026-10-09 README was merged by hand (see *Licensing*). It answers:
 - the [ADR-0050](../adr/0050-window-per-browser-activity.md) design brief with the *Open services* screen;
 - the [#106](https://github.com/LimeBeck/arinn/issues/106) brief with the *address and search* screen;
@@ -47,12 +49,14 @@ The handoff declares colours, typography, sizes, radii, focus and motion timings
 ## Working prototypes
 
 - [Library navigation](prototypes/library-navigation/README.md) (#629 / #630): editable derivative of the interactive HTML/JS prototype for Catalogue/Folders, physical directory navigation and season groups. Prepared at the owner's request on 2026-11-01; review the prototype before further shell presentation changes. The historical handoff remains unchanged.
+- [Hearth light](prototypes/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)): interactive answer to the *Hearth light* brief. Home, navigation, Library, detail, Applications, player, Ambient and startup in the proposed direction, a live switch to the current look and the other variants, and synthesised interface sounds. Accepted by the owner on 2026-11-02 (ADR-0136); the historical handoff stays unchanged.
 
 ## Design briefs
 
 Briefs prepared for the designer live in [`briefs/`](briefs/). They are not part of the handoff and decide nothing on their own; the designer's answer comes back as a new handoff package.
 
 - [Closing running applications](briefs/closing-running-applications/README.md) ([#205](https://github.com/LimeBeck/arinn/issues/205)): tile menu, Continue card, running list, confirmation and closing feedback. Answered by the 2026-10-01 handoff (*Closing applications*); the brief is kept unchanged except for its status line, with the variants that were not chosen.
+- [Hearth light](briefs/hearth-light/README.md) ([#721](https://github.com/LimeBeck/arinn/issues/721)): visual identity pass after the 2026-11-02 design review: light from below, a content-title face with a hand (Ysabeau), shape roles, neutral monograms, the ignition, Ambient and interface sounds. Written by the agent acting as designer at the owner's request; accepted by the owner on 2026-11-02 with decisions D-1…D-10 ([ADR-0136](../adr/0136-hearth-light-visual-direction.md)).
 
 ## Relation to development
 

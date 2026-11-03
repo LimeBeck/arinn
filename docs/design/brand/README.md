@@ -1,5 +1,7 @@
 # Arinn brand
 
+**Current guide: [Brand Guide v0.2](brand-guide-v0.2.md)**, accepted by the owner on 2026-11-02 with the *Hearth light* direction ([ADR-0136](../../adr/0136-hearth-light-visual-direction.md)). It is the English text of v0.1 with a new section 5 (interface) and section 15 (designer prompt), the ignition in section 3, a serif for content titles in section 10, the generic TV template in section 9 and a new section 16 on sound. The rest of this page describes the original v0.1 materials.
+
 Materials delivered by the project owner on 2026-09-27 and kept unchanged:
 
 - [Brand Guide v0.1](brand-guide-v0.1.txt) — original text, in Russian.

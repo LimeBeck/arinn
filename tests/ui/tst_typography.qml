@@ -17,6 +17,15 @@ TestCase {
     when: windowShown
 
     Component { id: textFactory; Ui.UiText { color: "white" } }
+    // A caller binding on the line count. fit() must leave it in place.
+    Component {
+        id: cappedFactory
+        Ui.UiText {
+            property int cap: 1
+            color: "white"
+            maximumLineCount: cap
+        }
+    }
 
     function make(props) {
         const item = createTemporaryObject(textFactory, suite, props);
@@ -149,6 +158,36 @@ TestCase {
         const after = item.fitCount;
         item.font.pixelSize = 50;
         compare(item.fitCount, after);
+    }
+
+    // fit() selects a step through fitStep. The size stays bound to the
+    // role, and a caller's line-count binding stays bound to its source.
+    function test_fit_keeps_the_size_and_line_bindings() {
+        tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
+        const item = make({role: "hero", width: 1300, elide: Text.ElideRight,
+                           fitSteps: [[96, 1], [68, 2]],
+                           text: "Путешествие на край долгой ночи и обратно"});
+        compare(item.font.pixelSize, 68);
+        compare(item.maximumLineCount, 2);
+        item.fitSteps = [];
+        compare(item.fitStep, -1);
+        compare(item.font.pixelSize, 96);
+        item.role = "body";
+        compare(item.font.pixelSize, 30);
+
+        const capped = createTemporaryObject(cappedFactory, suite, {
+            role: "hero", width: 1300, elide: Text.ElideRight,
+            fitSteps: [[96, 1], [68, 2]],
+            text: "Путешествие на край долгой ночи и обратно"
+        });
+        verify(capped);
+        compare(capped.font.pixelSize, 68);
+        capped.cap = 4;
+        compare(capped.maximumLineCount, 4);
+        capped.fitSteps = [];
+        capped.role = "meta";
+        compare(capped.font.pixelSize, 26);
+        compare(capped.maximumLineCount, 4);
     }
 
     // Without steps a role keeps its own size.

@@ -22,6 +22,26 @@ TestCase {
         id: settingsFactory
         Settings.SettingsView { width: 1920; height: 1080 }
     }
+    // Rows live in QML so a path list stays an array. A JS property passed
+    // through createTemporaryObject does not.
+    Component {
+        id: nightSettingsFactory
+        Settings.SettingsView {
+            width: 1920; height: 1080
+            clockText: "23:30"
+            lightFollowsTime: true
+            categories: [{ id: "media", title: "Media", icon: "video_library" }]
+            rows: [
+                { providerId: "library", providerName: "Library", id: "scan", categoryId: "media",
+                  title: "Scan folders", description: "Look for new files", type: "boolean",
+                  currentValue: false, constraints: {}, enabled: true },
+                { providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
+                  title: "Folders", description: "Places to read", type: "path",
+                  currentValue: ["/videos"], constraints: { directory: true, multiple: true, maxItems: 3 },
+                  enabled: true }
+            ]
+        }
+    }
     Component {
         id: downloadsFactory
         Downloads.DownloadsView { width: 1920; height: 1080 }
@@ -363,6 +383,65 @@ TestCase {
         verify(near(Ui.Theme.plateFocus, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusAlpha)));
         const flatDay = Ui.Theme.contrast(Ui.Theme.textHint, Ui.Theme.background);
         verify(flatDay >= 4.5, "day text-3 on Charcoal " + flatDay);
+    }
+    // A focused Settings plate uses Theme.plateFocus. White at 20% leaves
+    // night text-3 under textContrastMinimum; the night fill holds it.
+    function test_settings_focus_fill_holds_night_hint_contrast() {
+        const settings = createTemporaryObject(nightSettingsFactory, suite);
+        verify(settings);
+        settings.forceActiveFocus();
+        // Nested repeater delegates are visual children. findChild does not
+        // see the path buttons from the view root.
+        function named(item, name) {
+            if (!item)
+                return null;
+            if (item.objectName === name)
+                return item;
+            const kids = item.children || [];
+            for (let n = 0; n < kids.length; ++n) {
+                const found = named(kids[n], name);
+                if (found)
+                    return found;
+            }
+            return null;
+        }
+        const glow = findChild(settings, "settingsVeilGlow");
+        verify(glow && !glow.lit);
+        compare(glow.period, "night");
+        compare(glow.veilAmount, 0.22);
+        compare(Ui.Theme.textHint, Ui.Theme.nightText3);
+        const checks = [
+            ["category-media", () => settings.focusCategory(0)],
+            ["setting-library-scan", () => settings.focusPart(0, "main")],
+            ["path-library-roots-0", () => settings.focusPart(1, "path:0")],
+            ["remove-library-roots-0", () => settings.focusPart(1, "remove:0")],
+            ["add-library-roots", () => settings.focusPart(1, "add")]
+        ];
+        let rowRatio = 0;
+        for (let i = 0; i < checks.length; ++i) {
+            const name = checks[i][0];
+            verify(checks[i][1]() !== false, name);
+            const button = named(settings, name);
+            verify(button !== null, name);
+            tryCompare(button, "activeFocus", true, 5000, name);
+            verify(near(button.background.color, Ui.Theme.plateFocus),
+                   name + " fill " + button.background.color);
+            verify(Math.abs(button.background.color.a - 0.20) > 0.05, name + " still at 20%");
+            if (name === "setting-library-scan") {
+                const surface = over(Ui.Theme.background, button.background.color);
+                rowRatio = veiled(glow, Ui.Theme.textHint, surface);
+                const dayFill = over(Ui.Theme.background, Qt.rgba(1, 1, 1, Ui.Theme.plateFocusAlpha));
+                const dayRatio = veiled(glow, Ui.Theme.textHint, dayFill);
+                verify(dayRatio < Ui.Theme.textContrastMinimum, "hardcoded 0.20 fill " + dayRatio);
+                verify(rowRatio >= Ui.Theme.textContrastMinimum,
+                       "focused settings row " + rowRatio);
+                console.log("night textHint on a focused Settings row " + rowRatio.toFixed(3)
+                            + ":1 (white at 20% is " + dayRatio.toFixed(3) + ":1)");
+            }
+        }
+        verify(rowRatio >= Ui.Theme.textContrastMinimum);
+        settings.destroy();
+        home.clockText = "12:00";
     }
     // Handoff rule: light under text stays at or below L 0.48. Measured by
     // compositing the same gradient stops the small canvases paint, in sRGB

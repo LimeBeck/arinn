@@ -1116,7 +1116,7 @@ FocusScope {
                 Keys.onReleased: event => root.selectKey(categoryButton, event, true)
                 background: Rectangle {
                     radius: 26
-                    color: categoryButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20)
+                    color: categoryButton.activeFocus ? Ui.Theme.plateFocus
                            : (categoryButton.chosen ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
                 }
                 contentItem: Item {
@@ -1368,7 +1368,7 @@ FocusScope {
                                 background: Rectangle {
                                     radius: 28
                                     color: settingButton.activeFocus
-                                           ? (rowScope.locked ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.20))
+                                           ? (rowScope.locked ? Qt.rgba(1, 1, 1, 0.12) : Ui.Theme.plateFocus)
                                            : Qt.rgba(1, 1, 1, 0.06)
                                 }
                                 contentItem: Item {
@@ -1630,7 +1630,7 @@ FocusScope {
                                             onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
                                             Keys.onPressed: event => root.selectKey(pathButton, event, false)
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
-                                            background: Rectangle { radius: 18; color: pathButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            background: Rectangle { radius: 18; color: pathButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
@@ -1703,7 +1703,7 @@ FocusScope {
                                             onClicked: root.removePath(row, index)
                                             Keys.onPressed: event => root.selectKey(removeButton, event, false)
                                             Keys.onReleased: event => root.selectKey(removeButton, event, true)
-                                            background: Rectangle { radius: 18; color: removeButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            background: Rectangle { radius: 18; color: removeButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
                                             contentItem: Ui.UiText {
                                                 text: removeButton.text
                                                 horizontalAlignment: Text.AlignHCenter
@@ -1729,7 +1729,7 @@ FocusScope {
                                     onClicked: if (!full) root.openEditor(row, "add", "")
                                     Keys.onPressed: event => root.selectKey(addButton, event, false)
                                     Keys.onReleased: event => root.selectKey(addButton, event, true)
-                                    background: Rectangle { radius: 18; color: addButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                    background: Rectangle { radius: 18; color: addButton.activeFocus ? Ui.Theme.plateFocus : Qt.rgba(1, 1, 1, 0.06) }
                                     contentItem: Item {
                                         Keys.onPressed: event => root.pathFieldKeys(event, addEditor, addKeyboard)
                                         Ui.UiText {

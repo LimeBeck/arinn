@@ -31,7 +31,12 @@ Text {
     property int fitCount: 0
     property string fittedFamily: ""
     font.family: contentFace ? Theme.contentFontFamily : Theme.fontFamily
-    font.pixelSize: metrics[0]
+    // The role size, unless a fit step is selected. fit() only writes
+    // fitStep, so this binding stays and a later role change still applies.
+    font.pixelSize: fitStep >= 0 && fitSteps && fitSteps.length ? fitSteps[fitStep][0] : metrics[0]
+    // Same for the line count. Callers that bind maximumLineCount themselves
+    // keep that binding; this one applies when they do not.
+    maximumLineCount: fitStep >= 0 && fitSteps && fitSteps.length ? fitSteps[fitStep][1] : 2147483647
     font.weight: metrics[1]
     font.letterSpacing: metrics[2]
     // Lining figures for content titles: Ysabeau's default figures are
@@ -40,17 +45,19 @@ Text {
     color: Theme.textPrimary
     wrapMode: Text.WordWrap
 
-    // Measures the rendered text at each step. Layout runs when the size or
-    // the line count changes, so `truncated` is current when it is read.
+    // Measures the rendered text at each step. Writing fitStep updates the
+    // size and line-count bindings, and layout runs before `truncated` is
+    // read. Clearing the steps sets fitStep back to -1, which returns both
+    // bindings to the role size and the caller's line count.
     function fit() {
-        if (!fitSteps || !fitSteps.length)
+        if (!fitSteps || !fitSteps.length) {
+            fitStep = -1;
             return;
+        }
         fitCount += 1;
         fittedFamily = font.family;
         for (let i = 0; i < fitSteps.length; ++i) {
             fitStep = i;
-            font.pixelSize = fitSteps[i][0];
-            maximumLineCount = fitSteps[i][1];
             if (!truncated)
                 return;
         }
@@ -59,7 +66,7 @@ Text {
     onWidthChanged: fit()
     onFitStepsChanged: fit()
     // The weight, the role's or one set on the instance, reaches the
-    // variable font's wght axis (#546). fit() changes only the size, so the
+    // variable font's wght axis (#546). A step changes only the size, so the
     // family check cannot recurse.
     onFontChanged: {
         Theme.applyWeight(uiText);

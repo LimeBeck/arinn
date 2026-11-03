@@ -166,7 +166,7 @@ Rows map the contract to the view's job fields:
 - `progress` is −1 without `has_progress`, so no percentage appears.
 - `subtitle` holds the size ("1.5 GB of 4.0 GB"). While downloading it also holds the rate and, when `eta_seconds` is not −1, the time left.
 - `availableActions` lists the wire tokens, with `start-now` renamed `start_now`.
-- `errorText` is the provider's message, or a generic text for its error code.
+- `errorText` is the provider's message, or the shell's translated text for its error code.
 
 Completed rows show "Adding to the library…" while the import is `pending`.
 They say that no library folder covers the download when it is `unavailable`.

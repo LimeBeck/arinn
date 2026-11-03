@@ -85,7 +85,44 @@ bool shortcutUrlValid(const QString &value) {
   return !host.contains('.') || host.endsWith(".local") || host.endsWith(".lan") ||
       host.endsWith(".home.arpa") || host.endsWith(".internal");
 }
+// The error code of a failed D-Bus call: the `org.arinn.Error1` name, or
+// the code closest to a bus-level failure (no reply, no service).
+QString errorCodeOf(const QString &name) {
+  if (name.startsWith(QLatin1String("org.arinn.Error1.")))
+    return name.section(QLatin1Char('.'), -1);
+  if (name == QLatin1String("org.freedesktop.DBus.Error.NoReply") ||
+      name == QLatin1String("org.freedesktop.DBus.Error.Timeout") ||
+      name == QLatin1String("org.freedesktop.DBus.Error.TimedOut"))
+    return QStringLiteral("Timeout");
+  if (name == QLatin1String("org.freedesktop.DBus.Error.ServiceUnknown") ||
+      name == QLatin1String("org.freedesktop.DBus.Error.NameHasNoOwner") ||
+      name == QLatin1String("org.freedesktop.DBus.Error.Disconnected"))
+    return QStringLiteral("Unavailable");
+  return QStringLiteral("Internal");
+}
 } // namespace
+// A daemon error code (an operation's `error` or an `org.arinn.Error1`
+// name) as the translated Home message (§15). Neither the code word nor a
+// D-Bus error text reaches the screen.
+QString Backend::errorText(const QString &code) {
+  if (code == QLatin1String("NotFound"))
+    return tr("It is no longer available");
+  if (code == QLatin1String("Unavailable"))
+    return tr("Not available right now");
+  if (code == QLatin1String("Unsupported"))
+    return tr("Not supported");
+  if (code == QLatin1String("PermissionDenied"))
+    return tr("Not allowed");
+  if (code == QLatin1String("Timeout"))
+    return tr("Arinn did not reply. Try again.");
+  if (code == QLatin1String("InvalidArgument"))
+    return tr("This request is not valid");
+  if (code == QLatin1String("Conflict"))
+    return tr("Something changed. Try again.");
+  if (code == QLatin1String("Cancelled"))
+    return tr("Cancelled");
+  return tr("Something went wrong");
+}
 struct Backend::Catalog {
   quint64 epoch;
   QString snapshot;
@@ -804,7 +841,7 @@ void Backend::back() {
   connect(call, &QDBusPendingCallWatcher::finished, this, [this](auto *call) {
     if (call->isError()) {
       m_returnFlow.finish(FlowTrace::outcome(call->error().name().section('.', -1)));
-      setResultMessage(call->error().message());
+      setResultMessage(errorText(errorCodeOf(call->error().name())));
       publishState();
     }
     call->deleteLater();
@@ -1189,7 +1226,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
                                         ? reply.errorName().section('.', -1)
                                         : QStringLiteral("Unavailable"));
               setResultMessage(reply.type() == QDBusMessage::ErrorMessage
-                                   ? reply.errorMessage()
+                                   ? errorText(errorCodeOf(reply.errorName()))
                                    : tr("Operation is unavailable"));
               publishState();
               return;
@@ -1283,7 +1320,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                       setResultMessage(state == "succeeded" ? tr("Done")
                                        : state == "cancelled"
                                            ? tr("Launch cancelled")
-                                           : error);
+                                           : errorText(error));
                       timer->deleteLater();
                       if (next)
                         dismissed();
@@ -1380,7 +1417,8 @@ void Backend::mutateShortcut(const char *method, const QVariantList &args) {
                        "local service.")
               : code == "NoReply" || code == "Timeout"
                   ? tr("No reply. Check the shortcut list before trying again.")
-                  : tr("The shortcut could not be saved (%1).").arg(code);
+                  // Any other code: generic text, never the code (§15).
+                  : tr("The shortcut could not be saved. Try again.");
         } else if ((adding && (reply.signature() != "s" ||
                                reply.arguments().at(0).toString().isEmpty())) ||
                    (!adding && !reply.signature().isEmpty())) {

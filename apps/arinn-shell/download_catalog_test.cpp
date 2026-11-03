@@ -366,6 +366,35 @@ private slots:
       QVERIFY(!value.toMap().contains(QStringLiteral("outputs")));
   }
 
+  // §15: a provider's error message is shown as delivered; without one a
+  // failed download shows the shell's text for its code, and sizes follow
+  // the locale's number format.
+  void errorsAndSizesSpeakTheShellsLanguage() {
+    auto stopped = job(QStringLiteral("a"), QStringLiteral("error"));
+    stopped.errorCode = QStringLiteral("Internal");
+    stopped.actions = {QStringLiteral("retry")};
+    auto odd = job(QStringLiteral("b"), QStringLiteral("error"));
+    odd.errorCode = QStringLiteral("Unsupported");
+    odd.errorMessage = QStringLiteral("provider text");
+    auto running = job(QStringLiteral("c"), QStringLiteral("downloading"));
+    running.completed = 1500000000;
+    running.hasTotal = true;
+    running.total = 4000000000;
+    running.rate = 3100000;
+    daemon->page1 = {stopped, odd, running};
+    const auto previous = QLocale();
+    QLocale::setDefault(QLocale(QStringLiteral("ru_RU")));
+    DownloadCatalog catalog;
+    QTRY_COMPARE(catalog.downloadsState(), QStringLiteral("populated"));
+    QCOMPARE(jobById(catalog, QStringLiteral("a")).value(QStringLiteral("errorText")).toString(),
+             QStringLiteral("The download stopped"));
+    QCOMPARE(jobById(catalog, QStringLiteral("b")).value(QStringLiteral("errorText")).toString(),
+             QStringLiteral("provider text"));
+    QCOMPARE(jobById(catalog, QStringLiteral("c")).value(QStringLiteral("subtitle")).toString(),
+             QStringLiteral("1,5 GB of 4,0 GB · 3,1 MB/s"));
+    QLocale::setDefault(previous);
+  }
+
   // #367: Home's status chip sums the active downloads only.
   void aggregateProgressOfActiveDownloads() {
     auto big = job(QStringLiteral("a"), QStringLiteral("downloading"));

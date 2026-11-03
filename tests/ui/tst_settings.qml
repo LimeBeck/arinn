@@ -617,7 +617,7 @@ TestCase {
         compare(changes.count, 0);
         keyClick(Qt.Key_Down);
         focused("setting-shell-broken");
-        compare(child("error-shell-broken").text, "InvalidArgument");
+        compare(child("error-shell-broken").text, "This value is not accepted.");
         keyClick(Qt.Key_Return);
         compare(changes.count, 0);
         compare(child("error-shell-broken").color, Ui.Theme.error);
@@ -1381,10 +1381,10 @@ TestCase {
         view.rows = copyRows(row => {
             if (row.id === "label") {
                 row.pending = false;
-                row.error = "Name is not allowed";
+                row.error = "PermissionDenied";
             }
         });
-        tryCompare(child("stringError"), "text", "Name is not allowed");
+        tryCompare(child("stringError"), "text", "This setting cannot be changed.");
         compare(view.editingKey, "shell-label");
         focused("editor-shell-label");
         keyClick(Qt.Key_X);
@@ -1402,12 +1402,13 @@ TestCase {
         view.rows = copyRows(row => {
             if (row.id === "scan") {
                 row.pending = false;
-                row.error = "HDMI is off";
+                row.error = "Internal";
             }
         });
-        tryCompare(child("settingsToastDetail"), "text", "HDMI is off");
+        // The code word never reaches the screen (§15).
+        tryCompare(child("settingsToastDetail"), "text", "Something went wrong. Try again.");
         compare(child("settingsToastTitle").text, "Could not save");
-        compare(child("detail-library-scan").text, "HDMI is off");
+        compare(child("detail-library-scan").text, "Something went wrong. Try again.");
         keyClick(Qt.Key_Down);
         tryCompare(child("detail-library-scan"), "text", "Look for new files");
         verify(insideView(windowFocus()));

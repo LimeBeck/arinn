@@ -1633,8 +1633,8 @@ private slots:
                   QStringLiteral("eng"), QStringLiteral("English"),
                   QStringLiteral("aac"), 2, true, false},
         TrackWire{QStringLiteral("a2"), QStringLiteral("audio"),
-                  QStringLiteral("deu"), QStringLiteral("German"),
-                  QStringLiteral("aac"), 2, false, false},
+                  QStringLiteral("deu"), {}, QStringLiteral("aac"), 2, false,
+                  false},
         TrackWire{QStringLiteral("s1"), QStringLiteral("subtitle"),
                   QStringLiteral("eng"), QStringLiteral("Notes"),
                   QStringLiteral("subrip"), 0, true, false},
@@ -1665,8 +1665,14 @@ private slots:
     const auto audio = catalog.audioTracks().at(0).toMap();
     QCOMPARE(audio.value(QStringLiteral("label")).toString(),
              QStringLiteral("English"));
+    // §15: a language tag is shown as the language's name, never raw.
     QCOMPARE(audio.value(QStringLiteral("detail")).toString(),
-             QStringLiteral("eng · aac · 2"));
+             QStringLiteral("English · aac · 2"));
+    const auto unlabelled = catalog.audioTracks().at(1).toMap();
+    QCOMPARE(unlabelled.value(QStringLiteral("label")).toString(),
+             QStringLiteral("German"));
+    QCOMPARE(unlabelled.value(QStringLiteral("detail")).toString(),
+             QStringLiteral("German · aac · 2"));
     QTRY_VERIFY(catalog.subtitleTracks().size() >= 2);
     QCOMPARE(catalog.subtitleTrackId(), QStringLiteral("s1"));
     QCOMPARE(catalog.subtitleTracks().at(0).toMap().value(QStringLiteral("label")).toString(),

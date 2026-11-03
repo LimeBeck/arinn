@@ -804,6 +804,11 @@ TestCase {
         compare(child("operationPending").visible, false);
         compare(child("operationBanner").visible, true);
         compare(child("operationBannerText").text, "This title is not available.");
+        // An unknown or internal code is never shown as the code (§15).
+        library.operationState = "Internal";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
+        library.operationState = "SomethingNew";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
         library.operationState = "succeeded";
         compare(child("operationBanner").visible, false);
         compare(child("operationPending").visible, false);

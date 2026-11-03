@@ -54,6 +54,9 @@ class Backend : public QObject {
   Q_PROPERTY(bool launchStopping READ launchStopping NOTIFY changed)
 public:
   explicit Backend(QObject *parent = nullptr, NativeShellFocusIdentity identity = {});
+  // Translated text for a daemon error code; any unknown code reads as a
+  // generic failure (§15).
+  static QString errorText(const QString &code);
   Q_PROPERTY(bool nativeFocusSupported READ nativeFocusSupported CONSTANT)
   Q_PROPERTY(QString nativeShellFocus READ nativeShellFocus NOTIFY nativeFocusChanged)
   Q_PROPERTY(qulonglong nativeFocusRevision READ nativeFocusRevision NOTIFY nativeFocusChanged)

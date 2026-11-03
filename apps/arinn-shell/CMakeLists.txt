@@ -44,16 +44,6 @@ set(ARINN_PRESENTATION_FILES
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml ui/artwork.js
     ui/fonts/Onest.ttf ui/fonts/Ysabeau.ttf)
-set(ARINN_MAIN_QML_TEST_TARGETS
-    arinn-shell-test arinn-session-lifecycle-test arinn-browser-catalog-test
-    arinn-media-catalog-test arinn-library-catalog-test arinn-quick-menu-test
-    arinn-launch-screen-test arinn-external-keyboard-test)
-foreach(target ${ARINN_MAIN_QML_TEST_TARGETS})
-    target_sources(${target} PRIVATE interface_sounds.cpp interface_sounds.h)
-    target_link_libraries(${target} PRIVATE Qt6::Multimedia)
-    qt_add_resources(${target} ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES ${ARINN_UI_SOUND_FILES})
-endforeach()
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 endforeach()
@@ -227,6 +217,16 @@ target_compile_definitions(arinn-external-keyboard-test PRIVATE
 add_test(NAME external-keyboard COMMAND dbus-run-session -- $<TARGET_FILE:arinn-external-keyboard-test>)
 set_tests_properties(external-keyboard PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+set(ARINN_MAIN_QML_TEST_TARGETS
+    arinn-shell-test arinn-session-lifecycle-test arinn-browser-catalog-test
+    arinn-media-catalog-test arinn-library-catalog-test arinn-quick-menu-test
+    arinn-launch-screen-test arinn-external-keyboard-test)
+foreach(target ${ARINN_MAIN_QML_TEST_TARGETS})
+    target_sources(${target} PRIVATE interface_sounds.cpp interface_sounds.h)
+    target_link_libraries(${target} PRIVATE Qt6::Multimedia)
+    qt_add_resources(${target} ui_sounds PREFIX "/sounds" BASE "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES ${ARINN_UI_SOUND_FILES})
+endforeach()
 # The same cases on an isolated Xvfb with Qt's xcb platform: the panel is
 # override-redirect, has WM_HINTS input = False and leaves focus alone.
 find_path(ARINN_XCB_INCLUDE xcb/xcb.h)

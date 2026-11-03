@@ -69,7 +69,7 @@ TestCase {
     }
     function test_add_tile_and_home_discards_draft() {
         keyClick(Qt.Key_Down); focused("editShortcutButton");
-        keyClick(Qt.Key_Down); focused("entry-shortcut-add");
+        keyClick(Qt.Key_Down); focused("addApplication");
         keyClick(Qt.Key_Return); focused("shortcutTitle");
         compare(child("shortcutTitle").text, "");
         verify(!child("shortcutDelete").visible);

@@ -267,7 +267,10 @@ TestCase {
         compare(child("episode-e1").height, 236);
         compare(child("episode-e1").cornerRadius, Ui.Theme.stillRadius);
         compare(child("episodePlate-e1").visible, true);
-        compare(child("episodeGlyph-e1").width, 44);
+        compare(child("episodeNumber-e1").text, "1");
+        compare(child("episodeArtTitle-e1").text, "One");
+        compare(child("episodeLabel-e1").visible, false);
+        compare(findChild(library, "episodeGlyph-e1"), null);
         noWireframeLabels();
         compare(findChild(library, "season-s1"), null);
         compare(child("episode-missing-e1").visible, false);
@@ -499,7 +502,10 @@ TestCase {
         compare(child("detailMeta").font.pixelSize, 30);
         keyClick(Qt.Key_Down);
         focused("season-s1");
-        tryVerify(() => Math.abs(child("detailRail").mapToItem(library, 0, 0).y - 170) < 1);
+        tryVerify(() => Math.abs(child("detailRail").mapToItem(library, 0, 0).y - 180) < 1);
+        compare(child("detailCopy").opacity, 0.18);
+        compare(library.detailBackdropBrightness, 0.45);
+        compare(child("detailFanart").opacity, 0.45);
         ember(child("seasonUnderline-s1").color);
         compare(child("seasonUnderline-s2").visible, false);
         compare(child("episode-p1").width, 420);
@@ -525,6 +531,32 @@ TestCase {
         keyClick(Qt.Key_Up);
         focused("season-s2");
         keyClick(Qt.Key_Up);
+        focused("detailPlay");
+    }
+
+    function test_series_rail_opens_on_the_current_episode() {
+        createLibrary({
+            tabs: [{id: "series", title: "Series"}],
+            entries: [{
+                id: "show", tabId: "series", title: "Serial", kind: "series",
+                seasons: [{id: "s1", title: "Season 1"}],
+                episodes: [
+                    {id: "p1", seasonId: "s1", title: "Pilot", number: 1, duration: "40 min"},
+                    {id: "p2", seasonId: "s1", title: "Second", number: 2, duration: "41 min", progress: 0.4}
+                ]
+            }]
+        });
+        library.openEntry("show");
+        focused("detailPlay");
+        keyClick(Qt.Key_Down);
+        focused("season-s1");
+        keyClick(Qt.Key_Down);
+        focused("episode-p2");
+        compare(child("episodeNumber-p2").text, "2");
+        compare(child("episodeArtTitle-p2").text, "Second");
+        compare(child("episodeLabel-p2").visible, false);
+        compare(child("episodeDuration-p2").text, "41 min");
+        keyClick(Qt.Key_Escape);
         focused("detailPlay");
     }
 

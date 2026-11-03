@@ -913,9 +913,13 @@ TestCase {
         let shown = null;
         const window = suite.Window.window;
         const dpr = window ? window.devicePixelRatio : 1;
+        const only = (typeof captureOnly === "string" && captureOnly.length)
+            ? captureOnly.split(",") : [];
         for (let i = 0; i < manifest.states.length; ++i) {
             const state = manifest.states[i];
             if (!state.render)
+                continue;
+            if (only.length && only.indexOf(state.id) < 0)
                 continue;
             const plan = scene(state.id);
             verify(plan !== null, "No scene for " + state.id);

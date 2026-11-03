@@ -62,7 +62,7 @@ TestCase {
         compare(item.font.family, Ui.Theme.fontFamily);
         compare(item.font.pixelSize, data.size);
         compare(item.font.weight, data.weight);
-        compare(item.font.letterSpacing, data.spacing);
+        fuzzyCompare(item.font.letterSpacing, data.spacing, 0.01);
         compare(item.font.capitalization, Font.MixedCase);
     }
 

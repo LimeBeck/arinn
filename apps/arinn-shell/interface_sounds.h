@@ -3,10 +3,10 @@
 
 #pragma once
 #include <QElapsedTimer>
-#include <QHash>
 #include <QObject>
 #include <QString>
 #include <memory>
+#include <unordered_map>
 
 class QSoundEffect;
 
@@ -54,7 +54,7 @@ private:
   int m_tapIntervalMs = 40;
   qint64 m_lastTapMs = 0;
   QElapsedTimer m_clock;
-  QHash<QString, std::unique_ptr<QSoundEffect>> m_effects;
+  std::unordered_map<QString, std::unique_ptr<QSoundEffect>> m_effects;
 };
 
 void registerInterfaceSounds();

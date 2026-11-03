@@ -81,8 +81,9 @@ double InterfaceSounds::volume(bool repeat) const {
 }
 
 QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
-  if (auto found = m_effects.find(name); found != m_effects.end())
-    return found->get();
+  const auto found = m_effects.find(name);
+  if (found != m_effects.end())
+    return found->second.get();
   const char *url = resourceFor(name);
   if (!url)
     return nullptr;
@@ -90,7 +91,7 @@ QSoundEffect *InterfaceSounds::effectFor(const QString &name) {
   effect->setSource(QUrl(QString::fromLatin1(url)));
   effect->setLoopCount(1);
   auto *raw = effect.get();
-  m_effects.insert(name, std::move(effect));
+  m_effects.emplace(name, std::move(effect));
   return raw;
 }
 

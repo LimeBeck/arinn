@@ -6,7 +6,7 @@ import "artwork.js" as Artwork
 
 Surface {
     id: root
-    identityGlow: true
+    shapeRole: "content"
     property string subtitle: ""
     property string statusText: ""
     readonly property bool focusWithin: activeFocus || secondaryAction.activeFocus
@@ -16,7 +16,7 @@ Surface {
     signal secondaryActivated()
     Keys.onRightPressed: event => {
         if (secondaryAction.visible && secondaryAction.enabled) Focus.take(secondaryAction);
-        else event.accepted=false;
+        else event.accepted = false;
     }
     property url artwork: ""
     property bool running: false
@@ -25,187 +25,228 @@ Surface {
     // Chips of further items ({id, letter, icon}), drawn overlapping in the
     // top-left corner instead of this card's own monogram (handoff H-1).
     property var stack: []
+    // Hue of the cast under the image. Home passes the pool hue.
+    property real castHue: Theme.hearthHue
+    property bool castEnabled: true
+    // Set by a row so the image stays 16:9 (or a poster) and the caption
+    // sits below it. 0 uses the role's own image height.
+    property real artworkHeight: 0
     readonly property bool artworkReady: picture.status === Image.Ready
-    // A poster (Home's New row, 180 px wide) has a narrow text column: its
-    // title is set smaller, with smaller insets.
+    // A poster (Home's New row, 180 px wide) has a narrow text column.
     readonly property bool compact: width < 300
+    readonly property real frameHeight: artworkHeight > 0 ? artworkHeight : (compact ? 270 : 225)
+    readonly property real captionHeight: compact ? Theme.posterCaptionHeight : Theme.contentCaptionHeight
+    readonly property real progressFraction: isFinite(progress) ? Math.max(0, Math.min(1, progress)) : 0
     implicitWidth: 400
-    implicitHeight: 225
+    implicitHeight: frameHeight + captionHeight
+    cornerRadius: compact ? Theme.posterRadius : Theme.stillRadius
     contentItem: Item {
-        Rectangle {
-            objectName: "cardPlate"
-            anchors.fill: parent
-            radius: root.cornerRadius
-            color: "transparent"
-            visible: picture.status !== Image.Ready
-        }
-        Image {
-            id: picture
-            objectName: "cardArtwork"
-            anchors.fill: parent
-            asynchronous: true
-            fillMode: Image.PreserveAspectCrop
-            // Decode only what the card covers, not the full poster (#611).
-            sourceSize: Artwork.sourceSize(source, width, height)
-            source: root.artwork
-            visible: false
-            onStatusChanged: frame.syncSource()
-            // A cached image can stay Ready across a URL change without a
-            // status change. Sync once the new source has started loading.
-            onSourceChanged: Qt.callLater(frame.syncSource)
-        }
-        Canvas {
+        Item {
             id: frame
-            objectName: "cardArtworkCanvas"
-            anchors.fill: parent
-            // The URL the canvas holds decoded. A card lives across row
-            // updates (#441), so the previous artwork is released when the
-            // card shows another one.
-            property string loadedSource: ""
-            // Whether the last paint drew the artwork.
-            property bool showsArtwork: false
-            // The canvas copy is decoded at the Image's decoded size, which
-            // covers the card (#611), so the crop uses the same pixels.
-            property size loadedSize: Qt.size(0, 0)
-            function syncSource() {
-                const ready = picture.status === Image.Ready;
-                const next = ready ? picture.source.toString() : "";
-                const size = ready ? Qt.size(picture.implicitWidth, picture.implicitHeight) : Qt.size(0, 0);
-                if (loadedSource !== next || loadedSize.width !== size.width
-                        || loadedSize.height !== size.height) {
-                    if (loadedSource.length)
-                        unloadImage(loadedSource);
-                    loadedSource = next;
-                    loadedSize = size;
-                }
-                if (available && next.length && !isImageLoaded(next)
-                        && !isImageLoading(next) && !isImageError(next))
-                    Artwork.loadCopy(frame, picture);
-                requestPaint();
+            objectName: "cardFrame"
+            z: 1
+            width: parent.width
+            height: root.frameHeight
+            Rectangle {
+                objectName: "cardPlate"
+                anchors.fill: parent
+                radius: root.cornerRadius
+                color: Theme.background
+                visible: picture.status !== Image.Ready
             }
-            onAvailableChanged: syncSource()
-            onImageLoaded: requestPaint()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                const image = loadedSource;
-                if (!image.length || picture.status !== Image.Ready || !isImageLoaded(image)) {
-                    showsArtwork = false;
-                    return;
-                }
-                Artwork.clipRounded(ctx, width, height, root.cornerRadius);
-                // Centre crop, as Image.PreserveAspectCrop draws it (#609).
-                showsArtwork = Artwork.drawCover(ctx, image, picture.implicitWidth,
-                                                 picture.implicitHeight, width, height);
+            Image {
+                id: picture
+                objectName: "cardArtwork"
+                anchors.fill: parent
+                asynchronous: true
+                fillMode: Image.PreserveAspectCrop
+                // Decode only what the card covers, not the full poster (#611).
+                sourceSize: Artwork.sourceSize(source, width, height)
+                source: root.artwork
+                visible: false
+                onStatusChanged: frameCanvas.syncSource()
+                // A cached image can stay Ready across a URL change without a
+                // status change. Sync once the new source has started loading.
+                onSourceChanged: Qt.callLater(frameCanvas.syncSource)
             }
-        }
-        // Handoff 02: rgba(10,11,13) from .9 at the bottom to 0 at 70% height.
-        Rectangle {
-            objectName: "artworkScrim"
-            anchors.fill: parent
-            radius: root.cornerRadius
-            visible: root.artworkReady
-            gradient: Gradient {
-                GradientStop { position: 0; color: "#000a0b0d" }
-                GradientStop { position: 0.3; color: "#000a0b0d" }
-                GradientStop { position: 0.55; color: "#660a0b0d" }
-                GradientStop { position: 1; color: "#e60a0b0d" }
-            }
-        }
-        Row {
-            objectName: "cardStack"
-            x: 26; y: 24
-            spacing: -18
-            visible: root.stack.length > 0
-            Repeater {
-                model: root.stack
-                Rectangle {
-                    required property var modelData
-                    required property int index
-                    objectName: "stackChip-" + index
-                    z: root.stack.length - index
-                    width: 64; height: 64; radius: 20
-                    color: "#3a3c40"
-                    border.width: 4; border.color: "#2a2c2f"
-                    UiText {
-                        anchors.centerIn: parent
-                        visible: stackIcon.status !== Image.Ready
-                        text: modelData.letter || ""
-                        font.pixelSize: 28; font.weight: 700
+            Canvas {
+                id: frameCanvas
+                objectName: "cardArtworkCanvas"
+                anchors.fill: parent
+                // The URL the canvas holds decoded. A card lives across row
+                // updates (#441), so the previous artwork is released when the
+                // card shows another one.
+                property string loadedSource: ""
+                // Whether the last paint drew the artwork.
+                property bool showsArtwork: false
+                // The canvas copy is decoded at the Image's decoded size, which
+                // covers the card (#611), so the crop uses the same pixels.
+                property size loadedSize: Qt.size(0, 0)
+                function syncSource() {
+                    const ready = picture.status === Image.Ready;
+                    const next = ready ? picture.source.toString() : "";
+                    const size = ready ? Qt.size(picture.implicitWidth, picture.implicitHeight) : Qt.size(0, 0);
+                    if (loadedSource !== next || loadedSize.width !== size.width
+                            || loadedSize.height !== size.height) {
+                        if (loadedSource.length)
+                            unloadImage(loadedSource);
+                        loadedSource = next;
+                        loadedSize = size;
                     }
-                    Image {
-                        id: stackIcon
-                        anchors.fill: parent; anchors.margins: 8
-                        source: modelData.icon || ""
-                        sourceSize.width: 96; sourceSize.height: 96
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        visible: status === Image.Ready
+                    if (available && next.length && !isImageLoaded(next)
+                            && !isImageLoading(next) && !isImageError(next))
+                        Artwork.loadCopy(frameCanvas, picture);
+                    requestPaint();
+                }
+                onAvailableChanged: syncSource()
+                onImageLoaded: requestPaint()
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    const image = loadedSource;
+                    if (!image.length || picture.status !== Image.Ready || !isImageLoaded(image)) {
+                        showsArtwork = false;
+                        return;
+                    }
+                    Artwork.clipRounded(ctx, width, height, root.cornerRadius);
+                    // Centre crop, as Image.PreserveAspectCrop draws it (#609).
+                    showsArtwork = Artwork.drawCover(ctx, image, picture.implicitWidth,
+                                                     picture.implicitHeight, width, height);
+                }
+            }
+            Row {
+                objectName: "cardStack"
+                x: 26; y: 24
+                spacing: -18
+                visible: root.stack.length > 0
+                Repeater {
+                    model: root.stack
+                    Rectangle {
+                        required property var modelData
+                        required property int index
+                        objectName: "stackChip-" + index
+                        z: root.stack.length - index
+                        width: 64; height: 64; radius: 20
+                        color: Theme.chip
+                        border.width: 1; border.color: Theme.chipLine
+                        UiText {
+                            anchors.centerIn: parent
+                            visible: stackIcon.status !== Image.Ready
+                            text: modelData.letter || ""
+                            font.pixelSize: 28; font.weight: 600
+                            color: Theme.textSecondary
+                        }
+                        Image {
+                            id: stackIcon
+                            anchors.fill: parent; anchors.margins: 8
+                            source: modelData.icon || ""
+                            sourceSize.width: 96; sourceSize.height: 96
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            visible: status === Image.Ready
+                        }
                     }
                 }
             }
+            Rectangle {
+                visible: !root.artworkReady && root.stack.length === 0
+                anchors.right: parent.right; anchors.top: parent.top
+                anchors.margins: 24
+                width: 60; height: 60; radius: 18
+                color: root.accentColor
+                UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control" }
+            }
+            Rectangle {
+                x: 24; y: 24; width: 12; height: 12; radius: 6
+                color: Theme.ember; visible: root.running && !root.busy
+            }
+            ProgressTrack {
+                objectName: "cardProgress"
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                line: true
+                visible: root.showProgress
+                value: root.progress
+            }
+            // The rest of a lit row is 0.82; other rows are 0.62. The caption
+            // below the image is not shaded. A black veil at (1 − brightness)
+            // is a multiply on the software renderer.
+            Rectangle {
+                objectName: "rowShade"
+                anchors.fill: parent
+                radius: root.cornerRadius
+                color: "black"
+                opacity: Math.max(0, 1 - root.rowBrightness)
+                z: 8
+                Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
+            }
+            ArtworkFocus {
+                shown: root.activeFocus
+                artworkRadius: root.cornerRadius
+            }
         }
-        Rectangle {
-            visible: !root.artworkReady && root.stack.length === 0
-            anchors.right: parent.right; anchors.top: parent.top
-            anchors.margins: 24
-            width: 60; height: 60; radius: 18
-            color: root.accentColor
-            UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control" }
-        }
-        Rectangle {
-            x: 24; y: 34; width: 10; height: 10; radius: 5
-            color: Theme.ember; visible: root.running && !root.busy
+        CastLight {
+            objectName: "castLight"
+            z: 0
+            shown: root.activeFocus && root.castEnabled
+            hue: root.castHue
+            width: frame.width * Theme.castWidthRatio
+            anchors.horizontalCenter: frame.horizontalCenter
+            anchors.top: frame.bottom
+            anchors.topMargin: -Math.round(Theme.castHeight * 0.4)
         }
         UiText {
-            x: root.running && !root.busy ? 44 : 24; y: 20
-            width: parent.width - 108
-            role: "caption"
-            text: root.statusText.length ? root.statusText : root.busy ? qsTr("Loading…") : root.running ? qsTr("Now running") : ""
-            color: Theme.textSecondary
+            x: 24; y: 20; width: parent.width - 120
+            text: root.statusText; visible: text.length > 0
+            role: "caption"; textFormat: Text.PlainText; z: 2
         }
         Surface {
-            id: secondaryAction
-            objectName: "cardSecondaryAction"
-            anchors.right: parent.right; anchors.rightMargin: 20
-            anchors.bottom: parent.bottom; anchors.bottomMargin: 24
+            id: secondaryAction; objectName: "cardSecondaryAction"
+            x: parent.width - width - 20; y: root.frameHeight - height - 20; z: 3
             width: 72; height: 72; cornerRadius: 36
-            focusedColor: Theme.textPrimary
-            visible: root.secondaryIcon.length>0
+            visible: root.secondaryIcon.length > 0
             enabled: root.secondaryEnabled && !root.busy
             text: root.secondaryText
-            contentItem: LineIcon { name: root.secondaryIcon; color: secondaryAction.activeFocus ? Theme.ink : Theme.textPrimary }
+            contentItem: LineIcon { name: root.secondaryIcon; color: Theme.textPrimary }
             onActivated: root.secondaryActivated()
             Keys.onLeftPressed: Focus.take(root)
-            // Other arrows reach the enclosing row exactly as card arrows do.
             onDpadRequested: root.dpadRequested()
         }
         Column {
-            x: root.compact ? 18 : 24
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: root.compact ? 18 : 24
-            width: parent.width - 2 * x - (secondaryAction.visible ? 88 : 0)
-            spacing: root.compact ? 6 : 8
-            // Text.Wrap breaks a word wider than the column instead of letting
-            // it run past the card's edge.
+            objectName: "cardCaption"
+            z: 1
+            x: 0
+            y: root.frameHeight + (root.compact ? 14 : 18)
+            width: parent.width
+            spacing: 4
             UiText {
                 objectName: "cardTitle"
-                width: parent.width; text: root.text; textFormat: Text.PlainText; role: "section"
-                font.pixelSize: root.compact ? 24 : 30
-                wrapMode: Text.Wrap; maximumLineCount: 2; elide: Text.ElideRight
+                width: parent.width
+                textFormat: Text.PlainText
+                text: root.busy ? qsTr("Loading…") : root.text
+                role: "caption"
+                font.pixelSize: root.compact ? 24 : 28
+                font.weight: root.compact ? 500 : 600
+                color: root.compact && !root.activeFocus ? Theme.textSecondary : Theme.textPrimary
+                wrapMode: Text.NoWrap
+                maximumLineCount: 1
+                elide: Text.ElideRight
             }
             UiText {
                 objectName: "cardSubtitle"
-                width: parent.width; text: root.subtitle; textFormat: Text.PlainText
-                wrapMode: Text.Wrap; maximumLineCount: 1; elide: Text.ElideRight
-                // Media cards use the 24 sub style of handoff 02.
-                role: root.artworkReady || root.showProgress ? "caption" : "meta"
+                width: parent.width
+                textFormat: Text.PlainText
+                text: root.subtitle
+                role: "caption"
                 color: Theme.textSecondary
+                wrapMode: Text.NoWrap
+                maximumLineCount: 1
+                elide: Text.ElideRight
                 visible: text.length > 0
             }
-            ProgressTrack { objectName: "cardProgress"; width: parent.width; visible: root.showProgress; value: root.progress }
         }
     }
 }

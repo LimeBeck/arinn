@@ -53,6 +53,12 @@ TestCase {
     function art() {
         return Qt.resolvedUrl("../../../apps/arinn-shell/gallery/fixture-artwork.svg");
     }
+    function artDark() {
+        return Qt.resolvedUrl("dark-artwork.svg");
+    }
+    function artBright() {
+        return Qt.resolvedUrl("bright-artwork.svg");
+    }
     function apply(item, props) {
         const keys = Object.keys(props);
         for (let i = 0; i < keys.length; ++i)
@@ -60,7 +66,7 @@ TestCase {
     }
     function homeProps(extra) {
         const props = {
-            width: 1920, height: 1080, clockText: "22:57",
+            width: 1920, height: 1080, clockText: "12:00",
             continueEntries: [
                 {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()},
                 {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: art()},
@@ -126,7 +132,7 @@ TestCase {
     }
     function playerProps(extra) {
         const props = {
-            width: 1920, height: 1080, title: "Lighthouse Keepers", episodeLine: "S1 E4 · The Fog Bell", clockText: "22:57",
+            width: 1920, height: 1080, title: "Lighthouse Keepers", episodeLine: "S1 E4 · The Fog Bell", clockText: "12:00",
             position: 754, duration: 5400, playing: false, seekSupported: true,
             audioTracks: [{id: "a1", label: "English · 5.1"}, {id: "a2", label: "English · Stereo"}],
             subtitleTracks: [{id: "s1", label: "English"}, {id: "s2", label: "English (SDH)"}],
@@ -335,8 +341,29 @@ TestCase {
     function scene(id) {
         if (id === "home-populated")
             return {factory: homeFactory, props: homeProps(), tune: "menu"};
+        // Middle of each period, not a boundary. Day (12:00) is homeProps.
+        if (id === "home-evening")
+            return {factory: homeFactory, props: homeProps({clockText: "20:30"}), tune: "menu"};
+        if (id === "home-night")
+            return {factory: homeFactory, props: homeProps({clockText: "23:30"}), tune: "menu"};
         if (id === "home-content-focus")
             return {factory: homeFactory, props: homeProps(), tune: "right"};
+        if (id === "home-continue-focus")
+            return {factory: homeFactory, props: homeProps(), tune: "continue", settle: 400, expect: "entry-film"};
+        if (id === "home-focus-dark")
+            return {factory: homeFactory, props: homeProps({
+                continueEntries: [
+                    {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: artDark()},
+                    {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: artDark()}
+                ]
+            }), tune: "continue", settle: 400, expect: "entry-film"};
+        if (id === "home-focus-bright")
+            return {factory: homeFactory, props: homeProps({
+                continueEntries: [
+                    {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: artBright()},
+                    {id: "second", title: "Lighthouse Keepers", subtitle: "S1 E4 · The Fog Bell", kind: "media", positionUs: 300e6, durationUs: 2520e6, artwork: artBright()}
+                ]
+            }), tune: "continue", settle: 400, expect: "entry-film"};
         if (id === "home-activity")
             return {factory: homeFactory, props: homeProps({
                 returnActivityId: "activity",
@@ -488,7 +515,7 @@ TestCase {
         if (id === "power-confirm")
             return {factory: powerFactory, props: {width: 1920, height: 1080, step: "confirm", pendingAction: "shutdown", closingApplications: ["Cinder Rally"]}};
         if (id === "power-ambient")
-            return {factory: ambientFactory, props: {width: 1920, height: 1080, clockText: "22:57", dateText: "Monday", driftInterval: 600000},
+            return {factory: ambientFactory, props: {width: 1920, height: 1080, clockText: "12:00", dateText: "Monday", driftInterval: 600000},
                     tune: view => view.start(), expect: ["ambientClock", "ambientDate"]};
         if (id === "power-desktop")
             return {factory: powerFactory, props: {
@@ -671,33 +698,33 @@ TestCase {
         if (id === "power-refusal")
             return {factory: powerFactory, props: {width: 1920, height: 1080, refusalMessage: "The system did not suspend."}};
         if (id === "browser-list")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3)}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: tabs(3)}};
         if (id === "browser-close-focus")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3)}, tune: "close"};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: tabs(3)}, tune: "close"};
         if (id === "browser-closing")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3), closingId: "t0"},
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: tabs(3), closingId: "t0"},
                 // os-3-closing: the spinner's mark at three o'clock, where the
                 // arc ends (225 of 900 ms).
                 animationMs: 2 * 900 + 225};
         if (id === "browser-many")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(8).map((tab, i) => {
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: tabs(8).map((tab, i) => {
                 // One service already saved: its button shows bookmark_added.
                 tab.saved = i === 2;
                 return tab;
             })}};
         if (id === "browser-long")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: [
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: [
                 {id: "t0", windowId: "w1", title: "Quill News · Coastal towns vote on the new ferry timetable after a long winter of cancelled crossings", url: "https://news.quill.example/2026/10/ferry-timetable-vote", letter: "Q", active: true, audible: false},
                 {id: "t1", windowId: "w1", title: "", url: "https://harbor-radio.example/archive", letter: "H", active: false, audible: false}
             ]}};
         if (id === "address-search-row")
             // OS-8: a search results page is an ordinary row, on screen.
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: [
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: [
                 {id: "t0", windowId: "w1", title: "northern lights — Example Search: 2 million results", url: "https://search.example/?q=northern+lights", letter: "E", active: true, audible: false}
             ].concat(tabs(3).slice(1))}};
         if (id === "address-v3b")
             // V-3b: the third service is saved and its bookmark has focus.
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", tabs: tabs(3).map(tab => {
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", tabs: tabs(3).map(tab => {
                 tab.saved = tab.id === "t2";
                 return tab;
             })}, tune: item => {
@@ -708,13 +735,13 @@ TestCase {
                 item.settleFocus();
             }};
         if (id === "browser-empty")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "empty", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", browserState: "empty", tabs: []}};
         if (id === "browser-unavailable")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "unavailable", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", browserState: "unavailable", tabs: []}};
         if (id === "browser-error")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "error", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", browserState: "error", tabs: []}};
         if (id === "browser-loading")
-            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "22:57", browserState: "loading", tabs: []}};
+            return {factory: browserFactory, props: {width: 1920, height: 1080, clockText: "12:00", browserState: "loading", tabs: []}};
         if (id === "launch-opening" || id === "launch-slow")
             return {factory: launchFactory, props: {
                 width: 1920, height: 1080, active: true, serviceTitle: "Northwind TV",
@@ -747,9 +774,14 @@ TestCase {
             const menu = findChild(item, "menuButton");
             if (menu)
                 menu.forceActiveFocus();
-        } else if (kind === "right") {
+        }         else if (kind === "right") {
             wait(50);
             keyClick(Qt.Key_Right);
+        } else if (kind === "continue") {
+            wait(50);
+            const card = findChild(item, "entry-film");
+            if (card)
+                card.forceActiveFocus();
         } else if (kind === "close") {
             const id = item.orderedTabs.length ? item.orderedTabs[0].id : "";
             item.focusedEntryId = id;
@@ -851,7 +883,7 @@ TestCase {
                 visible: !quickScene.overActivity
                 Component.onCompleted: suite.apply(this, suite.homeProps())
             }
-            Ui.QuickMenu { id: quickMenu; anchors.fill: parent; clockText: "22:57" }
+            Ui.QuickMenu { id: quickMenu; anchors.fill: parent; clockText: "12:00" }
         }
     }
     // The volume HUD over Home, placed as PowerOverlay places it.
@@ -895,6 +927,11 @@ TestCase {
                 shown = null;
                 wait(0);
             }
+            // Day unless this scene's own light publishes another clock.
+            // A night scene must not leave the next screen's light on night.
+            Ui.Theme.followsTime = true;
+            Ui.Theme.hour = -1;
+            Ui.Theme.clockText = "12:00";
             shown = plan.factory.createObject(stage, plan.props);
             verify(shown !== null, state.id);
             if (plan.tune)

@@ -37,7 +37,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0016](0016-cli-diagnostics.md) | One API for CLI, diagnostics and structured logs | Accepted | 0020 |
 | [0017](0017-navigation-design-boundary.md) | Local D-pad navigation and a separate design specification | Accepted | 0022, 0023, 0030 |
 | [0018](0018-demo-testing-gates.md) | Demo provider, shared contract suite and architecture gates | Accepted | 0020, 0023, 0033 |
-| [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027 |
+| [0019](0019-design-handoff-contract.md) | The design handoff as a separate presentation contract | Accepted | 0022, 0023, 0027, 0136 |
 | [0020](0020-dbus-contract-baseline.md) | D-Bus transport, identifiers and Plugin API reliability | Accepted | 0035, 0041 |
 | [0021](0021-plugin-runtime-ownership.md) | Transient systemd services and a separate Chrome native bridge | Accepted | 0038, 0042, 0089 |
 | [0022](0022-state-and-interaction-baseline.md) | Activity ownership, persistence and interaction state | Accepted | 0034, 0043 |
@@ -129,7 +129,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 | [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
 | [0111](0111-power-key.md) | The remote's power key opens Arinn's power menu | Accepted | — |
-| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | 0129 |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | 0129, 0136 |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
@@ -149,4 +149,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 | [0133](0133-sentry-noise-and-stable-grouping.md) | Less Sentry noise and grouping that survives edits | Accepted | — |
 | [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
+| [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | — |
 <!-- register:end -->

@@ -461,6 +461,38 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// ADR-0136: an older file loads with the daytime-following light on, and a
+/// hand-edited value of another type reads as that default.
+#[test]
+fn light_follows_time_defaults_and_rejects_a_bad_edit() {
+    let dir = std::env::temp_dir().join(format!("arinn-light-time-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+    std::fs::write(dir.join("config.toml"), "schema_version = 1\n").unwrap();
+    assert!(
+        arinnd::storage::Config::load(&dir)
+            .unwrap()
+            .light_follows_time
+    );
+    std::fs::write(
+        dir.join("config.toml"),
+        "schema_version = 1\nlight_follows_time = false\n",
+    )
+    .unwrap();
+    let (loaded, seen) = arinnd::storage::Config::load_reporting(&dir).unwrap();
+    assert!(!loaded.light_follows_time);
+    assert!(seen.is_empty());
+    std::fs::write(
+        dir.join("config.toml"),
+        "schema_version = 1\nlight_follows_time = \"off\"\n",
+    )
+    .unwrap();
+    let (loaded, seen) = arinnd::storage::Config::load_reporting(&dir).unwrap();
+    assert!(loaded.light_follows_time);
+    assert_eq!(seen, vec!["light_follows_time"]);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn provider_settings_round_trip_and_old_configs_stay_valid() {
     let dir = std::env::temp_dir().join(format!("arinn-settings-{}", uuid::Uuid::new_v4()));

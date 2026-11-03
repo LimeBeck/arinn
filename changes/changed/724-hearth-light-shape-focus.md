@@ -1,0 +1,1 @@
+- Home cards, library posters and episode stills put the caption under the image. Focus is a Charcoal mat and a rim that is bright at the bottom, with the rest of the focused row held brighter than the other rows. Buttons, tiles, navigation and list rows take the shape-role plates from the Hearth light brief ([#724](https://github.com/LimeBeck/arinn/issues/724)).

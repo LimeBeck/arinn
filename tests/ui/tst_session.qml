@@ -305,6 +305,13 @@ TestCase {
         view.operationState = "Timeout";
         compare(child("operationBanner").visible, true);
         compare(child("operationBannerText").text, "The player did not answer in time.");
+        view.operationState = "NotFound";
+        compare(child("operationBannerText").text, "The session has ended.");
+        // An unknown or internal code is never shown as the code (§15).
+        view.operationState = "Internal";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
+        view.operationState = "failed";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
         view.operationState = "";
         tryCompare(child("operationBanner"), "visible", false);
         compare(plays.count, 0);

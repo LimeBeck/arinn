@@ -27,12 +27,12 @@ target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quic
 
 set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/Focus.qml ui/InputMode.qml ui/UiText.qml ui/FontWeightAxis.qml ui/LogicalCanvas.qml
-    ui/Surface.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
+    ui/Surface.qml ui/FocusRing.qml ui/ArtworkFocus.qml ui/CastLight.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
     ui/QuickMenu.qml ui/KeyboardPanel.qml ui/artwork.js
-    ui/fonts/Onest.ttf)
+    ui/fonts/Onest.ttf ui/fonts/Ysabeau.ttf)
 foreach(target arinn-shell arinn-shell-test)
     qt_add_resources(${target} presentation PREFIX "/" FILES ${ARINN_PRESENTATION_FILES})
 endforeach()
@@ -54,9 +54,22 @@ add_test(NAME ui-components COMMAND arinn-ui-test
     -input "${PROJECT_SOURCE_DIR}/tests/ui")
 set_tests_properties(ui-components PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+# Hearth light cases also live under tests/ui, so ui-components loads them
+# too. This target runs only that directory, in its own process: ui-components
+# aborts on Qt.Key_MediaPause in tst_home.qml (#733), and a separate process
+# still runs the light tests when that happens.
+add_test(NAME hearth-light COMMAND arinn-ui-test
+    -input "${PROJECT_SOURCE_DIR}/tests/ui/hearth")
+set_tests_properties(hearth-light PROPERTIES ENVIRONMENT
+    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 add_test(NAME focus-ownership COMMAND ${CMAKE_COMMAND}
     -DSHELL_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -P "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_calls.cmake")
+# Shell screens take their focus plate from Theme.plateFocus (#722). A
+# hardcoded white plate at 20% misses the night contrast bar.
+add_test(NAME focus-fill COMMAND ${Python3_EXECUTABLE}
+    "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_fill.py"
+    "${PROJECT_SOURCE_DIR}")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
 target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)

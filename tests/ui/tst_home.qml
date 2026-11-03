@@ -227,14 +227,15 @@ TestCase {
         verify(plate);
         verify(!button.activeFocus);
         compare(plate.color.a, 0);
-        compare(plate.border.color.a, 0);
         const mark = findChild(child("headerBrand"), "brandMark");
         compare(mark.width, 36);
         compare(Math.round(mark.mapToItem(home, 0, 0).x), 120);
         button.forceActiveFocus();
         focused("menuButton");
-        tryVerify(() => plate.color.a > 0.15);
-        verify(plate.border.color.a > 0);
+        tryVerify(() => Math.abs(plate.color.a - Ui.Theme.plateContainer.a) < 0.02);
+        const ring = findChild(button, "focusRing");
+        tryCompare(ring, "opacity", 1);
+        compare(ring.thickness, Ui.Theme.rimThickness);
         keyClick(Qt.Key_Down);
         tryVerify(() => plate.color.a === 0);
     }
@@ -648,7 +649,7 @@ TestCase {
         verify(findChild(more, "stackChip-2") !== null);
         verify(findChild(more, "stackChip-3") === null);
         more.forceActiveFocus(); focused("entry-open-services-more");
-        compare(child("heroEyebrow").text, "OPEN SERVICES");
+        compare(child("heroEyebrow").text, "Open services");
         compare(child("heroTitle").text, "4 more open");
         compare(child("heroMeta").text, "Page 2 · Page 3 · Page 4 · Page 5");
     }
@@ -676,6 +677,95 @@ TestCase {
         compare(child("entry-x").subtitle, "");
     }
     // #364: the hero describes the focused item and what OK does.
+    // #722, ADR-0136: a long title takes the two-line step and the hero
+    // box, meta line included, stays above the Continue row.
+    function test_hero_long_title_fits_above_continue() {
+        home.continueEntries = [
+            {id: "short", title: "Film", kind: "media", positionUs: 0, durationUs: 2220e6},
+            {id: "long", title: "A journey to the far edge of a long night and all the way back home again", kind: "media", positionUs: 0, durationUs: 2220e6}
+        ];
+        child("entry-short").forceActiveFocus(); focused("entry-short");
+        tryCompare(child("heroTitle"), "fitStep", 0);
+        compare(child("heroTitle").font.pixelSize, 96);
+        compare(child("heroTitle").font.family, Ui.Theme.contentFontFamily);
+        // Two lines at 68 px, line height 1.07: Math.round(72.76) * 2.
+        compare(child("heroTitle").height, 146);
+        const rowY = child("continue").y;
+        keyClick(Qt.Key_Right); focused("entry-long");
+        tryCompare(child("heroTitle"), "fitStep", 1);
+        compare(child("heroTitle").font.pixelSize, 68);
+        compare(child("continue").y, rowY);
+        const meta = child("heroMeta");
+        const bottom = meta.mapToItem(home, 0, meta.height).y;
+        const rowTop = child("continue").mapToItem(home, 0, 0).y;
+        verify(bottom <= rowTop, "hero bottom " + bottom + " is above the Continue row at " + rowTop);
+    }
+    // The hero reserves two lines at 68 px (146 px) and bottom-aligns the
+    // title, so Continue, Favorites and New keep their y when focus moves
+    // between a one-line title and a two-line title. The meta stays 44 px
+    // above Continue, and the two-line title grows upward.
+    function test_two_line_hero_keeps_the_row_gap() {
+        home.continueEntries = [
+            {id: "short", title: "Film", running: true},
+            {id: "long", title: "A journey to the far edge of a long night and all the way back home again", running: true}
+        ];
+        function gap() {
+            const meta = child("heroMeta");
+            return child("continue").mapToItem(home, 0, 0).y - meta.mapToItem(home, 0, meta.height).y;
+        }
+        function textTop() {
+            const title = child("heroTitle");
+            return title.mapToItem(home, 0, title.height - title.implicitHeight).y;
+        }
+        child("entry-short").forceActiveFocus(); focused("entry-short");
+        tryCompare(child("heroTitle"), "fitStep", 0);
+        compare(child("heroTitle").font.pixelSize, 96);
+        compare(child("heroTitle").height, 146);
+        compare(child("heroMeta").text, "Return");
+        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "one-line gap " + gap());
+        const continueY = child("continue").y;
+        const favoritesY = child("favorites").y;
+        const newY = child("new").y;
+        const oneLineTop = textTop();
+        keyClick(Qt.Key_Right); focused("entry-long");
+        tryCompare(child("heroTitle"), "fitStep", 1);
+        compare(child("heroTitle").font.pixelSize, 68);
+        compare(child("heroTitle").height, 146);
+        compare(child("heroMeta").text, "Return");
+        compare(child("continue").y, continueY);
+        compare(child("favorites").y, favoritesY);
+        compare(child("new").y, newY);
+        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "two-line gap " + gap());
+        verify(textTop() < oneLineTop - 20, "two-line title top " + textTop() + " grows up from " + oneLineTop);
+        // Absolute layout, not the properties that produce it. Hero y 150 is
+        // the brief. The gap under the meta is 44. Captions sit under the
+        // images, so each row is the picture plus its caption, and the next
+        // row starts one rowGap below. The New section label meets the bottom
+        // of the screen.
+        compare(child("heroBox").y, 150);
+        const menuBottom = child("menuButton").y + child("menuButton").height;
+        compare(menuBottom, 108);
+        verify(child("heroBox").y >= menuBottom,
+               "hero top " + child("heroBox").y + " clears the menu that ends at " + menuBottom);
+        verify(child("heroBox").y + child("heroBox").height <= child("continue").y,
+               "hero bottom overlaps Continue");
+        compare(child("continue").y, 418);
+        const stride = child("continue").height + Ui.Theme.rowGap;
+        const step = child("favorites").height + Ui.Theme.rowGap;
+        compare(child("favorites").y, child("continue").y + stride);
+        compare(child("new").y, child("favorites").y + step);
+        compare(home.homeOffset, 0);
+        const rowTop = child("new").mapToItem(home, 0, 0).y;
+        const posterTop = child("entry-n").mapToItem(home, 0, 0).y;
+        const visibleLabel = home.height - rowTop;
+        const visiblePoster = home.height - posterTop;
+        console.log("visible New label " + visibleLabel.toFixed(1)
+                    + " px, poster " + visiblePoster.toFixed(1)
+                    + " px (row y " + child("new").y.toFixed(1) + ")");
+        verify(visibleLabel > 40 && visibleLabel < 80, "visible New label " + visibleLabel);
+        verify(Math.abs(visiblePoster) < 8, "the New poster meets the bottom, visible " + visiblePoster);
+    }
+
     function test_hero_describes_the_focused_item() {
         home.continueEntries = [
             {id: "a", title: "Player", running: true},
@@ -689,12 +779,12 @@ TestCase {
             {id: "s", title: "Search", hint: "Type an address or a search"}
         ];
         child("entry-a").forceActiveFocus(); focused("entry-a");
-        compare(child("heroEyebrow").text, "NOW RUNNING");
+        compare(child("heroEyebrow").text, "Now running");
         verify(child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Player");
         compare(child("heroMeta").text, "Return");
         keyClick(Qt.Key_Right); focused("entry-film");
-        compare(child("heroEyebrow").text, "CONTINUE");
+        compare(child("heroEyebrow").text, "Continue");
         verify(!child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Film");
         compare(child("heroMeta").text, "1:13:42 of 2:46:00 · 1 h 32 min left");
@@ -703,16 +793,16 @@ TestCase {
         keyClick(Qt.Key_Right); focused("entry-live");
         compare(child("heroMeta").text, "Playing");
         child("entry-f").forceActiveFocus(); focused("entry-f");
-        compare(child("heroEyebrow").text, "FAVORITES · ONLINE");
+        compare(child("heroEyebrow").text, "Favorites · Online");
         compare(child("heroTitle").text, "Favorite");
         compare(child("heroMeta").text, "Opens full screen");
         home.openShortcutIds = ["f"];
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-g");
-        compare(child("heroEyebrow").text, "FAVORITES · GAMES");
+        compare(child("heroEyebrow").text, "Favorites · Games");
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-s");
-        compare(child("heroEyebrow").text, "FAVORITES");
+        compare(child("heroEyebrow").text, "Favorites");
         compare(child("heroMeta").text, "Type an address or a search");
         // The hero follows the presented entry, not a stale snapshot.
         home.favoriteEntries = [{id: "f", title: "Favorite"}, {id: "g", title: "Game", group: "games"},
@@ -791,7 +881,7 @@ TestCase {
         // A link to a tab that is not open keeps the media card.
         compare(child("entry-stale").text, "Stale");
         tabCard.forceActiveFocus(); focused("entry-m");
-        compare(child("heroEyebrow").text, "NOW RUNNING");
+        compare(child("heroEyebrow").text, "Now running");
         compare(child("heroMeta").text, "Paused · Return");
         keyClick(Qt.Key_Return);
         compare(tabRequests.count, 1);
@@ -955,48 +1045,6 @@ TestCase {
         home.network = "";
         home.wifi = false;
         compare(shown(), [false, false, false]);
-    }
-    // #368: the light field takes the artwork's hue, or the identity hue.
-    function test_ambient_glow_follows_focus() {
-        const glow = child("ambientGlow");
-        home.continueEntries = [
-            {id: "film", title: "Film", kind: "media", artwork: Qt.resolvedUrl("fixture-glow.svg")},
-            {id: "plain", title: "Plain", kind: "media"}
-        ];
-        child("entry-film").forceActiveFocus(); focused("entry-film");
-        tryVerify(() => glow.shown && Math.abs(glow.hue - 30) <= 3, 5000, "artwork hue " + glow.hue);
-        keyClick(Qt.Key_Right); focused("entry-plain");
-        compare(glow.tint, Qt.tint(Ui.Theme.identityColor("plain"), "transparent"));
-        const identity = glow.toOklch(glow.tint).h;
-        tryVerify(() => Math.abs(glow.hue - identity) < 0.5, 5000, "identity hue " + glow.hue);
-        // Back to a hue the hidden layer still holds (a and plain may share
-        // an identity colour): the field switches without a repaint.
-        keyClick(Qt.Key_Left); focused("entry-film");
-        tryVerify(() => Math.abs(glow.hue - 30) <= 3, 5000, "artwork hue again " + glow.hue);
-        keyClick(Qt.Key_Right); focused("entry-plain");
-        tryVerify(() => Math.abs(glow.hue - identity) < 0.5, 5000, "identity hue again " + glow.hue);
-        verify(glow.lit);
-        // The current service's colour follows its identity, not the fixed
-        // card id shared by every service.
-        home.currentServiceId = "tab-1";
-        home.currentServiceTitle = "Page";
-        child("entry-current-service").forceActiveFocus(); focused("entry-current-service");
-        compare(child("entry-current-service").visualIdentity, "tab-1");
-        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-1"), "transparent"));
-        home.currentServiceId = "tab-2";
-        tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-2"), "transparent"));
-        home.ambientSuppressed = true;
-        verify(!glow.lit);
-        home.ambientSuppressed = false;
-        // Settings › Appearance › Light field off (#389, ADR-0112).
-        home.ambientEnabled = false;
-        verify(!glow.lit);
-        home.ambientEnabled = true;
-        verify(glow.lit);
-        keyClick(Qt.Key_Menu); focused("nav-0");
-        keyClick(Qt.Key_Down); keyClick(Qt.Key_Return);
-        compare(home.screen, "library");
-        verify(!glow.lit);
     }
     // §12.3: the Activity's last frame replaces the plain background behind
     // Home, near while its own card has focus and far otherwise. Focus never

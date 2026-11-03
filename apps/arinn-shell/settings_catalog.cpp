@@ -191,7 +191,12 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "Soft light from the focused item's artwork behind Home"),
+                      "A warm floor and a pool of light under the focused item. "
+                      "Off removes the floor and the pool"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Light follows the time of day"),
+    QT_TRANSLATE_NOOP("SettingsCatalog",
+                      "Dims the floor light in the evening and at night and lays a "
+                      "warm veil over the screen. Off keeps the daytime light"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Ambient after"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Idle time on an Arinn screen before "
                                          "the ambient screen appears"),
@@ -675,6 +680,7 @@ void SettingsCatalog::dropRoots(const QString &providerId) {
 }
 void SettingsCatalog::readPreferences() {
   bool light = m_lightField;
+  bool follows = m_lightFollowsTime;
   int minutes = m_ambientMinutes;
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
@@ -684,6 +690,9 @@ void SettingsCatalog::readPreferences() {
       if (setting.id == QLatin1String("light_field") &&
           value.typeId() == QMetaType::Bool)
         light = value.toBool();
+      if (setting.id == QLatin1String("light_follows_time") &&
+          value.typeId() == QMetaType::Bool)
+        follows = value.toBool();
       if (setting.id == QLatin1String("ambient_timeout")) {
         // Only an offered value applies; anything else keeps the last one.
         bool ok = false;
@@ -694,9 +703,11 @@ void SettingsCatalog::readPreferences() {
       }
     }
   }
-  if (light == m_lightField && minutes == m_ambientMinutes)
+  if (light == m_lightField && follows == m_lightFollowsTime &&
+      minutes == m_ambientMinutes)
     return;
   m_lightField = light;
+  m_lightFollowsTime = follows;
   m_ambientMinutes = minutes;
   emit preferencesChanged();
 }

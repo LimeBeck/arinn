@@ -65,6 +65,11 @@ FocusScope {
     // decision of 2026-10-26 (#479, spec §5.6). Empty when unknown; `~` then
     // stays relative and is rejected, as by the contract.
     property string homeFolder: ""
+    // Time-of-day veil only. The floor and the pool stay off on this system
+    // screen. The veil follows the shell clock and is not removed here
+    // (owner decision on #732). Video is a different screen and stays uncovered.
+    property bool lightFollowsTime: true
+    property string clockText: ""
     // Why the open path editor's draft cannot be saved, empty when it can or
     // when nothing is typed yet (§6.2: a format error blocks the main key).
     readonly property string pathHint: pathEditing ? pathProblem(expandHome(editingDraft)) : ""
@@ -135,10 +140,18 @@ FocusScope {
         const step = row && row.constraints ? Number(row.constraints.step) : 1;
         return isFinite(step) && step >= 1 ? step : 1;
     }
+    // A save error is a daemon error code or a failed operation state; the
+    // code word never reaches the screen (§15).
     function daemonErrorText(code) {
         if (!code) return "";
         if (code === "Timeout") return qsTr("Arinn did not reply. Try again.");
-        return String(code);
+        if (code === "InvalidArgument") return qsTr("This value is not accepted.");
+        if (code === "Unavailable") return qsTr("The service is not available. Try again later.");
+        if (code === "Conflict") return qsTr("The settings changed. Try again.");
+        if (code === "NotFound") return qsTr("This setting is no longer available.");
+        if (code === "PermissionDenied") return qsTr("This setting cannot be changed.");
+        if (code === "Cancelled" || code === "cancelled") return qsTr("Saving was cancelled.");
+        return qsTr("Something went wrong. Try again.");
     }
     function detailLine(row) {
         if (!row) return "";
@@ -1039,6 +1052,16 @@ FocusScope {
     onCategoryIndexChanged: rowFlick.contentY = 0
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
+    // Veil above the rows and the sheets (z 30). No floor and no pool.
+    Ui.AmbientGlow {
+        objectName: "settingsVeilGlow"
+        anchors.fill: parent
+        veilParent: root
+        veilZ: 40
+        lit: false
+        followsTime: root.lightFollowsTime
+        clockText: root.clockText
+    }
     Ui.UiText {
         x: 120
         y: 96
@@ -1092,10 +1115,10 @@ FocusScope {
                 Keys.onPressed: event => root.selectKey(categoryButton, event, false)
                 Keys.onReleased: event => root.selectKey(categoryButton, event, true)
                 background: Rectangle {
-                    radius: 26
-                    color: categoryButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20)
-                           : (categoryButton.chosen ? Qt.rgba(1, 1, 1, 0.08) : "transparent")
+                    radius: Ui.Theme.containerRadius
+                    color: categoryButton.activeFocus ? Ui.Theme.plateContainer : "transparent"
                 }
+                Ui.FocusRing { shown: categoryButton.activeFocus; radius: Ui.Theme.containerRadius }
                 contentItem: Item {
                     Canvas {
                         id: categoryIcon
@@ -1201,7 +1224,6 @@ FocusScope {
             height: 40
             verticalAlignment: Text.AlignVCenter
             role: "eyebrow"
-            font.capitalization: Font.AllUppercase
             color: Ui.Theme.textSecondary
             text: {
                 const category = root.currentCategory();
@@ -1344,11 +1366,15 @@ FocusScope {
                                 Keys.onPressed: event => root.selectKey(settingButton, event, false)
                                 Keys.onReleased: event => root.selectKey(settingButton, event, true)
                                 background: Rectangle {
-                                    radius: 28
+                                    radius: Ui.Theme.containerRadius
                                     color: settingButton.activeFocus
-                                           ? (rowScope.locked ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(1, 1, 1, 0.20))
-                                           : Qt.rgba(1, 1, 1, 0.06)
+                                           ? (rowScope.locked ? Ui.Theme.plateDisabled : Ui.Theme.plateContainer)
+                                           : "transparent"
                                 }
+                                // Focused and locked: the rim shows where focus is.
+                                // The plate stays plateDisabled and the text stays
+                                // the hint colour, so the row still reads as locked.
+                                Ui.FocusRing { shown: settingButton.activeFocus; radius: Ui.Theme.containerRadius }
                                 contentItem: Item {
                                     Column {
                                         id: simpleText
@@ -1527,8 +1553,8 @@ FocusScope {
                                 Rectangle {
                                     width: parent.width
                                     height: pathIntro.implicitHeight + 28
-                                    radius: 28
-                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    radius: Ui.Theme.containerRadius
+                                    color: "transparent"
                                     Column {
                                         id: pathIntro
                                         x: 32
@@ -1608,7 +1634,8 @@ FocusScope {
                                             onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
                                             Keys.onPressed: event => root.selectKey(pathButton, event, false)
                                             Keys.onReleased: event => root.selectKey(pathButton, event, true)
-                                            background: Rectangle { radius: 18; color: pathButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            background: Rectangle { radius: Ui.Theme.containerRadius; color: pathButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                            Ui.FocusRing { shown: pathButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Item {
                                                 Keys.onPressed: event => root.pathFieldKeys(event, pathEditor, pathItemKeyboard)
                                                 Ui.UiText {
@@ -1681,7 +1708,8 @@ FocusScope {
                                             onClicked: root.removePath(row, index)
                                             Keys.onPressed: event => root.selectKey(removeButton, event, false)
                                             Keys.onReleased: event => root.selectKey(removeButton, event, true)
-                                            background: Rectangle { radius: 18; color: removeButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                            background: Rectangle { radius: Ui.Theme.containerRadius; color: removeButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                            Ui.FocusRing { shown: removeButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Ui.UiText {
                                                 text: removeButton.text
                                                 horizontalAlignment: Text.AlignHCenter
@@ -1707,7 +1735,8 @@ FocusScope {
                                     onClicked: if (!full) root.openEditor(row, "add", "")
                                     Keys.onPressed: event => root.selectKey(addButton, event, false)
                                     Keys.onReleased: event => root.selectKey(addButton, event, true)
-                                    background: Rectangle { radius: 18; color: addButton.activeFocus ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(1, 1, 1, 0.06) }
+                                    background: Rectangle { radius: Ui.Theme.containerRadius; color: addButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
+                                    Ui.FocusRing { shown: addButton.activeFocus; radius: Ui.Theme.containerRadius }
                                     contentItem: Item {
                                         Keys.onPressed: event => root.pathFieldKeys(event, addEditor, addKeyboard)
                                         Ui.UiText {
@@ -1778,7 +1807,6 @@ FocusScope {
                     Ui.UiText {
                         width: parent.width - optionPosition.implicitWidth - 16
                         role: "eyebrow"
-                        font.capitalization: Font.AllUppercase
                         color: Ui.Theme.textSecondary
                         text: {
                             const row = root.choosingRow || root.integerRowData || root.stringRowData;
@@ -2018,7 +2046,11 @@ FocusScope {
                                         id: integerReadout
                                         objectName: "integerValue"
                                         text: String(root.integerDraft)
-                                        role: "display"
+                                        // System readout. `display` is the Ambient clock
+                                        // face (Ysabeau 220, ADR-0136), not this number.
+                                        font.pixelSize: 112
+                                        font.weight: 700
+                                        font.letterSpacing: -3.36
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                     Ui.UiText {

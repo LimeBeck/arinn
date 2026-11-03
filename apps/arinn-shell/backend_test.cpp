@@ -128,7 +128,8 @@ private slots:
     QTRY_VERIFY_WITH_TIMEOUT(second->hasActiveFocus(), 500);
     QTest::keyClick(window, Qt::Key_Up);
     QTRY_VERIFY_WITH_TIMEOUT(first->hasActiveFocus(), 500);
-    QTRY_COMPARE_WITH_TIMEOUT(backend.message(), QString("Timeout"), 7000);
+    QTRY_COMPARE_WITH_TIMEOUT(backend.message(),
+                              QString("Arinn did not reply. Try again."), 7000);
     QVERIFY(backend.busyEntryIds().isEmpty());
   }
 };

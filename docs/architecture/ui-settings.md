@@ -23,12 +23,15 @@ The QML does not call a daemon, a plugin process or a provider-supplied widget
 ## The shell's own preferences
 
 The daemon's `arinn` source also holds the shell's presentation preferences
-([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)): `light_field`
-(Appearance › Light field, on by default) and `ambient_timeout` (Appearance ›
+([ADR-0112](../adr/0112-shell-preferences-as-core-settings.md),
+[ADR-0136](../adr/0136-hearth-light-visual-direction.md)): `light_field`
+(Appearance › Light field, on by default), `light_follows_time` (Appearance ›
+Light follows the time of day, on by default) and `ambient_timeout` (Appearance ›
 Ambient after: 5, 10, 15, 30 or 60 minutes, 10 by default). They are ordinary
-rows on this screen. `SettingsCatalog` also exposes them as `lightField` and
-`ambientTimeoutMinutes` for `Main.qml`, which binds the light field behind Home
-to `lightField`. An invalid hand-edited value of either key in `config.toml`
+rows on this screen. `SettingsCatalog` also exposes them as `lightField`,
+`lightFollowsTime` and `ambientTimeoutMinutes` for `Main.qml`, which binds the
+light field to `lightField` and the time-of-day light to
+`lightFollowsTime`. An invalid hand-edited value of any of these keys in `config.toml`
 reads as its default, with one warning line and no value in the log. The
 same source lists `browser_application` and, when search engines are
 packaged, `search_engine` under Applications. The daemon checks its own schema

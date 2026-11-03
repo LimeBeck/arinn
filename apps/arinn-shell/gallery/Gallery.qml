@@ -25,7 +25,7 @@ Window {
         HoverHandler { onPointChanged: root.pointerMode = true }
         Ui.UiText { x: 120; y: 52; text: "Arinn / UI components"; role: "section" }
         Ui.UiText { x: 120; y: 108; text: qsTr("A quiet space for your content"); role: "title" }
-        Ui.UiText { x: 120; y: 194; text: qsTr("CONTINUE"); role: "eyebrow"; color: Ui.Theme.textSecondary }
+        Ui.UiText { x: 120; y: 194; text: qsTr("Continue"); role: "eyebrow"; color: Ui.Theme.textSecondary }
         Row {
             x: 120; y: 252; spacing: 32
             Ui.ContentCard {
@@ -63,7 +63,7 @@ Window {
             }
             Ui.Skeleton { width: 352 }
         }
-        Ui.UiText { x: 120; y: 530; text: qsTr("FAVORITES / ACTIONS"); role: "eyebrow"; color: Ui.Theme.textSecondary }
+        Ui.UiText { x: 120; y: 530; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
         Row {
             x: 120; y: 588; spacing: 32
             Ui.AppTile {

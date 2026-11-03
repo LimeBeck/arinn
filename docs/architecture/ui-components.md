@@ -19,16 +19,16 @@ models into these properties and routing emitted actions to the daemon.
 
 | Component | Presentation contract |
 | --- | --- |
-| `Theme`, `UiText` | Shared colours, radii, timing, font and named typography roles; Onest with tabular numerals, each weight applied to the font's `wght` axis (see *Font weights*) |
+| `Theme`, `UiText` | Shared colours (the Hearth light palette: Charcoal `#0F1115`, warm day text, `chip`, `mat`, `rim`, `hearth` and the pool centre, plus `nightText1..3` and `eveningText3`), radii, timing, fonts and named typography roles. Onest for system text and Ysabeau for `hero` (96/600), `detailTitle` (104/600) and `display` (220/600, the Ambient clock face), with tabular numerals and, on content roles, lining figures. Each weight is applied to the font's `wght` axis (see *Font weights*). Eyebrows are sentence case (26/500). Page titles are Onest 56/600 with no negative tracking. `fitSteps` (`[[size, lines], …]`) fits a content title: the first step whose rendered text is not elided wins, and `fitStep` reports it. `fit()` writes `fittedPixelSize` and `fittedLineCount`; `font.pixelSize` and `maximumLineCount` stay bound to those properties, so a later text or font change is measured again and clearing the steps returns the role size ([ADR-0136](../adr/0136-hearth-light-visual-direction.md), [#722](https://github.com/LimeBeck/arinn/issues/722)) |
 | `FontWeightAxis` | Put inside a plain `Text` or `TextInput` in Onest that sets `font.weight`; applies the weight to the `wght` axis as `UiText` does. Draws nothing |
 | `LogicalCanvas` | Centred 1920×1080 stage, uniform `min(width/1920, height/1080)` scale |
-| `Surface` | Focus, press, disabled and busy treatment; focus ring above all artwork; `activated()` intent |
-| `ActionButton` | Content-sized pill, `text`, optional `destructive` tint |
-| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; the artwork is centre-cropped to the card like `Image.PreserveAspectCrop` (the canvas helper `ui/artwork.js`, shared with the Downloads poster), the previous image is released when the URL changes, and the artwork gets the handoff scrim (`rgba(10,11,13)` from .9 to 0 at 70% height). Title (two lines) and subtitle (one line) wrap with `Text.Wrap`, so a word wider than the column breaks and elides instead of running past the card; a narrow card (under 300 px, the New row's posters) sets the title at 24 px with 18 px insets ([#655](https://github.com/LimeBeck/arinn/issues/655)). Bytes from Assets1 are decoded in C++ at the card's size: the Image `sourceSize` and the Canvas copy both request it, the decoder covers it without upscaling, and no image exceeds 4096 pixels a side. A request cancelled before a pool thread takes it, such as a poster scrolled away, finishes without a daemon call ([#611](https://github.com/LimeBeck/arinn/issues/611)) |
-| `AppTile` | `text`, neutral `monogram`, `running`. The name is 26 px on up to two lines, wrapped with `Text.Wrap` and then elided, so "Site or search" shows whole; this departs from handoff 01, which elides to one line (owner decision on [#656](https://github.com/LimeBeck/arinn/issues/656), 2026-11-01) |
-| `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only |
+| `Surface`, `FocusRing` | Focus, press, disabled and busy treatment. `shapeRole` selects the plate: content and containers have none at rest, actions use `plateAction` (primary `platePrimary`), objects use `plateObject`. Content and objects focus at scale 1.04 from the bottom edge, lifted 8 px. `FocusRing` is the 2 px rim (`rimBottom` to `rimTop`), not a white ring; Settings category, row, path, remove and add use it with an 8% plate. `activated()` intent |
+| `ActionButton` | Content-sized pill, `text`, optional `destructive` tint, optional `primary` (14% plate). Focus fills the pill with text-1 and draws the label in ink |
+| `ContentCard` | `text`, `subtitle`, `artwork` URL supplied by trusted shell models (a file or `image://arinn-assets/`), `running`, optional `showProgress` and normalized `progress`, optional `stack` of up to three `{letter, icon}` chips drawn overlapping instead of the monogram. The plate stays until the image is ready; the artwork is centre-cropped to the card like `Image.PreserveAspectCrop` (the canvas helper `ui/artwork.js`, shared with the Downloads poster), the previous image is released when the URL changes, and the title and subtitle sit below the image, each on one line and elided, so a word wider than the column does not run past the card. A 4 px Ember line is flush with the bottom edge of the image, with a 2 px Charcoal band above it and no scrim. Focus puts a 5 px Charcoal mat around the image and a 2 px rim outside that mat ([ADR-0136](../adr/0136-hearth-light-visual-direction.md), [#724](https://github.com/LimeBeck/arinn/issues/724)). A narrow card (under 300 px, the New row's posters) sets the title at 24 px ([#655](https://github.com/LimeBeck/arinn/issues/655)). Bytes from Assets1 are decoded in C++ at the card's size: the Image `sourceSize` and the Canvas copy both request it, the decoder covers it without upscaling, and no image exceeds 4096 pixels a side. A request cancelled before a pool thread takes it, such as a poster scrolled away, finishes without a daemon call ([#611](https://github.com/LimeBeck/arinn/issues/611)) |
+| `AppTile` | `text`, neutral `monogram`, `running`. The name is 26 px on up to two lines, wrapped with `Text.Wrap` and then elided, so "Site or search" shows whole; this departs from handoff 01, which elides to one line (owner decision on [#656](https://github.com/LimeBeck/arinn/issues/656), 2026-11-01). Objects use radius 18 and a 3.5% plate (9% in focus). A container role, used for Home favourites, has no plate at rest and an 8% plate plus the rim in focus |
+| `ProgressTrack` | Clamped finite `value` from 0 to 1; Ember represents progress only. `line: true` is the artwork line: 4 px Ember flush with the bottom and a 2 px Charcoal band, with no grey track |
 | `Skeleton` | Fixed-size pulsing placeholder; same default geometry as a content card |
-| `AmbientGlow` | Home's light field: `source` artwork or `tint` identity colour, `lit`, `strength`. The dominant hue of a 24×24 decode of the artwork keys the handoff's three radial layers, painted once per hue at one-fifth resolution and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred per frame |
+| `AmbientGlow` | Hearth light (ADR-0136): a black ceiling over the top 44% (50% at the top edge), a warm floor ellipse and a pool under the focused item. `source` is artwork, else `tint` is the identity colour; `lit` and `strength` (1 Home, 0.6 Applications, 0.6 Library, 0.5 detail) fade the field. The pool's hue is the dominant hue of a 24×24 artwork decode, chroma 0.10 reduced to 0.065 at hue 240°. Floor and pool are painted once into a one-fifth-resolution canvas and scaled up; a 900 ms cross-fade follows focus after a 200 ms settle. No full-resolution art is blurred. `followsTime` with `clockText` or `hour` selects day, evening (19:00, light 85%, veil 6%) and night (23:00, light 60%, veil 22%). Day text is `oklch(0.95/0.80/0.66 0.008 75)` on Charcoal. At night, Theme text becomes text-1 `oklch(0.97 0.006 75)`, text-2 `0.84` and text-3 `0.761`. `textContrastMinimum` is 4.8, the brief's bar; WCAG AA is 4.5 and the owner has not chosen. The check covers the veiled background, a resting plate, the night focused plate, Home and Applications at their brightest light, and Settings and Downloads under the 22% veil. The brief's night text-3 `0.71` is about 4.07:1 on the brightest Home light, 4.38:1 on a resting plate and 4.36:1 in Applications, so it misses both bars. `0.761` is the smallest thousandth of OKLCH L that holds 4.8:1 on those surfaces. A focused plate at the day fill (white at 20%) would need text-3 `0.845` to reach 4.8:1; at night the fill is white at 9.5% (`plateFocusNightAlpha`), the lightest fill that still holds 4.8:1 for text-3 `0.761`. Settings rows use `Theme.plateContainer` (white at 8%) and the rim. The player OSD still uses `Theme.plateFocus`. A focused locked Settings row uses `Theme.plateDisabled` (white at 12%) and draws the same rim; its text stays the hint colour. An unfocused container row, including a locked Settings row, has no plate. Night text-3 on the locked fill is about 4.54:1, under the bar, which is accepted for an inactive row. A 4.5 bar would allow text-3 `0.741` with that same night fill. Evening keeps the day titles and the day focus fill, and raises hints to `oklch(0.778 0.008 75)`, the smallest thousandth that holds `eveningContrastMinimum` (4.5) on the evening light. Evening Home is about 4.50:1 and a focused plate about 4.78:1, both below `textContrastMinimum`. The evening checks use `eveningContrastMinimum`, defined next to the night bar; whether evening should meet 4.8 is the owner's decision. The step above the brief, the night fill and the 4.8 bar are not confirmed by the owner. Floor and pool centres are the `Theme` tokens `hearthLightness` 0.44, `hearthChroma` 0.07, `hearthHue` 55, `poolLightness` 0.50, `poolChromaWarm` 0.10 and `poolChromaCool` 0.065. This light does not choose text colours; Theme does, from the period the light publishes. Settings and Downloads host the warm veil only: the floor and the pool stay off, and the veil is not removed when those screens open. The player does not host it, so video stays uncovered. Applications use strength 0.6, with the Library; the prototype's `updateLight()` value 0.8 is not used. The cases live in `tests/ui/hearth` (`ctest -R '^hearth-light$'`), a separate process from `ui-components`, which aborts on `Qt.Key_MediaPause` in `tst_home.qml` ([#733](https://github.com/LimeBeck/arinn/issues/733)). Light under text stays at or below L 0.48, measured by compositing those same stops |
 | `LineIcon` | The single shared line-icon component: `name` (a Material Symbols name from the handoff), `color`, size from `width`/`height` on a 24-unit grid. Icons are drawn in code on a `Canvas`; the shell ships no icon font, so rendering does not depend on installed fonts or the Qt version. Today: the on-screen keyboard icons and Open services `bookmark_add`/`bookmark_added`. A new handoff icon (such as the Close icon of [#565](https://github.com/LimeBeck/arinn/issues/565)) is added here, not as a glyph or a second component |
 | `StatusPane` | Explicit `kind` (empty/loading/error/unavailable), `title`, `description`, `actionText`; `actionRequested()` intent |
 
@@ -50,7 +50,10 @@ Home's navigation menu, so `Focus.take` alone cannot protect the menu: Main bind
 their `ownsFocus` to `focusedScreen`, and their data-change handlers move focus
 only while it is true. When it turns true again they restore the selected row or
 the initial item (#608, `dataUpdatesUnderTheMenuKeepItsFocus`). The `focus-ownership`
-test rejects any other `forceActiveFocus()` call.
+test rejects any other `forceActiveFocus()` call. The `focus-fill` test scans every `ui/**/*.qml` file except `Theme.qml` and
+rejects a focus plate written as white at alpha 0.2 or 0.20, as an eight-digit
+hex colour with an alpha channel, or as opacity 0.2, including a plate selected
+by `isCurrentItem`, so those controls use `Theme.plateFocus`.
 
 Screens own focus scopes, explicit neighbours and restoration. The input mode is
 shell-wide ([ADR-0095](../adr/0095-shell-input-mode-ownership.md)): the
@@ -115,10 +118,27 @@ Onest is bundled unchanged from the Google Fonts `ofl/onest` directory:
 Copyright 2021 The Onest Project Authors. License: SIL Open Font License 1.1,
 in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`.
 
+Ysabeau, the content-title face of the Hearth light direction
+([ADR-0136](../adr/0136-hearth-light-visual-direction.md), D-2), is bundled
+unchanged as `ui/fonts/Ysabeau.ttf` from the Google Fonts `ofl/ysabeau`
+directory (`Ysabeau[wght].ttf`, SHA-256
+`aa6df9f1f6cb1180f7c00fffb5ae2734ba66aa5f58defd173a9247ca11dffcf4`):
+[font source](https://github.com/google/fonts/tree/main/ofl/ysabeau),
+[upstream project](https://github.com/CatharsisFonts/Ysabeau).
+Copyright 2023 The Ysabeau Project Authors. License: SIL Open Font License 1.1,
+in `LICENSES/OFL-1.1.txt`, with the binary annotated in `REUSE.toml`. The owner
+approved bundling this face; the pull request that adds the file still needs
+the owner's review. It is a variable font with a `wght` axis and is weighted
+through the same `Theme.applyWeight` path as Onest. Its default figures are
+old-style, so the content roles turn on the `lnum` feature. The `display`
+role is this face at 220/600 for the Ambient clock. The Ambient screen still
+draws its handoff clock at 160/500 until that screen's own task; the settings
+integer readout keeps Onest 112/700 and does not use `display`.
+
 ## Font weights
 
 Onest is a variable font: one face with a `wght` axis from 100 to 900 and
-named instances. Qt does not match those instances by `font.weight` for an
+named instances. Ysabeau, used by the content roles, is weighted the same way. Qt does not match those instances by `font.weight` for an
 application font. In the Qt 6.10.2 dev container and in CI on Arch with
 Qt 6.12.0 (offscreen, fontconfig), every `font.weight` and
 `font.styleName` rendered as the default 400, while
@@ -160,15 +180,14 @@ from them. An entry that stands for an open web service carries its `serviceId`.
 A `HomeRow` takes over a new `entries` array only when its content differs, and
 keeps its cards by position, updating them in place; a changed entry, such as
 a playing session's position, does not recreate the row's cards (#441).
-A row paints only between its own edges, which are Home's safe edges (x120 to
-x1824, handoff 01). The viewport keeps a 48 px margin on each side for the
-focus glow, lift and scale, and each card is clipped at the safe edges. Only
+A row keeps Home's safe right edge (x1824, handoff 01). The viewport keeps a 48 px margin on the right for the
+focus lift and scale, and each card is clipped at that edge. Only
 the focused card, while its body is inside the safe area, paints into that
-margin, and only its focus treatment (glow and focus scale) ends up there. A neighbour, or a focused card flicked
-across an edge, is cut at the edge. A card wholly outside the safe area is not
+margin. A neighbour, or a focused card flicked
+across the right edge, is cut at the edge. On the left, cards stay visible as they cross the screen and fade out from x 24 to x 112 (ADR-0136); the fade is a Charcoal ramp because the software renderer has no row mask. A card wholly outside the safe right area is not
 painted and takes no pointer focus or clicks, though D-pad focus still reaches
 it. Scrolling to a focused card keeps its body inside the safe right edge. So
-no card peeks past x1824, and the focus glow is not cut (#564).
+no card peeks past x1824 (#564). The rest of a focused row is drawn at brightness 0.82 and other rows at 0.62; the focused image stays at 1.
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional
 `currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on
@@ -179,7 +198,12 @@ lists only services without a card of their own, matched by `serviceId`, never b
 title ([#358](https://github.com/LimeBeck/arinn/issues/358)): "N more open" once
 a service has a card, "Open: N" otherwise, hidden with one open service or none
 left over. The hero describes the focused item
-([#364](https://github.com/LimeBeck/arinn/issues/364)). `downloadActive` and
+([#364](https://github.com/LimeBeck/arinn/issues/364)). The title is Ysabeau and
+fits in steps, 96 px on one line or 68 px on two
+([#722](https://github.com/LimeBeck/arinn/issues/722)). The block starts at y 150
+and the title slot is two lines at 68 px, bottom-aligned, so a one-line title
+sits lower and a two-line title grows upward. The rows stay `heroRowGap` (44 px)
+under that block. Favorites follows Continue by `homeRowStride` (300 px) and New follows Favorites by `newRowStep` (210 px), so 94 px of the New poster stays on screen while Continue is focused. Their y does not change when the title wraps. The hero block stays at y 150, below the menu, which ends at y 108. `downloadActive` and
 `downloadProgress` drive the status-area download chip. `muted`, `wifi` and
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
 chip and the clock, only while known; `network` (`wired` or `disconnected`)
@@ -366,7 +390,8 @@ review of G-5.1. It does not pass G-5.1, AC-14, or any Phase 5 gate.
 The manifest is [`tests/ui/visual/manifest.json`](../../tests/ui/visual/manifest.json).
 Fixtures live only in `tests/ui/visual/capture.qml`. They use fictional
 services and titles on `.example` addresses and fix the clock (`clockText`
-"22:57" on Home, player and Open services). `ui-compare` also sets
+"12:00", daytime, on Home, player and Open services). `home-evening` is
+20:30 and `home-night` is 23:30, the middle of each period. `ui-compare` also sets
 `ARINN_CAPTURE_STILL_ANIMATIONS`. The test runner (`tests/ui/main.cpp`) then
 takes animation time, which also drives QML `Timer`s, off the wall clock: during
 a capture it moves only when `capture.qml` runs it, by exactly a state's

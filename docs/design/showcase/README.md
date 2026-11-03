@@ -28,7 +28,10 @@ names); `settings.png` and `library-folders.png` render unchanged.
 | `settings.png` | `settings-rows` | Appearance: light field, ambient timeout and text size; only the focused row shows its source line |
 | `library-folders.png` | `library-folders-list` | Inline fictional folder paths with Add path / Remove controls |
 
-The capture uses a fixed 22:57 clock, synthetic titles and paths, neutral service
+The capture baseline is a fixed 12:00 clock (day, no veil). Evening and night
+are the separate `home-evening` (20:30) and `home-night` (23:30) frames. The
+pictures in this folder were exported from an earlier capture and can still
+show 22:57 until the next export. Synthetic titles and paths, neutral service
 monograms and the original fixture artwork. It connects to no daemon or live
 desktop. Existing handoff differences remain product follow-ups; this refresh
 does not pass G-5.1, qualify a desktop/TV or prove every integration complete.

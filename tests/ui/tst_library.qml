@@ -184,8 +184,10 @@ TestCase {
         compare(entriesSpy.signalArguments[0][0], "b");
         focused("detailPlay");
         compare(child("detailMissing").visible, false);
-        compare(child("detailTitle").font.pixelSize, 112);
-        compare(child("detailTitle").role, "display");
+        // Hearth light: the detail title is a content role in Ysabeau (ADR-0136).
+        compare(child("detailTitle").font.pixelSize, 104);
+        compare(child("detailTitle").role, "detailTitle");
+        compare(child("detailTitle").font.family, Ui.Theme.contentFontFamily);
         compare(child("detailFanart").visible, false);
         noWireframeLabels();
         compare(child("detailEyebrow").text, "Film");
@@ -263,7 +265,7 @@ TestCase {
         focused("episode-e1");
         compare(child("episode-e1").width, 420);
         compare(child("episode-e1").height, 236);
-        compare(child("episode-e1").cornerRadius, 22);
+        compare(child("episode-e1").cornerRadius, Ui.Theme.stillRadius);
         compare(child("episodePlate-e1").visible, true);
         compare(child("episodeGlyph-e1").width, 44);
         noWireframeLabels();
@@ -291,7 +293,7 @@ TestCase {
         compare(child("skeleton-0").visible, true);
         compare(child("skeleton-0").width, 210);
         compare(child("skeleton-0").height, 315);
-        compare(child("skeleton-0").radius, 20);
+        compare(child("skeleton-0").radius, Ui.Theme.posterRadius);
         compare(child("skeleton-7").visible, true);
         const skeletons = child("librarySkeletons").mapToItem(library, 0, 0);
         compare(skeletons.x, 120);
@@ -388,7 +390,7 @@ TestCase {
         compare(heading.x, 120);
         compare(heading.y, 96);
         compare(heading.font.pixelSize, 56);
-        compare(heading.font.weight, 700);
+        compare(heading.font.weight, 600);
         const tab = child("tab-films");
         compare(tab.height, 64);
         compare(tab.cornerRadius, 32);
@@ -403,7 +405,7 @@ TestCase {
         const poster = child("poster-a");
         compare(poster.width, 210);
         compare(poster.height, 315);
-        compare(poster.cornerRadius, 20);
+        compare(poster.cornerRadius, Ui.Theme.posterRadius);
         const at = poster.mapToItem(library, 0, 0);
         compare(at.x, 120);
         compare(at.y, 310);
@@ -426,11 +428,12 @@ TestCase {
         focused("tab-films");
         keyClick(Qt.Key_Down);
         focused("poster-a");
-        verify(child("posterCaption-a").lift > 0);
+        // The caption stays under the image, so it lifts with the poster.
+        compare(child("posterCaption-a").lift, child("poster-a").lift);
         library.pointerMode = false;
-        compare(child("posterCaption-a").lift, 14);
+        compare(child("posterCaption-a").lift, Ui.Theme.contentFocusLift);
         library.pointerMode = true;
-        compare(child("posterCaption-a").lift, 6);
+        compare(child("posterCaption-a").lift, -2);
         tryVerify(function() { return child("poster-a").scale > 1.01; });
         keyClick(Qt.Key_Up);
         focused("tab-films");
@@ -488,7 +491,7 @@ TestCase {
         focused("poster-show");
         keyClick(Qt.Key_Return);
         focused("detailPlay");
-        compare(child("detailTitle").font.pixelSize, 112);
+        compare(child("detailTitle").font.pixelSize, 104);
         compare(child("detailTitle").text, "Serial");
         compare(child("detailFanart").visible, false);
         compare(child("detailEyebrow").text, "Series");
@@ -726,10 +729,27 @@ TestCase {
         // The grid intentionally fades its top edge. Episode stills must
         // retain their top/left edges even when focus scales and lifts them.
         const edgeY = data.focused && !data.episode ? artwork.height - 6 : 6;
-        verify(whiteAt(pixels, artwork.width / 2, edgeY), "Straight edges must retain the artwork");
+        if (data.focused && !data.episode) {
+            const edge = artwork.mapToItem(suite, artwork.width / 2, edgeY);
+            verify(pixels.red(Math.round(edge.x), Math.round(edge.y)) > 180,
+                   "focused poster edge " + pixels.red(Math.round(edge.x), Math.round(edge.y))
+                   + "," + pixels.green(Math.round(edge.x), Math.round(edge.y))
+                   + "," + pixels.blue(Math.round(edge.x), Math.round(edge.y)));
+        } else
+            verify(whiteAt(pixels, artwork.width / 2, edgeY), "Straight edges must retain the artwork");
         verify(whiteAt(pixels, 6, artwork.height / 2), "Straight edges must retain the artwork");
         verify(whiteAt(pixels, artwork.width - 6, artwork.height / 2), "The focused right edge must stay inside the viewport");
-        verify(whiteAt(pixels, artwork.width / 2, artwork.height - 6), "The bottom edge must retain the artwork");
+        const bottom = artwork.mapToItem(suite, artwork.width / 2, artwork.height - 6);
+        const bottomRed = pixels.red(Math.round(bottom.x), Math.round(bottom.y));
+        const bottomGreen = pixels.green(Math.round(bottom.x), Math.round(bottom.y));
+        const bottomBlue = pixels.blue(Math.round(bottom.x), Math.round(bottom.y));
+        // A focused image keeps a warm bounce inside the bottom edge, so the
+        // pixel is no longer pure white. It is still the artwork, not the mat.
+        if (data.focused)
+            verify(bottomRed > 180 && bottomGreen > 140 && bottomBlue > 80,
+                   "focused bottom " + bottomRed + "," + bottomGreen + "," + bottomBlue);
+        else
+            verify(whiteAt(pixels, artwork.width / 2, artwork.height - 6), "The bottom edge must retain the artwork");
     }
 
     readonly property string roundedPortraitFixture: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAI0lEQVR4nGNgYPhPARrVPKqZEBqSjh7VPIQ0D1mHj2oeGpoB5H9Vx748njcAAAAASUVORK5CYII="
@@ -802,6 +822,11 @@ TestCase {
         compare(child("operationPending").visible, false);
         compare(child("operationBanner").visible, true);
         compare(child("operationBannerText").text, "This title is not available.");
+        // An unknown or internal code is never shown as the code (§15).
+        library.operationState = "Internal";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
+        library.operationState = "SomethingNew";
+        compare(child("operationBannerText").text, "Something went wrong. Try again.");
         library.operationState = "succeeded";
         compare(child("operationBanner").visible, false);
         compare(child("operationPending").visible, false);

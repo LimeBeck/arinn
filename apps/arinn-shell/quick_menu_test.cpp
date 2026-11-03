@@ -255,7 +255,7 @@ private slots:
     QCOMPARE(window->color(), QColor(Qt::transparent));
     QVERIFY(child(window, "opaqueShellBackground"));
     QVERIFY(child(window, "opaqueShellBackground")->isVisible());
-    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#0F1115")));
     QTRY_VERIFY(focusIn(home));
     QCOMPARE(daemon.backs, 0);
     // Over Home: the sheet opens on top and Back returns focus to Home.
@@ -494,7 +494,7 @@ private slots:
     QCOMPARE(window->color(), QColor(Qt::transparent));
     QVERIFY(child(window, "opaqueShellBackground"));
     QVERIFY(child(window, "opaqueShellBackground")->isVisible());
-    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#0F1115")));
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(!menu->isVisible());
     QTRY_COMPARE(window->activeFocusItem(), opener);
@@ -812,7 +812,7 @@ private slots:
     QCOMPARE(window->color(), QColor(Qt::transparent));
     QVERIFY(child(window, "opaqueShellBackground"));
     QVERIFY(child(window, "opaqueShellBackground")->isVisible());
-    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
+    QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#0F1115")));
     QTRY_VERIFY(child(window, "sleepButton")->hasActiveFocus());
     // No toggle: the key again keeps the menu and its focus.
     QTest::keyClick(window, Qt::Key_Down);
@@ -885,7 +885,7 @@ private slots:
       QCOMPARE(window->color(), QColor(Qt::transparent));
       QVERIFY(child(window, "opaqueShellBackground"));
       QVERIFY(child(window, "opaqueShellBackground")->isVisible());
-      QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#131416")));
+      QCOMPARE(child(window, "opaqueShellBackground")->property("color").value<QColor>(), QColor(QStringLiteral("#0F1115")));
     }
     QCOMPARE(daemon.backs, 0);
   }

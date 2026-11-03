@@ -86,10 +86,6 @@
         <translation>Нет ответа. Проверьте список ярлыков, прежде чем повторить.</translation>
     </message>
     <message>
-        <source>The shortcut could not be saved (%1).</source>
-        <translation>Не удалось сохранить ярлык (%1).</translation>
-    </message>
-    <message>
         <source>Invalid reply. Check the shortcut list before trying again.</source>
         <translation>Некорректный ответ. Проверьте список ярлыков, прежде чем повторить.</translation>
     </message>
@@ -108,6 +104,46 @@
     <message>
         <source>Favorites saved</source>
         <translation>Избранное сохранено</translation>
+    </message>
+    <message>
+        <source>It is no longer available</source>
+        <translation>Больше не доступно</translation>
+    </message>
+    <message>
+        <source>Not available right now</source>
+        <translation>Сейчас недоступно</translation>
+    </message>
+    <message>
+        <source>Not supported</source>
+        <translation>Не поддерживается</translation>
+    </message>
+    <message>
+        <source>Not allowed</source>
+        <translation>Недопустимо</translation>
+    </message>
+    <message>
+        <source>Arinn did not reply. Try again.</source>
+        <translation>Arinn не ответил. Попробуйте снова.</translation>
+    </message>
+    <message>
+        <source>This request is not valid</source>
+        <translation>Недопустимый запрос</translation>
+    </message>
+    <message>
+        <source>Something changed. Try again.</source>
+        <translation>Что-то изменилось. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation>Отменено</translation>
+    </message>
+    <message>
+        <source>Something went wrong</source>
+        <translation>Что-то пошло не так</translation>
+    </message>
+    <message>
+        <source>The shortcut could not be saved. Try again.</source>
+        <translation>Не удалось сохранить ярлык. Повторите попытку.</translation>
     </message>
 </context>
 <context>
@@ -328,10 +364,6 @@
         <source>Loading…</source>
         <translation>Загрузка…</translation>
     </message>
-    <message>
-        <source>Now running</source>
-        <translation>Сейчас запущено</translation>
-    </message>
 </context>
 <context>
     <name>DownloadCatalog</name>
@@ -354,6 +386,10 @@
     <message>
         <source>%1 is ready to watch</source>
         <translation>%1 загружен — можно смотреть</translation>
+    </message>
+    <message>
+        <source>%1/s</source>
+        <translation>%1/с</translation>
     </message>
 </context>
 <context>
@@ -537,14 +573,6 @@
         <translation>Браузер недоступен</translation>
     </message>
     <message>
-        <source>NOW RUNNING</source>
-        <translation>СЕЙЧАС ЗАПУЩЕНО</translation>
-    </message>
-    <message>
-        <source>CONTINUE</source>
-        <translation>ПРОДОЛЖИТЬ</translation>
-    </message>
-    <message>
         <source>Make yourself at home</source>
         <translation>Добро пожаловать</translation>
     </message>
@@ -555,6 +583,10 @@
     <message>
         <source>Continue</source>
         <translation>Продолжить</translation>
+    </message>
+    <message>
+        <source>Now running</source>
+        <translation>Сейчас запущено</translation>
     </message>
     <message>
         <source>New</source>
@@ -707,10 +739,6 @@
     <message>
         <source>Opens full screen</source>
         <translation>Откроется на весь экран</translation>
-    </message>
-    <message>
-        <source>OPEN SERVICES</source>
-        <translation>ОТКРЫТЫЕ СЕРВИСЫ</translation>
     </message>
     <message>
         <source>%1 of %2</source>
@@ -891,6 +919,14 @@
         <source>Folders</source>
         <translation>Папки</translation>
     </message>
+    <message>
+        <source>%1 s</source>
+        <translation>%1 с</translation>
+    </message>
+    <message>
+        <source>%1 min</source>
+        <translation>%1 мин</translation>
+    </message>
 </context>
 <context>
     <name>LibraryView</name>
@@ -1022,6 +1058,18 @@
         <source>Folder unavailable · check the connection</source>
         <translation>Папка недоступна · проверьте подключение</translation>
     </message>
+    <message>
+        <source>That is not allowed.</source>
+        <translation>Это не разрешено.</translation>
+    </message>
+    <message>
+        <source>Cancelled.</source>
+        <translation>Отменено.</translation>
+    </message>
+    <message>
+        <source>Something went wrong. Try again.</source>
+        <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
 </context>
 <context>
     <name>Main</name>
@@ -1107,6 +1155,114 @@
     <message>
         <source>Off</source>
         <translation>Выкл.</translation>
+    </message>
+    <message>
+        <source>Unknown language</source>
+        <translation>Неизвестный язык</translation>
+    </message>
+    <message>
+        <source>English</source>
+        <translation>Английский</translation>
+    </message>
+    <message>
+        <source>Russian</source>
+        <translation>Русский</translation>
+    </message>
+    <message>
+        <source>Ukrainian</source>
+        <translation>Украинский</translation>
+    </message>
+    <message>
+        <source>Belarusian</source>
+        <translation>Белорусский</translation>
+    </message>
+    <message>
+        <source>Kazakh</source>
+        <translation>Казахский</translation>
+    </message>
+    <message>
+        <source>German</source>
+        <translation>Немецкий</translation>
+    </message>
+    <message>
+        <source>French</source>
+        <translation>Французский</translation>
+    </message>
+    <message>
+        <source>Spanish</source>
+        <translation>Испанский</translation>
+    </message>
+    <message>
+        <source>Italian</source>
+        <translation>Итальянский</translation>
+    </message>
+    <message>
+        <source>Portuguese</source>
+        <translation>Португальский</translation>
+    </message>
+    <message>
+        <source>Dutch</source>
+        <translation>Нидерландский</translation>
+    </message>
+    <message>
+        <source>Polish</source>
+        <translation>Польский</translation>
+    </message>
+    <message>
+        <source>Czech</source>
+        <translation>Чешский</translation>
+    </message>
+    <message>
+        <source>Swedish</source>
+        <translation>Шведский</translation>
+    </message>
+    <message>
+        <source>Finnish</source>
+        <translation>Финский</translation>
+    </message>
+    <message>
+        <source>Norwegian</source>
+        <translation>Норвежский</translation>
+    </message>
+    <message>
+        <source>Danish</source>
+        <translation>Датский</translation>
+    </message>
+    <message>
+        <source>Hungarian</source>
+        <translation>Венгерский</translation>
+    </message>
+    <message>
+        <source>Greek</source>
+        <translation>Греческий</translation>
+    </message>
+    <message>
+        <source>Turkish</source>
+        <translation>Турецкий</translation>
+    </message>
+    <message>
+        <source>Arabic</source>
+        <translation>Арабский</translation>
+    </message>
+    <message>
+        <source>Hebrew</source>
+        <translation>Иврит</translation>
+    </message>
+    <message>
+        <source>Hindi</source>
+        <translation>Хинди</translation>
+    </message>
+    <message>
+        <source>Japanese</source>
+        <translation>Японский</translation>
+    </message>
+    <message>
+        <source>Chinese</source>
+        <translation>Китайский</translation>
+    </message>
+    <message>
+        <source>Korean</source>
+        <translation>Корейский</translation>
     </message>
 </context>
 <context>
@@ -1483,6 +1639,42 @@
         <source>Could not retry</source>
         <translation>Не удалось повторить</translation>
     </message>
+    <message>
+        <source>%1 B</source>
+        <translation>%1 Б</translation>
+    </message>
+    <message>
+        <source>%1 KB</source>
+        <translation>%1 КБ</translation>
+    </message>
+    <message>
+        <source>%1 MB</source>
+        <translation>%1 МБ</translation>
+    </message>
+    <message>
+        <source>%1 GB</source>
+        <translation>%1 ГБ</translation>
+    </message>
+    <message>
+        <source>%1 TB</source>
+        <translation>%1 ТБ</translation>
+    </message>
+    <message>
+        <source>The download stopped</source>
+        <translation>Загрузка остановлена</translation>
+    </message>
+    <message>
+        <source>This download is not supported</source>
+        <translation>Эта загрузка не поддерживается</translation>
+    </message>
+    <message>
+        <source>The download is not valid</source>
+        <translation>Загрузка недопустима</translation>
+    </message>
+    <message>
+        <source>The download was cancelled</source>
+        <translation>Загрузка отменена</translation>
+    </message>
 </context>
 <context>
     <name>QuickMenu</name>
@@ -1721,6 +1913,26 @@
         <source>The media session cannot be shown.</source>
         <translation>Медиасеанс нельзя показать.</translation>
     </message>
+    <message>
+        <source>The session has ended.</source>
+        <translation>Сеанс завершён.</translation>
+    </message>
+    <message>
+        <source>The player changed. Try again.</source>
+        <translation>Плеер изменился. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>That is not allowed.</source>
+        <translation>Это не разрешено.</translation>
+    </message>
+    <message>
+        <source>Cancelled.</source>
+        <translation>Отменено.</translation>
+    </message>
+    <message>
+        <source>Something went wrong. Try again.</source>
+        <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
 </context>
 <context>
     <name>SettingsCatalog</name>
@@ -1773,8 +1985,16 @@
         <translation>Световой фон</translation>
     </message>
     <message>
-        <source>Soft light from the focused item&apos;s artwork behind Home</source>
-        <translation>Мягкий свет от обложки выбранного элемента за главным экраном</translation>
+        <source>Light follows the time of day</source>
+        <translation>Свет следует за временем суток</translation>
+    </message>
+    <message>
+        <source>Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light</source>
+        <translation>Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет</translation>
+    </message>
+    <message>
+        <source>A warm floor and a pool of light under the focused item. Off removes the floor and the pool</source>
+        <translation>Тёплый пол и пул света под выбранным элементом. Выключено — пол и пул убираются</translation>
     </message>
     <message>
         <source>Ambient after</source>
@@ -1966,6 +2186,34 @@
     <message>
         <source>Cancel</source>
         <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>This value is not accepted.</source>
+        <translation>Это значение не принимается.</translation>
+    </message>
+    <message>
+        <source>The service is not available. Try again later.</source>
+        <translation>Сервис недоступен. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <source>The settings changed. Try again.</source>
+        <translation>Настройки изменились. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>This setting is no longer available.</source>
+        <translation>Эта настройка больше не доступна.</translation>
+    </message>
+    <message>
+        <source>This setting cannot be changed.</source>
+        <translation>Эту настройку нельзя изменить.</translation>
+    </message>
+    <message>
+        <source>Saving was cancelled.</source>
+        <translation>Сохранение отменено.</translation>
+    </message>
+    <message>
+        <source>Something went wrong. Try again.</source>
+        <translation>Что-то пошло не так. Повторите попытку.</translation>
     </message>
 </context>
 <context>

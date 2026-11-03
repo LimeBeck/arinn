@@ -143,6 +143,10 @@ pub struct Config {
     /// value of another type reads as the default.
     #[serde(default = "yes")]
     pub light_field: bool,
+    /// Evening and night presentation of the light (spec §5.6, ADR-0136).
+    /// A hand-edited value of another type reads as the default.
+    #[serde(default = "yes")]
+    pub light_follows_time: bool,
     /// Minutes without input before automatic ambient (spec §5.7,
     /// ADR-0112): one of [`AMBIENT_TIMEOUTS`]. Any other hand-edited value
     /// reads as the default.
@@ -156,6 +160,7 @@ fn ambient_timeout() -> u32 {
 }
 
 static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
+static WARNED_LIGHT_FOLLOWS_TIME: std::sync::Once = std::sync::Once::new();
 static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
 
 /// Owner decision on #488: an invalid hand-edited preference never makes
@@ -166,6 +171,13 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
     if table.get("light_field").is_some_and(|v| !v.is_bool()) {
         table.remove("light_field");
         dropped.push("light_field");
+    }
+    if table
+        .get("light_follows_time")
+        .is_some_and(|v| !v.is_bool())
+    {
+        table.remove("light_follows_time");
+        dropped.push("light_follows_time");
     }
     if let Some(value) = table.get("ambient_timeout") {
         let offered = value
@@ -184,6 +196,7 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
 fn warn_invalid_preference(key: &'static str) {
     let once = match key {
         "light_field" => &WARNED_LIGHT_FIELD,
+        "light_follows_time" => &WARNED_LIGHT_FOLLOWS_TIME,
         _ => &WARNED_AMBIENT_TIMEOUT,
     };
     once.call_once(|| {
@@ -224,6 +237,7 @@ impl Default for Config {
             search_engine: String::new(),
             input: InputConfig::default(),
             light_field: true,
+            light_follows_time: true,
             ambient_timeout: ambient_timeout(),
         }
     }

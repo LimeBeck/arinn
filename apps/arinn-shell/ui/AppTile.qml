@@ -5,7 +5,7 @@ import QtQuick
 
 Surface {
     id: root
-    identityGlow: true
+    shapeRole: "object"
     property string monogram: text.trim().slice(0, 1).toUpperCase()
     property url iconSource: ""
     readonly property bool iconReady: iconFrame.pixelsReady
@@ -16,7 +16,12 @@ Surface {
     property bool unavailable: false
     implicitWidth: 264
     implicitHeight: 132
-    focusScale: 1.08
+    // Objects rise from the bottom edge. A container tile (Home favourites)
+    // takes the plate and the rim without that lift.
+    focusScale: shapeRole === "container" ? 1 : Theme.contentFocusScale
+    focusLift: shapeRole === "container" ? 0 : Theme.contentFocusLift
+    liftFromBottom: shapeRole !== "container"
+    cornerRadius: shapeRole === "container" ? Theme.containerRadius : Theme.objectRadius
     opacity: !enabled || unavailable ? 0.4 : 1
     contentItem: Item {
         Rectangle {
@@ -88,7 +93,9 @@ Surface {
                 anchors.centerIn: parent
                 text: root.monogram
                 role: "control"
-                color: root.unavailable ? Theme.textHint : Theme.textPrimary
+                color: root.unavailable ? Theme.textHint
+                        : root.shapeRole === "container" && !root.activeFocus ? Theme.textSecondary
+                        : Theme.textPrimary
             }
         }
         Column {
@@ -107,7 +114,9 @@ Surface {
                 maximumLineCount: 2
                 elide: Text.ElideRight
                 wrapMode: Text.Wrap
-                color: root.unavailable ? Theme.textHint : Theme.textPrimary
+                color: root.unavailable ? Theme.textHint
+                        : root.shapeRole === "container" && !root.activeFocus ? Theme.textSecondary
+                        : Theme.textPrimary
             }
             UiText {
                 width: parent.width

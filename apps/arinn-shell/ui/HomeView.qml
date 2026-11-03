@@ -1073,7 +1073,7 @@ FocusScope {
                         width: 444
                         height: index === root.sections.length && root.currentServiceTitle.length ? 112 : root.musicTitle.length ? 76 : 84
                         text: modelData
-                        visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
+                        visible: index !== root.sections.length + 1 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
                         shapeRole: "container"
                         focusScale: 1
                         focusLift: 0

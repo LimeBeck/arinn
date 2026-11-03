@@ -63,6 +63,18 @@ for line in (
     'executable = "/usr/lib/arinn/plugins/arinn-plugin-transmission"',
 ):
     assert line in transmission_manifest, transmission_manifest
+for name, executable in (
+    ("music-local", "arinn-plugin-music-local"),
+    ("yandex-music", "arinn-plugin-yandex-music"),
+):
+    manifest = (PREFIX / f"share/arinn/plugins/{name}.toml").read_text()
+    for line in (
+        f'id = "{name}"',
+        'capabilities = ["music"]',
+        f'executable = "/usr/lib/arinn/plugins/{executable}"',
+    ):
+        assert line in manifest, manifest
+    assert (PREFIX / f"lib/arinn/plugins/{executable}").is_file()
 assert (PREFIX / "share/arinn/web-shortcuts.toml").is_file()
 assert (PREFIX / "share/arinn/browser-applications.toml").is_file()
 assert (PREFIX / "share/arinn/search-engines.toml").is_file()

@@ -208,12 +208,14 @@ Surface {
             x: parent.width - width - 20; y: root.frameHeight - height - 20; z: 3
             width: 72; height: 72; cornerRadius: 36
             visible: root.secondaryIcon.length > 0
-            enabled: root.secondaryEnabled && !root.busy
+            focusedColor: Theme.textPrimary
+            enabled: root.secondaryEnabled || activeFocus
+            opacity: root.busy ? 0.6 : 1
             text: root.secondaryText
             contentItem: Item {
-                LineIcon {anchors.centerIn:parent;width:32;height:32;name:root.secondaryIcon;color:Theme.textPrimary}
+                LineIcon {anchors.centerIn:parent;width:32;height:32;name:root.secondaryIcon;color:secondaryAction.activeFocus ? Theme.ink : Theme.textPrimary}
             }
-            onActivated: root.secondaryActivated()
+            onActivated: if(!root.busy && root.secondaryEnabled)root.secondaryActivated()
             Keys.onLeftPressed: Focus.take(root)
             onDpadRequested: root.dpadRequested()
         }

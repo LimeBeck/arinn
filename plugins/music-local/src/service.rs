@@ -75,12 +75,9 @@ impl Local {
         let (library, view) = tokio::task::spawn_blocking(move || {
             let directory = paths::provider_state(&provider_id)?.join("music");
             let mut library = Library::open(&directory).map_err(|_| ErrorCode::Unavailable)?;
-            let configured = roots
+            let configured = distinct_roots(roots)?
                 .into_iter()
                 .map(|path| {
-                    if !paths::valid_root(&path) {
-                        return Err(ErrorCode::InvalidArgument);
-                    }
                     let id = library
                         .roots()
                         .iter()
@@ -129,13 +126,19 @@ impl Local {
             let shutdown = owner.shutdown.clone();
             let result = tokio::task::spawn_blocking(move || {
                 let mut library = library.lock().map_err(|_| ErrorCode::Internal)?;
-                let statuses = library
+                // A scan whose snapshot could not be written is still
+                // published from memory, marked degraded.
+                let (statuses, persisted) = match library
                     .scan_cancelled(&Ffprobe::default(), &|| shutdown.load(Ordering::Acquire))
-                    .map_err(|_| ErrorCode::Unavailable)?;
+                {
+                    Ok(statuses) => (statuses, true),
+                    Err(_) => (None, false),
+                };
                 Ok::<_, ErrorCode>(View {
-                    degraded: statuses.is_none_or(|statuses| {
-                        statuses.iter().any(|s| !s.available || s.incomplete)
-                    }),
+                    degraded: !persisted
+                        || statuses.is_none_or(|statuses| {
+                            statuses.iter().any(|s| !s.available || s.incomplete)
+                        }),
                     revision: library.revision().max(1),
                     tracks: library.tracks(),
                     playlists: library.playlists(),
@@ -211,13 +214,33 @@ impl Local {
         select(&*self.view.read().await, id)
     }
 }
+/// Configured roots as distinct normalized paths: `/m` and `/m/` are one
+/// root, and a root inside another one is dropped because its files are
+/// already scanned. A duplicate used to fail every provider start (review
+/// of #710).
+fn distinct_roots(roots: Vec<PathBuf>) -> Result<Vec<PathBuf>, ErrorCode> {
+    let mut distinct: Vec<PathBuf> = Vec::new();
+    for path in roots {
+        if !paths::valid_root(&path) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let path: PathBuf = path.components().collect();
+        if distinct.iter().any(|kept| path.starts_with(kept)) {
+            continue;
+        }
+        distinct.retain(|kept| !kept.starts_with(&path));
+        distinct.push(path);
+    }
+    Ok(distinct)
+}
 fn select(view: &View, id: &str) -> Vec<Track> {
     if let Some(playlist) = view.playlists.iter().find(|p| p.id == id) {
+        let tracks: BTreeMap<&str, &Track> =
+            view.tracks.iter().map(|t| (t.id.as_str(), t)).collect();
         return playlist
             .tracks
             .iter()
-            .filter_map(|id| view.tracks.iter().find(|t| &t.id == id))
-            .cloned()
+            .filter_map(|id| tracks.get(id.as_str()).map(|t| (*t).clone()))
             .collect();
     }
     view.tracks
@@ -326,7 +349,11 @@ impl MusicHandler for LocalService {
                                 kind: kind.into(),
                                 title,
                                 artist: if kind == "album" {
-                                    t.album_artist.clone()
+                                    if t.album_artist.is_empty() {
+                                        t.artist.clone()
+                                    } else {
+                                        t.album_artist.clone()
+                                    }
                                 } else {
                                     String::new()
                                 },
@@ -501,6 +528,24 @@ mod tests {
                 ..Track::default()
             })
         }
+    }
+    /// Review of #710: `/m` and `/m/` got the same root ID and every
+    /// provider start failed; a nested root scanned its files twice.
+    #[test]
+    fn configured_roots_are_normalized_and_distinct() {
+        let roots = distinct_roots(vec![
+            PathBuf::from("/srv/music/"),
+            PathBuf::from("/srv/music"),
+            PathBuf::from("/srv/music/rock"),
+            PathBuf::from("/data/./audio"),
+            PathBuf::from("/data"),
+        ])
+        .unwrap();
+        assert_eq!(roots, [PathBuf::from("/srv/music"), PathBuf::from("/data")]);
+        assert_eq!(
+            distinct_roots(vec![PathBuf::from("relative")]),
+            Err(ErrorCode::InvalidArgument)
+        );
     }
     #[tokio::test]
     async fn published_playback_snapshot_does_not_wait_for_library_scan_lock() {

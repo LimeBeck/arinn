@@ -42,6 +42,9 @@ public:
   Q_INVOKABLE void refresh();
 signals:
   void sourcesChanged();void entriesChanged();void stateChanged();void statusChanged();void activeChanged();
+  // The browse position (album, artist or playlist) no longer applies: the
+  // source or its generation changed.
+  void browseReset();
 private:
   void providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens);
   void readState();void readActive();void readPage(bool append);void fail(const QString &code);
@@ -53,7 +56,7 @@ private:
   QString m_sourceId,m_path,m_generation,m_error,m_facet=QStringLiteral("albums"),m_parent,m_search,m_next;
   quint64 m_commandTicket=0,m_epoch=0,m_registryTicket=0,m_pageTicket=0,m_stateTicket=0,m_catalogueRevision=0,m_pageRevision=0;
   bool m_commandBusy=false,m_pageBusy=false,m_registryBusy=false,m_stateBusy=false;
-  bool m_activeBusy=false,m_commandWaitingRefresh=false;
+  bool m_activeBusy=false,m_commandWaitingRefresh=false,m_stateError=false;
   QSet<QString> m_pageTokens;
   QTimer m_timer;
 };

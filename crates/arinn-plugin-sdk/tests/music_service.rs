@@ -98,6 +98,46 @@ fn error(result: zbus::Result<String>) -> String {
         _ => panic!("expected safe method error"),
     }
 }
+fn members(xml: &str, interface: &str) -> Vec<String> {
+    let start = xml
+        .find(&format!("<interface name=\"{interface}\">"))
+        .expect("interface present");
+    let body = &xml[start..];
+    let body = &body[..body.find("</interface>").unwrap()];
+    let mut members = Vec::new();
+    for kind in ["method", "signal"] {
+        let open = format!("<{kind} name=\"");
+        let close = format!("</{kind}>");
+        for member in body.split(open.as_str()).skip(1) {
+            let name = &member[..member.find('"').unwrap()];
+            let member = &member[..member.find(close.as_str()).unwrap()];
+            let mut args = Vec::new();
+            for arg in member.split("<arg ").skip(1) {
+                let attr = |key: &str, default: &str| {
+                    arg.split(&format!("{key}=\""))
+                        .nth(1)
+                        .map(|v| v[..v.find('"').unwrap()].to_owned())
+                        .unwrap_or_else(|| default.to_owned())
+                };
+                let direction = if kind == "signal" { "out" } else { "in" };
+                args.push(format!(
+                    "{}:{}",
+                    attr("direction", direction),
+                    attr("type", "")
+                ));
+            }
+            members.push(format!("{kind} {name}({})", args.join(",")));
+        }
+    }
+    members.sort();
+    members
+}
+fn error(result: zbus::Result<String>) -> String {
+    match result {
+        Err(zbus::Error::MethodError(name, _, _)) => name.to_string(),
+        _ => panic!("expected safe method error"),
+    }
+}
 async fn scenario() {
     let bus = common::Bus::start();
     let daemon = bus.connection().await;
@@ -128,6 +168,27 @@ async fn scenario() {
         .build()
         .await
         .unwrap();
+    // The live provider export matches the published interface file.
+    let live = zbus::fdo::IntrospectableProxy::builder(&daemon)
+        .destination(provider.unique_name().unwrap().clone())
+        .unwrap()
+        .path(production::PROVIDER_PATH)
+        .unwrap()
+        .build()
+        .await
+        .unwrap()
+        .introspect()
+        .await
+        .unwrap();
+    let published = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/plugin-api/music-provider1.xml"
+    ))
+    .unwrap();
+    assert_eq!(
+        members(&live, "org.arinn.MusicProvider1"),
+        members(&published, "org.arinn.MusicProvider1")
+    );
     assert_eq!(
         proxy.features().await.unwrap(),
         vec![arinn_protocol::assets::FEATURE_ASSETS]

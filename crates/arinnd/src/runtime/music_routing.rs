@@ -100,7 +100,14 @@ impl Core {
                 .iter()
                 .map(|(id, value)| (id.clone(), value.clone()))
                 .collect();
-            values.sort_by_key(|(id, _)| Some(id.as_str()) != r.active.as_deref());
+            values.sort_by_key(|(id, value)| {
+                (
+                    !(value.state.continuous
+                        || ["playing", "paused", "loading"]
+                            .contains(&value.state.playback.as_str())),
+                    Some(id.as_str()) != r.active.as_deref(),
+                )
+            });
             values
         };
         for (id, cached) in candidates {
@@ -177,6 +184,46 @@ impl Core {
             return Err(ErrorCode::Unavailable);
         }
         Ok(p.owner.clone())
+    }
+    /// Reads a provider's state again and caches it (after an uncertain start).
+    #[cfg(test)]
+    async fn refresh_music(&self, id: &str) -> Result<(), ErrorCode> {
+        let generation = {
+            let r = self.music.registry.lock().await;
+            r.states.get(id).map(|c| c.generation.clone())
+        };
+        let generation = match generation {
+            Some(generation) => generation,
+            None => {
+                let state = self.state.lock().await;
+                state
+                    .providers
+                    .get(id)
+                    .ok_or(ErrorCode::NotFound)?
+                    .info
+                    .generation
+                    .clone()
+            }
+        };
+        let owner = self.music_identity(id, &generation).await?;
+        let proxy = MusicProviderProxy::builder(&self.connection)
+            .destination(owner.as_str())
+            .and_then(|b| b.path(production::PROVIDER_PATH))
+            .map_err(|_| ErrorCode::Internal)?
+            .build()
+            .await
+            .map_err(normalize_error)?;
+        let json = tokio::time::timeout(Duration::from_secs(2), proxy.get_state(&generation))
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(normalize_error)?;
+        let snapshot: MusicState = music::decode(&json)?;
+        snapshot.validate()?;
+        if self.music_identity(id, &generation).await? != owner {
+            return Err(ErrorCode::Conflict);
+        }
+        self.music.cache(id, &generation, &owner, snapshot).await;
+        Ok(())
     }
     pub(super) async fn watch_music(&self, id: String, owner: String, generation: String) {
         let Ok(proxy) = MusicProviderProxy::builder(&self.connection)
@@ -324,9 +371,12 @@ impl MusicEndpoint {
             .slots
             .try_acquire()
             .map_err(|_| ErrorCode::Unavailable)?;
-        let _serial = tokio::time::timeout_at(deadline, self.core.music.gate.lock())
-            .await
-            .map_err(|_| ErrorCode::Timeout)?;
+        let _serial = tokio::time::timeout_at(
+            deadline - Duration::from_secs(3),
+            self.core.music.gate.lock(),
+        )
+        .await
+        .map_err(|_| ErrorCode::Unavailable)?;
         self.core.music_identity(&self.id, generation).await?;
         let pending = self.core.music.registry.lock().await.pending.clone();
         if let Some(pending) = pending {
@@ -386,8 +436,11 @@ impl MusicEndpoint {
             }
         }
         let result = async {
-            if ["play", "radio"].contains(&command.action.as_str())
+            if ["play", "radio", "next", "previous", "resume", "retry"]
+                .contains(&command.action.as_str())
                 && let Some(active) = self.core.active_music().await
+                && (active.provider_id != self.id
+                    || ["play", "radio"].contains(&command.action.as_str()))
                 && (active.state.continuous
                     || ["playing", "paused", "loading"].contains(&active.state.playback.as_str()))
             {
@@ -433,19 +486,34 @@ impl MusicEndpoint {
         .await;
         let mut registry = self.core.music.registry.lock().await;
         registry.ledger.push_back((
-            client,
+            client.clone(),
             self.id.clone(),
             generation.into(),
             command,
             result.clone(),
         ));
-        while registry.ledger.len() > 32 {
-            registry.ledger.pop_front();
+        while registry
+            .ledger
+            .iter()
+            .filter(|(c, id, g, _, _)| c == &client && id == &self.id && g == generation)
+            .count()
+            > 32
+        {
+            if let Some(index) = registry
+                .ledger
+                .iter()
+                .position(|(c, id, g, _, _)| c == &client && id == &self.id && g == generation)
+            {
+                registry.ledger.remove(index);
+            }
         }
         result.map_err(Into::into)
     }
 }
 
+#[cfg(test)]
+#[path = "music_pending_tests.rs"]
+mod pending_tests;
 #[cfg(test)]
 #[path = "music_tests.rs"]
 mod routing_tests;

@@ -120,8 +120,7 @@ impl Attempt {
     }
 }
 
-/// No borrowed registrations or application secret defaults are bundled.
-/// Configure a client identity qualified for the intended Yandex integration.
+/// The caller supplies the client identity; the controller bundles none.
 pub struct DeviceAuth<S> {
     client: Client,
     origin: Url,
@@ -402,7 +401,14 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
                     session.store.clear().await?;
                     return Err(Error::Cancelled);
                 }
-                session.store.commit(&credentials)?;
+                // A failed checkpoint commit must not leave a live token in
+                // the keyring that nothing will activate or remove.
+                if let Err(error) = session.store.commit(&credentials) {
+                    *active = None;
+                    let _ = session.store.revoke(Some(&credentials.nonce));
+                    session.store.clear().await?;
+                    return Err(error);
+                }
                 if session.current(generation).is_err() {
                     session.store.revoke(Some(&credentials.nonce))?;
                     session.store.clear().await?;
@@ -644,4 +650,4 @@ fn parse_token(v: &Value) -> Result<Credentials, Error> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

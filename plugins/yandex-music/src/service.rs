@@ -3,7 +3,7 @@
 
 //! Native account lifecycle. Credential-bearing operations stay in this process.
 use crate::{
-    auth::{self, DeviceAuth},
+    auth::{self, CredentialStore, DeviceAuth},
     secrets::SecretService,
 };
 use arinn_music_common::{paths, storage::Storage};
@@ -15,7 +15,6 @@ use arinn_protocol::{
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 
-type Auth = DeviceAuth<SecretService>;
 // Public Arinn application identity supplied by the project owner on 2026-11-03.
 const DEFAULT_CLIENT_ID: &str = "4173e0c60dfa4066bd6ec2a504b8ae9a";
 struct Account {
@@ -23,15 +22,24 @@ struct Account {
     epoch: u64,
     prompt_deadline: Option<tokio::time::Instant>,
 }
-#[derive(Clone)]
-struct Service {
-    auth: Option<Arc<Auth>>,
+struct Service<S: CredentialStore + 'static = SecretService> {
+    auth: Option<Arc<DeviceAuth<S>>>,
     account: Arc<Mutex<Account>>,
     runtime: Option<Arc<crate::runtime::Runtime>>,
     projection: Arc<Mutex<Option<State>>>,
 }
-impl Service {
-    fn new(auth: Option<Arc<Auth>>) -> Self {
+impl<S: CredentialStore + 'static> Clone for Service<S> {
+    fn clone(&self) -> Self {
+        Self {
+            auth: self.auth.clone(),
+            account: self.account.clone(),
+            runtime: self.runtime.clone(),
+            projection: self.projection.clone(),
+        }
+    }
+}
+impl<S: CredentialStore + 'static> Service<S> {
+    fn new(auth: Option<Arc<DeviceAuth<S>>>) -> Self {
         let configured = auth.is_some();
         Self {
             auth,
@@ -101,6 +109,20 @@ impl Service {
         *projection = Some(state.clone());
         state
     }
+    async fn reconcile(&self) {
+        let Some(auth) = &self.auth else {
+            return;
+        };
+        let shown = self.account.lock().await.state.account.clone();
+        if shown == "connected" || shown == "connecting" || auth.api().await.is_err() {
+            return;
+        }
+        if let Err(error) = auth.disconnect().await {
+            let mut a = self.account.lock().await;
+            a.state.error = Some(normalize(error));
+            a.state.revision += 1;
+        }
+    }
     async fn restore(&self, start: Option<auth::Start>) {
         let Some(auth) = &self.auth else {
             return;
@@ -111,6 +133,10 @@ impl Service {
         let result = auth.restore_prepared(start).await;
         let mut account = self.account.lock().await;
         if account.epoch != 0 {
+            drop(account);
+            if result == Ok(true) {
+                self.reconcile().await;
+            }
             return;
         }
         match result {
@@ -182,6 +208,10 @@ impl Service {
             .await;
             let mut a = this.account.lock().await;
             if a.epoch != epoch {
+                drop(a);
+                if result.is_ok() {
+                    this.reconcile().await;
+                }
                 return;
             }
             a.state.prompt = None;
@@ -213,6 +243,8 @@ impl Service {
                     a.state.error = Some(normalize(error));
                 }
             }
+            drop(a);
+            this.reconcile().await;
         });
         Ok(())
     }
@@ -240,7 +272,7 @@ fn normalize(error: auth::Error) -> ErrorCode {
         _ => ErrorCode::Unavailable,
     }
 }
-impl MusicHandler for Service {
+impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
     fn supports_assets(&self) -> bool {
         true
     }
@@ -298,7 +330,9 @@ impl MusicHandler for Service {
                         runtime.disconnected().await;
                     }
                     if let Err(error) = auth.disconnect().await {
-                        self.account.lock().await.state.error = Some(normalize(error));
+                        let mut account = self.account.lock().await;
+                        account.state.error = Some(normalize(error));
+                        account.state.revision += 1;
                         return Err(normalize(error));
                     }
                 }
@@ -398,7 +432,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn account_lifecycle_never_decreases_projected_revision() {
-        let service = Service::new(None);
+        let service: Service = Service::new(None);
         {
             let mut a = service.account.lock().await;
             a.state.account = "connected".into();
@@ -420,7 +454,7 @@ mod tests {
     }
     #[tokio::test]
     async fn missing_client_identity_has_no_connect_action_or_secret_prompt() {
-        let service = Service::new(None);
+        let service: Service = Service::new(None);
         service.restore(None).await;
         service.cancel().await;
         let state = service.snapshot().await;
@@ -429,5 +463,37 @@ mod tests {
         assert!(state.prompt.is_none());
         assert!(state.validate().is_ok());
         assert_eq!(service.connect().await, Err(ErrorCode::Unsupported));
+    }
+    #[tokio::test]
+    async fn an_accepted_session_hidden_by_a_cancel_is_removed_again() {
+        use crate::auth::tests::{MemoryStore, Mock, code, reply, token};
+        let mock = Mock::new(vec![reply(200, code()), reply(200, token())]);
+        let store = MemoryStore::default();
+        let service = Service::new(Some(Arc::new(mock.client(store.clone()))));
+        service.connect().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while service.snapshot().await.account != "connected" {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let auth = service.auth.clone().unwrap();
+        assert!(auth.api().await.is_ok());
+        assert!(store.bytes.lock().unwrap().is_some());
+        // What a Cancel landing just after acceptance used to leave behind.
+        {
+            let mut a = service.account.lock().await;
+            a.epoch += 1;
+            a.state.account = "disconnected".into();
+            a.state.actions = vec!["connect".into()];
+        }
+        service.reconcile().await;
+        assert!(auth.api().await.is_err());
+        assert!(store.bytes.lock().unwrap().is_none());
+        // A shown connection is left alone.
+        let state = service.snapshot().await;
+        assert_eq!(state.account, "disconnected");
+        mock.finish();
     }
 }

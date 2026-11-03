@@ -609,7 +609,7 @@ impl Core {
             };
             exported.map_err(|_| ErrorCode::Internal)?;
             // Media and library asset ids resolve through Assets1 (ADR-0062).
-            if ["media", "library"].contains(&new.capability()) {
+            if ["media", "library", "music"].contains(&new.capability()) {
                 server
                     .at(
                         new.info.path.clone(),

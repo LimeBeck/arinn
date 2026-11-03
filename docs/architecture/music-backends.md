@@ -128,7 +128,7 @@ so cleanup cannot race PID reuse. No real desktop processes are controlled.
 ### Private local state
 
 `Library::open` holds an exclusive advisory writer lock for its lifetime. State
-is a versioned, bounded (32 MiB) snapshot of roots, catalogue and at most 256
+is a versioned, bounded (96 MiB) compact snapshot of roots, catalogue and at most 256
 playlists with at most 10,000 references each. It uses an owned private directory
 (mode 0700), regular no-follow files (0600), anchored descriptor-relative opens,
 exclusive temporary files, atomic rename and file/directory synchronization.

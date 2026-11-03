@@ -119,12 +119,19 @@ impl Queue {
         Ok(())
     }
 
-    pub fn previous(&mut self) -> Result<(), Error> {
+    /// Moves back one entry. The window keeps at most MAX_UPCOMING upcoming
+    /// entries: when stepping back would exceed it, the last upcoming entry
+    /// leaves the window and its track is returned, so a finite session can
+    /// put it back at the front of the part not yet loaded.
+    pub fn previous(&mut self) -> Result<Option<String>, Error> {
         if self.cursor == 0 {
             return Err(Error::Empty);
         }
         self.cursor -= 1;
-        Ok(())
+        if self.upcoming() > MAX_UPCOMING {
+            return Ok(self.entries.pop_back().map(|entry| entry.track));
+        }
+        Ok(None)
     }
     pub fn append_finite(&mut self, tracks: Vec<String>) -> Result<(), Error> {
         if self.station.is_some() {

@@ -67,12 +67,29 @@ pub(crate) fn station_seed(value: &str) -> Result<String, Error> {
     ))
 }
 
+/// One malformed entry (for example a non-numeric user-uploaded track ID)
+/// is skipped instead of failing the whole page; only a list where every
+/// entry is unusable is an invalid response (review of #710).
 pub(crate) fn tracks(value: &Value) -> Result<Vec<Track>, Error> {
+    tracks_bounded(value, 200)
+}
+pub(crate) fn tracks_bounded(value: &Value, limit: usize) -> Result<Vec<Track>, Error> {
     let items = value.as_array().ok_or(Error::InvalidResponse)?;
-    if items.len() > 200 {
+    if items.len() > limit {
         return Err(Error::TooLarge);
     }
-    items.iter().map(track).collect()
+    let mut tracks = Vec::with_capacity(items.len());
+    for item in items {
+        match track(item) {
+            Ok(track) => tracks.push(track),
+            Err(Error::TooLarge) => return Err(Error::TooLarge),
+            Err(_) => {}
+        }
+    }
+    if tracks.is_empty() && !items.is_empty() {
+        return Err(Error::InvalidResponse);
+    }
+    Ok(tracks)
 }
 
 fn track(value: &Value) -> Result<Track, Error> {
@@ -202,5 +219,21 @@ mod tests {
             tracks(&json!(vec![json!({"id":123}); 201])).err(),
             Some(Error::TooLarge)
         );
+    }
+    /// Review of #710: one entry with a non-numeric ID failed a whole search
+    /// page or radio batch.
+    #[test]
+    fn a_malformed_entry_is_skipped_not_fatal() {
+        let page = json!([
+            {"id": "101", "title": "First"},
+            {"id": "user-upload-abc", "title": "Uploaded"},
+            {"title": "No id"},
+            {"track": {"id": 102, "title": "Second"}}
+        ]);
+        let parsed = tracks(&page).unwrap();
+        let titles: Vec<&str> = parsed.iter().map(|t| t.title.as_str()).collect();
+        assert_eq!(titles, ["First", "Second"]);
+        assert_eq!(tracks(&json!([{"id": "bad"}])), Err(Error::InvalidResponse));
+        assert_eq!(tracks(&json!([])), Ok(vec![]));
     }
 }

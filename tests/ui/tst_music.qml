@@ -21,10 +21,14 @@ TestCase {
             property bool more: false
             property var commands: []
             function choose(id) { sourceId=id; }
-            function browse(facet,parent,search) {}
+            property var browsed: []
+            property var played: []
+            function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
             function loadMore() {}
-            function command(action,id,occurrence,position) {commands=commands.concat([action]);}
-            function transport(action,id,occurrence,position) {commands=commands.concat([action]);}
+            function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
+            property var positions: []
+            property var occurrences: []
+            function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);}
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
@@ -39,6 +43,23 @@ TestCase {
         tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Right);tryCompare(replace,"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Return);
         compare(view.pendingPlay,"");compare(catalog.commands.length,0);
+    }
+    // A station entry (My Wave) opened as a folder of itself instead of
+    // playing; a playlist still opens.
+    function test_a_station_plays_and_a_playlist_opens() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"",playback:"stopped",actions:[],upcoming:[]};
+        catalog.state={account:"connected",facets:["selections"],actions:["play","radio"]};
+        catalog.entries=[{id:"station:wave",kind:"station",title:"Fixture wave",available:true},
+                         {id:"playlist:1",kind:"playlist",title:"Fixture list",available:true}];
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);view.focusInitial();
+        const entries=findChild(view,"musicEntries");tryCompare(entries,"activeFocus",true);
+        keyClick(Qt.Key_Return);
+        compare(catalog.commands,["radio"]);compare(catalog.played,["station:wave"]);
+        const before=catalog.browsed.length;
+        view.mode="catalogue";wait(0);entries.currentIndex=1;Ui.Focus.take(entries);wait(0);
+        keyClick(Qt.Key_Return);
+        compare(catalog.commands,["radio"]);compare(catalog.browsed.slice(before),["playlist:1"]);
     }
     function test_controls_B_fit_one_row_and_play_pause_uses_icon() {
         const catalog=createTemporaryObject(catalogFactory,suite);
@@ -103,7 +124,62 @@ TestCase {
         const home=createTemporaryObject(homeFactory,suite,{musicTitle:"Fixture music"});verify(home);
         compare(home.routes.length,6);compare(home.routes[2],"music");
         home.selectSection(2);compare(home.screen,"music");
+        home.navOpen=true;
+        // With a music section the system items move down by one: Open
+        // services stays visible and Return stays hidden without an activity.
+        compare(findChild(home,"nav-6").text,"Open services");compare(findChild(home,"nav-6").visible,true);
+        compare(findChild(home,"nav-7").text,"Return to activity");compare(findChild(home,"nav-7").visible,false);
+        home.returnActivityId="activity";compare(findChild(home,"nav-7").visible,true);
         home.musicTitle="";compare(home.routes.length,5);compare(home.routes[2],"downloads");
+        compare(findChild(home,"nav-5").visible,true);compare(findChild(home,"nav-6").visible,true);
+    }
+    // Review of #710: Up on the source picker must not switch the source;
+    // a source changes only when its chip is activated.
+    function test_source_picker_changes_source_only_when_activated() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.sources=[{id:"local",name:"Fixture music"},{id:"other",name:"Other music"}];
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const picker=findChild(view,"musicSourcePicker");Ui.Focus.take(picker);
+        keyClick(Qt.Key_Up);compare(catalog.sourceId,"local");
+        keyClick(Qt.Key_Return);compare(view.pickingSource,true);wait(0);
+        keyClick(Qt.Key_Down);compare(catalog.sourceId,"local");
+        keyClick(Qt.Key_Return);compare(catalog.sourceId,"other");compare(view.pickingSource,false);
+    }
+    function test_remote_seek_moves_ten_seconds_per_press() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=({session:"session",playback:"playing",position_us:30000000,current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",duration_us:60000000}},actions:["pause","seek"],upcoming:[]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const seek=findChild(view,"musicSeek");verify(seek);Ui.Focus.take(seek);tryCompare(seek,"activeFocus",true);
+        keyClick(Qt.Key_Right);compare(catalog.commands[0],"seek");compare(catalog.positions[0],40000000);
+        keyClick(Qt.Key_Right);compare(catalog.positions[1],50000000);
+        keyClick(Qt.Key_Right);keyClick(Qt.Key_Right);compare(catalog.positions[3],60000000);
+        keyClick(Qt.Key_Left);compare(catalog.positions[4],50000000);
+        keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicPlayPause"),"activeFocus",true);
+    }
+    // Review of #710: OK on an upcoming entry asks before removing it.
+    function test_queue_entry_removal_needs_confirmation() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=({session:"session",playback:"playing",current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",duration_us:10000000}},actions:["pause","remove"],upcoming:[{occurrence:"next-1",track:{id:"track-2",title:"Next track"}}]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.mode="queue";wait(0);view.focusInitial();
+        tryCompare(findChild(view,"musicQueueEntries"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
+        const keep=findChild(view,"musicKeepOccurrence"),remove=findChild(view,"musicRemoveOccurrence");
+        tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
+        tryCompare(findChild(view,"musicQueueEntries"),"activeFocus",true);
+        keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Right);tryCompare(remove,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"remove");compare(catalog.occurrences[0],"next-1");
+    }
+    // Review of #710: the Home card's Play/Pause was disabled while a command
+    // was busy, so focus fell off it; a press while busy is ignored instead.
+    function test_home_transport_keeps_focus_while_busy() {
+        const row=createTemporaryObject(rowFactory,suite);verify(row);wait(0);verify(row.focusIndex(0));
+        let presses=0;row.secondaryActivated.connect(()=>presses++);
+        keyClick(Qt.Key_Right);const button=findChild(row,"cardSecondaryAction");tryCompare(button,"activeFocus",true);
+        row.entries=[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause",busy:true}];wait(0);
+        compare(button.activeFocus,true);keyClick(Qt.Key_Return);compare(presses,0);
+        row.entries=[{id:"music",title:"Fixture",secondaryIcon:"play",secondaryText:"Play",busy:false}];wait(0);
+        compare(button.activeFocus,true);keyClick(Qt.Key_Return);compare(presses,1);
     }
     function test_playlist_actions_have_remote_entry_paths() {
         const catalog=createTemporaryObject(catalogFactory,suite);

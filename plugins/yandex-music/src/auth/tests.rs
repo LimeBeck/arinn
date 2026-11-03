@@ -12,8 +12,8 @@ use std::{
 };
 
 #[derive(Clone, Default)]
-struct MemoryStore {
-    bytes: Arc<StdMutex<Option<Vec<u8>>>>,
+pub(crate) struct MemoryStore {
+    pub(crate) bytes: Arc<StdMutex<Option<Vec<u8>>>>,
 }
 impl CredentialStore for MemoryStore {
     async fn load(&self) -> Result<Option<Credentials>, Error> {
@@ -34,14 +34,14 @@ impl CredentialStore for MemoryStore {
     }
 }
 
-type Request = (String, HashMap<String, String>);
-struct Mock {
+pub(crate) type Request = (String, HashMap<String, String>);
+pub(crate) struct Mock {
     origin: Url,
     records: Arc<StdMutex<Vec<Request>>>,
     worker: thread::JoinHandle<()>,
 }
 impl Mock {
-    fn new(replies: Vec<(u16, String, Duration)>) -> Self {
+    pub(crate) fn new(replies: Vec<(u16, String, Duration)>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let origin = Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
@@ -111,7 +111,7 @@ impl Mock {
             worker,
         }
     }
-    fn client<S: CredentialStore + 'static>(&self, store: S) -> DeviceAuth<S> {
+    pub(crate) fn client<S: CredentialStore + 'static>(&self, store: S) -> DeviceAuth<S> {
         // Loopback fixtures do not perform TLS or load the host CA store.
         // Building production clients here spent the listener's setup budget
         // loading native roots repeatedly under parallel/proot test runners.
@@ -138,18 +138,18 @@ impl Mock {
         }
     }
 
-    fn finish(self) -> Vec<Request> {
+    pub(crate) fn finish(self) -> Vec<Request> {
         self.worker.join().unwrap();
         self.records.lock().unwrap().clone()
     }
 }
-fn reply(status: u16, value: Value) -> (u16, String, Duration) {
+pub(crate) fn reply(status: u16, value: Value) -> (u16, String, Duration) {
     (status, value.to_string(), Duration::ZERO)
 }
-fn code() -> Value {
+pub(crate) fn code() -> Value {
     json!({"device_code":"synthetic-device-code", "user_code":"ABCD-EFGH", "verification_url":"https://oauth.yandex.ru/device", "expires_in":300, "interval":1})
 }
-fn token() -> Value {
+pub(crate) fn token() -> Value {
     json!({"access_token":"synthetic-access-token", "token_type":"bearer", "expires_in":3600})
 }
 

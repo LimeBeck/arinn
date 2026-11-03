@@ -43,6 +43,7 @@ FocusScope {
     Connections {
         target: root.catalog
         ignoreUnknownSignals: true
+        function onBrowseReset(){root.parentId="";root.parentTitle="";root.parentKind="";root.facet="";}
         function onStatusChanged(){Qt.callLater(root.recoverFocus);}
         function onBusyChanged(){Qt.callLater(root.recoverFocus);}
         function onTransportBusyChanged(){Qt.callLater(root.recoverFocus);}
@@ -130,6 +131,7 @@ FocusScope {
             text: {const source=root.catalog.sources.find(s=>s.id===root.catalog.sourceId);return source ? source.name : qsTr("Music source");}
             contentItem: Ui.UiText {text:sourcePicker.text;role:"control";color:sourcePicker.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary;horizontalAlignment:Text.AlignHCenter;verticalAlignment:Text.AlignVCenter;maximumLineCount:1;elide:Text.ElideRight}
             onActivated: {root.pickingSource=!root.pickingSource;if(root.pickingSource)Qt.callLater(()=>Ui.Focus.take(sourceList));}
+            Keys.onUpPressed: event => {event.accepted=true;}
             Keys.onDownPressed: Ui.Focus.take((root.selected.facets || []).length ? search : root.catalogueAction())
             Keys.onRightPressed: if(facets.count)Ui.Focus.take(facets.itemAt(0))
         }
@@ -229,7 +231,9 @@ FocusScope {
             Ui.UiText { width: parent.width; role: "hero"; text: root.current.title || qsTr("Nothing is playing"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
             Ui.UiText { width: parent.width; role: "section"; text: root.current.artist || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
             Ui.UiText { width: parent.width; role: "body"; text: root.current.album || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
-            Slider { id: seek; height:32; KeyNavigation.down: playButton; width: parent.width; from: 0; to: root.current.duration_us || 1; value: root.player.position_us || 0; enabled: root.supported("seek"); Accessible.name: qsTr("Playback position"); onMoved: root.catalog.transport("seek", "", "", Math.round(value))
+            Slider { id: seek; objectName:"musicSeek"; height:32; stepSize:10000000;
+                Keys.onRightPressed:{seek.increase();root.catalog.transport("seek","","",Math.round(seek.value));}
+                Keys.onLeftPressed:{seek.decrease();root.catalog.transport("seek","","",Math.round(seek.value));} KeyNavigation.down: playButton; width: parent.width; from: 0; to: root.current.duration_us || 1; value: root.player.position_us || 0; enabled: root.supported("seek"); Accessible.name: qsTr("Playback position"); onMoved: root.catalog.transport("seek", "", "", Math.round(value))
                 background: Rectangle {x:seek.leftPadding;y:seek.topPadding+(seek.availableHeight-height)/2;width:seek.availableWidth;height:4;radius:2;color:Ui.Theme.plateAction
                     Rectangle {width:seek.visualPosition*parent.width;height:parent.height;radius:2;color:Ui.Theme.textPrimary}}
                 handle: Rectangle {x:seek.leftPadding+seek.visualPosition*(seek.availableWidth-width);y:seek.topPadding+(seek.availableHeight-height)/2;width:seek.activeFocus ? 24 : 16;height:width;radius:width/2;color:Ui.Theme.textPrimary}

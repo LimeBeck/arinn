@@ -581,12 +581,12 @@ impl Runtime {
     }
     async fn selected(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
-        for cache in &d.cache {
+        for cache in d.cache.iter().rev() {
             if serde_json::from_str::<Query>(&cache.key).is_ok_and(|q| q.parent == id) {
                 return Ok(cache.tracks.clone());
             }
-            if let Some(track) = cache.tracks.iter().find(|t| t.id == id) {
-                return Ok(vec![track.clone()]);
+            if let Some(index) = cache.tracks.iter().position(|t| t.id == id) {
+                return Ok(cache.tracks[index..].to_vec());
             }
         }
         Err(ErrorCode::NotFound)

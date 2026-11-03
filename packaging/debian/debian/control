@@ -47,7 +47,6 @@ Depends:
  qml6-module-qtquick-effects,
  libqt6svg6,
  libqt6multimedia6,
- libqt6multimedia6-plugins,
  libcurl4,
  libunwind8,
  libssl3

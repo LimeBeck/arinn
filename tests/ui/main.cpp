@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include <QtCore/QAnimationDriver>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QDebug>
 #include <QtCore/QElapsedTimer>
 #include <QtCore/QLocale>
@@ -162,6 +163,9 @@ public slots:
         engine->rootContext()->setContextProperty(
             QStringLiteral("captureSoundsStatusDir"),
             qEnvironmentVariable("ARINN_CAPTURE_SOUNDS_STATUS"));
+        // Comma-separated manifest ids. Empty renders every state.
+        engine->rootContext()->setContextProperty(
+            QStringLiteral("captureOnly"), qEnvironmentVariable("ARINN_CAPTURE_ONLY"));
     }
 };
 

@@ -196,13 +196,15 @@ FocusScope {
     // The title grows upward in that slot. The first row stays this far
     // under the block, so it does not move when the title wraps (#722).
     // The menu ends at y 108; the block stays below it. Captions sit under
-    // the images, so each row is taller than the picture and the next row
-    // starts just below it. The New label still meets the bottom edge.
+    // the images, so Continue is the picture plus its caption. The shelf is
+    // a fixed 125 px step, not its own height plus a gap: that puts the New
+    // poster 94 px onto the 1080 canvas while Continue is focused (#725).
     readonly property real heroRowGap: 44
     readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
     readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
     readonly property real homeRowStride: continueRow.height + Theme.rowGap
-    readonly property real newRowStep: favoritesRow.height + Theme.rowGap
+    readonly property real shelfStep: 125
+    readonly property real newRowStep: favoritesRow.variant === "shelf" ? shelfStep : favoritesRow.height + Theme.rowGap
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
     // nears this line: fully shown from 60 px below it, gone at it, so no card
@@ -415,10 +417,7 @@ FocusScope {
         Focus.take(menuButton);
     }
     function groupEntries(group) {
-        const entries = applicationEntries.filter(entry => (entry.group || "other") === group);
-        if (group === "other" && shortcutManagement)
-            entries.push({id: "shortcut-add", title: qsTr("Add application"), subtitle: qsTr("Any site as an application"), shortcutAdd: true, enabled: true});
-        return entries;
+        return applicationEntries.filter(entry => (entry.group || "other") === group);
     }
     // Visible application rows, top to bottom: groups, then open windows.
     function applicationRows() {
@@ -443,6 +442,18 @@ FocusScope {
         if (key === Qt.Key_Down && shortcutEditButton.visible) {
             Qt.callLater(() => Focus.take(shortcutEditButton));
             return true;
+        }
+        if (key === Qt.Key_Down && addApplication.visible && row.objectName !== "runningApplications") {
+            const rows = applicationRows();
+            const next = rows[rows.indexOf(row) + 1];
+            if (!next || next.objectName === "runningApplications") {
+                Focus.take(addApplication);
+                return;
+            }
+        }
+        if (key === Qt.Key_Up && row.objectName === "runningApplications" && addApplication.visible) {
+            Focus.take(addApplication);
+            return;
         }
         const rows = applicationRows();
         const step = key === Qt.Key_Up ? -1 : 1;
@@ -635,6 +646,10 @@ FocusScope {
             event.accepted = true;
         }
     }
+    function navIcon(index) {
+        const names = ["home", "library", "download", "apps", "settings", "public", "screen", "power", "close"];
+        return names[index] || "";
+    }
     function moveNavigation(step, autoRepeat) {
         let next = navIndex + step;
         while (next >= 0 && next < navItems.count) {
@@ -678,9 +693,7 @@ FocusScope {
         anchors.fill: parent
         visible: !root.coveredByScreen
         enabled: !root.navOpen && !root.tileActionsOpen
-        scale: root.navOpen ? 0.98 : 1
-        opacity: root.navOpen ? 0.55 : 1
-        Behavior on scale { NumberAnimation { duration: 320 } }
+        opacity: root.navOpen ? 0.45 : 1
         Behavior on opacity { NumberAnimation { duration: 320 } }
         BrandButton {
             id: menuButton
@@ -724,7 +737,7 @@ FocusScope {
                 visible: root.downloadActive
                 height: 48; radius: 24
                 width: downloadLabel.x + downloadLabel.width + 22
-                color: Theme.plate
+                color: "transparent"
                 Accessible.role: Accessible.StaticText
                 Accessible.name: downloadLabel.text
                 UiText {
@@ -940,7 +953,7 @@ FocusScope {
                     pointerBlocked: !root.rowClearsHeader(favoritesRow)
                     x: 120; y: continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
                     visible: count > 0
-                    title: root.favoritesTitle; variant: "app"; shapeRole: "container"
+                    title: root.favoritesTitle; variant: "shelf"
                     entries: root.favoriteEntries; busyEntryIds: root.busyEntryIds
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(favoritesRow)
@@ -1018,8 +1031,8 @@ FocusScope {
                     id: groupRow
                     required property string modelData
                     objectName: "group-" + modelData
-                    width: 1704; variant: "app"
-                    cellWidth: modelData === "other" && root.shortcutManagement ? 480 : 264
+                    width: 1704; variant: "app"; identityLight: true
+                    cellWidth: 300
                     title: root.groupTitles[modelData]
                     visible: root.screen === "applications" && count > 0
                     entries: root.groupEntries(modelData); busyEntryIds: root.busyEntryIds
@@ -1029,8 +1042,7 @@ FocusScope {
                     onSelected: entry => { root.focusedEntry = entry; root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
                     onActivated: entryId => {
                         const entry = groupRow.entries.find(e => e.id === entryId);
-                        if (entry && entry.shortcutAdd) root.editShortcut("");
-                        else if (entry && entry.launchable === false) root.openTileActions(entryId);
+                        if (entry && entry.launchable === false) root.openTileActions(entryId);
                         else root.entryRequested(entryId);
                     }
                     onEdge: (key, autoRepeat) => {
@@ -1049,7 +1061,7 @@ FocusScope {
             }
             HomeRow {
                 id: runningRow; objectName: "runningApplications"
-                width: 1704; variant: "app"; title: qsTr("Open windows")
+                width: 1704; variant: "app"; identityLight: true; cellWidth: 300; title: qsTr("Open windows")
                 visible: root.screen === "applications" && count > 0
                 entries: root.runningEntries; busyEntryIds: root.busyEntryIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
@@ -1076,8 +1088,59 @@ FocusScope {
                 Keys.onUpPressed: root.restoreScreen()
                 Keys.onDownPressed: {
                     const from = root.applicationRows().find(row => row.objectName === root.applicationFocusRow);
-                    if (!from || !root.focusApplicationRowBelow(from))
+                    if (from && root.focusApplicationRowBelow(from))
+                        return;
+                    if (addApplication.visible)
+                        Focus.take(addApplication);
+                    else
                         Focus.take(sectionBack);
+                }
+            }
+            Surface {
+                id: addApplication
+                objectName: "addApplication"
+                visible: root.shortcutManagement && root.screen === "applications"
+                text: qsTr("Add application")
+                shapeRole: "action"
+                implicitWidth: Math.max(220, addLabel.implicitWidth + 96)
+                implicitHeight: 88
+                width: implicitWidth
+                height: implicitHeight
+                cornerRadius: height / 2
+                focusScale: 1
+                focusLift: 0
+                liftFromBottom: false
+                restingColor: Theme.plateAction
+                focusedColor: Theme.textPrimary
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                onDpadRequested: InputMode.keyPressed()
+                onActivated: root.editShortcut("")
+                Keys.onLeftPressed: root.openNavigation()
+                Keys.onUpPressed: {
+                    if (shortcutEditButton.visible) Focus.take(shortcutEditButton);
+                    else root.restoreScreen();
+                }
+                Keys.onDownPressed: {
+                    if (!(runningRow.visible && (runningRow.focusIndex(0) || runningRow.restore())))
+                        Focus.take(sectionBack);
+                }
+                contentItem: Row {
+                    anchors.centerIn: parent
+                    spacing: 12
+                    LineIcon {
+                        width: 28; height: 28
+                        anchors.verticalCenter: parent.verticalCenter
+                        name: "add"
+                        color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
+                    }
+                    UiText {
+                        id: addLabel
+                        text: addApplication.text
+                        role: "control"
+                        color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
+                        wrapMode: Text.NoWrap
+                    }
                 }
             }
             ActionButton {
@@ -1106,119 +1169,162 @@ FocusScope {
         id: navigation
         objectName: "navigation"
         anchors.fill: parent; visible: root.navOpen
-        // Dims the covering section the way Home's own content is dimmed.
-        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45); visible: root.coveredByScreen }
+        // A covering section is not Home's content, so dim it here. Home's
+        // own stage is dimmed by the content item (brightness 0.45).
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.55); visible: root.coveredByScreen }
         MouseArea { anchors.fill: parent; onClicked: root.closeNavigation() }
-        Rectangle {
-            x: 72; y: 72; width: 500; height: 936; radius: 44; color: "#292b30"
+        Item {
+            id: navigationPanel
+            objectName: "navigationPanel"
+            width: 660
+            height: parent.height
+            Rectangle {
+                anchors.fill: parent
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.98) }
+                    GradientStop { position: 0.72; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.95) }
+                    GradientStop { position: 1; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0) }
+                }
+            }
             MouseArea { anchors.fill: parent }
-            BrandLockup { objectName: "navigationBrand"; x: 40; y: 32; markSize: 40; textRole: "section" }
-            Column {
-                x: 28; y: 100; spacing: 4
-                Repeater {
-                    id: navItems
-                    model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power"), qsTr("Close Arinn")])
-                    delegate: Surface {
-                        id: navButton
-                        required property int index
-                        required property string modelData
-                        objectName: "nav-" + index
-                        width: 444
-                        height: index === 5 && root.currentServiceTitle.length ? 112 : 84
-                        text: modelData
-                        visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
-                        shapeRole: "container"
-                        focusScale: 1
-                        focusLift: 0
-                        liftFromBottom: false
-                        cornerRadius: Theme.containerRadius
-                        restingColor: "transparent"
-                        focusedColor: Theme.plateContainer
-                        readonly property color labelColor: activeFocus ? Theme.textPrimary : Theme.textSecondary
-                        contentItem: Item {
-                            Row {
-                                x: 24
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: parent.width - 96
-                                spacing: 16
-                                Rectangle {
-                                    visible: index === 5
-                                    width: 40; height: 40; radius: 12
-                                    color: Qt.rgba(1, 1, 1, 0.08)
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    Column {
-                                        anchors.centerIn: parent
-                                        spacing: 3
-                                        Rectangle { width: 22; height: 4; radius: 1; color: navButton.labelColor }
-                                        Rectangle { width: 16; height: 4; radius: 1; color: navButton.labelColor }
-                                        Rectangle { width: 10; height: 4; radius: 1; color: navButton.labelColor }
-                                    }
-                                }
-                                Column {
-                                    width: parent.width - (index === 5 ? 56 : 0)
-                                    spacing: 2
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    UiText {
-                                        width: parent.width
-                                        text: modelData
-                                        role: "control"
-                                        color: navButton.labelColor
-                                        maximumLineCount: 1; elide: Text.ElideRight
-                                    }
-                                    UiText {
-                                        objectName: index === 5 ? "openServicesSubline" : ""
-                                        width: parent.width
-                                        visible: index === 5 && root.currentServiceTitle.length > 0
-                                        text: index === 5 ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
-                                        role: "caption"
-                                        color: Theme.textSecondary
-                                        maximumLineCount: 1; elide: Text.ElideRight
-                                    }
-                                }
-                            }
-                            Rectangle {
-                                objectName: index === 5 ? "openServicesBadge" : ""
-                                visible: index === 5 && root.openServiceCount > 0
-                                anchors.right: parent.right
-                                anchors.rightMargin: 20
-                                anchors.verticalCenter: parent.verticalCenter
-                                width: Math.max(36, openServicesCount.implicitWidth + 16)
-                                height: 32
-                                radius: 16
-                                color: Theme.ember
-                                UiText {
-                                    id: openServicesCount
-                                    objectName: index === 5 ? "openServicesCount" : ""
-                                    anchors.centerIn: parent
-                                    text: index === 5 ? String(root.openServiceCount) : ""
-                                    font.pixelSize: 24
-                                    font.weight: 600
-                                    color: Theme.ink
-                                }
-                            }
-                        }
-                        pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
-                        onActiveFocusChanged: if (activeFocus) root.navIndex = index
-                        onDpadRequested: InputMode.keyPressed()
-                        onActivated: {
-                            if (index < 5) root.selectSection(index);
-                            else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
-                            else if (index === 6) root.returnRequested(root.returnActivityId);
-                            else if (index === 7) root.powerRequested();
-                            else root.closeShellRequested();
-                        }
-                        Keys.onTabPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
-                        Keys.onBacktabPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
-                        Keys.onUpPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
-                        Keys.onDownPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
-                        Keys.onLeftPressed: {}
-                        Keys.onRightPressed: {}
+            BrandLockup {
+                id: navBrand
+                objectName: "navigationBrand"
+                x: 128; y: 50; height: 40; width: implicitWidth
+                markSize: 40; textRole: "section"
+            }
+            Rectangle {
+                objectName: "navigationHairline"
+                x: 104; width: 452; height: 1
+                y: navBrand.y + navBrand.height + 52 + 5 * 84 + 18
+                color: Qt.rgba(1, 1, 1, 0.08)
+            }
+            Repeater {
+                id: navItems
+                model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power"), qsTr("Close Arinn")])
+                delegate: Surface {
+                    id: navButton
+                    required property int index
+                    required property string modelData
+                    objectName: "nav-" + index
+                    x: 104
+                    y: {
+                        if (index === 7) return navigationPanel.height - 148 - height;
+                        if (index === 8) return navigationPanel.height - 56 - height;
+                        const top = navBrand.y + navBrand.height + 52;
+                        if (index < 5) return top + index * 84;
+                        const after = top + 5 * 84 + 37;
+                        if (index === 5) return after;
+                        return after + (root.currentServiceTitle.length ? 104 : 84);
+                    }
+                    width: 452
+                    height: index === 5 && root.currentServiceTitle.length ? 104 : 84
+                    text: modelData
+                    visible: index !== 6 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
+                    shapeRole: "container"
+                    focusScale: 1
+                    focusLift: 0
+                    liftFromBottom: false
+                    cornerRadius: Theme.containerRadius
+                    restingColor: "transparent"
+                    focusedColor: Theme.plateContainer
+                    readonly property color labelColor: activeFocus ? Theme.textPrimary : Theme.textSecondary
+                    readonly property bool sectionDot: index < 5 && root.routes[index] === root.screen
+                    readonly property bool activityDot: (index === 5 && root.returnIsWebService
+                            && (root.currentServiceTitle.length > 0 || root.openServiceCount > 0))
+                            || (index === 6 && visible)
+                    contentItem: Item {
                         Rectangle {
-                            anchors.right: parent.right; anchors.rightMargin: 20; anchors.verticalCenter: parent.verticalCenter
+                            objectName: "navCurrentDot"
+                            x: -22
+                            anchors.verticalCenter: parent.verticalCenter
                             width: 10; height: 10; radius: 5; color: Theme.ember
-                            visible: index < 5 && root.routes[index] === root.screen
+                            visible: navButton.sectionDot || navButton.activityDot
+                        }
+                        Row {
+                            x: 24
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width - 120
+                            spacing: 22
+                            LineIcon {
+                                width: 36; height: 36
+                                anchors.verticalCenter: parent.verticalCenter
+                                name: root.navIcon(index)
+                                color: navButton.activeFocus ? Theme.textPrimary : Theme.textHint
+                            }
+                            Column {
+                                width: parent.width - 58
+                                spacing: 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                UiText {
+                                    width: parent.width
+                                    text: modelData
+                                    role: "control"
+                                    font.pixelSize: 32
+                                    color: navButton.labelColor
+                                    maximumLineCount: 1; elide: Text.ElideRight
+                                }
+                                UiText {
+                                    objectName: index === 5 ? "openServicesSubline" : ""
+                                    width: parent.width
+                                    visible: index === 5 && root.currentServiceTitle.length > 0
+                                    text: index === 5 ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
+                                    role: "caption"
+                                    color: Theme.textSecondary
+                                    maximumLineCount: 1; elide: Text.ElideRight
+                                }
+                            }
+                        }
+                        Rectangle {
+                            objectName: index === 5 ? "openServicesBadge" : ""
+                            visible: index === 5 && root.openServiceCount > 0
+                            anchors.right: parent.right
+                            anchors.rightMargin: 20
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.max(36, openServicesCount.implicitWidth + 16)
+                            height: 32
+                            radius: 16
+                            color: Theme.ember
+                            UiText {
+                                id: openServicesCount
+                                objectName: index === 5 ? "openServicesCount" : ""
+                                anchors.centerIn: parent
+                                text: index === 5 ? String(root.openServiceCount) : ""
+                                font.pixelSize: 24
+                                font.weight: 600
+                                color: Theme.ink
+                            }
+                        }
+                        UiText {
+                            objectName: index === 2 ? "downloadNavPercent" : ""
+                            visible: index === 2 && root.downloadActive
+                            anchors.right: parent.right
+                            anchors.rightMargin: 24
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.downloadProgress >= 0
+                                    ? qsTr("%1%").arg(Math.floor(Math.min(1, root.downloadProgress) * 100))
+                                    : qsTr("Downloading")
+                            role: "caption"
+                            color: Theme.textSecondary
                         }
                     }
+                    pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                    onActiveFocusChanged: if (activeFocus) root.navIndex = index
+                    onDpadRequested: InputMode.keyPressed()
+                    onActivated: {
+                        if (index < 5) root.selectSection(index);
+                        else if (index === 5) { root.navOpen = false; root.openServicesRequested(); }
+                        else if (index === 6) root.returnRequested(root.returnActivityId);
+                        else if (index === 7) root.powerRequested();
+                        else root.closeShellRequested();
+                    }
+                    Keys.onTabPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
+                    Keys.onBacktabPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
+                    Keys.onUpPressed: event => { root.moveNavigation(-1, event.isAutoRepeat); event.accepted = true; }
+                    Keys.onDownPressed: event => { root.moveNavigation(1, event.isAutoRepeat); event.accepted = true; }
+                    Keys.onLeftPressed: {}
+                    Keys.onRightPressed: {}
                 }
             }
         }

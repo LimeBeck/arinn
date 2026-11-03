@@ -155,7 +155,8 @@ TestCase {
         verify(close.visible && close.enabled);
         const navigation = child("navigation");
         const bottom = close.mapToItem(navigation, 0, close.height);
-        verify(bottom.y < 1008, "All actions fit inside the navigation panel");
+        verify(bottom.y > 1000 && bottom.y <= navigation.height,
+               "Close Arinn sits at the bottom of the edge panel, y " + bottom.y);
         if (data.pointer) {
             home.pointerMode = true;
             mouseClick(close, close.width / 2, close.height / 2);
@@ -751,9 +752,10 @@ TestCase {
                "hero bottom overlaps Continue");
         compare(child("continue").y, 418);
         const stride = child("continue").height + Ui.Theme.rowGap;
-        const step = child("favorites").height + Ui.Theme.rowGap;
         compare(child("favorites").y, child("continue").y + stride);
-        compare(child("new").y, child("favorites").y + step);
+        // The shelf is a fixed step, so the New poster — not only its label —
+        // shows 94 px while Continue is focused (#725).
+        compare(child("new").y, child("favorites").y + 125);
         compare(home.homeOffset, 0);
         const rowTop = child("new").mapToItem(home, 0, 0).y;
         const posterTop = child("entry-n").mapToItem(home, 0, 0).y;
@@ -762,8 +764,7 @@ TestCase {
         console.log("visible New label " + visibleLabel.toFixed(1)
                     + " px, poster " + visiblePoster.toFixed(1)
                     + " px (row y " + child("new").y.toFixed(1) + ")");
-        verify(visibleLabel > 40 && visibleLabel < 80, "visible New label " + visibleLabel);
-        verify(Math.abs(visiblePoster) < 8, "the New poster meets the bottom, visible " + visiblePoster);
+        verify(Math.abs(visiblePoster - 94) < 0.5, "visible New poster " + visiblePoster);
     }
 
     function test_hero_describes_the_focused_item() {
@@ -1135,7 +1136,9 @@ TestCase {
         compare(child("browserStatusChip").visible, true);
         compare(child("entry-f").opacity, 0.4);
         compare(child("entry-f").subtitle, "Unavailable");
-        compare(child("entry-g").opacity, 1);
+        // The neighbour is in the lit shelf row, so it recedes to 0.82
+        // without a plate (#725, #741).
+        compare(child("entry-g").opacity, Ui.Theme.rowLitBrightness);
         keyClick(Qt.Key_Return);
         compare(services.count, 1);
         compare(entries.count, 0);
@@ -1144,5 +1147,82 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(entries.count, 1);
         compare(entries.signalArguments[0][0], "g");
+    }
+
+    function test_favorites_shelf_and_new_title_card() {
+        home.favoriteEntries = [
+            {id: "f", title: "Northwind", running: true, iconSource: ""},
+            {id: "long", title: "A very long favourite name that must stay on one line and ellipsize past the shelf"}
+        ];
+        keyClick(Qt.Key_Down);
+        focused("entry-f");
+        const tile = child("entry-f");
+        compare(tile.height, 88);
+        compare(tile.focusLift, -4);
+        compare(tile.shapeRole, "container");
+        // Focus gives this name a container plate. The name beside it stays
+        // plateless and only recedes with the lit row.
+        tryVerify(() => Math.abs(tile.background.color.a - Ui.Theme.plateContainer.a) < 0.02);
+        const beside = child("entry-long");
+        // The plate fades out; wait until the resting colour is clear.
+        tryVerify(() => beside.background.color.a < 0.01);
+        tryVerify(() => findChild(beside, "rowShade").opacity < 0.01);
+        compare(beside.opacity, Ui.Theme.rowLitBrightness);
+        compare(findChild(tile, "applicationFallback").visible, false);
+        compare(findChild(tile, "applicationChip").visible, false);
+        const dot = findChild(tile, "emberDot");
+        const title = findChild(tile, "tileTitle");
+        verify(dot.visible);
+        verify(dot.x >= title.x + title.width - 1);
+        const name = findChild(child("entry-long"), "tileTitle");
+        verify(name.width <= 360);
+        // Left at the first shelf name still opens navigation.
+        keyClick(Qt.Key_Left);
+        focused("nav-0");
+        keyClick(Qt.Key_Escape);
+        focused("entry-f");
+        const card = child("entry-n");
+        compare(findChild(card, "titleCardTitle").text, "New");
+        compare(findChild(card, "titleCardTitle").font.family, Ui.Theme.contentFontFamily);
+    }
+
+    function test_navigation_is_a_full_height_edge_panel() {
+        home.openNavigation();
+        focused("nav-0");
+        const panel = child("navigationPanel");
+        compare(panel.width, 660);
+        compare(panel.height, home.height);
+        verify(child("nav-1").background.color.a < 0.01);
+        const dot = findChild(child("nav-0"), "navCurrentDot");
+        verify(dot.visible);
+        verify(dot.x < 0);
+        compare(findChild(child("nav-1"), "navCurrentDot").visible, false);
+        verify(child("navigationHairline").y > child("nav-4").y);
+        verify(child("navigationHairline").y < child("nav-5").y);
+        const power = child("nav-7");
+        const close = child("nav-8");
+        verify(power.y > child("nav-5").y);
+        verify(close.y > power.y);
+        verify(close.mapToItem(panel, 0, close.height).y <= panel.height);
+    }
+
+    function test_application_tiles_have_identity_light() {
+        home.applicationEntries = [
+            {id: "app", title: "Northwind", visualIdentity: "north"},
+            {id: "app2", title: "Harbor", visualIdentity: "harbor"}
+        ];
+        home.selectSection(3);
+        focused("entry-app");
+        const tile = child("entry-app");
+        compare(tile.width, 300);
+        compare(tile.height, 168);
+        compare(findChild(tile, "applicationChip").width, 64);
+        const lit = findChild(tile, "identityGlow");
+        const dim = findChild(child("entry-app2"), "identityGlow");
+        verify(lit !== null && dim !== null);
+        tryCompare(lit, "opacity", 1);
+        compare(dim.opacity, 0.5);
+        compare(findChild(tile, "applicationFallback").visible, true);
+        verify(Qt.colorEqual(findChild(tile, "applicationChip").color, Ui.Theme.chip));
     }
 }

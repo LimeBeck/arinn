@@ -7,7 +7,9 @@ import QtQuick
 // ships no icon font, so they are painted here. On-screen keyboard: keyboard,
 // keyboard_hide, shift, backspace, language, chevron_left, chevron_right,
 // history and public. Open services: bookmark_add, bookmark_added, close,
-// add and volume_up (the filled speaker of the Sound mark).
+// add and volume_up (the filled speaker of the Sound mark). Navigation:
+// home, library, download, apps, settings, screen and power. `public` is
+// the Open services globe; `close` is Close Arinn.
 Canvas {
     id: root
     property string name: ""
@@ -119,6 +121,51 @@ Canvas {
             ctx.arc(13, 12, 8, Math.PI * 0.95, Math.PI * 2.75);
             ctx.moveTo(13, 8); ctx.lineTo(13, 12.5); ctx.lineTo(16, 14.5);
             ctx.moveTo(2.5, 9.5); ctx.lineTo(5, 12.5); ctx.lineTo(8, 10);
+            ctx.stroke();
+            break;
+        case "home":
+            ctx.moveTo(4, 11); ctx.lineTo(12, 4); ctx.lineTo(20, 11);
+            ctx.moveTo(7, 10.5); ctx.lineTo(7, 20); ctx.lineTo(17, 20); ctx.lineTo(17, 10.5);
+            ctx.stroke();
+            break;
+        case "library":
+            ctx.moveTo(6, 4); ctx.lineTo(6, 20); ctx.lineTo(12, 17); ctx.lineTo(18, 20); ctx.lineTo(18, 4);
+            ctx.lineTo(12, 7); ctx.closePath();
+            ctx.stroke();
+            break;
+        case "download":
+            ctx.moveTo(12, 3.5); ctx.lineTo(12, 14);
+            ctx.moveTo(7.5, 10.5); ctx.lineTo(12, 15); ctx.lineTo(16.5, 10.5);
+            ctx.moveTo(5, 19.5); ctx.lineTo(19, 19.5);
+            ctx.stroke();
+            break;
+        case "apps":
+            ctx.roundedRect(3.5, 3.5, 7, 7, 1.5, 1.5);
+            ctx.roundedRect(13.5, 3.5, 7, 7, 1.5, 1.5);
+            ctx.roundedRect(3.5, 13.5, 7, 7, 1.5, 1.5);
+            ctx.roundedRect(13.5, 13.5, 7, 7, 1.5, 1.5);
+            ctx.stroke();
+            break;
+        case "settings":
+            ctx.moveTo(4, 7); ctx.lineTo(20, 7);
+            ctx.moveTo(4, 12); ctx.lineTo(20, 12);
+            ctx.moveTo(4, 17); ctx.lineTo(20, 17);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(9, 7, 2.2, 0, Math.PI * 2);
+            ctx.arc(15, 12, 2.2, 0, Math.PI * 2);
+            ctx.arc(10, 17, 2.2, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case "screen":
+            ctx.roundedRect(3, 4, 18, 12, 2, 2);
+            ctx.moveTo(8, 20); ctx.lineTo(16, 20);
+            ctx.moveTo(12, 16); ctx.lineTo(12, 20);
+            ctx.stroke();
+            break;
+        case "power":
+            ctx.arc(12, 13.5, 7.2, Math.PI * 0.72, Math.PI * 2.28);
+            ctx.moveTo(12, 3); ctx.lineTo(12, 12);
             ctx.stroke();
             break;
         }

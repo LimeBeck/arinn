@@ -483,10 +483,13 @@ FocusScope {
         navigationOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
         navIndex = Math.max(0, routes.indexOf(screen));
         navOpen = true;
+        interfaceSounds.play("open");
         Qt.callLater(() => Focus.take(navItems.itemAt(navIndex)));
     }
     function closeNavigation() {
+        if (!navOpen) return;
         navOpen = false;
+        interfaceSounds.play("close");
         if (navigationOpener && navigationOpener.visible && navigationOpener.enabled)
             Focus.take(navigationOpener);
         else restoreScreen();
@@ -496,6 +499,7 @@ FocusScope {
     // so showHome() can focus a visible control (review of #334).
     function homeKey() {
         if (tileActionsOpen) { actionEntryId = ""; actionOpener = null; }
+        interfaceSounds.play("kindle");
         homeKeyPressed();
         showHome();
     }
@@ -515,11 +519,18 @@ FocusScope {
         focusAfterRemoval(newRow);
     }
     function back() {
-        if (tileActionsOpen) closeTileActions();
-        else if (navOpen) closeNavigation();
-        else if (screen !== "home") { screen = "home"; restoreHome(); }
-        else if (returnActivityId) returnRequested(returnActivityId);
-        else openNavigation();
+        if (tileActionsOpen) {
+            interfaceSounds.play("back");
+            closeTileActions();
+        } else if (navOpen) closeNavigation();
+        else if (screen !== "home") {
+            interfaceSounds.play("back");
+            screen = "home";
+            restoreHome();
+        } else if (returnActivityId) {
+            interfaceSounds.play("back");
+            returnRequested(returnActivityId);
+        } else openNavigation();
     }
     function selectSection(index) {
         sectionOffset = 0;
@@ -557,6 +568,7 @@ FocusScope {
         return null;
     }
     function activate(entryId) {
+        interfaceSounds.play("select");
         const entry = entryById(entryId);
         if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
@@ -903,7 +915,7 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onEdge: key => root.rowEdge(continueRow, key)
+                    onEdge: key => { interfaceSounds.play("edge"); root.rowEdge(continueRow, key) }
                     onFocusLost: root.focusAfterRemoval(continueRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -921,7 +933,7 @@ FocusScope {
                     onActionsRequested: entryId => root.openTileActions(entryId)
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onEdge: key => root.rowEdge(favoritesRow, key)
+                    onEdge: key => { interfaceSounds.play("edge"); root.rowEdge(favoritesRow, key) }
                     onFocusLost: root.focusAfterRemoval(favoritesRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -936,7 +948,7 @@ FocusScope {
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(newRow, entry)
                     onActivated: entryId => root.activate(entryId)
-                    onEdge: key => root.rowEdge(newRow, key)
+                    onEdge: key => { interfaceSounds.play("edge"); root.rowEdge(newRow, key) }
                     onFocusLost: root.focusAfterRemoval(newRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -991,7 +1003,7 @@ FocusScope {
                         else if (entry && entry.launchable === false) root.openTileActions(entryId);
                         else root.entryRequested(entryId);
                     }
-                    onEdge: key => root.applicationEdge(groupRow, key)
+                    onEdge: key => { interfaceSounds.play("edge"); root.applicationEdge(groupRow, key) }
                     onFocusLost: root.applicationFocusLost(groupRow)
                     onScrolled: hoverDelay.restart()
                     onDpadRequested: InputMode.keyPressed()
@@ -1005,7 +1017,7 @@ FocusScope {
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onSelected: { root.applicationFocusRow = runningRow.objectName; root.revealRow(runningRow); }
                 onActivated: entryId => root.runningRequested(entryId)
-                onEdge: key => root.applicationEdge(runningRow, key)
+                onEdge: key => { interfaceSounds.play("edge"); root.applicationEdge(runningRow, key) }
                 onFocusLost: root.applicationFocusLost(runningRow)
                 onScrolled: hoverDelay.restart()
                 onDpadRequested: InputMode.keyPressed()

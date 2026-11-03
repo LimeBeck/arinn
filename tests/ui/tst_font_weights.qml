@@ -127,7 +127,8 @@ TestCase {
     function test_role_and_changed_weight() {
         const body = render(uiTextFactory, 400);
         const backdrop = createTemporaryObject(backdropFactory, suite);
-        const title = createTemporaryObject(uiTextFactory, backdrop, {role: "title"});
+        // display is the 700 role since page titles became 600 (ADR-0136).
+        const title = createTemporaryObject(uiTextFactory, backdrop, {role: "display"});
         title.font.pixelSize = 64;
         title.font.letterSpacing = 0;
         compare(title.font.weight, 700);

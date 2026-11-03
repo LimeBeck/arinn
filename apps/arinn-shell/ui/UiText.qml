@@ -25,6 +25,11 @@ Text {
     property var fitSteps: []
     // The step in use, -1 without fitSteps.
     property int fitStep: -1
+    // How many times the steps were measured, and with which family. A face
+    // that finishes loading after the first measurement changes the family,
+    // and the title is measured again (see onFontChanged).
+    property int fitCount: 0
+    property string fittedFamily: ""
     font.family: contentFace ? Theme.contentFontFamily : Theme.fontFamily
     font.pixelSize: metrics[0]
     font.weight: metrics[1]
@@ -40,6 +45,8 @@ Text {
     function fit() {
         if (!fitSteps || !fitSteps.length)
             return;
+        fitCount += 1;
+        fittedFamily = font.family;
         for (let i = 0; i < fitSteps.length; ++i) {
             fitStep = i;
             font.pixelSize = fitSteps[i][0];
@@ -53,7 +60,12 @@ Text {
     onFitStepsChanged: fit()
     // The weight, the role's or one set on the instance, reaches the
     // variable font's wght axis (#546).
-    onFontChanged: Theme.applyWeight(uiText)
+    // fit() changes only the size, so the family check cannot recurse.
+    onFontChanged: {
+        Theme.applyWeight(uiText);
+        if (fitSteps && fitSteps.length && font.family !== fittedFamily)
+            fit();
+    }
     Component.onCompleted: {
         Theme.applyWeight(uiText);
         fit();

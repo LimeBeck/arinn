@@ -107,6 +107,23 @@ TestCase {
         compare(item.maximumLineCount, 1);
     }
 
+    // A face that arrives after the first measurement (the content font
+    // still loading when Home is built) changes the family: the title is
+    // measured again with the real face (Codex review on #731).
+    function test_family_change_refits() {
+        const item = make({role: "hero", width: 1300, elide: Text.ElideRight, fitSteps: [[96, 1], [68, 2]],
+                           text: "Тихая гавань"});
+        const before = item.fitCount;
+        compare(item.fittedFamily, item.font.family);
+        item.font.family = Ui.Theme.fontFamily;
+        compare(item.fitCount, before + 1);
+        compare(item.fittedFamily, Ui.Theme.fontFamily);
+        // A size change made by fit() itself does not measure again.
+        const after = item.fitCount;
+        item.font.pixelSize = 50;
+        compare(item.fitCount, after);
+    }
+
     // Without steps a role keeps its own size.
     function test_no_steps_keeps_the_role_size() {
         const item = make({role: "hero", width: 300, text: "Путешествие на край долгой ночи и обратно"});

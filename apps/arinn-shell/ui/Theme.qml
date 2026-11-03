@@ -17,6 +17,10 @@ QtObject {
     // and WCAG AA is 4.5; the owner has not chosen. Every night surface is
     // checked against this one value.
     readonly property real textContrastMinimum: 4.8
+    // Evening bar, next to the night one. Evening Home is about 4.50:1 and
+    // a focused plate about 4.78:1, both below textContrastMinimum. The
+    // owner has not chosen whether evening should meet the night bar.
+    readonly property real eveningContrastMinimum: 4.5
     // Night text (#722). Text-1 and text-2 are the brief's. Text-3 in the
     // brief is 0.71. On Charcoal, under the 22% veil, that is about 4.07:1
     // on the brightest Home light, 4.38:1 on a resting plate and 4.36:1 in

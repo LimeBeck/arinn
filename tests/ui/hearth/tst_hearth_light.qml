@@ -281,7 +281,9 @@ TestCase {
     // the veiled background, a resting plate, the night focused plate, Home
     // and Applications at their brightest light, and Settings and Downloads
     // under the 22% veil. The day focus fill does not. Evening hints hold
-    // 4.5:1 on the evening light; the day hint does not.
+    // eveningContrastMinimum on the evening light; the day hint does not.
+    // Evening Home and the focused plate are both below textContrastMinimum.
+    // That gap waits on the owner's threshold decision.
     function test_night_and_evening_text_holds_contrast() {
         const glow = child("ambientGlow");
         const minimum = Ui.Theme.textContrastMinimum;
@@ -367,13 +369,26 @@ TestCase {
         const eveningLit = brightestLit(glow);
         verify(eveningLit.y > glow.height * 0.9, "evening brightest y " + eveningLit.y);
         const evening = veiled(glow, Ui.Theme.textHint, eveningLit.color);
+        const eveningFocus = veiled(glow, Ui.Theme.textHint, over(flat, Ui.Theme.plateFocus));
         const dayHint = veiled(glow, glow.oklch(0.66, 0.008, 75, 1), eveningLit.color);
         const eveningDown = veiled(glow, glow.oklch(0.777, 0.008, 75, 1), eveningLit.color);
-        verify(evening >= 4.5, "evening hint at the brightest light " + evening);
-        verify(dayHint < 4.5, "day hint at that point " + dayHint);
-        verify(eveningDown < 4.5, "0.777 at that point " + eveningDown);
+        const eveningMinimum = Ui.Theme.eveningContrastMinimum;
+        verify(evening >= eveningMinimum, "evening hint at the brightest light " + evening);
+        verify(dayHint < eveningMinimum, "day hint at that point " + dayHint);
+        verify(eveningDown < eveningMinimum, "0.777 at that point " + eveningDown);
+        // Reported, not asserted: both are below the night bar, and the
+        // owner has not chosen an evening threshold.
+        const nightBar = Ui.Theme.textContrastMinimum;
+        let belowNight = [];
+        if (evening < nightBar)
+            belowNight.push("Home " + evening.toFixed(3) + ":1");
+        if (eveningFocus < nightBar)
+            belowNight.push("focused plate " + eveningFocus.toFixed(3) + ":1");
         console.log("evening hint at the brightest light " + evening.toFixed(3)
-                    + ":1 (day hint is " + dayHint.toFixed(3) + ":1)");
+                    + ":1 (day hint is " + dayHint.toFixed(3)
+                    + ":1, focused plate " + eveningFocus.toFixed(3)
+                    + ":1); below textContrastMinimum " + nightBar + ": "
+                    + belowNight.join(", "));
 
         home.clockText = "12:00";
         compare(glow.period, "day");

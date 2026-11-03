@@ -138,8 +138,12 @@ TestCase {
         const item = make({role: "hero", width: 1300, elide: Text.ElideRight, fitSteps: [[96, 1], [68, 2]],
                            text: "Путешествие на край долгой ночи и обратно"});
         compare(item.font.pixelSize, 68);
+        compare(item.fittedPixelSize, 68);
+        compare(item.fittedLineCount, 2);
         item.text = "Тихая гавань";
         compare(item.fitStep, 0);
+        compare(item.fittedPixelSize, 96);
+        compare(item.fittedLineCount, 1);
         compare(item.font.pixelSize, 96);
         compare(item.maximumLineCount, 1);
     }
@@ -154,23 +158,37 @@ TestCase {
         item.font.family = Ui.Theme.fontFamily;
         compare(item.fitCount, before + 1);
         compare(item.fittedFamily, Ui.Theme.fontFamily);
+        // A weight change measures again, and the size binding follows.
+        const beforeWeight = item.fitCount;
+        item.font.weight = 400;
+        compare(item.fitCount, beforeWeight + 1);
+        compare(item.font.pixelSize, item.fittedPixelSize);
         // A size change made by fit() itself does not measure again.
         const after = item.fitCount;
         item.font.pixelSize = 50;
         compare(item.fitCount, after);
     }
 
-    // fit() selects a step through fitStep. The size stays bound to the
-    // role, and a caller's line-count binding stays bound to its source.
+    // fit() writes the fitted size and line count. The Text properties stay
+    // bound to those, and a caller's line-count binding stays bound to its
+    // source. Changing the text measures again through the same bindings.
     function test_fit_keeps_the_size_and_line_bindings() {
         tryCompare(Ui.Theme.ysabeau, "status", FontLoader.Ready);
         const item = make({role: "hero", width: 1300, elide: Text.ElideRight,
                            fitSteps: [[96, 1], [68, 2]],
                            text: "Путешествие на край долгой ночи и обратно"});
         compare(item.font.pixelSize, 68);
+        compare(item.fittedPixelSize, 68);
         compare(item.maximumLineCount, 2);
+        compare(item.fittedLineCount, 2);
+        item.text = "Тихая гавань";
+        compare(item.fittedPixelSize, 96);
+        compare(item.font.pixelSize, 96);
+        compare(item.fittedLineCount, 1);
         item.fitSteps = [];
         compare(item.fitStep, -1);
+        compare(item.fittedPixelSize, -1);
+        compare(item.fittedLineCount, -1);
         compare(item.font.pixelSize, 96);
         item.role = "body";
         compare(item.font.pixelSize, 30);

@@ -65,6 +65,11 @@ set_tests_properties(hearth-light PROPERTIES ENVIRONMENT
 add_test(NAME focus-ownership COMMAND ${CMAKE_COMMAND}
     -DSHELL_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -P "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_calls.cmake")
+# Shell screens take their focus plate from Theme.plateFocus (#722). A
+# hardcoded white plate at 20% misses the night contrast bar.
+add_test(NAME focus-fill COMMAND ${Python3_EXECUTABLE}
+    "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_fill.py"
+    "${PROJECT_SOURCE_DIR}")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
 target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)

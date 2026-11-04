@@ -82,7 +82,10 @@ parsing URLs.
 
 The global Home key (the platform's Home request, ADR-0094) shows Home from Open
 services and the other shell screens while the shell is on screen, as the Home
-key does there (§6.3, #756 A6). The bottom hint reads "→ Save or close": Right
+key does there (§6.3, #756 A6). It goes through the topmost layer first, as the
+Home key there would: a launch's dialog or progress closes or hides for Home,
+then the power scope leaves as its own Home does. A Settings editor and Library
+Detail close, and Music goes Home like the other sections. The bottom hint reads "→ Save or close": Right
 reaches the Save button first, then Close (#756 C32). The navigation item has the
 screen's own name.
 

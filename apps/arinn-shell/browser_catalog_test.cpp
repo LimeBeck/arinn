@@ -1469,6 +1469,49 @@ private slots:
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
     QCOMPARE(library->property("detailEntryId").toString(), QString());
   }
+  // Review of #778: the platform's Home goes through the topmost layer as
+  // the Home key there does: a launch's progress, then the power scope;
+  // Music goes Home too.
+  void globalHomeGoesThroughTheTopmostLayer() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto launch = window->findChild<QQuickItem *>("launchOverlay");
+    auto power = window->findChild<QQuickItem *>("powerOverlay");
+    QVERIFY(home && launch && power);
+    // Music.
+    home->setProperty("screen", QStringLiteral("music"));
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("music"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    // A revealed launch over Library hides for Home and stays hidden.
+    home->setProperty("screen", QStringLiteral("library"));
+    launch->setProperty("serviceTitle", QStringLiteral("Service"));
+    launch->setProperty("active", true);
+    QTRY_VERIFY(launch->property("showOverlay").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!launch->property("showOverlay").toBool());
+    QVERIFY(launch->property("homeHidden").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    launch->setProperty("active", false);
+    // The power scope leaves as Home inside it does.
+    home->setProperty("screen", QStringLiteral("settings"));
+    QVERIFY(QMetaObject::invokeMethod(power, "openMenu"));
+    QTRY_VERIFY(power->property("open").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!power->property("open").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+  }
   void productionOpenTabSurvivesShellRestartWithoutReturn() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
     BrowserDaemon daemon;

@@ -622,6 +622,19 @@ Window {
         // power scope open over the sheet it leaves as Home inside that scope
         // does: a request in flight goes on and a late refusal comes back.
         function onHomeRequested() {
+            // The topmost layer takes it as its own Home key does (§6.3,
+            // review of #778): a launch's dialog or progress, then the
+            // power scope.
+            for (const launch of [applicationLaunch, launchOverlay]) {
+                if (launch.showOverlay) {
+                    launch.leaveForHome();
+                    return;
+                }
+            }
+            if (powerOverlay.open) {
+                powerOverlay.leaveHome();
+                return;
+            }
             if (!root.quickMenuOpen && !root.activityBehind) {
                 // The shell is on screen: the global Home key shows Home from
                 // Open services and the other screens, as the Home key does
@@ -634,8 +647,7 @@ Window {
                 if (root.focusedScreen !== "home") root.goHomeFrom(root.focusedScreen);
                 return;
             }
-            if (powerOverlay.open) powerOverlay.leaveHome();
-            else root.quickMenuHome();
+            root.quickMenuHome();
         }
     }
     Connections {
@@ -870,7 +882,8 @@ Window {
     // Home from a screen that does not handle it itself; false when the
     // screen is not one of these.
     function goHomeFrom(screen) {
-        if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
+        if (screen === "library" || screen === "settings" || screen === "downloads"
+                || screen === "music") home.showHome();
         else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
         else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
         else if (screen === "session") {

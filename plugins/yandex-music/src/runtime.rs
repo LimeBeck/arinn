@@ -675,12 +675,9 @@ impl Runtime {
     async fn start_radio(self: &Arc<Self>, api: &Authorized, id: &str) -> Result<(), ErrorCode> {
         let epoch = api.epoch;
         let seed = seed(id)?;
-        let session = tokio::time::timeout(
-            Duration::from_secs(3),
-            self.guard(epoch, async { api.start_radio(&seed).await.map_err(error) }),
-        )
-        .await
-        .map_err(|_| ErrorCode::Timeout)??;
+        let session = self
+            .prepare_radio(epoch, async { api.start_radio(&seed).await.map_err(error) })
+            .await?;
         let title = if seed == "user:onyourwave" {
             "My Wave"
         } else {
@@ -713,6 +710,17 @@ impl Runtime {
         });
         d.revision += 1;
         Ok(())
+    }
+    async fn prepare_radio(
+        &self,
+        epoch: u64,
+        work: impl Future<Output = Result<RadioSession, ErrorCode>>,
+    ) -> Result<RadioSession, ErrorCode> {
+        // Session creation and initial feedback each have a 15-second HTTP limit.
+        // Keep one finite preparation deadline and cancel both on epoch changes.
+        tokio::time::timeout(Duration::from_secs(30), self.guard(epoch, work))
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
     }
     async fn refill(self: &Arc<Self>, replace: bool) -> Result<(), ErrorCode> {
         let mut d = self.data.lock().await;
@@ -889,6 +897,81 @@ mod tests {
             search: search.into(),
             token: String::new(),
         }
+    }
+    fn radio_response() -> RadioSession {
+        RadioSession {
+            id: "session-a".into(),
+            batch: crate::parse::batch(&json!({"batchId":"batch-a", "sequence":[
+                {"track":{"id":123,"available":true}}
+            ]}))
+            .unwrap(),
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn radio_start_accepts_session_and_initial_feedback_after_three_seconds() {
+        let fixture = Fixture::new();
+        let epoch = fixture.runtime.data.lock().await.epoch;
+        let started = tokio::time::Instant::now();
+        let result = fixture
+            .runtime
+            .prepare_radio(epoch, async {
+                tokio::time::sleep(Duration::from_secs(9)).await;
+                let session = radio_response();
+                // Initial feedback is part of the same bounded preparation.
+                tokio::time::sleep(Duration::from_secs(8)).await;
+                Ok(session)
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.id, "session-a");
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_secs(17)
+        );
+        assert!(fixture.runtime.data.lock().await.radio.is_none());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn radio_start_deadline_cancels_unfinished_preparation() {
+        let fixture = Fixture::new();
+        let epoch = fixture.runtime.data.lock().await.epoch;
+        let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
+        let started = tokio::time::Instant::now();
+        let result = fixture
+            .runtime
+            .prepare_radio(epoch, async move {
+                let _sender = sender;
+                std::future::pending::<Result<RadioSession, ErrorCode>>().await
+            })
+            .await;
+        assert_eq!(result.err(), Some(ErrorCode::Timeout));
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_secs(30)
+        );
+        assert!(receiver.await.is_err());
+        assert!(fixture.runtime.data.lock().await.radio.is_none());
+    }
+    #[tokio::test(start_paused = true)]
+    async fn reconnect_cancels_radio_preparation_before_the_longer_deadline() {
+        let fixture = Fixture::new();
+        let epoch = fixture.runtime.data.lock().await.epoch;
+        let mock = Mock::new(vec![]);
+        let (sender, receiver) = tokio::sync::oneshot::channel::<()>();
+        let (result, ()) = tokio::join!(
+            fixture.runtime.prepare_radio(epoch, async move {
+                let _sender = sender;
+                tokio::time::sleep(Duration::from_secs(9)).await;
+                Ok(radio_response())
+            }),
+            async {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                fixture.runtime.connected(mock.api.clone()).await;
+            }
+        );
+        assert_eq!(result.err(), Some(ErrorCode::Conflict));
+        assert!(receiver.await.is_err());
+        assert!(fixture.runtime.data.lock().await.radio.is_none());
+        assert!(mock.finish().is_empty());
     }
     #[tokio::test]
     async fn artists_and_parent_search_use_real_provider_metadata_without_losing_group_order() {

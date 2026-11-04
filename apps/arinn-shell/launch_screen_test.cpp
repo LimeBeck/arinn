@@ -14,6 +14,7 @@
 #include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QSignalSpy>
 #include <QTest>
 #include <QtDBus>
 
@@ -254,7 +255,11 @@ private slots:
     // The starting stage at once, so Cancel is there from the start.
     QVERIFY(QQmlProperty::write(overlay, QStringLiteral("revealDelay"), 0));
     QVERIFY(QQmlProperty::write(overlay, QStringLiteral("slowDelay"), 0));
+    // The platform's Home request is handled before a test starts a
+    // launch: one that arrived later would hide it for Home (§6.5).
+    QSignalSpy homes(backend.get(), &Backend::homeRequested);
     daemon.showHome();
+    QTRY_COMPARE(homes.count(), 1);
     QTRY_VERIFY(window->isVisible());
     window->requestActivate();
     QTRY_VERIFY(window->isActive());

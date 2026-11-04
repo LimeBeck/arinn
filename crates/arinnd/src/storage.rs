@@ -20,6 +20,47 @@ use std::{
 };
 use uuid::Uuid;
 
+/// The form of typed text that may be kept as a Site or search recent
+/// (ADR-0139, amending ADR-0066): an address without its query and
+/// fragment, a search as typed, and nothing for an address on a loopback
+/// host or for invalid text. The text is never logged.
+pub fn browse_recent_entry(text: &str) -> Option<String> {
+    use arinn_protocol::browse::{KIND_ADDRESS, KIND_SEARCH, resolve_input};
+    let text = text.trim();
+    // Only the kind matters here; the template is a placeholder.
+    let target = resolve_input(text, "https://search.invalid/?q={query}", "");
+    if target.kind == KIND_SEARCH {
+        return Some(text.to_owned());
+    }
+    if target.kind != KIND_ADDRESS {
+        return None;
+    }
+    let url = url::Url::parse(&target.url).ok()?;
+    let loopback = match url.host()? {
+        url::Host::Domain(name) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost" || name.ends_with(".localhost")
+        }
+        url::Host::Ipv4(address) => address.is_loopback() || address.is_unspecified(),
+        // An IPv4-mapped address reaches the IPv4 host (review of #778).
+        url::Host::Ipv6(address) => {
+            address.is_loopback()
+                || address.is_unspecified()
+                || address
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_loopback() || v4.is_unspecified())
+        }
+    };
+    if loopback {
+        return None;
+    }
+    // Cut the typed text, not the resolved URL, so the entry reads as it
+    // was typed: "example.org/watch?v=1#t" keeps "example.org/watch".
+    let cut = text.find(['?', '#']).map_or(text, |at| &text[..at]);
+    let cut = cut.trim_end();
+    (!cut.is_empty()).then(|| cut.to_owned())
+}
+
 const SCHEMA: u32 = 1;
 const MAX_RECENTS: i64 = 100;
 const RETENTION_SECONDS: i64 = 30 * 24 * 60 * 60;
@@ -481,7 +522,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 7 {
+        if version > 8 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -514,6 +555,38 @@ impl Store {
         }
         if version <= 6 {
             transaction.execute_batch("CREATE TABLE favorite_state (singleton INTEGER PRIMARY KEY CHECK (singleton = 0), revision TEXT NOT NULL); INSERT INTO favorite_state VALUES (0, '1'); PRAGMA user_version = 7;").map_err(|_| ErrorCode::Internal)?;
+        }
+        if version <= 7 {
+            // Recents recorded before ADR-0139 may hold a query, a fragment or
+            // a loopback address: rewrite them by the same rule, oldest first
+            // so a merged entry keeps the newest position.
+            let rows: Vec<(String, i64)> = {
+                let mut statement = transaction
+                    .prepare("SELECT text, seq FROM browse_recent ORDER BY seq ASC")
+                    .map_err(|_| ErrorCode::Internal)?;
+                statement
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .map_err(|_| ErrorCode::Internal)?
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| ErrorCode::Internal)?
+            };
+            transaction
+                .execute("DELETE FROM browse_recent", [])
+                .map_err(|_| ErrorCode::Internal)?;
+            for (text, seq) in rows {
+                if let Some(entry) = browse_recent_entry(&text) {
+                    transaction
+                        .execute(
+                            "INSERT INTO browse_recent (text, seq) VALUES (?1, ?2)
+                             ON CONFLICT(text) DO UPDATE SET seq = excluded.seq",
+                            params![entry, seq],
+                        )
+                        .map_err(|_| ErrorCode::Internal)?;
+                }
+            }
+            transaction
+                .execute_batch("PRAGMA user_version = 8;")
+                .map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
     }
@@ -588,7 +661,14 @@ impl Store {
     }
     /// Make `text` the newest entry and keep the last
     /// [`arinn_protocol::browse::MAX_RECENT`].
-    pub fn push_browse_recent(&mut self, text: &str) -> Result<(), ErrorCode> {
+    /// The text is reduced by [`browse_recent_entry`] first; text that may
+    /// not be kept is not recorded and the list is left as it was. Returns
+    /// whether an entry was recorded.
+    pub fn push_browse_recent(&mut self, text: &str) -> Result<bool, ErrorCode> {
+        let Some(entry) = browse_recent_entry(text) else {
+            return Ok(false);
+        };
+        let text = entry.as_str();
         let transaction = self
             .connection
             .transaction()
@@ -606,7 +686,8 @@ impl Store {
                 [arinn_protocol::browse::MAX_RECENT as i64],
             )
             .map_err(|_| ErrorCode::Internal)?;
-        transaction.commit().map_err(|_| ErrorCode::Internal)
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(true)
     }
     pub fn clear_browse_recent(&mut self) -> Result<(), ErrorCode> {
         self.connection

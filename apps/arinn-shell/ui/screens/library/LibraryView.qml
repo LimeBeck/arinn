@@ -265,6 +265,15 @@ FocusScope {
     signal retryRequested()
     signal backRequested()
     signal homeRequested()
+    // Home leaves Detail behind: the library opens on its grid next time,
+    // for the Home key here and for the platform's Home (review of #778).
+    // Returns the card to focus when the library comes back.
+    function dropDetailForHome() {
+        const restoreId = detailOpenerId || detailEntryId;
+        if (detailOpen)
+            detailEntryId = "";
+        return restoreId;
+    }
     // Left where nothing lies further left (the first poster of a row, the
     // first tab): the shell opens navigation (handoff 04, #756 A8).
     signal navigationRequested()
@@ -895,9 +904,7 @@ FocusScope {
             return;
         }
         if (event.key === Qt.Key_Home) {
-            const restoreId = detailOpenerId || detailEntryId;
-            if (detailOpen)
-                detailEntryId = "";
+            const restoreId = dropDetailForHome();
             homeRequested();
             if (restoreId.length)
                 Qt.callLater(() => { if (ownsFocus && visible && enabled) focusPosterById(restoreId); });

@@ -193,6 +193,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
             // A new daemon owner may be another build: ask it again.
             m_buildRequested = m_buildMismatch = false;
             m_pendingIds.clear();
+            m_queuedTerminates.clear();
             m_launches.clear();
             m_shownLaunch.clear();
             m_connected = false;
@@ -1223,7 +1224,9 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   if (m_pendingIds.contains(id))
     return;
   const auto epoch = m_connectionEpoch;
+  const auto method = msg.member();
   m_pendingIds.insert(id);
+  emit operationStarted(id, method);
   // A launch already has its overlay; a toast would be a third progress
   // indicator (#756 C19).
   if (!m_launches.contains(id)) {
@@ -1234,7 +1237,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
-          [this, id, epoch](auto *call) {
+          [this, id, epoch, method](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
             if (epoch != m_connectionEpoch)
@@ -1250,17 +1253,40 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
                                    ? errorText(errorCodeOf(reply.errorName()))
                                    : tr("Operation is unavailable"));
               publishState();
+              operationEnded(id, method, QStringLiteral("failed"));
               return;
             }
             const auto operation =
                 qvariant_cast<QDBusObjectPath>(reply.arguments().at(0)).path();
             if (auto *launch = launchRecord(id, QString()))
               launch->operation = operation;
-            watchOperation(id, operation, epoch);
+            watchOperation(id, operation, epoch, method);
           });
 }
+void Backend::operationEnded(const QString &id, const QString &method,
+                             const QString &state) {
+  emit operationFinished(id, method, state);
+  // A close asked for while another operation on the window ran (#759).
+  if (!m_queuedTerminates.contains(id))
+    return;
+  const auto queued = m_queuedTerminates.take(id);
+  QTimer::singleShot(0, this, [this, id, queued] {
+    for (const auto &item : std::as_const(m_items))
+      if (item.toMap().value("id").toString() == id) {
+        terminate(id);
+        return;
+      }
+    // A partial snapshot is no proof that the window went: the request is
+    // sent with the entry kept when it was queued (review of #777).
+    if (m_snapshotError && !queued.isEmpty()) {
+      runApplication(id, QVariantList{queued}, "Terminate");
+      return;
+    }
+    // The window went meanwhile: the close flow sees it go.
+  });
+}
 void Backend::watchOperation(const QString &id, const QString &operationPath,
-                             quint64 epoch) {
+                             quint64 epoch, const QString &method) {
   auto timer = new QTimer(this);
   timer->setInterval(100);
   // The launch record of this operation, if it is a launch.
@@ -1268,7 +1294,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
     return launchRecord(id, operationPath);
   };
   connect(timer, &QTimer::timeout, this,
-          [this, timer, operationPath, id, epoch, shown] {
+          [this, timer, operationPath, id, epoch, shown, method] {
             timer->stop();
             if (epoch != m_connectionEpoch) {
               timer->deleteLater();
@@ -1279,7 +1305,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
             auto p = new QDBusPendingCallWatcher(
                 QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
             connect(p, &QDBusPendingCallWatcher::finished, this,
-                    [this, timer, id, epoch, shown](auto *call) {
+                    [this, timer, id, epoch, shown, method](auto *call) {
                       const auto reply = call->reply();
                       call->deleteLater();
                       if (epoch != m_connectionEpoch) {
@@ -1295,6 +1321,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         setResultMessage(tr("Operation is unavailable"));
                         timer->deleteLater();
                         publishState();
+                        operationEnded(id, method, QStringLiteral("failed"));
                         return;
                       }
                       const QDBusArgument arg =
@@ -1347,6 +1374,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         dismissed();
                       else
                         publishState();
+                      operationEnded(id, method, state);
                     });
           });
   timer->start();
@@ -1596,6 +1624,23 @@ void Backend::setFavorite(const QString &id, bool pinned) {
             publishState();
           });
 }
+void Backend::cancelQueuedTerminate(const QString &id) {
+  // The close flow gave up on this window (#759, CL-11): the queued close
+  // must not run when the earlier operation ends.
+  m_queuedTerminates.remove(id);
+}
 void Backend::terminate(const QString &id) {
+  // Another operation on this window still runs, such as an Activate: the
+  // close starts when it ends instead of being dropped (review of #777).
+  if (m_pendingIds.contains(id)) {
+    QVariantMap entry;
+    for (const auto &item : std::as_const(m_items))
+      if (item.toMap().value("id").toString() == id) {
+        entry = item.toMap();
+        break;
+      }
+    m_queuedTerminates.insert(id, entry);
+    return;
+  }
   runApplication(id, m_items, "Terminate");
 }

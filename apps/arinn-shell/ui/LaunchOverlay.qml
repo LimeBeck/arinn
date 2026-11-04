@@ -55,6 +55,15 @@ FocusScope {
     signal dismissRequested()
     signal homeRequested()
 
+    // Home, from the key here or the platform: close the dialog, or hide a
+    // slow open, without retrying or cancelling. A launch the dialog covered
+    // stays hidden too: Home is on screen next (§6.5).
+    function leaveForHome() {
+        if (showDialog)
+            dismissRequested();
+        hideForHome();
+        homeRequested();
+    }
     function arm() {
         homeHidden = false;
         revealed = false;
@@ -396,13 +405,7 @@ FocusScope {
             event.accepted = true;
             if (event.isAutoRepeat)
                 return;
-            // Close the dialog, or hide a slow open, without retrying or
-            // cancelling. A launch the dialog covered stays hidden too: Home
-            // is on screen next (§6.5).
-            if (root.showDialog)
-                root.dismissRequested();
-            root.hideForHome();
-            root.homeRequested();
+            root.leaveForHome();
             return;
         }
         if (event.key !== Qt.Key_Escape && event.key !== Qt.Key_Backspace && event.key !== Qt.Key_Back)

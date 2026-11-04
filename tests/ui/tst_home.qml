@@ -81,31 +81,98 @@ TestCase {
         keyClick(Qt.Key_Escape); tryCompare(home,"tileActionsOpen",false);
         focused("entry-missing");
     }
-    SignalSpy { id: terminations; signalName: "terminateRequested" }
-    function test_close_application_confirmation_and_remote_back() {
+    SignalSpy { id: closes2; signalName: "closeRequested" }
+    // #759, CL-1/CL-2: the right sheet; Close hands over to the shell's
+    // confirmation (CloseFlow) and the sheet gives back the tile's focus.
+    function test_tile_sheet_close_hands_over_to_the_close_flow() {
         home.actionsEnabled = true;
-        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture", runningId: "running"}];
-        terminations.target = home; terminations.clear();
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture",
+                                 running: true, runningId: "running"}];
+        closes2.target = home; closes2.clear();
+        child("entry-f").forceActiveFocus(); focused("entry-f");
         home.openTileActions("f"); focused("favoriteAction");
-        keyClick(Qt.Key_Right); focused("closeAppAction"); keyClick(Qt.Key_Return);
-        focused("closeAppCancel"); compare(terminations.count,0);
-        pins.target = home; pins.clear();
-        mouseClick(child("favoriteAction"),10,10);
-        compare(pins.count,0); compare(terminations.count,0);
-        verify(home.confirmAppClose);
-        keyClick(Qt.Key_Tab); focused("closeAppConfirm");
-        keyClick(Qt.Key_Backtab); focused("closeAppCancel");
-        pins.target = null;
-        keyClick(Qt.Key_Back); focused("closeAppAction"); compare(terminations.count,0);
-        keyClick(Qt.Key_Return); focused("closeAppCancel");
-        keyClick(Qt.Key_Return); focused("closeAppAction"); compare(terminations.count,0);
-        keyClick(Qt.Key_Return); focused("closeAppCancel");
-        keyClick(Qt.Key_Right); focused("closeAppConfirm"); keyClick(Qt.Key_Return);
-        compare(terminations.count,1); compare(terminations.signalArguments[0][0],"running");
-        tryCompare(home,"tileActionsOpen",false);
-        home.openTileActions("f"); focused("favoriteAction"); keyClick(Qt.Key_Back);
-        tryCompare(home,"tileActionsOpen",false);
-        terminations.target = null;
+        const sheet = child("tileActionSheet");
+        compare(sheet.width, 720);
+        compare(sheet.x, home.width - 720);
+        compare(child("tileActionsTitle").text, "Favorite");
+        compare(child("tileActionsStatus").text, "Running now");
+        verify(child("tileActionsRunningDot").visible);
+        compare(child("tileActionsEyebrow").text, home.favoritesTitle);
+        verify(child("closeAppAction").visible);
+        compare(child("closeAppActionDescription").text, "Arinn will ask Favorite to close");
+        keyClick(Qt.Key_Down); focused("closeAppAction");
+        keyClick(Qt.Key_Up); focused("favoriteAction");
+        keyClick(Qt.Key_Down); focused("closeAppAction");
+        keyClick(Qt.Key_Return);
+        compare(closes2.count, 1); compare(closes2.signalArguments[0][0], "running");
+        tryCompare(home, "tileActionsOpen", false);
+        focused("entry-f");
+        // Back returns to the tile; a web shortcut gets no Close.
+        home.favoriteEntries = [{id: "w", title: "Site", pinned: true, providerId: "fixture",
+                                 webShortcut: true, running: true, runningId: "tab"}];
+        child("entry-w").forceActiveFocus(); focused("entry-w");
+        home.openTileActions("w"); focused("favoriteAction");
+        verify(!child("closeAppAction").visible);
+        compare(child("tileActionsStatus").text, "Running now");
+        keyClick(Qt.Key_Back);
+        tryCompare(home, "tileActionsOpen", false);
+        focused("entry-w");
+        closes2.target = null;
+    }
+    // #756 A4, spec §6.2: a long Menu opens the sheet; a short Menu
+    // still toggles navigation.
+    function test_long_menu_opens_the_tile_sheet_and_o_does_not() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"}];
+        child("entry-f").forceActiveFocus(); focused("entry-f");
+        keyPress(Qt.Key_Menu); wait(750); keyRelease(Qt.Key_Menu);
+        tryCompare(home, "tileActionsOpen", true);
+        verify(!home.navOpen);
+        focused("favoriteAction");
+        keyClick(Qt.Key_Back); tryCompare(home, "tileActionsOpen", false);
+        focused("entry-f");
+        // Review of #777: a plain letter is not a product key (spec §6.2).
+        keyClick(Qt.Key_O);
+        wait(50);
+        verify(!home.tileActionsOpen);
+        focused("entry-f");
+        verify(child("tileHint").visible);
+        compare(child("tileHint").text, "OK — open · Menu — actions");
+        keyClick(Qt.Key_Menu);
+        tryCompare(home, "navOpen", true);
+        verify(!home.tileActionsOpen);
+        keyClick(Qt.Key_Escape); tryCompare(home, "navOpen", false);
+        focused("entry-f");
+    }
+    // CL-3a: Close beside an application's Continue card, 16 px from it;
+    // → reaches it, the next → the first media card.
+    function test_continue_close_button_beside_the_application_card() {
+        home.returnActivityId = "a";
+        home.activityWindowId = "window-a";
+        home.activityTerminable = true;
+        home.activityWindowTitle = "Activity";
+        closes2.target = home; closes2.clear();
+        focused("entry-a");
+        const close = child("entry-close:window-a");
+        compare(close.width, 128);
+        compare(close.height, 225);
+        const card = child("entry-a");
+        // Slot geometry, unaffected by the focused card's scale; the row
+        // lays a new slot out on its next polish.
+        const slotOf = item => item.parent.parent.parent;
+        tryVerify(() => {
+            const closeLeft = slotOf(close).x + close.mapToItem(slotOf(close), 0, 0).x;
+            return Math.abs(closeLeft - (slotOf(card).x + 400) - 16) < 1;
+        }, 2000, "Close sits 16 px right of the card");
+        keyClick(Qt.Key_Right); focused("entry-close:window-a");
+        compare(child("heroMeta").text, "Close Activity");
+        keyClick(Qt.Key_Return);
+        compare(closes2.count, 1); compare(closes2.signalArguments[0][0], "window-a");
+        keyClick(Qt.Key_Right); focused("entry-b");
+        // A web-service card has none.
+        home.returnIsWebService = true;
+        tryVerify(() => findChild(home, "entry-close:window-a") === null);
+        closes2.target = null;
     }
     function test_favorite_read_failure_preserves_visible_action_focus() {
         home.actionsEnabled = true;
@@ -505,13 +572,28 @@ TestCase {
         home.newEntries = [];
         focused("entry-f");
     }
-    function test_navigation_activity_removed() {
+    // CL-7: Running replaces the activity row and stays when the activity
+    // goes; its count follows the running windows.
+    function test_running_navigation_item_stays_when_the_activity_goes() {
         home.returnActivityId = "a";
+        home.activityWindowTitle = "Activity";
+        home.runningEntries = [{id: "w1", title: "Activity"}, {id: "w2", title: "Other"}];
         keyClick(Qt.Key_Menu);
         for (let i = 0; i < 6; ++i) keyClick(Qt.Key_Down);
         focused("nav-6");
+        compare(child("nav-6").text, "Running");
+        compare(findChild(child("nav-6"), "runningCountBadge").text, "2");
+        compare(findChild(child("nav-6"), "runningSubline").text, "On screen: Activity");
+        verify(findChild(child("nav-6"), "navCurrentDot").visible);
         home.returnActivityId = "";
-        focused("nav-5");
+        home.activityWindowTitle = "";
+        home.runningEntries = [];
+        focused("nav-6");
+        verify(child("nav-6").visible);
+        verify(!findChild(child("nav-6"), "runningBadge").visible);
+        keyClick(Qt.Key_Return);
+        compare(home.screen, "running");
+        compare(home.navOpen, false);
     }
     function test_scrim_restores_focus() {
         keyClick(Qt.Key_Right); keyClick(Qt.Key_Menu); focused("nav-0");
@@ -1133,6 +1215,29 @@ TestCase {
         focused("nav-5");
         compare(child("openServicesBadge").visible, false);
     }
+    // Review of #777: a held Menu on a web shortcut keeps Menu's meaning
+    // (navigation here, the editor in Applications), not the tile sheet.
+    function test_long_menu_on_a_web_shortcut_keeps_menu() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "w", title: "Site", pinned: true, providerId: "fixture", webShortcut: true}];
+        child("entry-w").forceActiveFocus(); focused("entry-w");
+        keyPress(Qt.Key_Menu); wait(750); keyRelease(Qt.Key_Menu);
+        tryCompare(home, "navOpen", true);
+        verify(!home.tileActionsOpen);
+    }
+    // Review of #777, CL-9: a tile whose window is closing shows the busy
+    // mark in place of the running dot.
+    function test_closing_tile_replaces_the_running_dot() {
+        home.favoriteEntries = [{id: "f", title: "Favorite", providerId: "fixture", running: true, runningId: "w9"}];
+        const tile = child("entry-f");
+        verify(findChild(tile, "emberDot").visible);
+        verify(!findChild(tile, "closingMark").visible);
+        home.closingIds = ["w9"];
+        verify(!findChild(tile, "emberDot").visible);
+        verify(findChild(tile, "closingMark").visible);
+        home.closingIds = [];
+        verify(findChild(tile, "emberDot").visible);
+    }
     function test_web_shortcut_open_dot_and_unavailable() {
         home.favoriteEntries = [
             {id: "f", title: "Favorite", monogram: "F", webShortcut: true},
@@ -1284,6 +1389,70 @@ TestCase {
         compare(dim.opacity, 0.5);
         compare(findChild(tile, "applicationFallback").visible, true);
         verify(Qt.colorEqual(findChild(tile, "applicationChip").color, Ui.Theme.chip));
+    }
+    // Review of #777: navigation opened from the Running screen focuses
+    // Running; the tile sheet opens for Close while favourites are off.
+    function test_running_screen_navigation_and_sheet_without_favorites() {
+        home.showRunning();
+        compare(home.screen, "running");
+        home.openNavigation();
+        focused("nav-6");
+        home.closeNavigation();
+        home.showHome();
+        home.actionsEnabled = false;
+        home.favoriteEntries = [{id: "f", title: "Favorite", providerId: "fixture", running: true, runningId: "w"}];
+        child("entry-f").forceActiveFocus(); focused("entry-f");
+        home.openTileActions("f");
+        verify(home.tileActionsOpen);
+        focused("closeAppAction");
+        verify(!child("favoriteAction").enabled);
+        keyClick(Qt.Key_Escape);
+        // Review of #777: with favourites unavailable too, Close comes
+        // before Refresh list, in the sheet's order.
+        home.favoriteError = "Favorites unavailable. Refresh the list before editing.";
+        home.openTileActions("f");
+        verify(child("favoriteRefresh").visible);
+        focused("closeAppAction");
+        keyClick(Qt.Key_Escape);
+        home.favoriteError = "";
+        // Nothing to offer: no sheet.
+        home.favoriteEntries = [{id: "g", title: "Plain", providerId: "fixture"}];
+        home.openTileActions("g");
+        verify(!home.tileActionsOpen);
+    }
+    // Review of #777: the "no longer available" notice is skipped only for
+    // the window the close flow closed, not for any other activity.
+    function test_activity_notice_skipped_only_for_the_closed_window() {
+        home.returnActivityId = "a";
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-other"];
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
+        child("activityNotice").visible = false;
+        home.returnActivityId = "a";
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-a"];
+        home.returnActivityId = "";
+        verify(!child("activityNotice").visible);
+        // A window Arinn cannot close comes on screen after the closed one:
+        // it has no Close, and its own disappearance still gets the notice.
+        home.returnActivityId = "a";
+        home.activityTerminable = false;
+        home.activityWindowId = "w-b";
+        verify(findChild(home, "entry-close:w-b") === null);
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
+        child("activityNotice").visible = false;
+        // Return moves on to a browser activity after the closed window:
+        // its disappearance still gets the notice.
+        home.returnActivityId = "a";
+        home.activityTerminable = true;
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-a"];
+        home.activityWindowId = "";
+        home.returnActivityId = "tab";
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
     }
 
     // #756 C17: the page under the navigation is darkened, not made

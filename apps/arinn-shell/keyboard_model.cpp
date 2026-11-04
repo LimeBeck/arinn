@@ -72,13 +72,14 @@ const Letters &symbolLayer() {
 
 using Context = QList<QPair<QString, qreal>>;
 
+// The context rows repeat no character of the letter rows: ":", "." and
+// "-" are on those already, and so is "_" in the English rows that paths
+// start in (ADR-0140 §4, #756 C29).
 const Context &addressContext() {
   static const Context keys{
       {QStringLiteral("https://"), 2}, {QStringLiteral("www."), 1.5},
       {QStringLiteral(".ru"), 1.5},    {QStringLiteral(".com"), 1.5},
-      {QStringLiteral(".local"), 1.5}, {QStringLiteral("/"), 1},
-      {QStringLiteral(":"), 1},        {QStringLiteral("."), 1},
-      {QStringLiteral("-"), 1}};
+      {QStringLiteral(".local"), 1.5}, {QStringLiteral("/"), 1}};
   return keys;
 }
 
@@ -86,9 +87,7 @@ const Context &pathContext() {
   static const Context keys{
       {QStringLiteral("/"), 1},         {QStringLiteral("~/"), 1},
       {QStringLiteral("/media/"), 1.8}, {QStringLiteral("/run/media/"), 2.2},
-      {QStringLiteral("/mnt/"), 1.5},   {QStringLiteral(".."), 1},
-      {QStringLiteral("-"), 1},         {QStringLiteral("_"), 1},
-      {QStringLiteral("."), 1}};
+      {QStringLiteral("/mnt/"), 1.5},   {QStringLiteral(".."), 1}};
   return keys;
 }
 

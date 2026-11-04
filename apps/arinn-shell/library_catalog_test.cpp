@@ -2363,8 +2363,8 @@ private slots:
   }
   // #329: Menu opens the side navigation over Library and Settings, drawn
   // above them; Escape returns to the screen; Home from Settings goes Home.
-  // #756 C26: Library, Settings, Downloads and Open services share Home's
-  // status area at the same place; Home draws its own.
+  // #756 C26: Library, Settings, Downloads, Running and Open services share
+  // Home's status area at the same place; Home draws its own.
   void sectionScreensShareTheStatusArea() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
@@ -2396,7 +2396,7 @@ private slots:
       return clock ? clock->property("text").toString() : QStringLiteral("<none>");
     };
     for (const auto &screen : {QStringLiteral("library"), QStringLiteral("settings"),
-                               QStringLiteral("downloads")}) {
+                               QStringLiteral("downloads"), QStringLiteral("running")}) {
       home->setProperty("screen", screen);
       QTRY_VERIFY2(shared->isVisible(), qPrintable(screen));
       QCOMPARE(shared->mapToScene(QPointF(shared->width(), 0)).y(),

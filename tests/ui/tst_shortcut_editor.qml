@@ -109,8 +109,17 @@ TestCase {
         tryCompare(key(0, 0), "visible", true);
         compare(key(0, 0).modelData.label, "https://");
         keyClick(Qt.Key_Up); keyClick(Qt.Key_Up);
+        // The context row's key above the letters (ADR-0140 §4: no ":", "."
+        // or "-" there, so the keys are wider than before).
+        let above = "";
+        tryVerify(() => {
+            for (let i = 0; i < 6; ++i)
+                if (key(0, i).focused) { above = key(0, i).modelData.label; return true; }
+            return false;
+        });
         keyClick(Qt.Key_Return);
-        compare(child("shortcutUrl").text, "https://example.test.ru");
+        const typed = "https://example.test" + above;
+        compare(child("shortcutUrl").text, typed);
         keyClick(Qt.Key_Escape);
         tryCompare(home, "shortcutTypingField", "");
         focused("shortcutUrlKeyboard");
@@ -119,7 +128,7 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(saves.count, 1);
         compare(saves.signalArguments[0][0], "Exampleg");
-        compare(saves.signalArguments[0][1], "https://example.test.ru");
+        compare(saves.signalArguments[0][1], typed);
         keyClick(Qt.Key_Right); focused("shortcutCancel");
         keyClick(Qt.Key_Return);
         verify(!home.shortcutEditorOpen);

@@ -495,6 +495,32 @@ RU = {
     "Japanese": "Японский",
     "Chinese": "Китайский",
     "Korean": "Корейский",
+    # Closing applications (#759, handoff CL-1…16)
+    "Running": "Запущенные",
+    "Running now": "Запущено",
+    "Not running": "Не запущено",
+    "Arinn will ask %1 to close": "Arinn попросит %1 закрыться",
+    "OK — open · Menu — actions": "OK — открыть · Меню — действия",
+    "Close %1": "Закрыть %1",
+    "Running applications": "Запущенные приложения",
+    "One of %n windows": "Одно из %n окон",
+    "Arinn cannot close this": "Закрыть из Arinn нельзя",
+    "Did not close": "Не закрылся",
+    "In the background": "В фоне",
+    "Arinn cannot close “%1”. Close it in the application itself.": "Arinn не может закрыть «%1». Закройте его в самом приложении",
+    "Nothing is running": "Ничего не запущено",
+    "Running applications are unavailable": "Запущенные приложения недоступны",
+    "Try again in a moment.": "Попробуйте чуть позже.",
+    "Applications and games you open appear here. Online services are in Open services.": "Здесь появятся приложения и игры, которые вы откроете. Онлайн-сервисы — в «Открытых сервисах».",
+    "OK Go to · → Close · Back Exit": "OK Перейти · → Закрыть · Назад Выйти",
+    "%1 closed": "%1 закрыт",
+    "Closed": "Закрыто",
+    "%1 did not close": "%1 не закрылся",
+    "Close %1?": "Закрыть %1?",
+    "It may be waiting for an answer on its own screen, for example to save changes. Go to %1 and answer there.": "Возможно, он ждёт ответа на своём экране — например, просит сохранить изменения. Перейдите в %1 и ответьте там.",
+    "Arinn will ask %1 to close. Unsaved changes and game progress may be lost.": "Arinn попросит %1 закрыться. Несохранённые изменения и прогресс в игре могут пропасть.",
+    "Go to %1": "Перейти в %1",
+    "Stay": "Остаться",
     # Library detail: where Continue starts (#728, handoff 06, 07)
     "Continue from %1": "Продолжить с %1",
     "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
@@ -547,6 +573,9 @@ RU.update({
     "Media sessions": "Медиасеансы",
 })
 
+# Open services hint: → reaches Save, then Close (#756 C32).
+RU["Save or close"] = "Сохранить или закрыть"
+
 # Context-specific overrides: the same English word reads differently.
 CONTEXT = {
     ("SessionView", "Play"): "Воспроизвести",
@@ -558,7 +587,8 @@ CONTEXT = {
     # Restart Arinn itself, not the computer (ADR-0098).
     ("HomeView", "Restart"): "Перезапустить",
     ("BrowserView", "Open services"): "Открытые сервисы",
-    ("HomeView", "Open services"): "Все открытые сервисы",
+    # The navigation item reads as the screen title (#756 C32).
+    ("HomeView", "Open services"): "Открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
     # The hero names one item: a series, not the Series tab (#756 C20).
     ("HomeView", "Series"): "Сериал",

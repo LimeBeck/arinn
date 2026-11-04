@@ -75,6 +75,8 @@ FocusScope {
     readonly property string pathHint: pathEditing ? pathProblem(expandHome(editingDraft)) : ""
     property string enumClosingKey: ""
     signal valueChangeRequested(string providerId, string settingId, var value)
+    // OK on a folder list: the shell opens the Library folders screen.
+    signal foldersRequested(var row)
     signal errorDismissRequested(string providerId, string settingId)
     signal dismissRequested()
     // Home from anywhere in Settings, editors and sheets included (§6.3).
@@ -196,8 +198,16 @@ FocusScope {
         const options = row && row.constraints && row.constraints.options;
         return options && options.length !== undefined ? options : [];
     }
+    // A list of folders (`path`, `multiple`, `directory`) opens the Library
+    // folders screen (handoff LF-1…8, #764): its row is a plain row with a
+    // count and a chevron. Other path lists keep the inline list.
+    function isFolderList(row) {
+        return !!row && row.type === "path" && !!(row.constraints && row.constraints.multiple
+                                                  && row.constraints.directory);
+    }
     function isMultiple(row) {
-        return !!row && row.type === "path" && !!(row.constraints && row.constraints.multiple);
+        return !!row && row.type === "path" && !!(row.constraints && row.constraints.multiple)
+               && !isFolderList(row);
     }
     function pathList(row) {
         if (!row || row.currentValue === undefined || row.currentValue === null) return [];
@@ -241,6 +251,13 @@ FocusScope {
     function displayValue(row) {
         if (!row) return "";
         if (row.pending) return qsTr("Saving…");
+        if (isFolderList(row)) {
+            const value = row.currentValue;
+            const folders = value && value.length !== undefined && typeof value !== "string" ? value.length : 0;
+            const missing = (row.unavailablePaths || []).length;
+            const count = qsTr("%n folder(s)", "", folders);
+            return missing ? count + " · " + qsTr("%n unavailable", "", missing) : count;
+        }
         if (row.type === "boolean")
             return valueUnsupported(row) ? qsTr("Unsupported") : "";
         if (row.type === "enum") {
@@ -1386,6 +1403,8 @@ FocusScope {
                                         root.openInteger(row);
                                     else if (row.type === "string")
                                         root.openString(row);
+                                    else if (root.isFolderList(row))
+                                        root.foldersRequested(row);
                                     else if (row.type === "path")
                                         root.openEditor(row, "main", row.currentValue || "");
                                 }

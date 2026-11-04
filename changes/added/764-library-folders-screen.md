@@ -1,0 +1,1 @@
+- Settings › Library folders is a full screen with the folders in the order added, *Add folder* and *Remove* with a confirmation, and a folder picker that starts from the home folder, the mounted drives or the whole computer and lists folders only ([#764](https://github.com/LimeBeck/arinn/issues/764)).

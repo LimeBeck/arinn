@@ -490,6 +490,31 @@ private slots:
                  QStringLiteral("Playback"));
     QCoreApplication::removeTranslator(&translator);
   }
+  // Review of #780: only a library provider's folder list is marked for
+  // the library wording; another provider's folder list is not.
+  void folderListsOfLibraryProvidersAreMarked() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")},
+                        {QStringLiteral("backup"), QStringLiteral("Backup")}};
+    for (const auto &id : {QStringLiteral("library"), QStringLiteral("backup")})
+      daemon.settings.insert(id, {setting(QStringLiteral("dirs"), QStringLiteral("media"),
+                                          QStringLiteral("path"), QStringLiteral(R"(["/a"])"),
+                                          QStringLiteral(R"({"directory":true,"multiple":true})"),
+                                          true)});
+    daemon.libraryProviders = {
+        {QStringLiteral("library"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/library")),
+         {QStringLiteral("library")}},
+        {QStringLiteral("backup"),
+         QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/backup")),
+         {QStringLiteral("storage")}}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_VERIFY(rowAt(catalog, QStringLiteral("library"), QStringLiteral("dirs"))
+                    .value(QStringLiteral("libraryFolders")).toBool());
+    QVERIFY(!rowAt(catalog, QStringLiteral("backup"), QStringLiteral("dirs"))
+                 .value(QStringLiteral("libraryFolders")).toBool());
+  }
   void groupsProvidersByCategory() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("beta"), QStringLiteral("Beta")},

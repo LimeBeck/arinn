@@ -1398,6 +1398,51 @@ private slots:
     QTRY_VERIFY(focusInside(home));
     QCOMPARE(backend.backs, 0);
   }
+  // Review of #778: the platform's Home closes an open Settings editor
+  // without saving, as the Home key does there.
+  void globalHomeClosesASettingsEditor() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto settings = window->findChild<QQuickItem *>("productionSettings");
+    QVERIFY(home && settings);
+    settings->setProperty("screenState", QStringLiteral("ready"));
+    settings->setProperty("categories", QVariantList{QVariantMap{
+        {QStringLiteral("id"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("System")},
+        {QStringLiteral("icon"), QStringLiteral("memory")}}});
+    settings->setProperty("rows", QVariantList{QVariantMap{
+        {QStringLiteral("providerId"), QStringLiteral("shell")},
+        {QStringLiteral("providerName"), QStringLiteral("Shell")},
+        {QStringLiteral("id"), QStringLiteral("idle")},
+        {QStringLiteral("categoryId"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("Idle minutes")},
+        {QStringLiteral("description"), QString()},
+        {QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("currentValue"), 10},
+        {QStringLiteral("constraints"), QVariantMap{{QStringLiteral("min"), 1},
+                                                    {QStringLiteral("max"), 60}}},
+        {QStringLiteral("enabled"), true}}});
+    home->setProperty("screen", QStringLiteral("settings"));
+    QTRY_VERIFY(settings->isVisible());
+    QTest::qWait(100);
+    QTest::keyClick(window, Qt::Key_Right);
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(settings->property("editingKey").toString(), QStringLiteral("shell-idle"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QCOMPARE(settings->property("editingKey").toString(), QString());
+  }
   void productionOpenTabSurvivesShellRestartWithoutReturn() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
     BrowserDaemon daemon;

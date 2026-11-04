@@ -695,12 +695,17 @@ FocusScope {
     function homeKey(event) {
         if (event.key !== Qt.Key_Home || event.modifiers !== Qt.NoModifier) return false;
         if (!event.isAutoRepeat) {
-            if (editingKey.length) cancelEditor();
-            if (choosingKey.length) closeOptions();
+            dropTransient();
             homeRequested();
         }
         event.accepted = true;
         return true;
+    }
+    // The open editor or option list, closed without committing its draft.
+    // The shell calls this for the platform's Home too (review of #778).
+    function dropTransient() {
+        if (editingKey.length) cancelEditor();
+        if (choosingKey.length) closeOptions();
     }
     function cancelEditor() {
         const key = editingKey;

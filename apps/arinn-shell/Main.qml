@@ -624,6 +624,9 @@ Window {
                 // The shell is on screen: the global Home key shows Home from
                 // Open services and the other screens, as the Home key does
                 // (§6.3, #756 A6). Home itself handles its own key.
+                // A Settings editor or option list closes without saving
+                // first, as for the Home key there (review of #778).
+                if (root.focusedScreen === "settings") settingsView.dropTransient();
                 if (root.focusedScreen !== "home") root.goHomeFrom(root.focusedScreen);
                 return;
             }

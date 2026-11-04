@@ -182,6 +182,13 @@ The production connection must:
 - Cover pending, success, denial, expiry, cancellation, retry, polling limits,
   restart and late-result races with synthetic tests before live qualification.
 
+The device-code response may name the exact public short address
+`https://ya.ru/device`. The provider normalizes only that literal alias to the
+existing canonical `https://oauth.yandex.ru/device` prompt. Other hosts, paths or
+decorated short addresses remain rejected, and OAuth requests still use the
+fixed origin with redirects disabled. This compatibility fix does not qualify
+account approval or authenticated Music API access ([#766](https://github.com/LimeBeck/arinn/issues/766)).
+
 The provider-private flow is implemented with `POST /device/code` and
 `POST /token` at the fixed HTTPS OAuth origin. It uses the upstream Yandex
 [device-auth request semantics](https://github.com/MarshalX/yandex-music-api/blob/main/yandex_music/_client/device_auth.py)

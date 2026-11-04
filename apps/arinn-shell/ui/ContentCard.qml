@@ -155,8 +155,11 @@ Surface {
                 anchors.right: parent.right; anchors.top: parent.top
                 anchors.margins: 24
                 width: 60; height: 60; radius: 18
-                color: root.accentColor
-                UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control" }
+                objectName: "cardChip"
+                // Neutral chip, never a hashed pastel (brief *Monograms*, #756 C19).
+                color: Theme.chip
+                border.width: 1; border.color: Theme.chipLine
+                UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control"; color: Theme.textSecondary }
             }
             Rectangle {
                 x: 24; y: 24; width: 12; height: 12; radius: 6

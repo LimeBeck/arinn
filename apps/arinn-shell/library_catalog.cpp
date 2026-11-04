@@ -422,6 +422,15 @@ void LibraryCatalog::publish() {
     card.insert(QStringLiteral("id"), QStringLiteral("resume:") + title->id);
     card.insert(QStringLiteral("libraryEntryId"), title->id);
     card.insert(QStringLiteral("resumeContentId"), target->id);
+    // The hero names the kind, the year or the episode, never the row
+    // (Hearth light brief, Home; #756 C20).
+    card.insert(QStringLiteral("mediaKind"), card.value(QStringLiteral("kind")));
+    if (title->hasYear)
+      card.insert(QStringLiteral("year"), title->year);
+    if (target->hasSeason)
+      card.insert(QStringLiteral("season"), target->season);
+    if (target->hasEpisode)
+      card.insert(QStringLiteral("episode"), target->episode);
     card.insert(QStringLiteral("kind"), QStringLiteral("media"));
     card.insert(QStringLiteral("state"), QStringLiteral("stopped"));
     card.insert(QStringLiteral("running"), false);

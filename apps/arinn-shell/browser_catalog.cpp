@@ -92,6 +92,43 @@ QString letterOf(const QString &text) {
   }
   return host.isEmpty() ? QString() : host.left(1).toUpper();
 }
+// Letters and digits only, lower case: "Example Site" and "example.site"
+// compare equal.
+QString nameKey(const QString &text) {
+  QString key;
+  for (const auto c : text.toLower())
+    if (c.isLetterOrNumber())
+      key.append(c);
+  return key;
+}
+// A page title without the site name that pages append after a separator
+// ("Episode 4 — Site", "Page | Site"). The last part goes only when it is
+// the site's own name: it starts with the host's main label ("example" of
+// www.example.test). Any other last part is part of the title ("Episode
+// IV - A New Hope"). No site is named here (R-01, #756 B14).
+QString pageTitle(const QString &title, const QString &host) {
+  const auto text = title.trimmed();
+  qsizetype cut = -1, width = 0;
+  for (const auto separator :
+       {QStringLiteral(" — "), QStringLiteral(" – "), QStringLiteral(" | "),
+        QStringLiteral(" - ")}) {
+    const auto at = text.lastIndexOf(separator);
+    if (at > cut) {
+      cut = at;
+      width = separator.size();
+    }
+  }
+  if (cut <= 0)
+    return text;
+  const auto tail = nameKey(text.mid(cut + width));
+  auto labels = host.toLower().split(QLatin1Char('.'), Qt::SkipEmptyParts);
+  if (!labels.isEmpty() && labels.last().contains(QLatin1Char(':')))
+    labels.last() = labels.last().section(QLatin1Char(':'), 0, 0);
+  const auto label = labels.size() >= 2 ? nameKey(labels.at(labels.size() - 2)) : QString();
+  if (tail.isEmpty() || label.size() < 3 || !tail.startsWith(label))
+    return text;
+  return text.left(cut).trimmed();
+}
 } // namespace
 struct BrowserCatalog::Catalog {
   quint64 epoch = 0, evidenceVersion = 0;
@@ -638,7 +675,7 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
                 const auto token = originToken(origin);
                 if (!token.isEmpty())
                   confirmed.insert(token);
-                origins.append(ShortcutOrigin{id, icon, origin.scheme,
+                origins.append(ShortcutOrigin{id, title, icon, origin.scheme,
                                               origin.host, origin.port,
                                               origin.ok});
                 shortcuts.append(QVariantMap{{"id", id}, {"title", title}});
@@ -1010,12 +1047,14 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     const auto origin = originOf(url);
     QString icon;
     QString shortcutId;
+    QString shortcutTitle;
     if (origin.ok) {
       for (const auto &shortcut : m_origins) {
         if (!shortcut.ok || shortcut.scheme != origin.scheme ||
             shortcut.host != origin.host || shortcut.port != origin.port)
           continue;
         shortcutId = shortcut.id;
+        shortcutTitle = shortcut.title.trimmed();
         if (!shortcut.icon.isEmpty())
           icon = shortcut.icon;
         break;
@@ -1023,6 +1062,14 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     }
     map.insert(QStringLiteral("letter"), letterOf(url));
     map.insert(QStringLiteral("domain"), displayHost(url));
+    // What Home calls this service: the shortcut's name, else the page
+    // title without its site suffix, else the host (#756 B14).
+    const auto cleaned = pageTitle(map.value(QStringLiteral("title")).toString(),
+                                   displayHost(url));
+    map.insert(QStringLiteral("serviceTitle"),
+               !shortcutTitle.isEmpty() ? shortcutTitle
+               : !cleaned.isEmpty()     ? cleaned
+                                        : displayHost(url));
     if (icon.isEmpty())
       map.remove(QStringLiteral("icon"));
     else
@@ -1036,10 +1083,9 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
       openIds.append(shortcutId);
     if (current.isEmpty() && windowId == onScreen && active) {
       const auto domain = map.value(QStringLiteral("domain")).toString();
-      const auto title = map.value(QStringLiteral("title")).toString();
       current = QVariantMap{
           {QStringLiteral("id"), map.value(QStringLiteral("id"))},
-          {QStringLiteral("title"), title.isEmpty() ? domain : title},
+          {QStringLiteral("title"), map.value(QStringLiteral("serviceTitle"))},
           {QStringLiteral("subtitle"),
            domain.isEmpty() ? tr("Return")
                             : tr("%1 · Return").arg(domain)}};

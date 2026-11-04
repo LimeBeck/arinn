@@ -905,10 +905,10 @@ private slots:
         TabWire{"t1", "w1", "First", "https://www.example.test:8443/a", true,
                 false},
         TabWire{"t2", "w2", "Second", "https://example.test/b", true, false},
-        TabWire{"idle", "w2", "Idle", "https://hd.videos.example/watch", false,
-                false},
-        TabWire{"scheme", "w3", "Scheme", "http://example.test:8443/c", true,
-                false}};
+        TabWire{"idle", "w2", "Episode IV - A New Hope",
+                "https://hd.videos.example/watch", false, false},
+        TabWire{"scheme", "w3", "Scheme page — Example site",
+                "http://example.test:8443/c", true, false}};
     daemon.scriptedShortcuts = {
         ShortcutWire{"port", "Port", "https://example.test:8443/s",
                      "packaged:mark"},
@@ -926,15 +926,27 @@ private slots:
              QString("packaged:mark"));
     QCOMPARE(catalog.tabs().at(0).toMap().value("saved").toBool(), true);
     QCOMPARE(catalog.openShortcutIds(), QStringList{"port"});
+    // #756 B14: Home names a service by its shortcut, else by the page
+    // title without a trailing site name; the raw page title stays.
     QCOMPARE(catalog.currentService().value("title").toString(),
-             QString("First"));
+             QString("Port"));
+    QCOMPARE(catalog.tabs().at(0).toMap().value("serviceTitle").toString(),
+             QString("Port"));
     QCOMPARE(catalog.currentService().value("subtitle").toString(),
              QString("www.example.test:8443 · Return"));
-    QVariantMap idle;
+    QVariantMap idle, scheme;
     for (const auto &entry : catalog.tabs()) {
-      if (entry.toMap().value("title").toString() == QLatin1String("Idle"))
+      if (entry.toMap().value("title").toString() ==
+          QStringLiteral("Episode IV - A New Hope"))
         idle = entry.toMap();
+      if (entry.toMap().value("title").toString() ==
+          QStringLiteral("Scheme page — Example site"))
+        scheme = entry.toMap();
     }
+    QCOMPARE(scheme.value("serviceTitle").toString(), QString("Scheme page"));
+    // A last part that is not the site's name stays in the title.
+    QCOMPARE(idle.value("serviceTitle").toString(),
+             QString("Episode IV - A New Hope"));
     QCOMPARE(idle.value("letter").toString(), QString("V"));
     QCOMPARE(idle.value("saved").toBool(), false);
     QVERIFY(!idle.contains(QStringLiteral("icon")));
@@ -950,7 +962,7 @@ private slots:
     QTRY_COMPARE(catalog.tabs().at(0).toMap().value("title").toString(),
                  QString("Second"));
     QCOMPARE(catalog.tabs().at(1).toMap().value("title").toString(),
-             QString("Idle"));
+             QString("Episode IV - A New Hope"));
     QCOMPARE(catalog.currentService().value("title").toString(),
              QString("Second"));
     QVERIFY(!catalog.openShortcutIds().contains(QString("plain")));

@@ -566,10 +566,11 @@ void MediaCatalog::publish() {
   QVariantList entries;
   entries.reserve(m_sessions.size());
   for (const auto &row : m_sessions) {
-    // A stopped session without a title is neither resumable content nor
-    // the current activity (spec §5.1): Continue omits it, while the player
-    // screen still sees it (owner decision on #448).
-    if (row.state == QLatin1String("stopped") && row.title.trimmed().isEmpty())
+    // A session without a title that is not playing is neither resumable
+    // content nor the current activity (spec §5.1): Continue omits it, while
+    // the player screen still sees it (owner decision on #448). An idle
+    // player that only announced itself left a blank card (#756 A3).
+    if (row.state != QLatin1String("playing") && row.title.trimmed().isEmpty())
       continue;
     QVariantMap entry{
         {QStringLiteral("id"), row.id},

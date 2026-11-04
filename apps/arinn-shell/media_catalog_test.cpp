@@ -1124,9 +1124,11 @@ private slots:
     QCOMPARE(offered.value(QStringLiteral("resumable")), true);
     QCOMPARE(offered.value(QStringLiteral("stuck")), false);
   }
-  // #448 (owner decision 2026-11-01): a stopped session without a title is
-  // neither resumable content nor the current activity, so Continue omits it.
-  // A titled stopped session and an untitled paused one stay.
+  // #448 (owner decision 2026-11-01), widened on #756 (owner decision
+  // 2026-11-04): a session without a title that is not playing is neither
+  // resumable content nor the current activity, so Continue omits it. An
+  // idle player that only announced itself left a blank card (#756 A3).
+  // A titled stopped session and an untitled playing one stay.
   void continueOmitsAStoppedUntitledSession() {
     MediaDaemon daemon;
     const auto now = monotonicUs();
@@ -1136,8 +1138,11 @@ private slots:
                 1000000, now, 8000000, {QStringLiteral("play")}),
         session(QStringLiteral("paused"), QString(), QStringLiteral("paused"), 1000000, now,
                 8000000, {QStringLiteral("play")}),
+        session(QStringLiteral("playing"), QString(), QStringLiteral("playing"), 1000000, now,
+                8000000, {QStringLiteral("pause")}),
     };
     daemon.page1[0].subtitle.clear();
+    daemon.page1[2].subtitle.clear();
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
     QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
@@ -1151,7 +1156,7 @@ private slots:
                    map.value(QStringLiteral("title")).toString();
     }
     shown.sort();
-    QCOMPARE(shown, QStringList({QStringLiteral("paused:"), QStringLiteral("stopped:Titled")}));
+    QCOMPARE(shown, QStringList({QStringLiteral("playing:"), QStringLiteral("stopped:Titled")}));
   }
   // The omitted session stays in the catalog: the player screen still sees it.
   void omittedSessionStaysInTheCatalog() {

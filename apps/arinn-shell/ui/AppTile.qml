@@ -14,7 +14,9 @@ Surface {
     property string monogram: text.trim().slice(0, 1).toUpperCase()
     property url iconSource: ""
     readonly property bool iconReady: iconFrame.pixelsReady
-    readonly property bool shelfHasChip: shelf && iconSource.toString().length > 0
+    // Only an icon that actually loaded earns a chip: a failed or missing
+    // icon left an empty square on the shelf (D-10, #756 C18).
+    readonly property bool shelfHasChip: shelf && iconReady
     onIconSourceChanged: if (iconFrame) iconFrame.syncSource()
     property string subtitle: ""
     property bool running: false
@@ -89,11 +91,11 @@ Surface {
             width: root.shelf ? 56 : root.identityLight ? 64 : 60
             height: width
             radius: root.identityLight || root.shelf ? 16 : 18
+            // Neutral chip, never a hashed pastel (brief *Monograms*, #756 C19).
             color: root.iconReady ? Qt.rgba(1, 1, 1, 0.1)
                     : root.unavailable ? Qt.rgba(1, 1, 1, 0.06)
-                    : (root.shelf || root.identityLight) ? Theme.chip
-                    : root.accentColor
-            border.width: (root.shelf || root.identityLight) && !root.iconReady ? 1 : 0
+                    : Theme.chip
+            border.width: !root.iconReady ? 1 : 0
             border.color: Theme.chipLine
             Image {
                 id: icon

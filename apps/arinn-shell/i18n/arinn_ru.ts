@@ -573,6 +573,18 @@
         <translation>Браузер недоступен</translation>
     </message>
     <message>
+        <source>Series</source>
+        <translation>Сериал</translation>
+    </message>
+    <message>
+        <source>S%1 E%2</source>
+        <translation>С%1 Э%2</translation>
+    </message>
+    <message>
+        <source>Film</source>
+        <translation>Фильм</translation>
+    </message>
+    <message>
         <source>Make yourself at home</source>
         <translation>Добро пожаловать</translation>
     </message>

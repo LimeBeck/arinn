@@ -177,7 +177,9 @@ pub mod provider {
 }
 pub use provider::BrowserProviderProxy;
 
-/// Private-to-the-caller browser handoff: fresh window, no saved address/history.
+/// Caller-scoped handoff in a fresh window, excluded from Arinn recents and tab snapshots.
+/// Browser-profile history, cookies and site data remain governed by the browser;
+/// this interface neither reads nor clears them.
 /// Open returns an Operation1; Close settles and removes only this caller's window.
 pub mod authorization {
     #[zbus::proxy(

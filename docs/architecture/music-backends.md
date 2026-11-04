@@ -56,9 +56,12 @@ provider opens its verification page through the generic
 user enters/confirms the displayed code; polling receives the token automatically.
 Phone confirmation remains possible. No redirect URI, backend server or
 Authorization Code/PKCE flow is claimed for this third-party registration.
-Temporary windows and their child tabs are excluded from ordinary tabs/history;
-cancel, expiry, disconnect and failed launches retain cleanup ownership. Arinn
-returns Home only after the dispatched launch and window cleanup settle.
+Temporary windows and their child tabs are excluded from Arinn tab snapshots and
+recent-address history. Regular browser-profile history, cookies and site data
+remain governed by the browser/user; Arinn neither reads nor clears them. This
+is a temporary leased window, not an incognito session. Arinn retains cleanup
+ownership on cancellation, expiry, disconnect or a failed launch, and returns
+Home only after the dispatched launch and window cleanup settle.
 
 Before publishing `connected`, both new and restored credentials must pass
 `account/status` and the authenticated liked-tracks endpoint. An empty valid

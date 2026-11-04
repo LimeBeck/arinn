@@ -2,9 +2,18 @@
 
 [ADR-0141](../adr/0141-temporary-browser-authorization.md) introduces
 [BrowserAuth1](browser-auth1.xml) at `/org/arinn/Daemon1` for provider-hosted
-browser confirmation. This route does not record browsing recents. It carries
+browser confirmation. This route does not record Arinn browsing recents. It carries
 HTTPS verification pages and opaque UUID request identities, never tokens or
 application secrets. No shell-supplied JavaScript or plugin UI is involved.
+
+Isolation here covers Arinn recents, extension storage and exported tab snapshots.
+The regular browser profile may retain navigation history, cookies and site data
+under its own/user policy. This route neither reads nor clears that browser-owned
+data and does not create an incognito session. It requests no history permission.
+Closing the temporary window is not a claim that a navigation was removed from
+the browser profile. The initial Device Flow verification address contains no
+personal access token or device code; downstream login navigation remains subject
+to browser policy.
 
 `Open(url, request_id) → operation` admits at most one lease per calling unique
 bus owner and sixteen overall. Replaying its payload is idempotent; a different

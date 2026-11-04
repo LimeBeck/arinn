@@ -23,7 +23,7 @@ Add a generic caller-scoped temporary browser lease through the daemon, protocol
 and optional SDK handler. Keep product names out of core. Pin provider owner and
 generation, mint internal lease identities, and retain uncertain mutations until
 cleanup settles. Use fresh windows, isolate child tabs, exclude authorization
-metadata from snapshots/history and revoke on caller/native-port/generation loss.
+metadata from Arinn tab snapshots, recents and extension storage, and revoke on caller/native-port/generation loss.
 This proposed amendment replaces the earlier two-permission requirement with
 exactly `tabs`, `nativeMessaging` and `storage`. The last permission is confined
 to `storage.session`: opaque authorization handles and a fail-closed recovery
@@ -32,6 +32,11 @@ is permitted. Owner review/merge accepts this security-policy amendment; the
 historical phase-3 pass is not evidence that the new permission was approved.
 The [wire lifecycle](../plugin-api/browser-authorization.md) defines limits,
 privacy recovery and the exceptional browser-session fail-closed latch.
+
+The regular browser's history, cookies and site data remain under browser/user
+policy. Arinn does not read or delete them; closing a leased window does not
+erase a browser visit. No history permission or incognito mode is introduced.
+The isolation promise concerns Arinn-owned persistence and exported snapshots.
 
 The Yandex provider uses the SDK registration data pinned and attributed in
 `compatibility.rs`, with its existing native Device Flow implementation. It opens

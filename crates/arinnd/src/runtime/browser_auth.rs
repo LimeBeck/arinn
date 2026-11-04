@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Caller-scoped temporary browser leases; no address is written to history.
+//! Caller-scoped temporary browser leases; no address is written to Arinn recents.
 use super::*;
 use std::{
     collections::HashMap,

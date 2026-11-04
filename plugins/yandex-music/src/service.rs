@@ -383,13 +383,16 @@ impl<S: CredentialStore + 'static> Service<S> {
                     }
                 }
             }
-            if opened && closed.is_ok() && this.account.lock().await.epoch == epoch {
-                if let Err(error) = browser.home(&request).await {
-                    let mut a = this.account.lock().await;
-                    if a.epoch == epoch {
-                        a.state.error = Some(error);
-                        a.state.revision += 1;
-                    }
+            let current = this.account.lock().await.epoch == epoch;
+            if opened
+                && closed.is_ok()
+                && current
+                && let Err(error) = browser.home(&request).await
+            {
+                let mut a = this.account.lock().await;
+                if a.epoch == epoch {
+                    a.state.error = Some(error);
+                    a.state.revision += 1;
                 }
             }
             this.reconcile().await;

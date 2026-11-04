@@ -1417,6 +1417,10 @@ impl Core {
                 label,
             )
             .await?;
+        // The platform command after a launch is decided from the catalog
+        // entry the launch was admitted for, so a catalog refresh during a
+        // slow start cannot turn a browser launch full screen (ADR-0138).
+        let after_launch = launch_command(&state, id, local_id);
         drop(state);
         if !fresh {
             return Ok(path);
@@ -1566,8 +1570,7 @@ impl Core {
                 // without a platform adapter there is no Home overlay. The
                 // window also goes full screen, except a browser opened as an
                 // ordinary window, which keeps its own UI (ADR-0138).
-                let command = launch_command(&*core.state.lock().await, &id, &local_id);
-                let _ = core.platform.queue(command).await;
+                let _ = core.platform.queue(after_launch).await;
                 let state = core.paths.state.clone();
                 let target = crate::storage::Target {
                     provider_id: id.clone(),

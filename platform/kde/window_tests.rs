@@ -406,20 +406,30 @@ async fn acknowledged_operations_deduplication_disconnect_and_timeout() {
     ));
 }
 
-struct LaunchingProvider;
+/// Answers a launch once `gate` opens, so a test can change the catalog
+/// while the application starts.
+struct LaunchingProvider {
+    gate: Arc<tokio::sync::Semaphore>,
+}
 #[zbus::interface(name = "org.arinn.Provider1")]
 impl LaunchingProvider {
-    fn launch(&self, _generation: &str, _id: &str) -> production::Result<()> {
+    async fn launch(&self, _generation: &str, _id: &str) -> production::Result<()> {
+        let _permit = self.gate.acquire().await;
         Ok(())
     }
 }
 /// A successful launch of an application in `group` returns the platform
-/// command the adapter received; the operation itself succeeds.
-async fn platform_command_after_launch(group: &str) -> String {
+/// command the adapter received; the operation itself succeeds. With
+/// `regroup`, the catalog entry moves to that group while the launch runs.
+async fn platform_command_after_launch(group: &str, regroup: Option<&str>) -> String {
     let f = Fixture::new().await;
+    let gate = Arc::new(tokio::sync::Semaphore::new(0));
     f.provider
         .object_server()
-        .at(production::PROVIDER_PATH, LaunchingProvider)
+        .at(
+            production::PROVIDER_PATH,
+            LaunchingProvider { gate: gate.clone() },
+        )
         .await
         .unwrap();
     f.core
@@ -474,6 +484,13 @@ async fn platform_command_after_launch(group: &str) -> String {
         )
         .await
         .unwrap();
+    if let Some(regroup) = regroup {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let mut state = f.core.state.lock().await;
+        let p = state.providers.get_mut("fixture").unwrap();
+        p.applications[0].group = regroup.into();
+    }
+    gate.add_permits(1);
     let command = tokio::time::timeout(Duration::from_secs(10), poll)
         .await
         .unwrap()
@@ -501,13 +518,28 @@ async fn platform_command_after_launch(group: &str) -> String {
 /// window full screen (ADR-0138).
 #[tokio::test]
 async fn successful_launch_dismisses_home_and_goes_full_screen() {
-    assert_eq!(platform_command_after_launch("other").await, "launched");
+    assert_eq!(
+        platform_command_after_launch("other", None).await,
+        "launched"
+    );
 }
 /// A browser opened as an application keeps its own window UI (spec §7.1):
 /// Home is only dismissed (ADR-0138).
 #[tokio::test]
 async fn launched_browser_only_dismisses_home() {
-    assert_eq!(platform_command_after_launch("online").await, "dismiss");
+    assert_eq!(
+        platform_command_after_launch("online", None).await,
+        "dismiss"
+    );
+}
+/// The command follows the entry the launch was admitted for: a catalog
+/// refresh during a slow browser start cannot make it full screen.
+#[tokio::test]
+async fn launch_command_is_decided_at_admission() {
+    assert_eq!(
+        platform_command_after_launch("online", Some("other")).await,
+        "dismiss"
+    );
 }
 
 /// AC-18: presentation intent is distinct from Home state synchronization.

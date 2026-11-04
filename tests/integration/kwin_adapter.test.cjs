@@ -341,6 +341,20 @@ test('ADR-0138: a launched application window goes full screen as Home hides', (
     assert.equal(f.workspace.activeWindow, launched);
 });
 
+test('ADR-0138: the newly mapped window wins over an older active window', () => {
+    const f = fixture();
+    f.show();
+    const launched = f.window('launched-id', 'player');
+    launched.fullScreen = false;
+    f.add(launched);
+    f.activity.fullScreen = false;
+    f.workspace.activeWindow = f.activity;
+    f.launched();
+    assert.equal(launched.fullScreen, true);
+    assert.equal(f.activity.fullScreen, false, 'the older active window is never chosen');
+    assert.equal(f.workspace.activeWindow, launched);
+});
+
 test('ADR-0138: without a newly mapped window no existing window is made full screen', () => {
     const f = fixture();
     f.activity.fullScreen = false;

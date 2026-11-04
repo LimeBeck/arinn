@@ -1016,6 +1016,18 @@ FocusScope {
     }
 
     onRowsChanged: watchRows()
+    // The catalog lists only categories with rows (#764), so a reload can
+    // drop or add one: keep the selected category by id, else the nearest
+    // index (review of #779).
+    property string selectedCategoryId: ""
+
+    onCategoriesChanged: {
+        const list = categories || [];
+        const found = list.findIndex(category => category && category.id === selectedCategoryId);
+        const next = found >= 0 ? found : Math.max(0, Math.min(categoryIndex, list.length - 1));
+        if (next !== categoryIndex) categoryIndex = next;
+        else if (list[next] && list[next].id) selectedCategoryId = list[next].id;
+    }
     Keys.onPressed: event => {
         if (homeKey(event)) return;
         if (editingKey.length > 0) return;
@@ -1049,7 +1061,11 @@ FocusScope {
     }
     Component.onCompleted: Qt.callLater(focusInitial)
     onVisibleChanged: if (visible) Qt.callLater(focusInitial)
-    onCategoryIndexChanged: rowFlick.contentY = 0
+    onCategoryIndexChanged: {
+        rowFlick.contentY = 0;
+        const category = categories[categoryIndex];
+        if (category && category.id) selectedCategoryId = category.id;
+    }
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     // Veil above the rows and the sheets (z 30). No floor and no pool.

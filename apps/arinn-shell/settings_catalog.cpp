@@ -216,22 +216,28 @@ constexpr auto kDaemonProvider = "arinn";
 };
 // The display names of the providers this repository ships, translated in
 // the shell (#756 B16). A provider whose name is not here keeps its own.
-[[maybe_unused]] constexpr const char *kProviderNames[] = {
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Local library"),
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Local music"),
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Playback"),
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Downloads"),
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications"),
-    QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions"),
+// Matched by provider id and name together, so a third-party provider that
+// happens to use one of these names keeps its own (review of #779).
+struct PackagedName {
+  const char *id;
+  const char *name;
+};
+constexpr PackagedName kProviderNames[] = {
+    {"library", QT_TRANSLATE_NOOP("SettingsCatalog", "Local library")},
+    {"music-local", QT_TRANSLATE_NOOP("SettingsCatalog", "Local music")},
+    {"mpv", QT_TRANSLATE_NOOP("SettingsCatalog", "Playback")},
+    {"transmission", QT_TRANSLATE_NOOP("SettingsCatalog", "Downloads")},
+    {"desktop", QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications")},
+    {"mpris", QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions")},
 };
 // The source line of a row: none for Arinn's own settings, which need no
 // source, else the provider's name in the shell's language.
 QString sourceName(const QString &providerId, const QString &name) {
   if (providerId == QLatin1String(kDaemonProvider))
     return {};
-  for (const auto *known : kProviderNames)
-    if (name == QLatin1String(known))
-      return QCoreApplication::translate("SettingsCatalog", known);
+  for (const auto &known : kProviderNames)
+    if (providerId == QLatin1String(known.id) && name == QLatin1String(known.name))
+      return QCoreApplication::translate("SettingsCatalog", known.name);
   return name;
 }
 QString daemonText(const QString &providerId, const QString &text) {

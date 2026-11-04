@@ -355,6 +355,68 @@ TestCase {
         compare(flow.closingIds, ["w1"]);
         tryCompare(flow, "phase", "failed", 3000);
     }
+    // Review of #759: a confirmation closes when the list stops being the
+    // daemon's own; nothing is sent.
+    function test_confirmation_closes_when_the_registry_is_unknown() {
+        const opener = createTemporaryObject(openerFactory, suite);
+        opener.forceActiveFocus();
+        flow = createTemporaryObject(flowFactory, suite);
+        const terminations = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "terminateRequested"});
+        flow.ask("w1");
+        focused(flow, "closeFlowCancel");
+        flow.windowsKnown = false;
+        compare(flow.phase, "");
+        flow.confirm();
+        compare(terminations.count, 0);
+        tryCompare(opener, "activeFocus", true);
+    }
+    // Review of #759: a failure that arrives under a system scope waits for
+    // it; when its opener has gone, the shell is asked to restore focus.
+    function test_failure_waits_for_a_system_scope_and_falls_back() {
+        const opener = createTemporaryObject(openerFactory, suite);
+        opener.forceActiveFocus();
+        flow = createTemporaryObject(flowFactory, suite);
+        const fallbacks = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "focusFallbackRequested"});
+        flow.ask("w1"); flow.confirm();
+        flow.suppressed = true;
+        flow.operationFinished("w1", "Terminate", "failed");
+        compare(flow.phase, "");
+        compare(flow.queuedFailures, ["w1"]);
+        flow.suppressed = false;
+        tryCompare(flow, "phase", "failed");
+        focused(flow, "closeFlowSwitch");
+        // The opener went away meanwhile.
+        flow.opener = null;
+        keyClick(Qt.Key_Right); focused(flow, "closeFlowStay");
+        keyClick(Qt.Key_Return);
+        tryCompare(fallbacks, "count", 1);
+    }
+    // Review of #759: a window Arinn cannot switch to offers no "Go to".
+    function test_no_go_to_for_a_window_that_cannot_be_activated() {
+        flow = createTemporaryObject(flowFactory, suite, {windows: [
+            {id: "w1", title: "Northwind", terminable: true, enabled: false}]});
+        const switches = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "switchRequested"});
+        flow.ask("w1"); flow.confirm();
+        flow.operationFinished("w1", "Terminate", "failed");
+        compare(flow.phase, "failed");
+        verify(!child(flow, "closeFlowSwitch").visible);
+        focused(flow, "closeFlowStay");
+        keyClick(Qt.Key_Left);
+        focused(flow, "closeFlowStay");
+        keyClick(Qt.Key_Return);
+        compare(switches.count, 0);
+        compare(flow.phase, "");
+    }
+    // Review of #759: a row that goes on its own gives focus to the row
+    // before it (§6.1).
+    function test_spontaneous_removal_focuses_the_previous_row() {
+        makeView({currentId: ""});
+        focused(view, "runningRow-w1");
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Down);
+        focused(view, "runningRow-w3");
+        view.windows = view.windows.filter(entry => entry.id !== "w3");
+        focused(view, "runningRow-w2");
+    }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);
         const switches = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "switchRequested"});

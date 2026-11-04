@@ -1554,6 +1554,46 @@ private slots:
     QTRY_VERIFY(!power->property("open").toBool());
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
+  // Review of #759: a window that the browser provider reports is an Open
+  // services window, even when the browser is also found as a desktop
+  // application; Running, Home's open windows and the close flow leave it
+  // out.
+  void browserWindowsStayOffRunning() {
+    auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
+    BrowserDaemon daemon;
+    daemon.scripted = daemon.homeVisible = true;
+    daemon.scriptedWindows = {{"bw", "token-browser", false}};
+    daemon.scriptedTabs = {{"tab", "bw", "Page", "https://test.example/", true, false}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon, QDBusConnection::SubPath));
+    ExternalHomeBackend backend;
+    backend.m_items = {
+        QVariantMap{{"id", "app-window"}, {"title", "Editor"}, {"windowToken", "token-app"},
+                    {"terminable", true}},
+        QVariantMap{{"id", "browser-window"}, {"title", "Browser"}, {"windowToken", "token-browser"},
+                    {"terminable", true}}};
+    backend.openOverlay({});
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto running = window->findChild<QQuickItem *>("productionRunning");
+    QVERIFY(home && running);
+    QTRY_COMPARE(home->property("openServiceCount").toInt(), 1);
+    QTRY_COMPARE(running->property("windows").toList().size(), 1);
+    QCOMPARE(running->property("windows").toList().constFirst().toMap().value("id").toString(),
+             QStringLiteral("app-window"));
+    QCOMPARE(home->property("runningEntries").toList().size(), 1);
+    auto flow = window->findChild<QQuickItem *>("closeFlow");
+    QVERIFY(flow);
+    QCOMPARE(flow->property("windows").toList().size(), 1);
+  }
   void productionOpenTabSurvivesShellRestartWithoutReturn() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
     BrowserDaemon daemon;

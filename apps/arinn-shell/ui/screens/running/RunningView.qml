@@ -104,7 +104,10 @@ FocusScope {
             return;
         }
         let index = orderedWindows.findIndex(entry => entry.id === selectedId);
-        if (index < 0) index = Math.min(selectedIndex, count - 1);
+        // The selected window went on its own: the row before it, as §6.1
+        // asks; a requested close has already moved on (CL-9; review of
+        // #759).
+        if (index < 0) index = Math.max(0, Math.min(selectedId.length ? selectedIndex - 1 : selectedIndex, count - 1));
         focusRow(index, focusPart);
     }
     function restoreOwned() { if (ownsFocus && visible) restore(); }

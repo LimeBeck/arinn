@@ -46,7 +46,15 @@ Window {
     readonly property bool navOpen: home.navOpen
     // The running window of the application on screen: the window whose
     // platform token is the Return target (ADR-0119).
-    readonly property var activityWindow: (backend.items || []).find(row => row.windowToken
+    // Running application windows: a window that a browser provider reports
+    // is an Open services window, even when the browser is also found as a
+    // desktop application (spec §5, §5.5; review of #759).
+    readonly property var applicationWindows: {
+        const tokens = (browserCatalog.windows || []).map(window => window.windowToken || "")
+                                                     .filter(token => token.length > 0);
+        return (backend.items || []).filter(row => !row.windowToken || tokens.indexOf(row.windowToken) < 0);
+    }
+    readonly property var activityWindow: (root.applicationWindows || []).find(row => row.windowToken
                                                 && row.windowToken === backend.returnWindow) || null
     readonly property bool navBlur: home.navOpen && home.navBlurAvailable
     // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
@@ -1019,7 +1027,7 @@ Window {
             onMusicTransportRequested: musicCatalog.transport(musicCatalog.activeState.playback === "playing" ? "pause" : "resume")
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
-            runningEntries: backend.items
+            runningEntries: root.applicationWindows
             favoritesTitle: qsTr("Favorites")
             returnActivityId: backend.returnWindow
             // The floor over an Activity takes its application's identity
@@ -1327,7 +1335,7 @@ Window {
             visible: home.screen === "running" && !root.playerOpen
             enabled: visible
             z: 4
-            windows: backend.items
+            windows: root.applicationWindows
             currentId: root.activityWindow && !home.returnIsWebService ? root.activityWindow.id : ""
             closingIds: closeFlow.closingIds
             failedIds: closeFlow.failedIds
@@ -1617,7 +1625,8 @@ Window {
         z: 6.5
         suppressed: powerOverlay.open || root.quickMenuOpen || ambientScreen.active
         focus: root.focusedScreen === "closeFlow"
-        windows: backend.items
+        windows: root.applicationWindows
+        onFocusFallbackRequested: Qt.callLater(root.restoreFocus)
         // Only a complete snapshot: an `error` one may lack a failed
         // provider's windows (review of #777).
         windowsKnown: backend.connected === true && (backend.applicationsState === "ready"

@@ -392,7 +392,7 @@ async fn the_shell_preferences_are_core_settings() {
             "appearance",
             "boolean",
             "true",
-            "A warm floor and a pool of light under the focused item. Off removes the floor and the pool"
+            "A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off"
         )
     );
     let ambient = find(&settings, "ambient_timeout");

@@ -84,6 +84,7 @@ impl Provider {
 mod assets;
 mod background;
 mod browse_routing;
+mod browser_auth;
 mod download_routing;
 mod folders_routing;
 mod keyboard_routing;
@@ -1153,7 +1154,21 @@ impl Core {
         url: &str,
         op: &crate::operations::Operation,
     ) -> Result<(), ErrorCode> {
+        self.open_browser_url(url, op, None).await
+    }
+    async fn open_browser_url(
+        &self,
+        url: &str,
+        op: &crate::operations::Operation,
+        temporary: Option<&browser_auth::Launch>,
+    ) -> Result<(), ErrorCode> {
         arinn_protocol::web::open_url(url)?;
+        if temporary.is_some() && !url.starts_with("https://") {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if temporary.is_some_and(|t| t.cancelled()) {
+            return Err(ErrorCode::Cancelled);
+        }
         let deadline = tokio::time::Instant::now() + BROWSER_LAUNCH_DEADLINE;
         if !self.browser_connected().await {
             op.phase(
@@ -1178,6 +1193,17 @@ impl Core {
             op.provider(id, p.capability(), &p.info.plugin_id);
             (id.clone(), p.owner.clone(), p.info.generation.clone())
         };
+        if let Some(launch) = temporary {
+            launch.bind((
+                id.clone(),
+                owner.clone(),
+                generation.clone(),
+                launch.id.clone(),
+            ));
+            if launch.cancelled() {
+                return Err(ErrorCode::Cancelled);
+            }
+        }
         let proxy = BrowserProviderProxy::builder(&self.connection)
             .destination(owner.as_str())
             .map_err(|_| ErrorCode::Internal)?
@@ -1185,10 +1211,19 @@ impl Core {
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
         op.phase("provider.call", "browser.open_url", async {
-            tokio::time::timeout(Duration::from_secs(10), proxy.open_url(&generation, url))
-                .await
-                .map_err(|_| ErrorCode::Timeout)?
-                .map_err(normalize_error)
+            tokio::time::timeout(Duration::from_secs(10), async {
+                if let Some(launch) = temporary {
+                    proxy.open_temporary_url(&generation, &launch.id, url).await
+                } else {
+                    proxy
+                        .open_url(&generation, url)
+                        .await
+                        .map(|_| String::new())
+                }
+            })
+            .await
+            .map_err(|_| ErrorCode::Timeout)?
+            .map_err(normalize_error)
         })
         .await?;
         // The provider knows which window OpenUrl selected and performs any
@@ -1203,6 +1238,9 @@ impl Core {
             .is_some_and(|p| p.owner == owner && p.info.generation == generation);
         if !valid {
             return Err(ErrorCode::Unavailable);
+        }
+        if temporary.is_some_and(|t| t.cancelled()) {
+            return Err(ErrorCode::Cancelled);
         }
         let _ = self.platform.queue("dismiss").await;
         Ok(())

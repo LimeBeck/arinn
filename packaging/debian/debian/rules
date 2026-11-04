@@ -76,6 +76,7 @@ override_dh_auto_install:
 	install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
 		debian/arinn/etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json
 	install -Dm644 plugins/chrome/extension/manifest.json plugins/chrome/extension/background.js \
+		plugins/chrome/extension/authorization.js plugins/chrome/extension/authorization.html \
 		-t debian/arinn/usr/share/arinn/chrome-extension/
 	install -Dm644 packaging/web-shortcuts/web-shortcuts.toml debian/arinn/usr/share/arinn/web-shortcuts.toml
 	install -Dm644 packaging/browser/browser-applications.toml debian/arinn/usr/share/arinn/browser-applications.toml

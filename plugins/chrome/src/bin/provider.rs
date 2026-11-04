@@ -23,6 +23,27 @@ struct Handler {
     opening: Arc<OpenWindows>,
 }
 impl BrowserHandler for Handler {
+    fn reset_temporary(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async move { self.bridge.reset_temporary(&self.connection).await })
+    }
+
+    fn open_temporary(
+        &self,
+        request_id: String,
+        url: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
+        Box::pin(async move {
+            self.bridge
+                .open_temporary(&self.connection, &request_id, &url)
+                .await
+        })
+    }
+    fn close_temporary(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async move { self.bridge.close_temporary(&self.connection, &id).await })
+    }
     fn tab(
         &self,
         action: TabAction,

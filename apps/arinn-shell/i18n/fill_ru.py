@@ -338,9 +338,10 @@ RU = {
     "Search engine": "Поисковая система",
     "Used when typed text is not an address": "Используется, если введённый текст — не адрес",
     "Light field": "Световой фон",
-    "A warm floor and a pool of light under the focused item. Off removes the floor and the pool": "Тёплый пол и пул света под выбранным элементом. Выключено — пол и пул убираются",
-    "Light follows the time of day": "Свет следует за временем суток",
-    "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light": "Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет",
+    # Plain words, not "тёплый пол" (underfloor heating) (#756 B16).
+    "A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off": "Мягкое свечение внизу экрана и за выбранным элементом. Выключено — без свечения",
+    "Light follows the time of day": "Свет меняется со временем суток",
+    "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look": "Вечером и ночью свечение тише, а экран чуть теплее. Выключено — всегда как днём",
     "Ambient after": "Заставка через",
     "Idle time on an Arinn screen before the ambient screen appears": "Время бездействия на экране Arinn до появления заставки",
     "5 min": "5 мин",
@@ -498,6 +499,14 @@ RU = {
     "Continue from %1": "Продолжить с %1",
     "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
 }
+
+# Packaged provider names on the Settings source line (#756 B16).
+RU.update({
+    "Local library": "Локальная библиотека",
+    "Local music": "Локальная музыка",
+    "Desktop applications": "Приложения рабочего стола",
+    "Media sessions": "Медиасеансы",
+})
 
 # Library folders and the folder picker (#764, handoff LF, PK)
 RU.update({

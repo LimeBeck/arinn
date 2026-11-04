@@ -243,7 +243,7 @@ systemctl --user kill --signal=SIGKILL "$unit"
 
 | ID | Action | Expected result |
 | --- | --- | --- |
-| G31-1 | `python3 -c 'import json; m=json.load(open("/usr/share/arinn/chrome-extension/manifest.json")); print(sorted(m.get("permissions",[])), m.get("host_permissions"), m.get("content_scripts"))'` | `['nativeMessaging', 'tabs'] None None`. The extension card lists no site access. |
+| G31-1 | `python3 -c 'import json; m=json.load(open("/usr/share/arinn/chrome-extension/manifest.json")); print(sorted(m.get("permissions",[])), m.get("host_permissions"), m.get("content_scripts"))'` | `['nativeMessaging', 'storage', 'tabs'] None None` for the temporary-authorization amendment (proposed ADR-0141, #771); the original phase-3 baseline had only `nativeMessaging` and `tabs`. `storage` is session-only opaque window/tab handles and a fail-closed flag, never authorization/browsing content. The extension card lists no site access. This expected manifest is not an owner approval or new phase qualification. |
 | G31-2 | Show `allowed_origins` of the native host manifest: `/etc/opt/chrome/native-messaging-hosts/org.arinn.chrome_host.json` (Chrome) or `/etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json` (Chromium). | Exactly `chrome-extension://eajlncomibfmpmkhkbcdmajmkpfaaibf/`. |
 | G31-3 | Reconnect, observed in AC10-3. | The extension reconnected after the provider restart; no command ran twice (no window opened or closed by itself). |
 

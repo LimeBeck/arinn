@@ -50,16 +50,20 @@ texts.
 ## What the view receives
 
 Category titles are model data. The QML does not embed those names or any
-product name. `SettingsCatalog` publishes the seven design categories, in
-order, once a snapshot has loaded. A category with no rows is an empty pane:
-a missing playback, download or network setting is not shown as a working
-control.
+product name. `SettingsCatalog` publishes the design categories that have at least one row,
+in the design order, once a snapshot has loaded, so the screen opens on the
+first category with rows. A category with no rows is not listed: a missing
+playback, download or network setting is not shown as a working control, and
+there is no empty pane ([#764](https://github.com/LimeBeck/arinn/issues/764),
+#756 B16). A reload keeps the selected category by id, else the nearest
+index; when the focused row's category leaves the list, focus moves to that
+nearest category.
 
 | Field | Role |
 | --- | --- |
 | Category `id`, `title` | Left-hand list entry, in the given order |
 | Category `icon` | Optional mark name (`video_library`, `play_circle`, `volume_up`, `wifi`, `apps`, `palette`, `memory`, drawn as the filled 38 px Material-style icons of handoff se-lf-1; `memory` is the gear the handoff shows for System); anything else is a plain mark |
-| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption on the focused row only; at rest a row is label and description as in handoff 14 (owner decision on #566, 2026-11-01) |
+| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption on the focused row only; at rest a row is label and description as in handoff 14 (owner decision on #566, 2026-11-01). `providerName` is empty for Arinn's own settings (`arinn`), so they have no source line, and the names of the providers this repository ships (`Local library`, `Local music`, `Playback`, `Downloads`, `Desktop applications`, `Media sessions`) are translated by the shell when both the plugin id and the name match. The plugin id comes from `Daemon1.Providers`, because `Settings1.ListProviders` carries only the instance id; until that listing answers, after the daemon changes owner, and when a new listing fails, the instance id stands in. Any other name is shown as the provider sends it (#756 B16) |
 | Row `id`, `categoryId`, `title`, `description` | One setting |
 | Row `type` | `boolean`, `enum`, `string`, `integer` or `path` |
 | Row `currentValue` | Current value from `GetSettings` |
@@ -272,6 +276,24 @@ python scripts/check-docs.py
 ```
 
 `arinn-shell` linked. The catalog test passed 13 cases, including `Unsupported` on a succeeded operation and on a failed one, and `KeyboardMonitor` staying unavailable after remote navigation keys. `arinn-ui-test -input tests/ui` passed 196 cases, including every `SettingsView` case in `tst_settings.qml` (the same suite as `ctest -R '^ui-components$'`, which also passed). `arinn-browser-catalog-test` passed 10 cases; it loads `Main.qml`, which binds `KeyboardMonitor`. `python scripts/check-docs.py` passed. Operator tests were not run. This does not close AC-02, AC-12 or AC-18. The catalog test and `check-docs.py` were run again after the next-start and keyboard fixes; the UI and browser-catalog counts above are from the earlier run of this change.
+
+## TV design review (#764, part one)
+
+- The Appearance texts use plain words: "A soft glow along the bottom of the
+  screen and behind the item in focus" and "In the evening and at night the
+  glow is dimmer and the screen a little warmer"
+  (`crates/arinnd/src/runtime/settings_routing.rs`, the `QT_TRANSLATE_NOOP`
+  table in `settings_catalog.cpp`, `fill_ru.py`). The Russian text no longer
+  uses the underfloor-heating wording (#756 B16).
+- A toggle row keeps 24 px between its text and the 88 px toggle, so a long
+  description wraps before it ([#734](https://github.com/LimeBeck/arinn/issues/734)).
+- Verification: `settings_catalog_test.cpp` (categories with rows only, no
+  source line for `arinn`), `translations_test.cpp` (the library's name, the
+  Appearance copy), `tst_settings.qml`
+  (`test_toggle_row_text_keeps_clear_of_the_toggle`) and the daemon's
+  `settings_tests.rs`. The Library folders screen and the folder picker
+  (LF-1…8, PK-1…10, C24) are the second part of #764. The TV re-check was not
+  done.
 
 ## Library folders (LF, PK)
 

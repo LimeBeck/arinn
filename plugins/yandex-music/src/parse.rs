@@ -184,8 +184,21 @@ pub(crate) fn batch(value: &Value) -> Result<Batch, Error> {
             .or_else(|| value.get("tracks"))
             .ok_or(Error::InvalidResponse)?,
     )?;
+    // Batch IDs are JSON data, not session IDs used in URL path segments.
+    let id = value
+        .get("batchId")
+        .and_then(Value::as_str)
+        .ok_or(Error::InvalidResponse)?;
+    if id.is_empty()
+        || id.len() > 512
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+    {
+        return Err(Error::InvalidResponse);
+    }
     Ok(Batch {
-        id: opaque_id(value.get("batchId"))?,
+        id: id.into(),
         tracks,
     })
 }
@@ -194,6 +207,37 @@ pub(crate) fn batch(value: &Value) -> Result<Batch, Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn radio_batches_accept_dotted_ids_without_relaxing_session_paths() {
+        let value = json!({"batchId":"batch.fixture-01_2", "sequence":[
+            {"track":{"id":123,"available":true}}
+        ]});
+        let parsed = batch(&value).unwrap();
+        assert_eq!(parsed.id, "batch.fixture-01_2");
+        assert_eq!(parsed.tracks[0].id, "123");
+        assert!(opaque_id(value.get("batchId")).is_err());
+    }
+    #[test]
+    fn radio_batch_ids_keep_bounds_and_reject_controls_and_path_delimiters() {
+        assert!(batch(&json!({"batchId":"a".repeat(512),"tracks":[]})).is_ok());
+        for id in [
+            "".into(),
+            "a".repeat(513),
+            "batch\nfixture".into(),
+            "batch\u{0}fixture".into(),
+            "batch fixture".into(),
+            "../fixture".into(),
+            "batch\\fixture".into(),
+            "batch?fixture".into(),
+            "batch#fixture".into(),
+        ] {
+            assert!(batch(&json!({"batchId":id,"tracks":[]})).is_err());
+        }
+        for id in [Value::Null, json!(12), json!({}), json!([])] {
+            assert!(batch(&json!({"batchId":id,"tracks":[]})).is_err());
+        }
+        assert!(batch(&json!({"tracks":[]})).is_err());
+    }
     #[test]
     fn seeds_do_not_confuse_album_qualified_tracks_with_stations() {
         assert_eq!(station_seed("123:456"), Ok("track:123".into()));

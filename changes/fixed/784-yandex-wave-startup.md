@@ -1,0 +1,1 @@
+- Fix My Wave rejecting dotted batch IDs and stopping session preparation after only three seconds. Startup and initial feedback now share a bounded 30-second deadline with account-epoch cancellation; session URL validation remains strict.

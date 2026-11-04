@@ -182,12 +182,15 @@ TestCase {
         flow.restoreFocus();
         focused(flow, "closeFlowCancel");
         keyClick(Qt.Key_Escape);
-        // Home closes the dialog without closing the application.
+        // Home closes the dialog without closing the application and asks
+        // the shell for Home.
+        const homes = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "homeRequested"});
         flow.ask("w1");
         focused(flow, "closeFlowCancel");
         keyClick(Qt.Key_Home);
         compare(flow.phase, "");
         compare(terminations.count, 0);
+        compare(homes.count, 1);
         flow.ask("w1");
         focused(flow, "closeFlowCancel");
         keyClick(Qt.Key_Right); focused(flow, "closeFlowConfirm");
@@ -252,6 +255,17 @@ TestCase {
         flow.operationFinished("w1", "failed");
         compare(flow.phase, "confirm");
         compare(flow.target.id, "w2");
+        // A queued failure whose window goes is dropped.
+        flow.windows = [{id: "w2", title: "Harbor", terminable: true}];
+        compare(flow.queuedFailures, []);
+        flow.windows = [{id: "w1", title: "Northwind", terminable: true},
+                        {id: "w2", title: "Harbor", terminable: true}];
+        flow.cancel();
+        flow.ask("w1");
+        flow.confirm();
+        verify(flow.ask("w2"));
+        flow.operationFinished("w1", "failed");
+        focused(flow, "closeFlowCancel");
         keyClick(Qt.Key_Escape);
         tryCompare(flow, "phase", "failed");
         compare(flow.target.id, "w1");

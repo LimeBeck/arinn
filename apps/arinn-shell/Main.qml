@@ -1486,6 +1486,7 @@ Window {
                                                      || backend.applicationsState === "empty")
         onTerminateRequested: windowId => backend.terminate(windowId)
         onSwitchRequested: windowId => backend.activate(windowId)
+        onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
         Connections {
             target: backend
             // Test stand-ins of the backend may not have the signal.

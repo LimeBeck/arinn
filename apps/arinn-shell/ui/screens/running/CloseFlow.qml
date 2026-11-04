@@ -46,6 +46,9 @@ FocusScope {
     signal switchRequested(string windowId)
     // A window that was asked to close has gone.
     signal closed(string windowId)
+    // Home while a dialog is open: the dialog closes without closing the
+    // application, and the shell shows Home (§6.3; review of #777).
+    signal homeRequested()
 
     function windowById(id) {
         return (windows || []).find(entry => entry && entry.id === id) || null;
@@ -148,6 +151,9 @@ FocusScope {
             }
         }
         failedIds = failedIds.filter(id => listed.indexOf(id) >= 0);
+        // A queued failure whose window has gone is no longer news
+        // (review of #777).
+        queuedFailures = queuedFailures.filter(id => listed.indexOf(id) >= 0);
         // The window closed itself while the confirmation was open.
         if (open && listed.indexOf(target.id) < 0) cancel();
         if (!closingIds.length) waitTimer.stop();
@@ -172,9 +178,14 @@ FocusScope {
     Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.toastMessage = "" }
 
     Keys.onPressed: event => {
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back
-                || event.key === Qt.Key_Home) {
-            // Back is Cancel; Home closes the dialog without closing the app.
+        if (event.key === Qt.Key_Home) {
+            if (!event.isAutoRepeat) {
+                cancel();
+                opener = null;
+                homeRequested();
+            }
+        } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
+            // Back is Cancel.
             if (!event.isAutoRepeat) cancel();
         } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right
                    || event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {

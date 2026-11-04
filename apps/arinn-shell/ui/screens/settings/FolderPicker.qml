@@ -153,7 +153,12 @@ FocusScope {
     function back() {
         if (side === "places") { cancelled(); return; }
         const atPlace = places.some(place => trimmed(place.path) === trimmed(path));
-        if (atPlace || path === "/" || !path.length) { focusPlace(Math.max(0, currentPlace)); return; }
+        // Without a start point to go to (Places failed), Back leaves the
+        // picker instead of doing nothing (review of #780).
+        if (atPlace || path === "/" || !path.length) {
+            if (!focusPlace(Math.max(0, currentPlace))) cancelled();
+            return;
+        }
         side = "folders";
         browser.up();
     }

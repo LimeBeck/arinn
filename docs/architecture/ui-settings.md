@@ -378,7 +378,7 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     points and Up to Choose. Arinn never mounts anything.
   - When `Places()` fails or returns nothing before a folder opens, the picker
     shows "Folders cannot be read right now" with Retry, which asks for the
-    places again.
+    places again. With no start point to go to, Back leaves the picker.
   - A folder already in the list is refused in the picker with an error plate
     (PK-10). Paths are compared without trailing slashes, so `/srv/films/` and
     `/srv/films` are one folder. A start point that ends in `/` joins its children with one

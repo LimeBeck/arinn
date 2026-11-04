@@ -374,6 +374,10 @@ TestCase {
         tryCompare(findChild(picker, "pickerRetry"), "activeFocus", true);
         keyClick(Qt.Key_Return);
         compare(browser.placeReads, 2);
+        // Review of #780: with no start point, Back leaves the picker.
+        keyClick(Qt.Key_Escape);
+        tryCompare(picker, "visible", false);
+        focused("foldersEmptyAdd");
     }
     // Review of #780: a start point that ends in "/" joins its children
     // with one slash and still counts as the start point.

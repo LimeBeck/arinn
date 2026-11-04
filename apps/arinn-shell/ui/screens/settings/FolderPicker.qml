@@ -27,11 +27,17 @@ FocusScope {
     readonly property string listingState: browser ? (browser.state || "loading") : "loading"
     readonly property bool canChoose: path.length > 0 && listingState !== "denied" && listingState !== "gone"
                                       && listingState !== "loading" && listingState !== "unavailable"
+    // A start point may end in "/" ("/home/user/"); compare and join
+    // without it (review of #780).
+    function trimmed(value) {
+        const text = String(value || "");
+        return text.length > 1 ? (text.replace(/\/+$/, "") || "/") : text;
+    }
     readonly property int currentPlace: {
         let best = -1, length = -1;
         for (let i = 0; i < places.length; ++i) {
-            const p = places[i].path;
-            const inside = path === p || path.startsWith(p === "/" ? "/" : p + "/");
+            const p = trimmed(places[i].path);
+            const inside = trimmed(path) === p || path.startsWith(p === "/" ? "/" : p + "/");
             if (inside && p.length > length) { best = i; length = p.length; }
         }
         return best;
@@ -109,12 +115,13 @@ FocusScope {
     function openChild(name) {
         if (!browser) return;
         side = "folders";
-        browser.open(path === "/" ? "/" + name : path + "/" + name);
+        const parent = trimmed(path);
+        browser.open(parent === "/" ? "/" + name : parent + "/" + name);
     }
     // Back: up one level; at a start point, to the start points, then out.
     function back() {
         if (side === "places") { cancelled(); return; }
-        const atPlace = places.some(place => place.path === path);
+        const atPlace = places.some(place => trimmed(place.path) === trimmed(path));
         if (atPlace || path === "/" || !path.length) { focusPlace(Math.max(0, currentPlace)); return; }
         side = "folders";
         browser.up();

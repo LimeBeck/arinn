@@ -345,7 +345,8 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     places again.
   - A folder already in the list is refused in the picker with an error plate
     (PK-10). Paths are compared without trailing slashes, so `/srv/films/` and
-    `/srv/films` are one folder.
+    `/srv/films` are one folder. A start point that ends in `/` joins its children with one
+    slash and still counts as that start point.
 - **Not built.**
   - Typing a path in the picker (PK-8);
   - paging with Ch± and the letter jump;

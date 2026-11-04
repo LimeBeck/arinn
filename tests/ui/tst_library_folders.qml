@@ -322,6 +322,26 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(browser.placeReads, 2);
     }
+    // Review of #780: a start point that ends in "/" joins its children
+    // with one slash and still counts as the start point.
+    function test_start_point_with_a_trailing_slash() {
+        make([]);
+        browser.places = [{kind: "home", path: "/home/user/", title: "user"}];
+        browser.tree = Object.assign({}, browser.tree, {"/home/user/": ["Films"]});
+        focused("foldersEmptyAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user/");
+        tryCompare(findChild(picker, "pickerFolder-0"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        tryCompare(browser, "path", "/home/user/Films");
+        verify(findChild(picker, "pickerPlaceDot-0").visible);
+        keyClick(Qt.Key_Escape);
+        tryCompare(browser, "path", "/home/user");
+        // At the start point, Back goes to the start points.
+        keyClick(Qt.Key_Escape);
+        tryCompare(findChild(picker, "pickerPlace-0"), "activeFocus", true);
+    }
     // PK-5, PK-6, PK-7.
     function test_picker_states() {
         make([]);

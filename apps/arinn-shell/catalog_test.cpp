@@ -20,6 +20,7 @@ struct AppWire {
 };
 struct RunningWire {
   QString id;
+  QString application = QStringLiteral("application");
 };
 struct HomeWire {};
 struct ShortcutWire {
@@ -52,7 +53,7 @@ QDBusArgument &operator<<(QDBusArgument &a, const AppWire &p) {
 }
 QDBusArgument &operator<<(QDBusArgument &a, const RunningWire &p) {
   a.beginStructure();
-  a << p.id << QString("application") << QString("Window")
+  a << p.id << p.application << QString("Window")
     << QString("window-token") << true << false;
   a.endStructure();
   return a;
@@ -215,7 +216,8 @@ public:
                            first ? QStringLiteral("applications-games")
                                  : QStringLiteral("/usr/share/icons/hicolor/"
                                                   "48x48/apps/fixture.png")}}
-        << QList<RunningWire>{{first ? "window-first" : "window-second"}}
+        << QList<RunningWire>{{first ? "window-first" : "window-second",
+                               first ? "first" : "application"}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
     } else if (m.member() == "Activate") {
@@ -525,6 +527,17 @@ private slots:
         QCOMPARE(backend.items().size(), 2);
         QCOMPARE(backend.items()[1].toMap()["localId"].toString(),
                  QString("window-second"));
+        // #756 A3: the application of a running window is marked running,
+        // and the window shows that application's icon and identity.
+        const auto app = backend.applications()[0].toMap();
+        const auto window = backend.items()[0].toMap();
+        QCOMPARE(app["running"].toBool(), true);
+        QCOMPARE(backend.applications()[1].toMap()["running"].toBool(), false);
+        QCOMPARE(window["iconSource"], app["iconSource"]);
+        QCOMPARE(window["visualIdentity"], app["visualIdentity"]);
+        // The window token lets Home find the Return window's application.
+        QCOMPARE(window["windowToken"].toString(), QString("window-token"));
+        QVERIFY(!backend.items()[1].toMap().contains("iconSource"));
         QCOMPARE(daemon.pages, 2);
         QCOMPARE(backend.applications()[1].toMap()["enabled"].toBool(), false);
         // Provider groups pass through; unknown groups display as "other".

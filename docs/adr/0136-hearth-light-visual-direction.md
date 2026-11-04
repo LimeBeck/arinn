@@ -4,7 +4,7 @@
 - **Date:** 2026-11-02
 - **Deciders:** Owner, decisions D-1…D-10 of the Hearth light brief (2026-11-02, Claude session, [#721](https://github.com/LimeBeck/arinn/issues/721)). The setting ids and the shell implementation are delegated technical choices ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)).
 - **Amends / Supersedes:** amends [ADR-0019](0019-design-handoff-contract.md) (the visual contract: content-title face, focus treatment, light field) and [ADR-0112](0112-shell-preferences-as-core-settings.md) (two more core settings)
-- **Amended by / Superseded by:** [ADR-0137](0137-playfair-display-for-content-titles.md) (D-2: Playfair Display 600 replaces Ysabeau; Literata is not a content-title face)
+- **Amended by / Superseded by:** [ADR-0137](0137-playfair-display-for-content-titles.md) (D-2: Playfair Display 600 replaces Ysabeau; Literata is not a content-title face); [ADR-0140](0140-tv-review-visual-decisions.md) (floor over an Activity, near bands, Library tabs, keyboard context rows)
 - **Specification:** §5, §5.1, §5.5, §5.6, §5.7, §15
 
 ## Context

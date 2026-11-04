@@ -231,7 +231,7 @@ Fixes from the TV design review [#756](https://github.com/LimeBeck/arinn/issues/
   hides it in a tab whose `kind` is `series`, or whose posters are all series,
   so the Series tab does not repeat it on every poster. Badge and detail
   eyebrow use the `LibraryView` translation context, which is singular
-  («Сериал»); the plural tab name stays in `LibraryCatalog`.
+  in Russian; the plural tab name stays in `LibraryCatalog`.
 - **Progress.** `LibraryCatalog` adds `resumePositionUs` and
   `resumeDurationUs` to an entry with progress (the item Play opens: the film,
   or the series' resume episode), and `resumeSeason`/`resumeEpisode` for a

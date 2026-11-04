@@ -59,7 +59,7 @@ line under the title is:
 
 | Queue | Summary |
 | --- | --- |
-| At least one row `downloading` | "N downloading", followed by " · " and `transferRate` when it is set (handoff 12: "1 загружается · 32 МБ/с") |
+| At least one row `downloading` | "N downloading", followed by " · " and `transferRate` when it is set (handoff 12) |
 | Every row `completed`, imported or not | "N done" |
 | Anything else (queued, paused, verifying or failed rows, nothing downloading) | Hidden |
 | `empty`, `loading`, `error`, `unavailable` | Hidden; the state's own pane is shown |

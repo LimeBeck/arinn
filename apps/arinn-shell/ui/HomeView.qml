@@ -118,9 +118,20 @@ FocusScope {
     // unknown. A cable shows "wired" and a crossed-out Wi-Fi shows
     // "disconnected"; "other" and unknown show nothing (#408).
     property string network: ""
-    // True while an Activity background is shown (ADR-0027): the light
-    // field then stays off, as it did before the hearth floor.
+    // True while an Activity background is shown. The floor then takes the
+    // Activity's identity hue instead of switching off (owner decision on
+    // #756, ADR-0140; amends ADR-0027).
     property bool ambientSuppressed: false
+    // The identity of the application that owns the Return window, matched
+    // by its platform window token; empty when no running window matches.
+    property string returnActivityIdentity: ""
+    readonly property string activityIdentity: {
+        if (!ambientSuppressed) return "";
+        if (returnIsWebService && currentServiceId) return currentServiceId;
+        if (returnActivityIdentity) return returnActivityIdentity;
+        const entry = continueEntries.find(item => item && item.id === returnActivityId && item.visualIdentity);
+        return entry ? entry.visualIdentity : "";
+    }
     // The last frame of the Activity behind Home (§12.3), empty for none.
     // Near while the Activity's own card has focus, otherwise far (handoff
     // Home 16). Never delays focus: it only replaces the plain background.
@@ -279,7 +290,7 @@ FocusScope {
             const linked = rest.findIndex(entry => entry.serviceId === tab.id);
             if (linked < 0)
                 rest.unshift({id: "open-service", serviceId: tab.id, visualIdentity: tab.id,
-                              title: tab.title, running: true, kind: "tab"});
+                              title: tab.title, subtitle: tab.domain || "", running: true, kind: "tab"});
             else if (linked >= 4)
                 rest.unshift(rest.splice(linked, 1)[0]);
         }
@@ -352,6 +363,19 @@ FocusScope {
         if (!m) return qsTr("%1 h left").arg(h);
         return qsTr("%1 h %2 min left").arg(h).arg(m);
     }
+    // The hero's eyebrow for a media card: what it is, never the row label
+    // above it (Hearth light brief, Home; #756 C20).
+    function mediaEyebrow(entry) {
+        if (entry.mediaKind === "series") {
+            const parts = [qsTr("Series")];
+            if (entry.season !== undefined && entry.episode !== undefined)
+                parts.push(qsTr("S%1 E%2").arg(entry.season).arg(entry.episode));
+            return parts.join(" · ");
+        }
+        if (entry.mediaKind === "film")
+            return entry.year ? qsTr("Film") + " · " + entry.year : qsTr("Film");
+        return entry.running ? qsTr("Playing") : qsTr("Paused");
+    }
     // What the hero says about the focused Home item and what OK does
     // (#364, handoff 01–03).
     function describe(row, entry) {
@@ -383,11 +407,11 @@ FocusScope {
                     : qsTr("%1 of %2").arg(formatTime(position)).arg(formatTime(entry.durationUs)) + " · " + left;
             } else if (entry.running && !meta)
                 meta = qsTr("Playing");
-            return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: meta, live: false};
+            return {eyebrow: mediaEyebrow(entry), title: entry.title || "", meta: meta, live: false};
         }
         if (entry.kind === "tab")
             return {eyebrow: qsTr("Now running"), title: entry.title || "",
-                    meta: entry.subtitle + " · " + qsTr("Return"), live: true};
+                    meta: entry.subtitle ? entry.subtitle + " · " + qsTr("Return") : qsTr("Return"), live: true};
         if (entry.running)
             return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
@@ -683,10 +707,11 @@ FocusScope {
         veilParent: root
         followsTime: root.lightFollowsTime
         clockText: root.clockText
-        // Home and Applications are content screens. An Activity background
-        // still suppresses the field (ADR-0027). The pool takes the focused item.
+        // Home and Applications are content screens. Over an Activity the
+        // floor takes its identity hue (ADR-0140). The pool takes the focused item.
         lit: root.ambientEnabled && (root.screen === "applications"
-             || (root.screen === "home" && root.homeState === "ready" && !root.ambientSuppressed))
+             || (root.screen === "home" && root.homeState === "ready"))
+        floorTint: root.screen === "home" && root.activityIdentity ? Theme.identityColor(root.activityIdentity) : "transparent"
         // Home 1. Applications 0.6, with the Library; the prototype's 0.8 is
         // not used (owner decision on #732). Detail is 0.5.
         strength: root.screen === "applications" ? 0.6 : 1

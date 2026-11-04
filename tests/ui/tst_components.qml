@@ -49,9 +49,18 @@ TestCase {
         tile.iconSource = "";
         tryCompare(tile, "iconReady", false);
         compare(findChild(tile, "applicationFallback").visible, true);
-        compare(chip.color, tile.accentColor);
+        // A letter sits on the neutral chip, never on a hashed pastel (#756 C19).
+        verify(Qt.colorEqual(chip.color, Ui.Theme.chip));
         tile.forceActiveFocus();
         tryCompare(findChild(tile, "focusRing"), "opacity", 1);
+    }
+    // A card without artwork shows its letter on the neutral chip, so one
+    // service never wears two pastel colours (#756 C19).
+    function test_card_letter_chip_is_neutral() {
+        const card = createTemporaryObject(cardFactory, suite, {visualIdentity: "provider:fixture"});
+        const chip = findChild(card, "cardChip");
+        verify(chip.visible);
+        verify(Qt.colorEqual(chip.color, Ui.Theme.chip));
     }
     function test_activation_data() {
         return [ { tag: "button", factory: buttonFactory },

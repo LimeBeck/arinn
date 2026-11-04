@@ -1129,7 +1129,15 @@ private slots:
     QCOMPARE(show.value(QStringLiteral("progress")).toDouble(), 0.5);
     QVERIFY(!show.contains(QStringLiteral("episodes")));
     QVERIFY(!show.contains(QStringLiteral("seasons")));
-    QCOMPARE(catalog.continueEntries().last().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+    // #756 C20: the card keeps what the hero names: the kind and the episode.
+    QCOMPARE(show.value(QStringLiteral("mediaKind")).toString(), QStringLiteral("series"));
+    QCOMPARE(show.value(QStringLiteral("season")).toInt(), 1);
+    QCOMPARE(show.value(QStringLiteral("episode")).toInt(), 4);
+    QCOMPARE(show.value(QStringLiteral("kind")).toString(), QStringLiteral("media"));
+    const auto north = catalog.continueEntries().last().toMap();
+    QCOMPARE(north.value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+    QCOMPARE(north.value(QStringLiteral("mediaKind")).toString(), QStringLiteral("film"));
+    QVERIFY(!north.contains(QStringLiteral("season")));
     catalog.launch(show.value(QStringLiteral("resumeContentId")).toString());
     QTRY_COMPARE(daemon.lastLocal, QStringLiteral("ep4"));
   }

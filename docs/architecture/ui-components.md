@@ -211,8 +211,13 @@ under that block. Continue is followed by Favourites at `homeRowStride` (the Con
 `wifiLevel` (1–4, or 0 when unknown) show the mute and Wi-Fi icons between the
 chip and the clock, only while known; `network` (`wired` or `disconnected`)
 shows the cable or the crossed-out Wi-Fi icon in the Wi-Fi icon's place
-([#408](https://github.com/LimeBeck/arinn/issues/408)); `ambientSuppressed` turns
-the light field off while an Activity background is shown. A media entry whose
+([#408](https://github.com/LimeBeck/arinn/issues/408)); `ambientSuppressed` marks
+an Activity background: the light field stays on and the floor takes the
+Activity's identity hue (`AmbientGlow.floorTint`; `returnActivityIdentity` is the
+identity of the running window whose platform token is the Return target, and
+without one the warm hearth stays), and the near state draws dark
+bands over the top 180 px and the bottom 140 px of the Activity
+([ADR-0140](../adr/0140-tv-review-visual-decisions.md)). A media entry whose
 `serviceId` names an open service is that service's card
 ([ADR-0096](../adr/0096-browser-media-session-association.md)): it merges into the
 current-service card, or becomes a `tab` card that emits `tabRequested`.

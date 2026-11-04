@@ -18,7 +18,8 @@ FocusScope {
     property string serviceTitle: ""
     readonly property string monogram: serviceTitle.trim().length
             ? Array.from(serviceTitle.trim())[0].toUpperCase() : "?"
-    readonly property color identityColor: Theme.identityColor(serviceTitle)
+    // The application's icon; empty shows the letter on a neutral chip.
+    property url iconSource: ""
     property string failure: ""
     // Whether Cancel can stop the operation now.
     property bool cancellable: true
@@ -213,32 +214,29 @@ FocusScope {
             width: 180
             height: 180
             radius: 52
-            color: root.identityColor
-            border.width: 2
-            border.color: Qt.rgba(1, 1, 1, 0.2)
-            Canvas {
-                objectName: "launchGlow"
-                anchors.centerIn: parent
-                width: 500
-                height: 500
-                z: -1
-                property color glowColor: root.identityColor
-                onGlowColorChanged: requestPaint()
-                onPaint: {
-                    const context = getContext("2d");
-                    context.clearRect(0, 0, width, height);
-                    const glow = context.createRadialGradient(250, 250, 70, 250, 250, 250);
-                    glow.addColorStop(0, Qt.rgba(glowColor.r, glowColor.g, glowColor.b, 0.35));
-                    glow.addColorStop(1, "transparent");
-                    context.fillStyle = glow;
-                    context.fillRect(0, 0, width, height);
-                }
+            // A neutral chip with the application's icon, no hashed pastel
+            // and no centred colour glow (brief *Monograms*, #756 C19).
+            color: launchIcon.status === Image.Ready ? Qt.rgba(1, 1, 1, 0.1) : Theme.chip
+            border.width: 1
+            border.color: Theme.chipLine
+            Image {
+                id: launchIcon
+                objectName: "launchIcon"
+                anchors.fill: parent
+                anchors.margins: 24
+                source: root.iconSource
+                sourceSize: Qt.size(264, 264)
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                visible: status === Image.Ready
             }
             UiText {
                 objectName: "launchMonogram"
                 anchors.centerIn: parent
+                visible: launchIcon.status !== Image.Ready
                 font.pixelSize: 80
                 font.weight: 700
+                color: Theme.textSecondary
                 text: root.monogram
             }
         }

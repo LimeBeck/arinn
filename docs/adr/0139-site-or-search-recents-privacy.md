@@ -21,7 +21,7 @@ The daemon reduces the typed text before it records it (`arinnd::storage::browse
 
 - **Address** (the text resolves to `address`, ADR-0066):
   - the entry is the typed text up to its first `?` or `#`, trimmed, so `example.org/watch?v=1#t` is kept as `example.org/watch`;
-  - an address whose host is loopback is not recorded at all: `localhost`, `*.localhost`, `127.0.0.0/8`, `0.0.0.0`, `::1` and `::`.
+  - an address whose host is loopback is not recorded at all: `localhost`, `*.localhost`, `127.0.0.0/8`, `0.0.0.0`, `::1`, `::` and their IPv4-mapped forms such as `::ffff:127.0.0.1`.
 - **Search:** the text is kept as typed. A search is not an address and has no query of a site.
 - **Invalid text** is not recorded, as before.
 - Text that may not be kept leaves the list unchanged and emits no `RecentChanged`.

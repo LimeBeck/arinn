@@ -1443,6 +1443,32 @@ private slots:
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
     QCOMPARE(settings->property("editingKey").toString(), QString());
   }
+  // Review of #778: the platform's Home closes Library Detail, as the Home
+  // key does there, so the library opens on its grid next time.
+  void globalHomeClosesLibraryDetail() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto library = window->findChild<QQuickItem *>("productionLibrary");
+    QVERIFY(home && library);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_VERIFY(library->isVisible());
+    library->setProperty("detailEntryId", QStringLiteral("movie"));
+    QVERIFY(library->property("detailOpen").toBool());
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QCOMPARE(library->property("detailEntryId").toString(), QString());
+  }
   void productionOpenTabSurvivesShellRestartWithoutReturn() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");
     BrowserDaemon daemon;

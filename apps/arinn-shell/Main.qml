@@ -629,6 +629,8 @@ Window {
                 // A Settings editor or option list closes without saving
                 // first, as for the Home key there (review of #778).
                 if (root.focusedScreen === "settings") settingsView.dropTransient();
+                // Library Detail closes too, as for the Home key there.
+                if (root.focusedScreen === "library") libraryView.dropDetailForHome();
                 if (root.focusedScreen !== "home") root.goHomeFrom(root.focusedScreen);
                 return;
             }

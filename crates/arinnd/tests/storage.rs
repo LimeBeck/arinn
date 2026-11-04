@@ -614,6 +614,14 @@ fn browse_recents_drop_queries_and_loopback_addresses() {
             Ok(false)
         );
         assert_eq!(store.push_browse_recent("http://[::1]/x"), Ok(false));
+        assert_eq!(
+            store.push_browse_recent("http://[::ffff:127.0.0.1]/cb?secret=x"),
+            Ok(false)
+        );
+        assert_eq!(
+            store.push_browse_recent("http://[::ffff:0.0.0.0]/x"),
+            Ok(false)
+        );
         assert_eq!(store.push_browse_recent("synthetic search?"), Ok(true));
         assert_eq!(store.push_browse_recent("ftp://x"), Ok(false));
         assert_eq!(

@@ -42,7 +42,14 @@ pub fn browse_recent_entry(text: &str) -> Option<String> {
             name == "localhost" || name.ends_with(".localhost")
         }
         url::Host::Ipv4(address) => address.is_loopback() || address.is_unspecified(),
-        url::Host::Ipv6(address) => address.is_loopback() || address.is_unspecified(),
+        // An IPv4-mapped address reaches the IPv4 host (review of #778).
+        url::Host::Ipv6(address) => {
+            address.is_loopback()
+                || address.is_unspecified()
+                || address
+                    .to_ipv4_mapped()
+                    .is_some_and(|v4| v4.is_loopback() || v4.is_unspecified())
+        }
     };
     if loopback {
         return None;

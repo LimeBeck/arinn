@@ -1616,6 +1616,11 @@ void Backend::setFavorite(const QString &id, bool pinned) {
             publishState();
           });
 }
+void Backend::cancelQueuedTerminate(const QString &id) {
+  // The close flow gave up on this window (#759, CL-11): the queued close
+  // must not run when the earlier operation ends.
+  m_queuedTerminates.remove(id);
+}
 void Backend::terminate(const QString &id) {
   // Another operation on this window still runs, such as an Activate: the
   // close starts when it ends instead of being dropped (review of #777).

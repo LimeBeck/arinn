@@ -46,6 +46,9 @@ FocusScope {
     readonly property bool open: phase.length > 0
 
     signal terminateRequested(string windowId)
+    // The flow stopped waiting for this window: a close still queued behind
+    // another operation must not run later (review of #777).
+    signal gaveUp(string windowId)
     signal switchRequested(string windowId)
     // A window that was asked to close has gone.
     signal closed(string windowId)
@@ -125,6 +128,7 @@ FocusScope {
     function didNotClose(id) {
         if (closingIds.indexOf(id) < 0) return;
         forget(id);
+        gaveUp(id);
         failedIds = failedIds.concat([id]);
         if (open) {
             if (queuedFailures.indexOf(id) < 0) queuedFailures = queuedFailures.concat([id]);
@@ -177,8 +181,10 @@ FocusScope {
     onClosingIdsChanged: {
         const next = Object.assign({}, titles);
         for (const id of closingIds) {
+            // A reused id may carry an empty title: the old window's name is
+            // not kept for it (review of #777).
             const entry = windowById(id);
-            if (entry && entry.title) next[id] = entry.title;
+            if (entry) next[id] = entry.title || "";
         }
         titles = next;
     }

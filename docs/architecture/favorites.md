@@ -66,7 +66,7 @@ reserved shortcut identity. Empty saved state never substitutes the catalog.
 Missing or unlaunchable saved targets remain focusable for removal with neutral
 presentation and no disclosure of opaque IDs.
 
-Holding Menu or Select for 650 ms, the O key, or a pointer press-and-hold opens
+Holding Menu or Select for 650 ms, or a pointer press-and-hold, opens
 the tile action sheet on Applications or Home favorites (spec §6.2; a short Menu
 keeps toggling navigation, or opens the shortcut editor on a web shortcut). The
 sheet is the right-hand sheet of [ui-running.md](ui-running.md). Pin/unpin sends the captured revision and the

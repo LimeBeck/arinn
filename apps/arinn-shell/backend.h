@@ -84,6 +84,8 @@ public:
   QString favoriteError() const { return m_favoriteError; }
   Q_INVOKABLE void setFavorite(const QString &id, bool pinned);
   Q_INVOKABLE void terminate(const QString &id);
+  // Drops a terminate still queued behind another operation on the entry.
+  Q_INVOKABLE void cancelQueuedTerminate(const QString &id);
   QString homeState() const;
   bool buildMismatch() const { return m_connected && m_buildMismatch; }
   // Exit with the status that asks the platform to restart Arinn (ADR-0098).

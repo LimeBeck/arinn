@@ -119,9 +119,9 @@ TestCase {
         focused("entry-w");
         closes2.target = null;
     }
-    // #756 A4, spec §6.2: a long Menu and O open the sheet; a short Menu
+    // #756 A4, spec §6.2: a long Menu opens the sheet; a short Menu
     // still toggles navigation.
-    function test_long_menu_and_o_open_the_tile_sheet() {
+    function test_long_menu_opens_the_tile_sheet_and_o_does_not() {
         home.actionsEnabled = true;
         home.favoriteEntries = [{id: "f", title: "Favorite", pinned: true, providerId: "fixture"}];
         child("entry-f").forceActiveFocus(); focused("entry-f");
@@ -131,9 +131,10 @@ TestCase {
         focused("favoriteAction");
         keyClick(Qt.Key_Back); tryCompare(home, "tileActionsOpen", false);
         focused("entry-f");
+        // Review of #777: a plain letter is not a product key (spec §6.2).
         keyClick(Qt.Key_O);
-        tryCompare(home, "tileActionsOpen", true);
-        keyClick(Qt.Key_Escape); tryCompare(home, "tileActionsOpen", false);
+        wait(50);
+        verify(!home.tileActionsOpen);
         focused("entry-f");
         verify(child("tileHint").visible);
         compare(child("tileHint").text, "OK — open · Menu — actions");

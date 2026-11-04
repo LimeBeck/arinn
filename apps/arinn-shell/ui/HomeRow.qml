@@ -330,18 +330,16 @@ FocusScope {
                                     unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
                                     onActivated: root.activated(entryLoader.modelData.id)
                                     onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
-                                    // The tile sheet opens on a long Menu or a long OK,
-                                    // and on O (handoff *Closing applications*, spec
-                                    // §6.2). A short Menu stays the row's.
+                                    // The tile sheet opens on a long Menu or a long OK
+                                    // (handoff *Closing applications*, spec §6.2). A
+                                    // short Menu stays the row's. Letter keys are not
+                                    // product keys (spec §6.2; review of #777).
                                     Keys.onPressed: event => {
                                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                                             if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
                                             event.accepted = true;
                                         } else if (event.key === Qt.Key_Menu && event.modifiers === Qt.NoModifier) {
                                             if (!event.isAutoRepeat) { menuHandled = false; menuHeld = true; menuTimer.restart(); }
-                                            event.accepted = true;
-                                        } else if (event.key === Qt.Key_O && event.modifiers === Qt.NoModifier) {
-                                            if (!event.isAutoRepeat) root.actionsRequested(entryLoader.modelData.id);
                                             event.accepted = true;
                                         }
                                     }

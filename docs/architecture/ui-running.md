@@ -16,9 +16,10 @@ retries and never forces. Web services keep closing on Open services.
 
 All three lead to the same close flow.
 
-- **Tile sheet** (CL-1, CL-2). A long Menu (650 ms), the O key, a long OK or a
+- **Tile sheet** (CL-1, CL-2). A long Menu (650 ms), a long OK or a
   pointer press-and-hold on an application tile in Applications or Home
-  favorites opens the sheet. A short Menu is reported by the tile
+  favorites opens the sheet. Letter keys such as O are prototype bindings, not
+  product keys (spec §6.2). A short Menu is reported by the tile
   (`HomeRow.menuTapped`) and keeps its meaning: navigation, or the shortcut
   editor on a web shortcut in Applications. On a web shortcut a held Menu keeps
   that meaning too. The sheet is the right glass sheet,
@@ -90,7 +91,8 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   without closing the application. Focus returns to the opener.
 - **Closing** (CL-9). Close sends `Backend.terminate(id)`. If another operation
   on that window (such as an Activate) is still running, the terminate waits for
-  it and then starts, unless the window has gone. The window is in
+  it and then starts, unless the window has gone or the flow has given up on it
+  (`CloseFlow.gaveUp` calls `Backend.cancelQueuedTerminate`). The window is in
   `closingIds` until it leaves `Backend.items`. Rows and the Continue Close
   button show it, and an application tile in Favorites, Applications or Open
   windows whose `runningId` is closing shows "…" in place of its Ember dot. On the Running screen focus moves on to the next row at once.

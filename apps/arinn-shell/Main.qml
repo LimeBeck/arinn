@@ -1545,6 +1545,7 @@ Window {
         windowsKnown: backend.connected === true && (backend.applicationsState === "ready"
                                                      || backend.applicationsState === "empty")
         onTerminateRequested: windowId => backend.terminate(windowId)
+        onGaveUp: windowId => { if (typeof backend.cancelQueuedTerminate === "function") backend.cancelQueuedTerminate(windowId); }
         onSwitchRequested: windowId => backend.activate(windowId)
         onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
         Connections {

@@ -333,6 +333,12 @@ TestCase {
         tryCompare(flow, "toastMessage", "", 4000);
         flow.windows = [{id: "w1", title: "New window", terminable: true}];
         compare(flow.closedIds, ["w2"]);
+        // Review of #777: the reused id's own empty title replaces the old
+        // window's name.
+        flow.windows = [{id: "w1", title: "", terminable: true}];
+        flow.ask("w1"); flow.confirm();
+        flow.windows = [];
+        compare(child(flow, "closeFlowToastText").text, "Closed");
     }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);
@@ -341,8 +347,13 @@ TestCase {
         focused(flow, "closeFlowCancel");
         flow.confirm();
         compare(flow.closingIds, ["w1"]);
+        const gaveUp = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "gaveUp"});
         // Still there after the wait (here 300 ms): did not close.
         tryCompare(flow, "phase", "failed", 3000);
+        // Review of #777: the shell is told, so a close still queued behind
+        // another operation does not run later.
+        compare(gaveUp.count, 1);
+        compare(gaveUp.signalArguments[0][0], "w1");
         compare(flow.closingIds, []);
         compare(flow.failedIds, ["w1"]);
         // A window that did not close is not among the closed ones.

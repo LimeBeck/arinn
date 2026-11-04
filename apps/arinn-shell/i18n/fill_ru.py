@@ -181,6 +181,10 @@ RU = {
     # Downloads
     "%n downloading": "Загружается: %n",
     "%n done": "Готово: %n",
+    # Track channel layouts (#756 B13).
+    "Mono": "Моно",
+    "Stereo": "Стерео",
+    "%n channels": "Каналов: %n",
     "No downloads": "Нет загрузок",
     "Downloads could not be loaded": "Не удалось загрузить список загрузок",
     "Downloads unavailable": "Загрузки недоступны",
@@ -505,6 +509,7 @@ CONTEXT = {
     ("BrowserView", "Open services"): "Открытые сервисы",
     ("HomeView", "Open services"): "Все открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
+    ("LibraryCatalog", "S%1 E%2"): "С%1 Э%2",
     ("PowerMenu", "Power"): "Питание",
     # Stops a starting application (spec §6.5).
     ("LaunchOverlay", "Stop"): "Прервать",

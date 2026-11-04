@@ -96,6 +96,46 @@ QString languageName(const QString &tag) {
     return tag;
   return locale.toUpper(name.left(1)) + name.mid(1);
 }
+// A channel count as a layout a viewer knows: Stereo, 5.1, 7.1 (#756 B13).
+QString channelLayout(int channels) {
+  switch (channels) {
+  case 1:
+    return QCoreApplication::translate("MediaCatalog", "Mono");
+  case 2:
+    return QCoreApplication::translate("MediaCatalog", "Stereo");
+  case 6:
+    return QStringLiteral("5.1");
+  case 8:
+    return QStringLiteral("7.1");
+  default:
+    return channels > 0
+               ? QCoreApplication::translate("MediaCatalog", "%n channels", "", channels)
+               : QString();
+  }
+}
+// A track's own name without format words a viewer does not need (codec,
+// container format, channel layout), in normal case when it was all
+// capitals. What is left that only repeats the language, or is a bare
+// short code, is dropped (#756 B13, owner decision 2026-11-04).
+QString trackName(const QString &raw, const QString &language) {
+  static const QRegularExpression technical(
+      QStringLiteral(R"((?i)\b(srt|subrip|ass|ssa|pgs|sup|vobsub|dts(-hd)?(\s+ma)?|ac-?3|e-?ac-?3|aac|flac|opus|mp3|truehd|atmos|lpcm|pcm|dd\+?|ddp)\b|\b[2-7]\.[01]\b)"));
+  auto name = QString(raw).replace(technical, QString()).simplified();
+  name.remove(QRegularExpression(QStringLiteral(R"(^[\s\-·|,/]+|[\s\-·|,/]+$)")));
+  if (name.size() <= 3 || name.compare(language, Qt::CaseInsensitive) == 0)
+    return {};
+  bool hasLetter = false, allUpper = true;
+  for (const auto c : name) {
+    if (!c.isLetter())
+      continue;
+    hasLetter = true;
+    if (c.isLower())
+      allUpper = false;
+  }
+  if (hasLetter && allUpper)
+    name = name.left(1) + name.mid(1).toLower();
+  return name;
+}
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
 constexpr auto sessionPage =
@@ -329,19 +369,22 @@ bool MediaCatalog::tracksAvailable() const {
 bool MediaCatalog::timelineAvailable() const {
   return featureOn(QStringLiteral("MediaTimeline1"));
 }
+// The track's language is its label; the subline is its own name and the
+// channel layout. Codec names never reach the screen (#756 B13, owner
+// decision 2026-11-04: no guessing of the voice type).
 QVariantMap MediaCatalog::trackMap(const TrackRow &track) const {
-  QStringList parts;
   const auto language =
       track.language.isEmpty() ? QString() : languageName(track.language);
-  if (!language.isEmpty())
-    parts.append(language);
-  if (!track.codec.isEmpty())
-    parts.append(track.codec);
-  if (track.channels > 0)
-    parts.append(QString::number(track.channels));
-  auto label = track.label;
+  const auto name = trackName(track.label, language);
+  QStringList parts;
+  QString label = language;
   if (label.isEmpty())
-    label = language.isEmpty() ? track.id : language;
+    label = !name.isEmpty() ? name : track.label.isEmpty() ? track.id : track.label;
+  else if (!name.isEmpty())
+    parts.append(name);
+  const auto layout = channelLayout(track.channels);
+  if (!layout.isEmpty())
+    parts.append(layout);
   return QVariantMap{{QStringLiteral("id"), track.id},
                      {QStringLiteral("label"), label},
                      {QStringLiteral("detail"), parts.join(QStringLiteral(" · "))}};

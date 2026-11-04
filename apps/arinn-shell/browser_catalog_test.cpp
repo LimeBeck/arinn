@@ -1435,9 +1435,9 @@ private slots:
         {QStringLiteral("enabled"), true}}});
     home->setProperty("screen", QStringLiteral("settings"));
     QTRY_VERIFY(settings->isVisible());
-    QTest::qWait(100);
-    QTest::keyClick(window, Qt::Key_Right);
-    QTest::keyClick(window, Qt::Key_Return);
+    // Open the row's editor as OK on it does.
+    const auto row = settings->property("rows").toList().constFirst();
+    QVERIFY(QMetaObject::invokeMethod(settings, "openInteger", Q_ARG(QVariant, row)));
     QTRY_COMPARE(settings->property("editingKey").toString(), QStringLiteral("shell-idle"));
     emit backend.homeRequested();
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));

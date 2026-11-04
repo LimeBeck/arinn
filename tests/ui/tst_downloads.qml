@@ -35,7 +35,13 @@ TestCase {
     SignalSpy { id: watches; signalName: "watchRequested" }
     SignalSpy { id: refreshes; signalName: "refreshRequested" }
     SignalSpy { id: backs; signalName: "backRequested" }
+    Component { id: spyFactory; SignalSpy {} }
 
+    function sameColor(a, b) {
+        const x = Qt.color(a), y = Qt.color(b);
+        return Math.abs(x.r - y.r) < 0.01 && Math.abs(x.g - y.g) < 0.01
+                && Math.abs(x.b - y.b) < 0.01 && Math.abs(x.a - y.a) < 0.01;
+    }
     function child(name) {
         const item = findChild(view, name);
         verify(item !== null, name);
@@ -435,27 +441,83 @@ TestCase {
         const plainPlate = findChild(plain, "artworkPlate");
         verify(plainPlate);
         compare(plainPlate.showsArtwork, false);
-        // The neutral striped plate: grey everywhere, no identity-coloured
-        // chip, and both stripe tones present.
+        // #756 B12: a title card on Charcoal, not the prototype's stripes:
+        // the title in the content face, and a plain, stripe-free ground.
+        const card = findChild(plain, "titleCard");
+        verify(card);
+        verify(card.visible);
+        compare(findChild(plain, "titleCardTitle").text, "Queued item");
+        compare(findChild(plain, "titleCardTitle").font.family, Ui.Theme.contentFontFamily);
         tryVerify(() => {
             const pixels = grabImage(suite);
             const tones = {};
             for (let x = 30; x < 190; x += 7) {
-                const p = pixelAt(pixels, plain, x, 70);
-                if (Math.abs(p.r - p.g) > 3 || Math.abs(p.g - p.b) > 3 || p.r < 25 || p.r > 120) return false;
+                const p = pixelAt(pixels, plain, x, 12);
+                if (Math.abs(p.r - p.g) > 6 || Math.abs(p.g - p.b) > 6 || p.r > 60) return false;
                 tones[p.r] = true;
             }
-            for (const [x, y] of [[180, 24], [190, 30]]) {
-                const p = pixelAt(pixels, plain, x, y);
-                if (Math.abs(p.r - p.g) > 3 || Math.abs(p.g - p.b) > 3) return false;
-            }
-            return Object.keys(tones).length >= 2;
+            return Object.keys(tones).length === 1;
         });
+        verify(!findChild(poster, "titleCard").visible);
 
         // Losing the artwork falls back to the plate.
         view.jobs = [{id: "ready", title: "Ready item", state: "completed", importState: "imported"}];
         tryCompare(child("artwork-ready"), "artworkReady", false);
         tryCompare(findChild(child("artwork-ready"), "artworkPlate"), "showsArtwork", false);
+    }
+
+    // #756 B12: every state has its icon; Ember marks only a finished
+    // import (the progress bar is the other Ember mark).
+    function test_state_icons_and_colours() {
+        focused("job-active");
+        const expect = {
+            active: ["downloading", Ui.Theme.textSecondary],
+            waiting: ["schedule", Ui.Theme.textHint],
+            held: ["pause_circle", Ui.Theme.textHint],
+            failed: ["error", Ui.Theme.error],
+            ready: ["check_circle", Ui.Theme.ember],
+            extra: ["check_circle", Ui.Theme.textSecondary]
+        };
+        for (const id in expect) {
+            const icon = child("statusIcon-" + id);
+            compare(icon.name, expect[id][0], id);
+            verify(icon.visible, id);
+            verify(sameColor(icon.color, expect[id][1]), id);
+            verify(sameColor(child("status-" + id).color, expect[id][1]), id);
+        }
+    }
+    // Handoff 12: Watch is the white primary pill; other actions are plates.
+    function test_watch_is_the_white_primary_pill() {
+        focused("job-active");
+        verify(sameColor(child("action-active").background.color, Ui.Theme.plateAction));
+        verify(sameColor(child("actionLabel-active").color, Ui.Theme.textPrimary));
+        for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down);
+        focused("job-ready");
+        const watch = child("action-ready");
+        tryCompare(watch, "visible", true);
+        compare(watch.text, "Watch");
+        verify(sameColor(watch.background.color, Ui.Theme.textPrimary));
+        verify(sameColor(child("actionLabel-ready").color, Ui.Theme.ink));
+    }
+    // Handoff 12: "1 downloading · 32 MB/s".
+    function test_summary_carries_the_rate() {
+        view.transferRate = "32 MB/s";
+        compare(child("downloadsSummary").text, "1 downloading · 32 MB/s");
+        view.jobs = [{id: "a", title: "A", state: "completed", importState: "imported"}];
+        compare(view.summaryLine, "1 done");
+    }
+    // #756 A8: nothing lies left of a row, so Left asks for navigation and
+    // focus stays on the row.
+    function test_left_asks_for_navigation() {
+        const navigation = createTemporaryObject(spyFactory, suite,
+                {target: view, signalName: "navigationRequested"});
+        focused("job-active");
+        keyClick(Qt.Key_Left);
+        compare(navigation.count, 1);
+        verify(child("job-active").activeFocus);
+        keyClick(Qt.Key_Right);
+        compare(navigation.count, 1);
+        verify(child("job-active").activeFocus);
     }
 
     function test_explicit_summary_and_status_copy() {

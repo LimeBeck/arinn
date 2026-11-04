@@ -36,6 +36,11 @@ private slots:
     // Library tabs are named by the shell, not by the provider (#431).
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Series"), QStringLiteral("Сериалы"));
+    // #728: one item's kind (badge, detail eyebrow) is singular; only the
+    // tab is plural.
+    QCOMPARE(QCoreApplication::translate("LibraryView", "Series"), QStringLiteral("Сериал"));
+    QCOMPARE(QCoreApplication::translate("LibraryView", "Continue · S%1 E%2").arg(1).arg(4),
+             QStringLiteral("Продолжить · С1 Э4"));
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Other"), QStringLiteral("Другое"));
     // Error codes, units and track languages (#712).
     QCOMPARE(QCoreApplication::translate("Backend", "Something went wrong"),

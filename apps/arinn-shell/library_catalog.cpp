@@ -330,6 +330,20 @@ void LibraryCatalog::publish() {
                       {QStringLiteral("missing"), !item.available},
                       {QStringLiteral("enabled"), true},
                       {QStringLiteral("progress"), progress}};
+    // Detail shows the time left and where Continue starts (#728): the
+    // resume of the item Play opens, an episode for a series.
+    if (progress > 0 && resume && resume->hasResume && resume->resumePosition > 0) {
+      const auto duration = resume->resumeDuration > 0 ? resume->resumeDuration
+                                                       : resume->durationUs;
+      entry.insert(QStringLiteral("resumePositionUs"),
+                   static_cast<double>(resume->resumePosition));
+      if (duration > 0)
+        entry.insert(QStringLiteral("resumeDurationUs"), static_cast<double>(duration));
+      if (resume != &item && resume->hasSeason)
+        entry.insert(QStringLiteral("resumeSeason"), resume->season);
+      if (resume != &item && resume->hasEpisode)
+        entry.insert(QStringLiteral("resumeEpisode"), resume->episode);
+    }
     if (!poster.isEmpty())
       entry.insert(QStringLiteral("artwork"), poster);
     if (!fanart.isEmpty())

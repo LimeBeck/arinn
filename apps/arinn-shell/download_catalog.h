@@ -26,12 +26,16 @@ class DownloadCatalog : public QObject {
   // aggregate progress 0–1 of active downloads, or -1 when none knows it.
   Q_PROPERTY(bool downloading READ downloading NOTIFY catalogChanged)
   Q_PROPERTY(double downloadProgress READ downloadProgress NOTIFY catalogChanged)
+  // The summed rate of the active downloads ("32 MB/s"), or empty when
+  // none reports one. The Downloads summary line shows it (handoff 12).
+  Q_PROPERTY(QString rateText READ rateText NOTIFY catalogChanged)
 public:
   explicit DownloadCatalog(QObject *parent = nullptr);
   QString downloadsState() const;
   QVariantList jobs() const { return m_jobs; }
   bool downloading() const;
   double downloadProgress() const;
+  QString rateText() const;
   // action: pause, resume, start_now or retry (the view's action names).
   Q_INVOKABLE void request(const QString &id, const QString &action);
   // {provider, local} of the first library item an imported download

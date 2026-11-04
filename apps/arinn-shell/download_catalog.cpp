@@ -10,6 +10,7 @@
 #include <QtQml>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 constexpr auto path = "/org/arinn/Daemon1";
@@ -373,6 +374,15 @@ bool DownloadCatalog::downloading() const {
   return std::any_of(m_rows.begin(), m_rows.end(), [](const Row &row) {
     return row.state == QLatin1String("downloading");
   });
+}
+QString DownloadCatalog::rateText() const {
+  quint64 total = 0;
+  for (const auto &row : m_rows)
+    if (row.state == QLatin1String("downloading") && row.rate > 0)
+      total = row.rate > std::numeric_limits<quint64>::max() - total
+                  ? std::numeric_limits<quint64>::max()
+                  : total + row.rate;
+  return total > 0 ? tr("%1/s").arg(size(total)) : QString();
 }
 double DownloadCatalog::downloadProgress() const {
   // Bytes when every active download knows its size, so a large download

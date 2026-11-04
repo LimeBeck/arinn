@@ -1134,6 +1134,16 @@ private slots:
     QCOMPARE(show.value(QStringLiteral("season")).toInt(), 1);
     QCOMPARE(show.value(QStringLiteral("episode")).toInt(), 4);
     QCOMPARE(show.value(QStringLiteral("kind")).toString(), QStringLiteral("media"));
+    // #728: the series entry names the episode Continue resumes.
+    const auto allEntries = catalog.entries();
+    const auto showEntry = std::find_if(allEntries.cbegin(), allEntries.cend(),
+                                        [](const QVariant &entry) {
+                                          return entry.toMap().value(QStringLiteral("kind")) ==
+                                                 QStringLiteral("series");
+                                        })->toMap();
+    QCOMPARE(showEntry.value(QStringLiteral("resumeSeason")).toInt(), 1);
+    QCOMPARE(showEntry.value(QStringLiteral("resumeEpisode")).toInt(), 4);
+    QCOMPARE(showEntry.value(QStringLiteral("resumePositionUs")).toDouble(), 50000000.0);
     const auto north = catalog.continueEntries().last().toMap();
     QCOMPARE(north.value(QStringLiteral("title")).toString(), QStringLiteral("North"));
     QCOMPARE(north.value(QStringLiteral("mediaKind")).toString(), QStringLiteral("film"));
@@ -1515,10 +1525,16 @@ private slots:
     library->setProperty("detailEntryId", north.value(QStringLiteral("id")));
     auto play = window->findChild<QQuickItem *>(QStringLiteral("detailPlay"));
     QVERIFY(play);
-    QCOMPARE(play->property("text").toString(), QStringLiteral("Continue"));
+    // #728: where Continue starts and the time left, not a percentage.
+    QCOMPARE(north.value(QStringLiteral("resumePositionUs")).toDouble(), 50000000.0);
+    QCOMPARE(north.value(QStringLiteral("resumeDurationUs")).toDouble(), 100000000.0);
+    QCOMPARE(play->property("text").toString(), QStringLiteral("Continue from 0:50"));
     auto progress = window->findChild<QQuickItem *>(QStringLiteral("detailProgress"));
     QVERIFY(progress);
     QCOMPARE(progress->property("visible").toBool(), true);
+    auto left = window->findChild<QQuickItem *>(QStringLiteral("detailProgressText"));
+    QVERIFY(left);
+    QCOMPARE(left->property("text").toString(), QStringLiteral("1 min left"));
     play->forceActiveFocus();
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(catalog->operationState(), QStringLiteral("pending"));
@@ -1947,10 +1963,22 @@ private slots:
                             QStringLiteral("north")));
     QTRY_VERIFY(focusInside(window->activeFocusItem(), library));
 
+    // #756 A7: Back from a Detail that Watch opened returns to Downloads,
+    // on the row that opened it.
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(library->property("detailOpen").toBool(), false);
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("downloads"));
+    QTRY_VERIFY(focused(doneId));
+    // #756 A8: nothing lies left of a row, so Left opens navigation.
+    QTest::keyClick(window, Qt::Key_Left);
+    QTRY_COMPARE(home->property("navOpen").toBool(), true);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_COMPARE(home->property("navOpen").toBool(), false);
+    QTRY_VERIFY(focused(doneId));
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("downloads"));
+
     // Review of #310: Watch before the library lists the item opens its
     // Detail once a later read lists it.
-    QVERIFY(QMetaObject::invokeMethod(library, "closeDetail"));
-    QTRY_COMPARE(library->property("detailOpen").toBool(), false);
     DownloadWire late;
     late.id = QStringLiteral("late");
     late.title = QStringLiteral("West");
@@ -2686,6 +2714,28 @@ private slots:
     QVERIFY(catalog.artworkFor(provider, QStringLiteral("bare")).isEmpty());
     QVERIFY(catalog.artworkFor(provider, QStringLiteral("missing")).isEmpty());
     QVERIFY(catalog.artworkFor(QStringLiteral("other"), QStringLiteral("north")).isEmpty());
+  }
+  // #756 B11: the player names the library entry, not the file: a film by
+  // its title, an episode by its series and "S1 E2 · Episode".
+  void titleForNamesTheFilmOrTheSeriesAndEpisode() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("Series"),
+                           QStringLiteral("series")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), showItem(),
+                    episodeItem(QStringLiteral("ep2"), QStringLiteral("Second"), 1, 2)};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    const auto provider = QStringLiteral("library-provider");
+    const auto north = catalog.titleFor(provider, QStringLiteral("north"));
+    QCOMPARE(north.value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+    QVERIFY(!north.contains(QStringLiteral("episodeLine")));
+    const auto episode = catalog.titleFor(provider, QStringLiteral("ep2"));
+    QCOMPARE(episode.value(QStringLiteral("title")).toString(), QStringLiteral("Serial"));
+    QCOMPARE(episode.value(QStringLiteral("episodeLine")).toString(), QStringLiteral("S1 E2 · Second"));
+    QVERIFY(catalog.titleFor(provider, QStringLiteral("missing")).isEmpty());
   }
   // #360: Downloads shows the poster of the entry Watch opens.
   void posterForUsesTheTopLevelEntrysPoster() {

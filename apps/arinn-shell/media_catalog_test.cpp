@@ -1646,6 +1646,9 @@ private slots:
         TrackWire{QStringLiteral("a2"), QStringLiteral("audio"),
                   QStringLiteral("deu"), {}, QStringLiteral("aac"), 2, false,
                   false},
+        TrackWire{QStringLiteral("a3"), QStringLiteral("audio"),
+                  QStringLiteral("rus"), QStringLiteral("STUDIO VOICES AC3 5.1"),
+                  QStringLiteral("ac3"), 6, false, false},
         TrackWire{QStringLiteral("s1"), QStringLiteral("subtitle"),
                   QStringLiteral("eng"), QStringLiteral("Notes"),
                   QStringLiteral("subrip"), 0, true, false},
@@ -1669,23 +1672,33 @@ private slots:
     QVERIFY(catalog.playerSession());
     QVERIFY(catalog.tracksAvailable());
     QVERIFY(catalog.timelineAvailable());
-    QTRY_COMPARE(catalog.audioTracks().size(), 2);
+    QTRY_COMPARE(catalog.audioTracks().size(), 3);
     QCOMPARE(daemon.trackReads, 1);
     QCOMPARE(daemon.timelineReads, 1);
     QCOMPARE(catalog.audioTrackId(), QStringLiteral("a1"));
     const auto audio = catalog.audioTracks().at(0).toMap();
     QCOMPARE(audio.value(QStringLiteral("label")).toString(),
              QStringLiteral("English"));
-    // §15: a language tag is shown as the language's name, never raw.
+    // §15: a language tag is shown as the language's name, never raw. #756
+    // B13: the label is the language; the subline is the track's own name
+    // and the channel layout, never a codec name.
     QCOMPARE(audio.value(QStringLiteral("detail")).toString(),
-             QStringLiteral("English · aac · 2"));
+             QStringLiteral("Stereo"));
     const auto unlabelled = catalog.audioTracks().at(1).toMap();
     QCOMPARE(unlabelled.value(QStringLiteral("label")).toString(),
              QStringLiteral("German"));
     QCOMPARE(unlabelled.value(QStringLiteral("detail")).toString(),
-             QStringLiteral("German · aac · 2"));
+             QStringLiteral("Stereo"));
+    const auto named = catalog.audioTracks().at(2).toMap();
+    QCOMPARE(named.value(QStringLiteral("label")).toString(),
+             QStringLiteral("Russian"));
+    QCOMPARE(named.value(QStringLiteral("detail")).toString(),
+             QStringLiteral("Studio voices · 5.1"));
     QTRY_VERIFY(catalog.subtitleTracks().size() >= 2);
     QCOMPARE(catalog.subtitleTrackId(), QStringLiteral("s1"));
+    const auto notes = catalog.subtitleTracks().at(1).toMap();
+    QCOMPARE(notes.value(QStringLiteral("label")).toString(), QStringLiteral("English"));
+    QCOMPARE(notes.value(QStringLiteral("detail")).toString(), QStringLiteral("Notes"));
     QCOMPARE(catalog.subtitleTracks().at(0).toMap().value(QStringLiteral("label")).toString(),
              QStringLiteral("Off"));
     const auto offId =
@@ -1810,7 +1823,9 @@ private slots:
     QTRY_COMPARE(daemon.commands, QStringList({QStringLiteral("Seek")}));
     QCOMPARE(daemon.commands.size(), before.size() + 1);
     QVERIFY(!daemon.extensionCommands.contains(QStringLiteral("Seek")));
+    // Down lands on play/pause; Right twice reaches Audio (#756 C21).
     QTest::keyClick(window, Qt::Key_Down);
+    QTest::keyClick(window, Qt::Key_Right);
     QTest::keyClick(window, Qt::Key_Right);
     QTest::keyClick(window, Qt::Key_Return);
     QTest::keyClick(window, Qt::Key_Down);
@@ -2882,15 +2897,18 @@ private slots:
       auto audio = window->findChild<QQuickItem *>(QStringLiteral("audioPill"));
       auto subtitles = window->findChild<QQuickItem *>(QStringLiteral("subtitlePill"));
       auto thumb = window->findChild<QQuickItem *>(QStringLiteral("timelineThumb"));
-      auto more = window->findChild<QQuickItem *>(QStringLiteral("morePill"));
-      if (!audio || !subtitles || !thumb || !more)
+      // Play/pause always shows; there is no More pill (#756 C21).
+      auto playPause = window->findChild<QQuickItem *>(QStringLiteral("playpauseButton"));
+      if (!audio || !subtitles || !thumb || !playPause)
         return QStringLiteral("controls");
+      if (window->findChild<QQuickItem *>(QStringLiteral("morePill")))
+        return QStringLiteral("more");
       if (audio->isVisible() != tracksOn || subtitles->isVisible() != tracksOn)
         return QStringLiteral("pills");
       if (thumb->isVisible() != timelineOn)
         return QStringLiteral("thumbnail");
-      if (!more->isVisible())
-        return QStringLiteral("more");
+      if (!playPause->isVisible())
+        return QStringLiteral("playpause");
       return QString();
     };
     const auto tracksOnly = show({QStringLiteral("MediaTracks1")}, true, false);

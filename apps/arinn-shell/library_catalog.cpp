@@ -330,6 +330,20 @@ void LibraryCatalog::publish() {
                       {QStringLiteral("missing"), !item.available},
                       {QStringLiteral("enabled"), true},
                       {QStringLiteral("progress"), progress}};
+    // Detail shows the time left and where Continue starts (#728): the
+    // resume of the item Play opens, an episode for a series.
+    if (progress > 0 && resume && resume->hasResume && resume->resumePosition > 0) {
+      const auto duration = resume->resumeDuration > 0 ? resume->resumeDuration
+                                                       : resume->durationUs;
+      entry.insert(QStringLiteral("resumePositionUs"),
+                   static_cast<double>(resume->resumePosition));
+      if (duration > 0)
+        entry.insert(QStringLiteral("resumeDurationUs"), static_cast<double>(duration));
+      if (resume != &item && resume->hasSeason)
+        entry.insert(QStringLiteral("resumeSeason"), resume->season);
+      if (resume != &item && resume->hasEpisode)
+        entry.insert(QStringLiteral("resumeEpisode"), resume->episode);
+    }
     if (!poster.isEmpty())
       entry.insert(QStringLiteral("artwork"), poster);
     if (!fanart.isEmpty())
@@ -1211,6 +1225,36 @@ QString LibraryCatalog::artworkFor(const QString &providerId,
     local = found->parentLocal;
   }
   return {};
+}
+QVariantMap LibraryCatalog::titleFor(const QString &providerId,
+                                     const QString &localId) const {
+  const ItemRow *item = nullptr;
+  for (const auto &row : m_items)
+    if (row.providerId == providerId && row.localId == localId)
+      item = &row;
+  if (!item)
+    return {};
+  // Bounded walk to the top-level entry, as in entryIdFor.
+  const ItemRow *top = item;
+  for (int depth = 0; depth <= m_items.size() && !top->parentLocal.isEmpty(); ++depth) {
+    const ItemRow *parent = nullptr;
+    for (const auto &row : m_items)
+      if (row.providerId == providerId && row.localId == top->parentLocal)
+        parent = &row;
+    if (!parent)
+      break;
+    top = parent;
+  }
+  QVariantMap names{{QStringLiteral("title"), top->title}};
+  if (top != item) {
+    QStringList line;
+    if (item->hasSeason && item->hasEpisode)
+      line << tr("S%1 E%2").arg(item->season).arg(item->episode);
+    if (!item->title.isEmpty() && item->title != top->title)
+      line << item->title;
+    names.insert(QStringLiteral("episodeLine"), line.join(QStringLiteral(" · ")));
+  }
+  return names;
 }
 void LibraryCatalog::launchContent(const QString &providerId,
                                    const QString &localId) {

@@ -494,6 +494,10 @@
         <source>Downloads</source>
         <translation>Загрузки</translation>
     </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
+    </message>
 </context>
 <context>
     <name>HomeRow</name>
@@ -932,6 +936,10 @@
         <translation>Папки</translation>
     </message>
     <message>
+        <source>S%1 E%2</source>
+        <translation>С%1 Э%2</translation>
+    </message>
+    <message>
         <source>%1 s</source>
         <translation>%1 с</translation>
     </message>
@@ -1000,7 +1008,7 @@
     </message>
     <message>
         <source>Series</source>
-        <translation>Сериалы</translation>
+        <translation>Сериал</translation>
     </message>
     <message>
         <source>No file</source>
@@ -1081,6 +1089,30 @@
     <message>
         <source>Something went wrong. Try again.</source>
         <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Less than a minute left</source>
+        <translation>Осталось меньше минуты</translation>
+    </message>
+    <message>
+        <source>%1 min left</source>
+        <translation>Осталось %1 мин</translation>
+    </message>
+    <message>
+        <source>%1 h left</source>
+        <translation>Осталось %1 ч</translation>
+    </message>
+    <message>
+        <source>%1 h %2 min left</source>
+        <translation>Осталось %1 ч %2 мин</translation>
+    </message>
+    <message>
+        <source>Continue · S%1 E%2</source>
+        <translation>Продолжить · С%1 Э%2</translation>
+    </message>
+    <message>
+        <source>Continue from %1</source>
+        <translation>Продолжить с %1</translation>
     </message>
 </context>
 <context>
@@ -1276,6 +1308,22 @@
         <source>Korean</source>
         <translation>Корейский</translation>
     </message>
+    <message>
+        <source>Mono</source>
+        <translation>Моно</translation>
+    </message>
+    <message>
+        <source>Stereo</source>
+        <translation>Стерео</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n channels</source>
+        <translation>
+            <numerusform>Каналов: %n</numerusform>
+            <numerusform>Каналов: %n</numerusform>
+            <numerusform>Каналов: %n</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>OnScreenKeyboard</name>
@@ -1357,10 +1405,6 @@
     <message>
         <source>thumbnail</source>
         <translation>миниатюра</translation>
-    </message>
-    <message>
-        <source>More</source>
-        <translation>Ещё</translation>
     </message>
     <message>
         <source>Left/Right — 10 seconds · OK — pause</source>

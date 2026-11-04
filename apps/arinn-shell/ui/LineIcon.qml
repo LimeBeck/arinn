@@ -8,8 +8,9 @@ import QtQuick
 // keyboard_hide, shift, backspace, language, chevron_left, chevron_right,
 // history and public. Open services: bookmark_add, bookmark_added, close,
 // add and volume_up (the filled speaker of the Sound mark). Navigation:
-// home, library, download, apps, settings, screen and power. `public` is
-// the Open services globe; `close` is Close Arinn.
+// home, library, download, apps, settings, screen and power. Download
+// states (handoff 12): downloading, schedule, pause_circle, check_circle
+// and error. `public` is the Open services globe; `close` is Close Arinn.
 Canvas {
     id: root
     property string name: ""
@@ -35,6 +36,16 @@ Canvas {
             ctx.moveTo(7,4);ctx.lineTo(20,12);ctx.lineTo(7,20);ctx.closePath();ctx.fill();break;
         case "pause":
             ctx.rect(6,4,4,16);ctx.rect(14,4,4,16);ctx.fill();break;
+        case "check":
+            ctx.lineWidth = 2.5;
+            ctx.moveTo(5, 12.5); ctx.lineTo(10, 17.5); ctx.lineTo(19.5, 7);
+            ctx.stroke();
+            break;
+        // Player OSD previous / next (Hearth light brief, *Player OSD*).
+        case "skip_previous":
+            ctx.rect(5,5,3,14);ctx.moveTo(19,5);ctx.lineTo(9,12);ctx.lineTo(19,19);ctx.closePath();ctx.fill();break;
+        case "skip_next":
+            ctx.rect(16,5,3,14);ctx.moveTo(5,5);ctx.lineTo(15,12);ctx.lineTo(5,19);ctx.closePath();ctx.fill();break;
         case "keyboard":
         case "keyboard_hide":
             ctx.roundedRect(2.5, root.name === "keyboard" ? 5 : 3, 19, 13, 2, 2);
@@ -166,6 +177,37 @@ Canvas {
             ctx.moveTo(8, 20); ctx.lineTo(16, 20);
             ctx.moveTo(12, 16); ctx.lineTo(12, 20);
             ctx.stroke();
+            break;
+        case "downloading":
+            // An arrow into a tray, inside an open ring (Material `downloading`).
+            ctx.arc(12, 12, 9, Math.PI * 0.62, Math.PI * 2.38);
+            ctx.moveTo(12, 7); ctx.lineTo(12, 15);
+            ctx.moveTo(8.5, 11.5); ctx.lineTo(12, 15); ctx.lineTo(15.5, 11.5);
+            ctx.stroke();
+            break;
+        case "schedule":
+            ctx.arc(12, 12, 9, 0, Math.PI * 2);
+            ctx.moveTo(12, 7); ctx.lineTo(12, 12); ctx.lineTo(15.5, 14);
+            ctx.stroke();
+            break;
+        case "pause_circle":
+            ctx.arc(12, 12, 9, 0, Math.PI * 2);
+            ctx.moveTo(10, 8.5); ctx.lineTo(10, 15.5);
+            ctx.moveTo(14, 8.5); ctx.lineTo(14, 15.5);
+            ctx.stroke();
+            break;
+        case "check_circle":
+            ctx.arc(12, 12, 9, 0, Math.PI * 2);
+            ctx.moveTo(8, 12.5); ctx.lineTo(11, 15.5); ctx.lineTo(16.5, 9.5);
+            ctx.stroke();
+            break;
+        case "error":
+            ctx.arc(12, 12, 9, 0, Math.PI * 2);
+            ctx.moveTo(12, 7.5); ctx.lineTo(12, 13);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(12, 16.3, 1.2, 0, Math.PI * 2);
+            ctx.fill();
             break;
         case "power":
             ctx.arc(12, 13.5, 7.2, Math.PI * 0.72, Math.PI * 2.28);

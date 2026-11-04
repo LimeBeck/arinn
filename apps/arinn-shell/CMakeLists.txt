@@ -340,7 +340,10 @@ add_test(NAME translations-complete COMMAND ${CMAKE_COMMAND}
 
 qt_add_executable(arinn-music-catalog-test music_catalog_test.cpp music_catalog.cpp music_catalog.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-music-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
-target_compile_definitions(arinn-music-catalog-test PRIVATE ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
+target_compile_definitions(arinn-music-catalog-test PRIVATE
+    ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml"
+    ARINN_HOME_QML="${CMAKE_CURRENT_SOURCE_DIR}/ui/HomeView.qml"
+    ARINN_DAEMON_XML="${PROJECT_SOURCE_DIR}/docs/plugin-api/daemon1.xml")
 add_test(NAME music-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-catalog-test>)
 
 # Music has its own catalogue while #718 updates the shared shell translations.

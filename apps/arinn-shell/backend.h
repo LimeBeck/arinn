@@ -173,6 +173,11 @@ signals:
   void quickMenuRequested(const QString &target);
   // The remote's power key, for the current daemon epoch (ADR-0111).
   void powerMenuRequested();
+  // An application operation (launch, activate, terminate) ended: state
+  // is the Operation1 state (succeeded, failed, cancelled), or "failed"
+  // when the call or the operation could not be read. The close flow
+  // shows "did not close" on a failed terminate (#759, CL-11).
+  void operationFinished(const QString &id, const QString &state);
 
 private:
   const NativeShellFocusIdentity m_focusIdentity;

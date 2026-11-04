@@ -152,17 +152,24 @@ FocusScope {
     property bool favoriteSaving: false
     property string favoriteError: ""
     property string actionEntryId: ""
-    property bool confirmAppClose: false
     property var actionOpener: null
     readonly property bool tileActionsOpen: actionEntryId.length > 0
     readonly property var actionEntry: entryById(actionEntryId) || ({})
     signal favoriteRequested(string entryId, bool pinned)
-    signal terminateRequested(string entryId)
+    // Close a running window: the shell's close flow asks first (CL-8).
+    signal closeRequested(string windowId)
+    // The running window of the application on screen, when Arinn can close
+    // it: Continue's Close button (CL-3a) and the Running item's subline.
+    property string activityWindowId: ""
+    property string activityWindowTitle: ""
+    // Windows whose close request is in flight (CL-9).
+    property var closingIds: []
+    readonly property int runningCount: runningEntries.length
     function restoreActionFocus() {
-        if (confirmAppClose) Focus.take(closeAppCancel);
-        else if (actionsEnabled) Focus.take(favoriteAction);
+        if (actionsEnabled) Focus.take(favoriteAction);
         else if (favoriteRefresh.visible && favoriteRefresh.enabled) Focus.take(favoriteRefresh);
-        else Focus.take(actionCancel);
+        else if (closeAppAction.visible) Focus.take(closeAppAction);
+        else Focus.take(favoriteAction);
     }
     function settleActionFocus() {
         if (!tileActionsOpen || !root.Window.window) return;
@@ -177,12 +184,26 @@ FocusScope {
         const entry = entryById(entryId);
         if (!actionsEnabled || !entry || !entry.providerId) return;
         actionOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
-        confirmAppClose = false;
         actionEntryId = entryId;
-        Qt.callLater(() => Focus.take(favoriteAction));
+        Qt.callLater(restoreActionFocus);
+    }
+    // Pin or unpin from the sheet: applied, then the sheet closes after
+    // 180 ms (CL-2).
+    function toggleFavorite() {
+        favoriteRequested(actionEntryId, !actionEntry.pinned);
+        sheetCloseTimer.restart();
+    }
+    // Close from the sheet: the sheet gives way to the shell's confirmation.
+    function closeFromSheet() {
+        const windowId = actionEntry.runningId || "";
+        actionEntryId = "";
+        const opener = actionOpener;
+        actionOpener = null;
+        if (opener && opener.visible && opener.enabled) Focus.take(opener);
+        if (windowId.length) closeRequested(windowId);
     }
     function closeTileActions() {
-        confirmAppClose = false;
+        sheetCloseTimer.stop();
         actionEntryId = "";
         Qt.callLater(() => {
             if (actionOpener && actionOpener.visible && actionOpener.enabled) Focus.take(actionOpener);
@@ -309,7 +330,16 @@ FocusScope {
             stack: others.slice(0, 3).map(entry => ({id: entry.id, letter: entry.letter || "", icon: entry.icon || ""})),
             kind: "more"
         }] : [];
-        return activity.concat(more.concat(rest.map(mediaCard)).slice(0, 4));
+        // CL-3a: an application's activity card gets a Close button beside
+        // it; a web-service card does not.
+        const closer = !shown && lead && lead.id === returnActivityId && !returnIsWebService
+                && activityWindowId.length ? [{
+            id: "close:" + activityWindowId,
+            windowId: activityWindowId,
+            title: activityWindowTitle || lead.title || "",
+            kind: "close"
+        }] : [];
+        return activity.concat(closer).concat(more.concat(rest.map(mediaCard)).slice(0, 4));
     }
     // The playing or paused state a linked media session lends its tab card;
     // play/pause goes to `mediaId` (ADR-0096).
@@ -395,6 +425,9 @@ FocusScope {
         }
         if (entry.kind === "more")
             return {eyebrow: qsTr("Open services"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
+        if (entry.kind === "close")
+            return {eyebrow: qsTr("Now running"), title: entry.title || "",
+                    meta: qsTr("Close %1").arg(entry.title || ""), live: true};
         if (entry.kind === "media") {
             // The provider's own line (an episode, an artist), not the card's.
             const detail = entry.detail !== undefined ? entry.detail : entry.subtitle || "";
@@ -552,6 +585,17 @@ FocusScope {
         }
         restoreHome();
     }
+    // The Running applications screen (CL-4), drawn by the shell.
+    function showRunning() {
+        if (shortcutEditorOpen) closeShortcutEditorRequested();
+        sectionOffset = 0;
+        navOpen = false;
+        screen = "running";
+        sectionRequested(screen);
+    }
+    // "On screen: {name}" while an application is on screen (CL-7).
+    readonly property string runningSubline: activityWindowTitle.length && !returnIsWebService
+        ? qsTr("On screen: %1").arg(activityWindowTitle) : ""
     function returnFromLibraryDetail() {
         screen = "home";
         if (newRow.visible && newRow.restore()) return;
@@ -615,6 +659,7 @@ FocusScope {
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
+        if (entry && entry.kind === "close") { closeRequested(entry.windowId || ""); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }
         if (entry && entry.kind === "tab") { tabRequested(entry.serviceId || ""); return; }
         if (entry && entry.kind === "media") { sessionRequested(entryId); return; }
@@ -624,11 +669,10 @@ FocusScope {
     }
     onHomeStateChanged: Qt.callLater(() => { if (!navOpen && !shortcutEditorOpen && screen === "home") restoreHome(); })
     onReturnActivityIdChanged: {
-        if (!returnActivityId) {
+        // A window the close flow is closing gets its own "closed" toast.
+        if (!returnActivityId && !closingIds.length) {
             activityNotice.visible = true;
             noticeTimer.restart();
-            if (navOpen && navIndex === sections.length + 1)
-                Focus.take(navItems.itemAt(sections.length));
         }
     }
     Component.onCompleted: Qt.callLater(restoreScreen)
@@ -659,9 +703,7 @@ FocusScope {
             }
         }
         else if (event.key === Qt.Key_Menu) {
-            if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
-                editShortcut(focusedEntry.id);
-            else if (navOpen) closeNavigation(); else openNavigation();
+            menuKey();
             event.accepted = true;
         } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             // Editable controls consume Backspace before it bubbles to this scope.
@@ -673,6 +715,14 @@ FocusScope {
             if (navOpen) moveNavigation(event.key === Qt.Key_Backtab ? -1 : 1, event.isAutoRepeat);
             event.accepted = true;
         }
+    }
+    // A short Menu: toggle navigation, or the shortcut editor on a web
+    // shortcut in Applications. A tile turns a long Menu into its sheet and
+    // reports a short one here (HomeRow.menuTapped).
+    function menuKey() {
+        if (shortcutManagement && !navOpen && screen === "applications" && focusedEntry.webShortcut)
+            editShortcut(focusedEntry.id);
+        else if (navOpen) closeNavigation(); else openNavigation();
     }
     function navIcon(index) {
         const icons = {home: "home", library: "library", music: "volume_up", downloads: "download", applications: "apps", settings: "settings"};
@@ -960,6 +1010,7 @@ FocusScope {
                     x: 120; y: root.firstRowY; width: 1704
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
+                    closingIds: root.closingIds
                     castHue: isNaN(ambient.hue) ? Theme.hearthHue : ambient.hue
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
@@ -989,6 +1040,7 @@ FocusScope {
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(favoritesRow)
                     onActionsRequested: entryId => root.openTileActions(entryId)
+                    onMenuTapped: root.menuKey()
                     onSelected: entry => root.remember(favoritesRow, entry)
                     onActivated: entryId => root.activate(entryId)
                     onEdge: (key, autoRepeat) => {
@@ -1070,6 +1122,7 @@ FocusScope {
                     browserUnavailable: root.browserUnavailable; openShortcutIds: root.openShortcutIds
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onActionsRequested: entryId => root.openTileActions(entryId)
+                    onMenuTapped: root.menuKey()
                     onSelected: entry => { root.focusedEntry = entry; root.applicationFocusRow = groupRow.objectName; root.revealRow(groupRow); }
                     onActivated: entryId => {
                         const entry = groupRow.entries.find(e => e.id === entryId);
@@ -1097,6 +1150,7 @@ FocusScope {
                 entries: root.runningEntries; busyEntryIds: root.busyEntryIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onSelected: { root.applicationFocusRow = runningRow.objectName; root.revealRow(runningRow); }
+                onMenuTapped: root.menuKey()
                 onActivated: entryId => root.runningRequested(entryId)
                 onEdge: (key, autoRepeat) => {
                     if (key === Qt.Key_Left || key === Qt.Key_Right) {
@@ -1185,6 +1239,18 @@ FocusScope {
             }
         }
     }
+    // The tile hint (handoff 13, *Closing applications*): only while an
+    // application tile has focus.
+    UiText {
+        objectName: "tileHint"
+        x: Theme.safeLeft; y: root.height - 72
+        visible: !root.coveredByScreen && !root.navOpen && !root.tileActionsOpen
+                 && ((root.screen === "applications" && !!root.focusedEntry.providerId)
+                     || (root.screen === "home" && root.homeRow === "favorites" && !!root.focusedEntry.providerId))
+        text: qsTr("OK — open · Menu — actions")
+        font.pixelSize: 24
+        color: Theme.textHint
+    }
     MouseArea {
         x: 0; width: 28; height: parent.height
         visible: root.pointerMode && !root.navOpen
@@ -1234,7 +1300,7 @@ FocusScope {
             }
             Repeater {
                 id: navItems
-                model: root.sections.concat([qsTr("Open services"), qsTr("Return to activity"), qsTr("Power"), qsTr("Close Arinn")])
+                model: root.sections.concat([qsTr("Open services"), qsTr("Running"), qsTr("Power"), qsTr("Close Arinn")])
                 delegate: Surface {
                     id: navButton
                     required property int index
@@ -1251,9 +1317,11 @@ FocusScope {
                         return after + (root.currentServiceTitle.length ? 104 : 84);
                     }
                     width: 452
-                    height: index < root.sections.length ? navigationPanel.sectionStep : index === root.sections.length && root.currentServiceTitle.length ? 104 : 84
+                    height: index < root.sections.length ? navigationPanel.sectionStep
+                          : index === root.sections.length && root.currentServiceTitle.length ? 104
+                          : index === root.sections.length + 1 && root.runningSubline.length ? 104 : 84
                     text: modelData
-                    visible: index !== root.sections.length + 1 || (root.returnActivityId.length > 0 && !root.returnIsWebService)
+                    // Running (CL-7) stays when nothing runs; only its count hides.
                     shapeRole: "container"
                     focusScale: 1
                     focusLift: 0
@@ -1265,7 +1333,7 @@ FocusScope {
                     readonly property bool sectionDot: index < root.sections.length && root.routes[index] === root.screen
                     readonly property bool activityDot: (index === root.sections.length && root.returnIsWebService
                             && (root.currentServiceTitle.length > 0 || root.openServiceCount > 0))
-                            || (index === root.sections.length + 1 && visible)
+                            || (index === root.sections.length + 1 && root.runningSubline.length > 0)
                     contentItem: Item {
                         Rectangle {
                             objectName: "navCurrentDot"
@@ -1298,10 +1366,13 @@ FocusScope {
                                     maximumLineCount: 1; elide: Text.ElideRight
                                 }
                                 UiText {
-                                    objectName: index === root.sections.length ? "openServicesSubline" : ""
+                                    objectName: index === root.sections.length ? "openServicesSubline"
+                                              : index === root.sections.length + 1 ? "runningSubline" : ""
                                     width: parent.width
-                                    visible: index === root.sections.length && root.currentServiceTitle.length > 0
-                                    text: index === root.sections.length ? qsTr("On screen: %1").arg(root.currentServiceTitle) : ""
+                                    visible: text.length > 0
+                                    text: index === root.sections.length && root.currentServiceTitle.length
+                                          ? qsTr("On screen: %1").arg(root.currentServiceTitle)
+                                          : index === root.sections.length + 1 ? root.runningSubline : ""
                                     role: "caption"
                                     color: Theme.textSecondary
                                     maximumLineCount: 1; elide: Text.ElideRight
@@ -1309,8 +1380,10 @@ FocusScope {
                             }
                         }
                         Rectangle {
-                            objectName: index === root.sections.length ? "openServicesBadge" : ""
-                            visible: index === root.sections.length && root.openServiceCount > 0
+                            objectName: index === root.sections.length ? "openServicesBadge"
+                                      : index === root.sections.length + 1 ? "runningBadge" : ""
+                            visible: (index === root.sections.length && root.openServiceCount > 0)
+                                     || (index === root.sections.length + 1 && root.runningCount > 0)
                             anchors.right: parent.right
                             anchors.rightMargin: 20
                             anchors.verticalCenter: parent.verticalCenter
@@ -1320,9 +1393,11 @@ FocusScope {
                             color: Theme.ember
                             UiText {
                                 id: openServicesCount
-                                objectName: index === root.sections.length ? "openServicesCount" : ""
+                                objectName: index === root.sections.length ? "openServicesCount"
+                                          : index === root.sections.length + 1 ? "runningCountBadge" : ""
                                 anchors.centerIn: parent
-                                text: index === root.sections.length ? String(root.openServiceCount) : ""
+                                text: index === root.sections.length ? String(root.openServiceCount)
+                                      : index === root.sections.length + 1 ? String(root.runningCount) : ""
                                 font.pixelSize: 24
                                 font.weight: 600
                                 color: Theme.ink
@@ -1347,7 +1422,7 @@ FocusScope {
                     onActivated: {
                         if (index < root.sections.length) root.selectSection(index);
                         else if (index === root.sections.length) { root.navOpen = false; root.openServicesRequested(); }
-                        else if (index === root.sections.length + 1) root.returnRequested(root.returnActivityId);
+                        else if (index === root.sections.length + 1) root.showRunning();
                         else if (index === root.sections.length + 2) root.powerRequested();
                         else root.closeShellRequested();
                     }
@@ -1611,96 +1686,187 @@ FocusScope {
         }
     }
 
+    // The tile sheet (handoff *Closing applications*, CL-1, CL-2): the right
+    // glass sheet of the player's sheets, with the tile's group, chip, name
+    // and running state, then pin or unpin and, while it runs, Close.
+    Timer { id: sheetCloseTimer; interval: 180; onTriggered: root.closeTileActions() }
     FocusScope {
         id: tileActions
         objectName: "tileActions"
         anchors.fill: parent; visible: root.tileActionsOpen; enabled: visible; z: 20
+        readonly property string group: root.screen === "home" ? root.favoritesTitle
+                : (root.groupTitles[root.actionEntry.group] || root.groupTitles.other)
+        readonly property var options: [favoriteAction, closeAppAction, favoriteRefresh].filter(item => item.visible)
+        function step(delta) {
+            const list = options;
+            const index = list.findIndex(item => item.activeFocus);
+            const next = index + delta;
+            if (next >= 0 && next < list.length) Focus.take(list[next]);
+        }
         Keys.onPressed: event => {
             if (event.key === Qt.Key_Home) root.homeKey();
-            else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) && root.confirmAppClose)
-                Focus.take(closeAppCancel.activeFocus ? closeAppConfirm : closeAppCancel);
-            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Menu) {
-                if (root.confirmAppClose) { root.confirmAppClose = false; Focus.take(closeAppAction); }
-                else root.closeTileActions();
+            else if (event.key === Qt.Key_Up || event.key === Qt.Key_Backtab) step(-1);
+            else if (event.key === Qt.Key_Down || event.key === Qt.Key_Tab) step(1);
+            else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back
+                     || (event.key === Qt.Key_Menu && !event.isAutoRepeat)) {
+                if (!event.isAutoRepeat) root.closeTileActions();
             }
             event.accepted = true;
         }
-        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.65) }
+        Keys.onReleased: event => event.accepted = true
+        Rectangle { anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.45) }
         MouseArea { anchors.fill: parent; onClicked: root.closeTileActions() }
         Rectangle {
-            anchors.centerIn: parent; width: 1000; height: 560; radius: 40; color: Theme.background
-            enabled: !root.confirmAppClose
+            id: actionSheet
+            objectName: "tileActionSheet"
+            x: parent.width - width; y: 0
+            width: 720; height: parent.height
+            color: Qt.rgba(0.11, 0.115, 0.13, 0.96)
+            MouseArea { anchors.fill: parent }
             Column {
-                anchors.fill: parent; anchors.margins: 48; spacing: 24
-                UiText { text: root.actionEntry.title || qsTr("Application actions"); role: "section"; width: parent.width }
-                UiText { text: root.favoriteError; visible: text.length > 0; color: Theme.error; width: parent.width }
-                Grid {
-                    columns: 2; columnSpacing: 24; rowSpacing: 20
-                    ActionButton {
-                        width: 400
+                x: 56; y: 112
+                width: parent.width - 56 - 64
+                spacing: 28
+                UiText {
+                    objectName: "tileActionsEyebrow"
+                    text: tileActions.group
+                    role: "eyebrow"
+                    color: Theme.textSecondary
+                }
+                Row {
+                    spacing: 24
+                    Rectangle {
+                        objectName: "tileActionsChip"
+                        width: 76; height: 76; radius: 22
+                        color: Theme.chip
+                        border.width: 1; border.color: Theme.chipLine
+                        Image {
+                            id: sheetIcon
+                            anchors.centerIn: parent
+                            width: 48; height: 48
+                            sourceSize: Qt.size(96, 96)
+                            source: root.actionEntry.iconSource || ""
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            visible: status === Image.Ready
+                        }
+                        UiText {
+                            anchors.centerIn: parent
+                            visible: !sheetIcon.visible
+                            text: root.actionEntry.monogram || String(root.actionEntry.title || "").trim().slice(0, 1).toUpperCase()
+                            font.pixelSize: 34; font.weight: 700
+                            color: Theme.textSecondary
+                        }
+                    }
+                    UiText {
+                        objectName: "tileActionsTitle"
+                        width: actionSheet.width - 56 - 64 - 76 - 24
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: root.actionEntry.title || qsTr("Application actions")
+                        role: "title"; font.pixelSize: 52; font.weight: 700
+                        maximumLineCount: 2; wrapMode: Text.WordWrap; elide: Text.ElideRight
+                    }
+                }
+                Row {
+                    spacing: 12
+                    Rectangle {
+                        objectName: "tileActionsRunningDot"
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 12; height: 12; radius: 6
+                        color: Theme.ember
+                        visible: !!root.actionEntry.running
+                    }
+                    UiText {
+                        objectName: "tileActionsStatus"
+                        text: root.actionEntry.running ? qsTr("Running now") : qsTr("Not running")
+                        role: "meta"
+                        color: Theme.textSecondary
+                    }
+                }
+                UiText { text: root.favoriteError; visible: text.length > 0; color: Theme.error; width: parent.width; wrapMode: Text.WordWrap }
+                Column {
+                    width: parent.width
+                    spacing: 12
+                    SheetOption {
                         id: favoriteAction; objectName: "favoriteAction"
                         text: root.actionEntry.pinned ? qsTr("Unpin from Home") : qsTr("Pin to Home")
                         enabled: root.actionsEnabled && !!root.actionEntry.providerId
                         busy: root.favoriteSaving
-                        onActivated: root.favoriteRequested(root.actionEntryId, !root.actionEntry.pinned)
-                        Keys.onRightPressed: Focus.take(closeAppAction.visible ? closeAppAction : favoriteRefresh.visible ? favoriteRefresh : actionCancel)
-                        Keys.onDownPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
+                        onActivated: root.toggleFavorite()
                     }
-                    ActionButton {
-                        width: 400
-                        id: closeAppAction; objectName: "closeAppAction"; text: qsTr("Close application"); destructive: true
-                        visible: !!root.actionEntry.runningId
-                        onActivated: { root.confirmAppClose = true; Qt.callLater(() => Focus.take(closeAppCancel)); }
-                        Keys.onLeftPressed: Focus.take(favoriteAction)
-                        Keys.onRightPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : actionCancel)
-                        Keys.onDownPressed: Focus.take(actionCancel)
+                    SheetOption {
+                        id: closeAppAction; objectName: "closeAppAction"
+                        text: qsTr("Close")
+                        description: qsTr("Arinn will ask %1 to close").arg(root.actionEntry.title || "")
+                        destructive: true
+                        // Only while it runs; never for a web shortcut (CL-2).
+                        visible: !!root.actionEntry.runningId && !root.actionEntry.webShortcut
+                        onActivated: root.closeFromSheet()
                     }
-                    ActionButton {
-                        width: 400
+                    SheetOption {
                         id: favoriteRefresh; objectName: "favoriteRefresh"; text: qsTr("Refresh list")
                         visible: root.favoriteError.length > 0; enabled: !root.favoriteSaving
                         onActivated: root.retryRequested()
-                        Keys.onLeftPressed: Focus.take(favoriteAction)
-                        Keys.onRightPressed: Focus.take(actionCancel)
-                        Keys.onUpPressed: Focus.take(favoriteAction)
-                    }
-                    ActionButton {
-                        width: 400
-                        id: actionCancel; objectName: "actionCancel"; text: qsTr("Back")
-                        onActivated: root.closeTileActions()
-                        Keys.onLeftPressed: Focus.take(favoriteRefresh.visible ? favoriteRefresh : closeAppAction.visible ? closeAppAction : favoriteAction)
-                        Keys.onUpPressed: Focus.take(closeAppAction.visible ? closeAppAction : favoriteAction)
                     }
                 }
             }
         }
-        Rectangle {
-            objectName: "closeAppConfirmation"
-            visible: root.confirmAppClose; z: 1
-            anchors.fill: parent; color: Qt.rgba(0, 0, 0, 0.75)
-            MouseArea { anchors.fill: parent; acceptedButtons: Qt.AllButtons }
+    }
+    // An option of the tile sheet: min-h104 r28, white fill with ink in
+    // focus (handoff 10/11).
+    component SheetOption: Surface {
+        id: option
+        property string description: ""
+        property bool destructive: false
+        width: 600
+        height: Math.max(104, optionText.implicitHeight + 40)
+        shapeRole: "action"
+        cornerRadius: 28
+        focusScale: 1
+        focusLift: 0
+        liftFromBottom: false
+        restingColor: "transparent"
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        contentItem: Item {
             Rectangle {
-                anchors.centerIn: parent; width: 1000; height: 360; radius: 40; color: Theme.background
-                Column {
-                    anchors.centerIn: parent; spacing: 40
-                    UiText { text: qsTr("Close this application?"); role: "section" }
-                    Row {
-                        spacing: 24
-                        ActionButton {
-                            id: closeAppCancel; objectName: "closeAppCancel"; text: qsTr("Cancel")
-                            onActivated: { root.confirmAppClose = false; Focus.take(closeAppAction); }
-                            Keys.onRightPressed: Focus.take(closeAppConfirm)
-                        }
-                        ActionButton {
-                            id: closeAppConfirm; objectName: "closeAppConfirm"; text: qsTr("Close"); destructive: true
-                            onActivated: { root.terminateRequested(root.actionEntry.runningId); root.closeTileActions(); }
-                            Keys.onLeftPressed: Focus.take(closeAppCancel)
-                        }
-                    }
+                id: optionIcon
+                visible: option.destructive
+                x: 28; anchors.verticalCenter: parent.verticalCenter
+                width: 48; height: 48; radius: 24
+                color: Qt.rgba(0.91, 0.28, 0.31, option.activeFocus ? 0.9 : 0.22)
+                LineIcon {
+                    anchors.centerIn: parent
+                    width: 26; height: 26
+                    name: "close"
+                    color: option.activeFocus ? Theme.ink : Theme.textPrimary
+                }
+            }
+            Column {
+                id: optionText
+                x: option.destructive ? optionIcon.x + optionIcon.width + 20 : 28
+                width: parent.width - x - 28
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 4
+                UiText {
+                    objectName: option.objectName + "Label"
+                    width: parent.width
+                    text: option.busy ? qsTr("Loading…") : option.text
+                    role: "control"
+                    color: option.activeFocus ? Theme.ink : Theme.textPrimary
+                    maximumLineCount: 1; elide: Text.ElideRight; wrapMode: Text.NoWrap
+                }
+                UiText {
+                    objectName: option.objectName + "Description"
+                    width: parent.width
+                    visible: text.length > 0
+                    text: option.description
+                    role: "meta"
+                    color: option.activeFocus ? Qt.rgba(0.07, 0.08, 0.09, 0.72) : Theme.textSecondary
+                    maximumLineCount: 1; elide: Text.ElideRight; wrapMode: Text.NoWrap
                 }
             }
         }
-
     }
 
 }

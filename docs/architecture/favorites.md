@@ -66,15 +66,18 @@ reserved shortcut identity. Empty saved state never substitutes the catalog.
 Missing or unlaunchable saved targets remain focusable for removal with neutral
 presentation and no disclosure of opaque IDs.
 
-Holding Select for 650 ms or a pointer press-and-hold opens the tile action sheet
-on Applications or Home favorites. Pin/unpin sends the captured revision and the
+Holding Menu or Select for 650 ms, the O key, or a pointer press-and-hold opens
+the tile action sheet on Applications or Home favorites (spec §6.2; a short Menu
+keeps toggling navigation, or opens the shortcut editor on a web shortcut). The
+sheet is the right-hand sheet of [ui-running.md](ui-running.md). Pin/unpin sends the captured revision and the
 complete ordered identity list. Only one write is in flight; no mutation is
 retried, errors are normalized without remote payloads, and every outcome is
 reconciled with List. A refresh action is available after conflicts or uncertain
 replies. Removing a Home favorite closes its sheet and restores the nearest
 surviving control. A uniquely associated terminable application Activity offers
-Close through Application1 after a confirmation with Cancel focused by default,
-without calling external applications directly. Transient read failures schedule
+Close through Application1; the shell's close flow asks first, with Cancel
+focused by default ([ui-running.md](ui-running.md)), without calling external
+applications directly. Transient read failures schedule
 a fresh bounded read on the next status poll; writes never retry. Select
 autorepeat releases cannot activate a tile or cancel its hold timer.
 

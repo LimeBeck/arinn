@@ -139,6 +139,12 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} power_screen PREFIX "/" FILES ${ARINN_POWER_FILES})
 endforeach()
 
+set(ARINN_RUNNING_FILES ui/screens/running/qmldir ui/screens/running/RunningView.qml
+    ui/screens/running/CloseFlow.qml)
+foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
+    qt_add_resources(${target} running_screen PREFIX "/" FILES ${ARINN_RUNNING_FILES})
+endforeach()
+
 set(ARINN_PLAYER_FILES ui/screens/player/qmldir ui/screens/player/PlayerView.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} player_screen PREFIX "/" FILES ${ARINN_PLAYER_FILES})

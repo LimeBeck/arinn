@@ -67,6 +67,13 @@ FocusScope {
     signal activated(string entryId)
     signal secondaryActivated(string entryId)
     signal actionsRequested(string entryId)
+    // A short Menu on a tile: the tile keeps the key to tell a long press
+    // (the tile sheet) from a tap, which the row reports here.
+    signal menuTapped()
+    // How long Menu, or OK, is held for the tile sheet (spec §6.2).
+    readonly property int holdMs: 650
+    // Busy close buttons beside a Continue card (CL-9).
+    property var closingIds: []
     signal edge(int key, bool autoRepeat)
     signal focusLost()
     signal scrolled()
@@ -198,7 +205,11 @@ FocusScope {
                     required property string key
                     required property int index
                     readonly property var item: entryLoader.item
-                    width: root.shelf ? entryLoader.width : root.cellWidth
+                    // A Close button (CL-3a) is 128 wide and sits 16 from the
+                    // card before it, not a row gap away.
+                    readonly property bool closer: (root.byKey[slot.key] || {}).kind === "close"
+                    readonly property real closeInset: closer ? Math.max(0, root.gap - 16) : 0
+                    width: root.shelf ? entryLoader.width : closer ? 128 - closeInset : root.cellWidth
                     height: root.cellHeight
                     // The row's safe area (handoff 01: x120 to x1824) in
                     // this slot's coordinates.
@@ -227,9 +238,10 @@ FocusScope {
                             id: entryLoader
                             readonly property var modelData: root.byKey[slot.key] || ({})
                             x: -cardClip.x; y: root.glowMargin
-                            width: root.shelf ? (item ? item.implicitWidth : 160) : root.cellWidth
-                            height: root.cellHeight
-                            sourceComponent: (root.variant === "app" || root.shelf) ? tile
+                            width: root.shelf ? (item ? item.implicitWidth : 160) : slot.closer ? 128 : root.cellWidth
+                            height: slot.closer ? root.artworkHeight : root.cellHeight
+                            sourceComponent: slot.closer ? closeCard
+                                    : (root.variant === "app" || root.shelf) ? tile
                                     : (root.variant === "poster" && !String((modelData && modelData.artwork) || "").length
                                        && !(modelData && modelData.stack && modelData.stack.length)) ? titleCard : card
                             function chosen() {
@@ -237,6 +249,49 @@ FocusScope {
                                 root.selectedId = modelData.id;
                                 root.selected(modelData);
                                 root.reveal(slot.index);
+                            }
+                            // CL-3a: Close beside an application's Continue card,
+                            // a plate at 6 % with text-2 at rest.
+                            Component {
+                                id: closeCard
+                                Surface {
+                                    id: closeSurface
+                                    objectName: "entry-" + entryLoader.modelData.id
+                                    x: -slot.closeInset
+                                    width: 128; height: root.artworkHeight
+                                    text: qsTr("Close %1").arg(entryLoader.modelData.title || "")
+                                    shapeRole: "action"
+                                    cornerRadius: 26
+                                    focusScale: 1.06
+                                    focusLift: 0
+                                    liftFromBottom: false
+                                    restingColor: Qt.rgba(1, 1, 1, 0.06)
+                                    busy: root.closingIds.indexOf(entryLoader.modelData.windowId) >= 0
+                                    rowBrightness: activeFocus ? 1
+                                            : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
+                                    pointerMode: root.pointerMode
+                                    hoverFocusEnabled: root.hoverFocusEnabled && slot.painted
+                                    onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
+                                    onActivated: root.activated(entryLoader.modelData.id)
+                                    onDpadRequested: root.dpadRequested()
+                                    contentItem: Item {
+                                        LineIcon {
+                                            objectName: "closeCardIcon"
+                                            anchors.centerIn: parent
+                                            width: 44; height: 44
+                                            visible: !closeSurface.busy
+                                            name: "close"
+                                            color: closeSurface.activeFocus ? Theme.ink : Theme.textSecondary
+                                        }
+                                        UiText {
+                                            objectName: "closeCardBusy"
+                                            anchors.centerIn: parent
+                                            visible: closeSurface.busy
+                                            text: "…"; font.pixelSize: 44
+                                            color: closeSurface.activeFocus ? Theme.ink : Theme.textSecondary
+                                        }
+                                    }
+                                }
                             }
                             Component {
                                 id: tile
@@ -264,17 +319,35 @@ FocusScope {
                                     unavailable: entryLoader.modelData.unavailable || (root.browserUnavailable && !!entryLoader.modelData.webShortcut)
                                     onActivated: root.activated(entryLoader.modelData.id)
                                     onPressAndHold: root.actionsRequested(entryLoader.modelData.id)
+                                    // The tile sheet opens on a long Menu or a long OK,
+                                    // and on O (handoff *Closing applications*, spec
+                                    // §6.2). A short Menu stays the row's.
                                     Keys.onPressed: event => {
                                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                                             if (!event.isAutoRepeat && !busy) { holdHandled = false; down = true; holdTimer.restart(); }
                                             event.accepted = true;
+                                        } else if (event.key === Qt.Key_Menu && event.modifiers === Qt.NoModifier) {
+                                            if (!event.isAutoRepeat) { menuHandled = false; menuHeld = true; menuTimer.restart(); }
+                                            event.accepted = true;
+                                        } else if (event.key === Qt.Key_O && event.modifiers === Qt.NoModifier) {
+                                            if (!event.isAutoRepeat) root.actionsRequested(entryLoader.modelData.id);
+                                            event.accepted = true;
                                         }
                                     }
                                     property bool holdHandled: false
+                                    property bool menuHandled: false
+                                    property bool menuHeld: false
                                     Timer {
-                                        id: holdTimer; interval: 650
+                                        id: holdTimer; interval: root.holdMs
                                         onTriggered: {
                                             parent.holdHandled = true; parent.down = false;
+                                            root.actionsRequested(entryLoader.modelData.id);
+                                        }
+                                    }
+                                    Timer {
+                                        id: menuTimer; interval: root.holdMs
+                                        onTriggered: {
+                                            parent.menuHandled = true;
                                             root.actionsRequested(entryLoader.modelData.id);
                                         }
                                     }
@@ -285,11 +358,17 @@ FocusScope {
                                             if (holdHandled) { down = false; event.accepted = true; }
                                             else { const invoke = down && enabled && !busy; down = false; if (invoke) clicked(); }
                                             event.accepted = true;
+                                        } else if (event.key === Qt.Key_Menu) {
+                                            event.accepted = true;
+                                            if (event.isAutoRepeat || !menuHeld) return;
+                                            menuHeld = false;
+                                            menuTimer.stop();
+                                            if (!menuHandled) root.menuTapped();
                                         }
                                     }
                                     onActiveFocusChanged: {
                                         if (activeFocus) entryLoader.chosen();
-                                        else holdTimer.stop();
+                                        else { holdTimer.stop(); menuTimer.stop(); menuHeld = false; }
                                     }
                                     onDpadRequested: root.dpadRequested()
                                 }

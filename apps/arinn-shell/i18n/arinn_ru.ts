@@ -359,6 +359,49 @@
     </message>
 </context>
 <context>
+    <name>CloseFlow</name>
+    <message>
+        <source>%1 closed</source>
+        <translation>%1 закрыт</translation>
+    </message>
+    <message>
+        <source>Closed</source>
+        <translation>Закрыто</translation>
+    </message>
+    <message>
+        <source>%1 did not close</source>
+        <translation>%1 не закрылся</translation>
+    </message>
+    <message>
+        <source>Close %1?</source>
+        <translation>Закрыть %1?</translation>
+    </message>
+    <message>
+        <source>It may be waiting for an answer on its own screen, for example to save changes. Go to %1 and answer there.</source>
+        <translation>Возможно, он ждёт ответа на своём экране — например, просит сохранить изменения. Перейдите в %1 и ответьте там.</translation>
+    </message>
+    <message>
+        <source>Arinn will ask %1 to close. Unsaved changes and game progress may be lost.</source>
+        <translation>Arinn попросит %1 закрыться. Несохранённые изменения и прогресс в игре могут пропасть.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Go to %1</source>
+        <translation>Перейти в %1</translation>
+    </message>
+    <message>
+        <source>Stay</source>
+        <translation>Остаться</translation>
+    </message>
+</context>
+<context>
     <name>ContentCard</name>
     <message>
         <source>Loading…</source>
@@ -505,6 +548,10 @@
         <source>Loading…</source>
         <translation>Загрузка…</translation>
     </message>
+    <message>
+        <source>Close %1</source>
+        <translation>Закрыть %1</translation>
+    </message>
 </context>
 <context>
     <name>HomeView</name>
@@ -629,10 +676,6 @@
         <translation>Приложение больше недоступно</translation>
     </message>
     <message>
-        <source>Return to activity</source>
-        <translation>Вернуться</translation>
-    </message>
-    <message>
         <source>Power</source>
         <translation>Питание</translation>
     </message>
@@ -693,20 +736,8 @@
         <translation>Закрепить на главной</translation>
     </message>
     <message>
-        <source>Close application</source>
-        <translation>Закрыть приложение</translation>
-    </message>
-    <message>
         <source>Refresh list</source>
         <translation>Обновить список</translation>
-    </message>
-    <message>
-        <source>Back</source>
-        <translation>Назад</translation>
-    </message>
-    <message>
-        <source>Close this application?</source>
-        <translation>Закрыть это приложение?</translation>
     </message>
     <message>
         <source>Close</source>
@@ -795,6 +826,34 @@
     <message>
         <source>No network</source>
         <translation>Нет сети</translation>
+    </message>
+    <message>
+        <source>Close %1</source>
+        <translation>Закрыть %1</translation>
+    </message>
+    <message>
+        <source>OK — open · Menu — actions</source>
+        <translation>OK — открыть · Меню — действия</translation>
+    </message>
+    <message>
+        <source>Running</source>
+        <translation>Запущенные</translation>
+    </message>
+    <message>
+        <source>Running now</source>
+        <translation>Запущено</translation>
+    </message>
+    <message>
+        <source>Not running</source>
+        <translation>Не запущено</translation>
+    </message>
+    <message>
+        <source>Arinn will ask %1 to close</source>
+        <translation>Arinn попросит %1 закрыться</translation>
+    </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
     </message>
 </context>
 <context>
@@ -1845,6 +1904,73 @@
     <message>
         <source>Close</source>
         <translation>Закрыть</translation>
+    </message>
+</context>
+<context>
+    <name>RunningView</name>
+    <message>
+        <source>Closing…</source>
+        <translation>Закрывается…</translation>
+    </message>
+    <message numerus="yes">
+        <source>One of %n windows</source>
+        <translation>
+            <numerusform>Одно из %n окон</numerusform>
+            <numerusform>Одно из %n окон</numerusform>
+            <numerusform>Одно из %n окон</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Arinn cannot close this</source>
+        <translation>Закрыть из Arinn нельзя</translation>
+    </message>
+    <message>
+        <source>Did not close</source>
+        <translation>Не закрылся</translation>
+    </message>
+    <message>
+        <source>On screen</source>
+        <translation>На экране</translation>
+    </message>
+    <message>
+        <source>In the background</source>
+        <translation>В фоне</translation>
+    </message>
+    <message>
+        <source>Arinn cannot close “%1”. Close it in the application itself.</source>
+        <translation>Arinn не может закрыть «%1». Закройте его в самом приложении</translation>
+    </message>
+    <message>
+        <source>Running applications</source>
+        <translation>Запущенные приложения</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Close %1</source>
+        <translation>Закрыть %1</translation>
+    </message>
+    <message>
+        <source>Nothing is running</source>
+        <translation>Ничего не запущено</translation>
+    </message>
+    <message>
+        <source>Applications and games you open appear here. Online services are in Open services.</source>
+        <translation>Здесь появятся приложения и игры, которые вы откроете. Онлайн-сервисы — в «Открытых сервисах».</translation>
+    </message>
+    <message>
+        <source>Back to Home</source>
+        <translation>На главную</translation>
+    </message>
+    <message>
+        <source>OK Go to · → Close · Back Exit</source>
+        <translation>OK Перейти · → Закрыть · Назад Выйти</translation>
     </message>
 </context>
 <context>

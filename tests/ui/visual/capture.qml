@@ -559,13 +559,14 @@ TestCase {
                 ? 1400 + 700 : stillMs};
         if (id === "apps-tile-running")
             return appScene(view => view.openTileActions("g1"), ["tileActions", "closeAppAction"]);
+        // The confirmation itself is the shell's close flow (#759); Home
+        // shows the sheet with Close focused.
         if (id === "apps-close-confirm")
             return appScene(view => {
                 view.openTileActions("g1");
                 wait(50);
-                view.confirmAppClose = true;
-                Ui.Focus.take(findChild(view, "closeAppCancel"));
-            }, "closeAppConfirmation");
+                Ui.Focus.take(findChild(view, "closeAppAction"));
+            }, "closeAppAction");
         if (id === "home-tile-actions")
             return {factory: homeFactory, props: homeProps({
                 actionsEnabled: true,

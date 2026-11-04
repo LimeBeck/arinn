@@ -1250,6 +1250,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
                                    ? errorText(errorCodeOf(reply.errorName()))
                                    : tr("Operation is unavailable"));
               publishState();
+              emit operationFinished(id, QStringLiteral("failed"));
               return;
             }
             const auto operation =
@@ -1295,6 +1296,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         setResultMessage(tr("Operation is unavailable"));
                         timer->deleteLater();
                         publishState();
+                        emit operationFinished(id, QStringLiteral("failed"));
                         return;
                       }
                       const QDBusArgument arg =
@@ -1347,6 +1349,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         dismissed();
                       else
                         publishState();
+                      emit operationFinished(id, state);
                     });
           });
   timer->start();

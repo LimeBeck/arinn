@@ -120,6 +120,9 @@ private slots:
     }
     first->forceActiveFocus();
     QTRY_VERIFY(first->hasActiveFocus());
+    // #759: the close flow learns how an application operation ended.
+    QSignalSpy finished(&backend, &Backend::operationFinished);
+    const auto activityId = backend.items().at(0).toMap().value("id").toString();
     backend.activate(backend.items()
                        .at(0)
                        .toMap()
@@ -133,6 +136,9 @@ private slots:
     QTRY_COMPARE_WITH_TIMEOUT(backend.message(),
                               QString("Arinn did not reply. Try again."), 7000);
     QVERIFY(backend.busyEntryIds().isEmpty());
+    QTRY_COMPARE(finished.count(), 1);
+    QCOMPARE(finished.at(0).at(0).toString(), activityId);
+    QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("failed"));
   }
 };
 QTEST_MAIN(BackendTest)

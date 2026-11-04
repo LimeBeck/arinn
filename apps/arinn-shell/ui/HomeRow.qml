@@ -319,6 +319,7 @@ FocusScope {
                                     iconSource: entryLoader.modelData.iconSource || ""
                                     subtitle: (root.browserUnavailable && entryLoader.modelData.webShortcut) ? qsTr("Unavailable") : (entryLoader.modelData.subtitle || "")
                                     running: entryLoader.modelData.running || false
+                                    closing: root.closingIds.indexOf(entryLoader.modelData.runningId || entryLoader.modelData.id) >= 0
                                     serviceOpen: root.openShortcutIds.indexOf(entryLoader.modelData.id) >= 0
                                     enabled: entryLoader.modelData.enabled !== false
                                     busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
@@ -358,7 +359,10 @@ FocusScope {
                                         id: menuTimer; interval: root.holdMs
                                         onTriggered: {
                                             parent.menuHandled = true;
-                                            root.actionsRequested(entryLoader.modelData.id);
+                                            // A web shortcut keeps Menu for the shortcut
+                                            // editor, held or not (review of #777).
+                                            if (entryLoader.modelData.webShortcut) root.menuTapped();
+                                            else root.actionsRequested(entryLoader.modelData.id);
                                         }
                                     }
                                     Keys.onReleased: event => {

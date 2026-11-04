@@ -954,6 +954,7 @@ FocusScope {
                 }
                 HomeRow {
                     id: favoritesRow; objectName: "favorites"
+                    closingIds: root.closingIds
                     opacity: root.rowHeaderOpacity(favoritesRow)
                     pointerBlocked: !root.rowClearsHeader(favoritesRow)
                     x: 120; y: continueRow.visible ? continueRow.y + root.homeRowStride : root.firstRowY; width: 1704
@@ -1049,6 +1050,7 @@ FocusScope {
                     id: groupRow
                     required property string modelData
                     objectName: "group-" + modelData
+                    closingIds: root.closingIds
                     width: 1704; variant: "app"; identityLight: true
                     fadeRight: true
                     opacity: root.sectionHeaderOpacity(groupRow)
@@ -1089,6 +1091,7 @@ FocusScope {
                 pointerBlocked: opacity < 1
                 visible: root.screen === "applications" && count > 0
                 entries: root.runningEntries; busyEntryIds: root.busyEntryIds
+                closingIds: root.closingIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onSelected: { root.applicationFocusRow = runningRow.objectName; root.revealRow(runningRow); }
                 onMenuTapped: root.menuKey()

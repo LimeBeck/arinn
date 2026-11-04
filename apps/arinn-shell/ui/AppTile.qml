@@ -20,6 +20,9 @@ Surface {
     onIconSourceChanged: if (iconFrame) iconFrame.syncSource()
     property string subtitle: ""
     property bool running: false
+    // Its window is being closed: a busy mark replaces the running dot
+    // (handoff CL-9; review of #777).
+    property bool closing: false
     property bool serviceOpen: false
     property bool unavailable: false
     implicitWidth: {
@@ -27,7 +30,7 @@ Surface {
             return identityLight ? 300 : 264;
         const textW = Math.min(360, shelfTitle.implicitWidth);
         const left = shelfHasChip ? 28 + 56 + 18 : 16;
-        const dot = (running || serviceOpen) ? 18 + 12 : 0;
+        const dot = (running || serviceOpen || closing) ? 18 + 12 : 0;
         return Math.ceil(left + textW + dot + 28);
     }
     implicitHeight: shelf ? 88 : identityLight ? 168 : 132
@@ -230,12 +233,22 @@ Surface {
             color: root.unavailable ? Theme.textHint : Theme.textPrimary
         }
         Rectangle {
+            id: emberDot
             objectName: "emberDot"
             x: root.shelf ? shelfTitle.x + Math.min(360, shelfTitle.implicitWidth) + 18
                     : parent.width - width - (root.identityLight ? 24 : 16)
             y: root.shelf ? (parent.height - height) / 2 : root.identityLight ? 24 : 16
             width: 12; height: 12; radius: 6; color: Theme.ember
-            visible: root.running || root.serviceOpen
+            visible: (root.running || root.serviceOpen) && !root.closing
+        }
+        UiText {
+            objectName: "closingMark"
+            anchors.horizontalCenter: emberDot.horizontalCenter
+            anchors.verticalCenter: emberDot.verticalCenter
+            visible: root.closing
+            text: "…"
+            font.pixelSize: 28
+            color: Theme.ember
         }
     }
 }

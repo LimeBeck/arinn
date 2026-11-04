@@ -1214,6 +1214,29 @@ TestCase {
         focused("nav-5");
         compare(child("openServicesBadge").visible, false);
     }
+    // Review of #777: a held Menu on a web shortcut keeps Menu's meaning
+    // (navigation here, the editor in Applications), not the tile sheet.
+    function test_long_menu_on_a_web_shortcut_keeps_menu() {
+        home.actionsEnabled = true;
+        home.favoriteEntries = [{id: "w", title: "Site", pinned: true, providerId: "fixture", webShortcut: true}];
+        child("entry-w").forceActiveFocus(); focused("entry-w");
+        keyPress(Qt.Key_Menu); wait(750); keyRelease(Qt.Key_Menu);
+        tryCompare(home, "navOpen", true);
+        verify(!home.tileActionsOpen);
+    }
+    // Review of #777, CL-9: a tile whose window is closing shows the busy
+    // mark in place of the running dot.
+    function test_closing_tile_replaces_the_running_dot() {
+        home.favoriteEntries = [{id: "f", title: "Favorite", providerId: "fixture", running: true, runningId: "w9"}];
+        const tile = child("entry-f");
+        verify(findChild(tile, "emberDot").visible);
+        verify(!findChild(tile, "closingMark").visible);
+        home.closingIds = ["w9"];
+        verify(!findChild(tile, "emberDot").visible);
+        verify(findChild(tile, "closingMark").visible);
+        home.closingIds = [];
+        verify(findChild(tile, "emberDot").visible);
+    }
     function test_web_shortcut_open_dot_and_unavailable() {
         home.favoriteEntries = [
             {id: "f", title: "Favorite", monogram: "F", webShortcut: true},

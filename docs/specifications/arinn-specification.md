@@ -219,8 +219,15 @@ The [music design brief](../design/music-design-brief.md) and
 [proposed protocol](../plugin-api/music.md) describe this extension. Provider
 processes own playback and credentials; no user token, stream URL or local media
 path may cross the shell interface. Yandex uses provider-hosted device-code
-sign-in and Secret Service storage. This extension does not change MVP acceptance
-criteria, phase status or the Plugin API stability gate; #710 remains owner-gated.
+sign-in and Secret Service storage. The owner authorized the CloudMus-compatible
+SDK application registration (including its embedded secret) on 2026-11-04,
+superseding the own-public-client-only constraint. The browser confirms the short
+code; the provider receives and stores the user's token automatically, closes the
+owned temporary browser window, and returns to Arinn. A source MUST verify Music
+API access before reporting connected; denied access MUST show an explicit error
+instead of an empty connected library. See [ADR-0141](../adr/0141-temporary-browser-authorization.md).
+This extension does not change MVP acceptance criteria, phase status or the
+Plugin API stability gate; the follow-up #771 remains owner-gated.
 
 ### 5.4. Downloads
 

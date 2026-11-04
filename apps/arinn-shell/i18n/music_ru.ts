@@ -293,5 +293,11 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>Waiting for confirmation · %1 seconds remaining</source>
       <translation>Ожидаем подтверждения · осталось %1 с</translation>
     </message>
-  </context>
+  <message><source>Music access was denied</source><translation>Нет доступа к музыке</translation></message>
+<message><source>Sign-in succeeded, but this application cannot access music.</source><translation>Вход выполнен, но этому приложению недоступна музыка.</translation></message>
+<message><source>Complete sign-in in the browser. Arinn will check music access and return here.</source><translation>Завершите вход в браузере. Arinn проверит доступ к музыке и вернётся сюда.</translation></message>
+<message><source>Open sign-in in browser</source><translation>Открыть вход в браузере</translation></message>
+<message><source>Music is temporarily unavailable</source><translation>Музыка временно недоступна</translation></message>
+<message><source>Sign-in succeeded. Music is temporarily unavailable; try again.</source><translation>Вход выполнен. Музыка временно недоступна; попробуйте ещё раз.</translation></message>
+</context>
 </TS>

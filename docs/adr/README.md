@@ -153,4 +153,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
 | [0138](0138-launched-applications-go-full-screen.md) | Launched applications go full screen | Accepted | — |
 | [0140](0140-tv-review-visual-decisions.md) | Visual decisions from the TV design review | Accepted | — |
+| [0141](0141-temporary-browser-authorization.md) | Temporary browser authorization and verified music access | Proposed | — |
 <!-- register:end -->

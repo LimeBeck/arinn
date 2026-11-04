@@ -11,6 +11,7 @@
 // (ADR-0050). Managed windows are recognised by their type, so the rules
 // survive a service worker restart without extra storage permissions.
 "use strict";
+if (typeof importScripts === "function") importScripts("authorization.js");
 
 const HOST = "org.arinn.chrome_host";
 const MANAGED = "popup";
@@ -31,8 +32,10 @@ function connect() {
         scheduleReconnect();
         return;
     }
-    port.onMessage.addListener(onCommand);
+    const attached = port;
+    port.onMessage.addListener(message => onCommand(message, attached));
     port.onDisconnect.addListener(() => {
+        if (typeof ArinnAuthorization !== "undefined") ArinnAuthorization.disconnect(attached);
         // Reading lastError marks it handled; its text is not needed.
         void chrome.runtime.lastError;
         port = null;
@@ -65,18 +68,20 @@ function post(message) {
 async function sendSnapshot() {
     snapshotTimer = null;
     if (!port) return;
+    if (typeof ArinnAuthorization !== "undefined") await ArinnAuthorization.ready();
     const windows = await chrome.windows.getAll({ populate: true, windowTypes: ["normal", MANAGED] });
     const state = { type: "snapshot", windows: [], tabs: [] };
     for (const window of windows) {
-        if (window.incognito) continue;
+        if (window.incognito || (typeof ArinnAuthorization !== "undefined" && ArinnAuthorization.owns(window))) continue;
         state.windows.push({ id: window.id, focused: !!window.focused });
         for (const tab of window.tabs || []) {
-            if (tab.incognito || typeof tab.id !== "number" || tab.id < 0) continue;
+            if (tab.incognito || typeof tab.id !== "number" || tab.id < 0 || (typeof ArinnAuthorization !== "undefined" && ArinnAuthorization.ownsTab(tab))) continue;
+            const display = typeof ArinnAuthorization !== "undefined" ? ArinnAuthorization.redact(tab) : {title: tab.title || "", url: tab.url || tab.pendingUrl || ""};
             state.tabs.push({
                 id: tab.id,
                 windowId: window.id,
-                title: tab.title || "",
-                url: tab.url || tab.pendingUrl || "",
+                title: display.title,
+                url: display.url,
                 active: !!tab.active,
                 audible: !!tab.audible,
             });
@@ -103,6 +108,7 @@ function origin(url) {
 // A tab opened from a managed window (a target=_blank link) becomes its own
 // managed window. Chrome puts such tabs into a normal window.
 async function adoptOpened(tab) {
+    if (typeof ArinnAuthorization !== "undefined" && await ArinnAuthorization.adoptOpened(tab)) return;
     if (tab.incognito || typeof tab.openerTabId !== "number") return;
     try {
         const opener = await chrome.tabs.get(tab.openerTabId);
@@ -119,6 +125,7 @@ async function adoptOpened(tab) {
 // A managed window that leaves fullscreen (Esc, F11) returns to it. A
 // minimised window is left alone.
 async function keepFullscreen(window) {
+    if (typeof ArinnAuthorization !== "undefined" && ArinnAuthorization.owns(window)) return;
     if (window.type !== MANAGED || window.incognito) return;
     if (window.state === "fullscreen" || window.state === "minimized") return;
     try {
@@ -154,15 +161,17 @@ async function execute(command) {
     }
 }
 
-async function onCommand(message) {
+async function onCommand(message, attached = port) {
     if (!message || message.type !== "command" || typeof message.serial !== "number") return;
     let error = "";
     let target = { windowId: -1, created: false };
     try {
-        target = await execute(message) || target;
+        target = ["openTemporary", "closeTemporary"].includes(message.action)
+            ? await ArinnAuthorization.execute(message, attached) : await execute(message) || target;
     } catch (e) {
         error = String(e && e.message) === "InvalidArgument" ? "InvalidArgument" : errorCode(e);
     }
+    if (attached !== port) return;
     post({ type: "result", serial: message.serial, error, ...target });
     scheduleSnapshot();
 }

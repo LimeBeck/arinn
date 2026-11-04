@@ -98,9 +98,9 @@ function load({ windows, connectFails = false } = {}) {
     return { chrome, posted, calls, ports, timers, flush, runTimers, setState: s => { state = s; } };
 }
 
-test("manifest requests only tabs and nativeMessaging and has the packaged ID", () => {
+test("manifest requests tabs, nativeMessaging and local lease storage and has the packaged ID", () => {
     assert.equal(manifest.manifest_version, 3);
-    assert.deepEqual([...manifest.permissions].sort(), ["nativeMessaging", "tabs"]);
+    assert.deepEqual([...manifest.permissions].sort(), ["nativeMessaging", "storage", "tabs"]);
     for (const key of ["host_permissions", "content_scripts", "optional_permissions", "web_accessible_resources"]) {
         assert.equal(manifest[key], undefined, key);
     }
@@ -294,3 +294,6 @@ test("reconnects with capped exponential backoff and never replays commands", as
     assert.equal(removals(), 1, "no replay after reconnect");
     assert.equal(y.posted.at(-1).type, "snapshot");
 });
+
+// Temporary browser leases share this pipeline entry point.
+require("./chrome_authorization.test.cjs");

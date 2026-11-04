@@ -51,6 +51,7 @@ impl Host {
         action: &str,
         tab: i64,
         url: &str,
+        request_id: &str,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<CommandResult> {
         if header.sender().map(|s| s.as_str()) != Some(self.bridge_owner.as_str()) {
@@ -58,7 +59,15 @@ impl Host {
         }
         let valid = match action {
             "open" => arinn_protocol::web::open_url(url).is_ok(),
-            _ => ACTIONS.contains(&action) && url.is_empty(),
+            "openTemporary" => {
+                arinn_protocol::validation::id(request_id).is_ok()
+                    && url.starts_with("https://")
+                    && arinn_protocol::web::open_url(url).is_ok()
+            }
+            "closeTemporary" => {
+                arinn_protocol::validation::id(request_id).is_ok() && url.is_empty()
+            }
+            _ => ACTIONS.contains(&action) && url.is_empty() && request_id.is_empty(),
         };
         if !valid {
             return Ok(failed("InvalidArgument"));
@@ -67,7 +76,8 @@ impl Host {
         let (reply, result) = oneshot::channel();
         {
             let mut pending = self.pending.lock().unwrap();
-            if pending.len() >= MAX_PENDING {
+            let limit = MAX_PENDING + if action == "closeTemporary" { 16 } else { 0 };
+            if pending.len() >= limit {
                 return Ok(failed("Unavailable"));
             }
             pending.insert(serial, reply);
@@ -77,6 +87,7 @@ impl Host {
             action: action.into(),
             tab_id: tab,
             url: url.into(),
+            request_id: request_id.into(),
         })
         .map_err(|_| fdo::Error::Failed("encode".into()))?;
         if self.outgoing.send(body).await.is_err() {

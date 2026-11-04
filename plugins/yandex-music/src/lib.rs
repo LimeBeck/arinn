@@ -5,7 +5,9 @@
 //! Native D-Bus account lifecycle is available; playback and live client
 //! provisioning qualification remain separate integration work.
 pub mod auth;
+mod browser;
 pub mod catalogue;
+mod compatibility;
 mod parse;
 pub mod runtime;
 pub mod secrets;

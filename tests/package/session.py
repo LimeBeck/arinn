@@ -287,6 +287,8 @@ assert HOST.is_file() and os.access(HOST, os.X_OK), "missing Chrome native host"
 manifest = json.loads((EXTENSION / "manifest.json").read_text())
 assert sorted(manifest["permissions"]) == ["nativeMessaging", "tabs"], manifest["permissions"]
 assert (EXTENSION / "background.js").is_file()
+assert (EXTENSION / "authorization.js").is_file()
+assert (EXTENSION / "authorization.html").is_file()
 if PREFIX == Path("/usr"):
     for folder in ("/etc/opt/chrome", "/etc/chromium"):
         host_manifest = json.loads(Path(folder, "native-messaging-hosts/org.arinn.chrome_host.json").read_text())

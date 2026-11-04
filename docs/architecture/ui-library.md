@@ -136,16 +136,20 @@ paints the prototype's `poster`, `backdrop` or `still` labels (#610).
 ## Frame
 
 The view is a 1920×1080 canvas. The heading is at left 120, top 96, 56px.
-Catalogue tabs sit at top 190: 64px pills with a 32px radius. The selected tab
-has an ember underline. The poster grid starts at top 282, inset 28px, so the
-first poster is at left 120, top 310. Posters are 210×315 with a 20px radius,
+Catalogue tabs sit at top 190 as text tabs: the focused tab is a white pill
+with ink text, and the selected tab has an Ember dot under its label
+([ADR-0140](../adr/0140-tv-review-visual-decisions.md); the implementation is
+[#761](https://github.com/LimeBeck/arinn/issues/761)). The poster grid starts at top 282, inset 28px, so the
+first poster is at left 120, top 310. Posters are 210×315 with a 10px radius,
 in seven columns unless `columns` is set, with a 40px column gap and a 48px
-row gap. Focus scales the poster and lifts its label. Detail replaces the grid:
-a full-bleed stand-in backdrop, a left scrim, an uppercase eyebrow, a 112px
-title, meta, description, and pill actions. A series with `seasons` adds season
-pills and episode stills at 420×236.
-Loaded posters and stills use the same rounded shape as their plates (20px
-and 22px respectively). A local Canvas slot reuses `artwork.js` for clipping
+row gap. Focus lifts the poster from its bottom edge with the rim and the mat
+(Hearth light brief, *Focus*). Detail replaces the grid: a full-bleed backdrop,
+a left scrim, a sentence-case Onest eyebrow, a Playfair Display 104px title
+([ADR-0137](../adr/0137-playfair-display-for-content-titles.md)), meta,
+description, and pill actions. A series with `seasons` adds season tabs and
+episode stills at 420×236.
+Loaded posters and stills use the same rounded shape as their plates (10px
+and 12px respectively). A local Canvas slot reuses `artwork.js` for clipping
 and centre cropping on software and accelerated renderers; the fallback stays
 until that canvas has painted the current source, and source changes release
 the previous image. Focus rings, progress and missing-file labels remain above

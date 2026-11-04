@@ -1,0 +1,1 @@
+- Fix Yandex Music playback rejecting valid MP3 download information when the optional transport field is absent, while retaining explicit transport and media URL validation.

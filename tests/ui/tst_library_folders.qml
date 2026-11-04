@@ -439,6 +439,84 @@ TestCase {
         }, 2000);
         verify(view.contentY > 0);
     }
+    // Review of #780: the catalog clears pending before its refresh brings
+    // the new value; the added folder stays meanwhile, and the screen
+    // takes no second change until it arrives.
+    function test_added_folder_stays_until_the_saved_value() {
+        make(["/home/user/Series"]);
+        const values = createTemporaryObject(spyFactory, suite, {target: view, signalName: "valuesRequested"});
+        focused("folderRow-0");
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        keyClick(Qt.Key_Up);
+        tryCompare(findChild(picker, "pickerChoose"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        compare(values.count, 1);
+        view.row = Object.assign({}, view.row, {pending: true});
+        view.row = Object.assign({}, view.row, {pending: false});
+        compare(view.folders, ["/home/user/Series", "/home/user"]);
+        verify(view.busy);
+        view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Series", "/home/user"]});
+        compare(view.addedPath, "");
+        verify(!view.busy);
+    }
+    // Review of #780: a removal started on one setting is not confirmed by
+    // another setting's row, and opening the screen starts afresh.
+    function test_reopening_starts_afresh() {
+        make(["/home/user/Films", "/home/user/Series"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Right); keyClick(Qt.Key_Return);
+        focused("foldersConfirmCancel");
+        keyClick(Qt.Key_Right); keyClick(Qt.Key_Return);
+        view.row = Object.assign({}, view.row, {pending: true});
+        // Another setting's row arrives before the screen is opened again.
+        view.row = {providerId: "other", id: "dirs", type: "path", libraryFolders: true,
+                    currentValue: ["/srv/x"], constraints: {multiple: true, directory: true}, unavailablePaths: []};
+        verify(!child("foldersToast").visible);
+        // A confirmation and the picker left open do not come back.
+        view.row = {providerId: "library", id: "roots", type: "path", libraryFolders: true,
+                    currentValue: ["/home/user/Films"], constraints: {multiple: true, directory: true}, unavailablePaths: []};
+        view.open();
+        focused("folderRow-0");
+        keyClick(Qt.Key_Right); keyClick(Qt.Key_Return);
+        verify(child("foldersConfirm").visible);
+        view.open();
+        verify(!child("foldersConfirm").visible);
+        compare(view.removing, "");
+        keyClick(Qt.Key_Up);
+        focused("foldersAdd");
+        keyClick(Qt.Key_Return);
+        verify(child("folderPicker").visible);
+        view.open();
+        verify(!child("folderPicker").visible);
+        focused("folderRow-0");
+    }
+    // Review of #780: the picker reads the folder it shows again when it
+    // opens a second time.
+    function test_picker_rereads_the_shown_folder() {
+        make(["/home/user/Films"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        keyClick(Qt.Key_Escape); keyClick(Qt.Key_Escape);
+        tryCompare(picker, "visible", false);
+        browser.opened = [];
+        focused("foldersAdd");
+        keyClick(Qt.Key_Return);
+        tryVerify(() => browser.opened.indexOf("/home/user") >= 0);
+    }
+    // Review of #780: a click on an empty part of the screen does not reach
+    // Settings underneath.
+    Component { id: underFactory; MouseArea { anchors.fill: parent; z: -1 } }
+    function test_pointer_does_not_reach_settings_underneath() {
+        const under = createTemporaryObject(underFactory, suite);
+        make(["/home/user/Films"]);
+        const clicks = createTemporaryObject(spyFactory, suite, {target: under, signalName: "clicked"});
+        mouseClick(view, 1800, 900);
+        compare(clicks.count, 0);
+    }
     // PK-5, PK-6, PK-7.
     function test_picker_states() {
         make([]);

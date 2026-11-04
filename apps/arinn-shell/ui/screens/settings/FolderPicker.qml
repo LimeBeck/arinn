@@ -76,7 +76,10 @@ FocusScope {
     function start() {
         if (browser) {
             browser.refreshPlaces();
-            if (!path.length) {
+            // The folder shown last is read again: it may have changed or
+            // gone while the picker was closed (review of #780).
+            if (path.length) browser.open(path);
+            else {
                 const first = places.length ? places[0].path : "";
                 if (first.length) browser.open(first);
             }

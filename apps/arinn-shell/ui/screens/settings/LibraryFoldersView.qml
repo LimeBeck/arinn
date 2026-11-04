@@ -34,10 +34,16 @@ FocusScope {
     readonly property bool picking: picker.visible
     // The setting's folders as saved.
     readonly property var savedFolders: pathsOf(row)
-    // The folders shown: the saved ones, and the folder being added while
-    // the save is pending, so it shows "Adding…" at once (LF-8). The catalog
-    // keeps the old value until the save settles (review of #780).
-    readonly property var folders: addedPath.length && !!row.pending && indexOfPath(savedFolders, addedPath) < 0
+    // The folders shown: the saved ones, and the folder being added until
+    // the row lists it or reports an error, so it shows "Adding…" at once
+    // (LF-8). The catalog keeps the old value until the save settles and
+    // its refresh arrives (review of #780).
+    readonly property bool addOutstanding: addedPath.length > 0 && !row.error && indexOfPath(savedFolders, addedPath) < 0
+    // The setting an add or a removal was made on: a result read from
+    // another setting's row is not this operation's (review of #780).
+    property string operationKey: ""
+    function keyOf(value) { return value && value.id ? (value.providerId || "") + "/" + value.id : ""; }
+    readonly property var folders: addOutstanding
                                    ? savedFolders.concat([addedPath]) : savedFolders
     // The library's own folder lists use the handoff's library wording; any
     // other provider's folder list gets plain folder wording (review of
@@ -77,7 +83,10 @@ FocusScope {
     readonly property int toastDurationMs: 2600
     // One change at a time: the catalog drops a second save while the first
     // is pending, so Add and Remove explain instead (review of #780).
-    readonly property bool busy: !!row.pending || row.enabled === false
+    // An add or a removal still waiting for the saved value counts too: a
+    // second change would be computed from the old value (review of #780).
+    readonly property bool busy: !!row.pending || row.enabled === false || addOutstanding
+                                 || removedPath.length > 0
     readonly property string busyText: row.enabled === false ? qsTr("These folders cannot be changed now")
                                                               : qsTr("Wait until the last change is saved")
 
@@ -130,10 +139,24 @@ FocusScope {
         focusRow(selectedIndex, side);
     }
     function open() {
+        // A fresh start for this setting: nothing from an earlier visit (a
+        // picker, a confirmation, a pending add or removal) carries over
+        // (review of #780).
+        picker.visible = false;
+        confirm.visible = false;
+        removing = "";
+        removedPath = "";
+        addedPath = "";
+        focusAdded = false;
+        operationKey = "";
+        clearToast();
         side = folders.length ? "row" : "add";
         selectedIndex = 0;
-        addedPath = "";
         Qt.callLater(restore);
+    }
+    function clearToast() {
+        toastTimer.stop();
+        toastMessage = "";
     }
     function add() {
         if (busy) { showToast(busyText); return; }
@@ -156,6 +179,7 @@ FocusScope {
             return;
         }
         picker.visible = false;
+        operationKey = keyOf(row);
         addedPath = path;
         focusAdded = true;
         valuesRequested(savedFolders.concat([path]));
@@ -171,6 +195,7 @@ FocusScope {
         const index = folders.indexOf(removing);
         confirm.visible = false;
         if (index >= 0) {
+            operationKey = keyOf(row);
             removedPath = removing;
             valuesRequested(savedFolders.filter(path => path !== removing));
         }
@@ -193,7 +218,7 @@ FocusScope {
             closeRequested();
             return;
         }
-        if (row.pending) return;
+        if (row.pending || keyOf(row) !== operationKey) return;
         // The add is saved: the tracker ends, so a later save does not read
         // "Adding…" on this row (review of #780).
         if (addedPath.length && !row.error && indexOfPath(pathsOf(row), addedPath) >= 0) {
@@ -250,6 +275,15 @@ FocusScope {
     Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.toastMessage = "" }
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
+    // Pointer input stops here: Settings under this screen stays visible
+    // and must not take a click or a hover (review of #780).
+    MouseArea {
+        objectName: "foldersPointerBlocker"
+        anchors.fill: parent
+        acceptedButtons: Qt.AllButtons
+        hoverEnabled: true
+        onWheel: wheel => wheel.accepted = true
+    }
     Ui.LogicalCanvas {
         anchors.fill: parent
         visible: !root.picking
@@ -330,7 +364,7 @@ FocusScope {
                             readonly property alias rowButton: rowButton
                             readonly property alias removeButton: removeButton
                             readonly property bool missing: root.unavailable.indexOf(modelData) >= 0
-                            readonly property bool adding: modelData === root.addedPath && !!root.row.pending
+                            readonly property bool adding: modelData === root.addedPath && root.addOutstanding
                             width: 1500 + 16 + 128
                             height: 128
                             Ui.Surface {

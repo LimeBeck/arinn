@@ -256,7 +256,15 @@ Track URLs and authorization headers stay inside the provider/player boundary.
 
 The radio adapter uses session JSON requests with an explicit originating batch
 for each feedback call. Fetching batch B must not relabel the finish/skip of a
-track still playing from batch A. Track-seeded sessions normalize an
+track still playing from batch A. Batch IDs are bounded nonempty ASCII strings
+of letters, digits, underscore, hyphen and dot (at most 512 bytes); they stay
+private JSON data and playback-origin keys. Radio session IDs retain the stricter
+URL-path validator. Startup preparation, including session creation and initial
+feedback, has one 30-second deadline with epoch cancellation; each HTTP request
+also retains its 15-second limit. The epoch is checked again before playback
+commit. The daemon's shorter transport deadline and existing pending-receipt
+reconciliation remain unchanged; this is not a 30-second UI response guarantee.
+Track-seeded sessions normalize an
 album-qualified track ID before making a station seed. Service recommendations
 remain provider-owned; this is not an Arinn recommendation engine.
 

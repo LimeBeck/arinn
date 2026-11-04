@@ -1364,13 +1364,13 @@ TestCase {
         sectionFixture();
         const row = child("group-online");
         verify(row.fadeRight);
-        const fade = child("rowRightFade");
+        const fade = findChild(row, "rowRightFade");
         verify(fade.visible);
         const fadeStart = fade.mapToItem(home, 0, 0).x;
         const fadeEnd = fade.mapToItem(home, fade.width, 0).x;
         compare(Math.round(fadeStart), 1920 - Ui.Theme.edgeFadeEnd);
         compare(Math.round(fadeEnd), 1920 - Ui.Theme.edgeFadeStart);
-        const viewport = child("group-onlineViewport");
+        const viewport = findChild(row, "group-onlineViewport");
         compare(Math.round(viewport.mapToItem(home, viewport.width, 0).x), 1920 - Ui.Theme.edgeFadeStart);
         // Home rows keep the safe right edge.
         verify(!child("continue").fadeRight);

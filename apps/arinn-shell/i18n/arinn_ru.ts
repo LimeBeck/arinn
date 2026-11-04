@@ -569,10 +569,6 @@
         <translation>Добавить приложение</translation>
     </message>
     <message>
-        <source>Browser unavailable</source>
-        <translation>Браузер недоступен</translation>
-    </message>
-    <message>
         <source>Series</source>
         <translation>Сериал</translation>
     </message>
@@ -779,22 +775,6 @@
     <message>
         <source>Restart</source>
         <translation>Перезапустить</translation>
-    </message>
-    <message>
-        <source>Sound muted</source>
-        <translation>Звук выключен</translation>
-    </message>
-    <message>
-        <source>Wi-Fi connected</source>
-        <translation>Wi-Fi подключён</translation>
-    </message>
-    <message>
-        <source>Connected by cable</source>
-        <translation>Подключено по кабелю</translation>
-    </message>
-    <message>
-        <source>No network</source>
-        <translation>Нет сети</translation>
     </message>
 </context>
 <context>
@@ -2277,6 +2257,37 @@
     <message>
         <source>Loading</source>
         <translation>Загрузка</translation>
+    </message>
+</context>
+<context>
+    <name>StatusArea</name>
+    <message>
+        <source>Browser unavailable</source>
+        <translation>Браузер недоступен</translation>
+    </message>
+    <message>
+        <source>%1%</source>
+        <translation>%1%</translation>
+    </message>
+    <message>
+        <source>Downloading</source>
+        <translation>Загружается</translation>
+    </message>
+    <message>
+        <source>Sound muted</source>
+        <translation>Звук выключен</translation>
+    </message>
+    <message>
+        <source>Wi-Fi connected</source>
+        <translation>Wi-Fi подключён</translation>
+    </message>
+    <message>
+        <source>Connected by cable</source>
+        <translation>Подключено по кабелю</translation>
+    </message>
+    <message>
+        <source>No network</source>
+        <translation>Нет сети</translation>
     </message>
 </context>
 <context>

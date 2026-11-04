@@ -1058,9 +1058,14 @@ FocusScope {
                 onDpadRequested: InputMode.keyPressed()
                 onActivated: root.editShortcut("")
                 Keys.onLeftPressed: root.openNavigation()
+                // Up goes to the group above, not back to the remembered
+                // row: that may be the open windows below this pill.
                 Keys.onUpPressed: {
-                    if (shortcutEditButton.visible) Focus.take(shortcutEditButton);
-                    else root.restoreScreen();
+                    if (shortcutEditButton.visible) { Focus.take(shortcutEditButton); return; }
+                    const groups = root.applicationRows().filter(row => row.objectName !== "runningApplications");
+                    for (let i = groups.length - 1; i >= 0; --i)
+                        if (groups[i].restore()) return;
+                    root.restoreScreen();
                 }
                 Keys.onDownPressed: {
                     if (!(runningRow.visible && (runningRow.focusIndex(0) || runningRow.restore())))

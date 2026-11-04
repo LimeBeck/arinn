@@ -60,6 +60,8 @@ Window {
     // managed playback the window is already on screen, and Back may come
     // before that refresh.
     property string quickMenuTarget: ""
+    // Settings › Library folders (handoff LF-1…8, #764) over Settings.
+    property bool libraryFoldersOpen: false
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
         // During ambient the key only wakes, and that first event triggers
@@ -490,6 +492,7 @@ Window {
         : browseOpen ? "browse"
         : browserOpen ? "browser"
         : home.screen === "music" ? "music"
+        : home.screen === "settings" && libraryFoldersOpen ? "libraryFolders"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
@@ -497,6 +500,7 @@ Window {
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
+                 libraryFolders: libraryFoldersView,
                  music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
                  running: runningView, closeFlow: closeFlow,
                  power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
@@ -517,6 +521,7 @@ Window {
         case "running": runningView.restore(); break;
         case "closeFlow": closeFlow.restoreFocus(); break;
         case "settings": settingsView.focusInitial(); break;
+        case "libraryFolders": libraryFoldersView.restore(); break;
         default: home.restoreFocus();
         }
     }
@@ -849,7 +854,7 @@ Window {
         const section = focusedScreen === "library" || focusedScreen === "settings"
             || focusedScreen === "downloads" || focusedScreen === "running";
         const overlay = focusedScreen === "browser" || focusedScreen === "browse"
-            || focusedScreen === "session";
+            || focusedScreen === "session" || focusedScreen === "libraryFolders";
         // A Settings editor keeps Menu; Home reaches the shell through the
         // view's homeRequested, which also cancels the editor.
         if (focusedScreen === "settings" && settingsView.editingKey.length) return;
@@ -1175,7 +1180,38 @@ Window {
             clockText: home.clockText
             onDismissRequested: home.back()
             onHomeRequested: root.goHomeFrom("settings")
+            onFoldersRequested: row => {
+                libraryFoldersView.providerId = row.providerId || "";
+                libraryFoldersView.settingId = row.id || "";
+                root.libraryFoldersOpen = true;
+                libraryFoldersView.open();
+            }
             onRetryRequested: settingsCatalog.refresh()
+        }
+        FolderBrowser { id: folderBrowser; objectName: "folderBrowser" }
+        Settings.LibraryFoldersView {
+            id: libraryFoldersView
+            objectName: "productionLibraryFolders"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
+            property string providerId: ""
+            property string settingId: ""
+            // The live row, so a save, a pending state or an unavailable
+            // folder shows at once.
+            row: (settingsCatalog.rows || []).find(entry => entry.providerId === providerId
+                                                   && entry.id === settingId) || ({})
+            visible: root.libraryFoldersOpen && home.screen === "settings" && !root.playerOpen
+            enabled: visible
+            focus: root.focusedScreen === "libraryFolders"
+            z: 4.2
+            browser: folderBrowser
+            onValuesRequested: paths => settingsCatalog.setValue(providerId, settingId, paths)
+            onCloseRequested: { root.libraryFoldersOpen = false; Qt.callLater(root.restoreFocus); }
+            onHomeRequested: { root.libraryFoldersOpen = false; root.goHomeFrom("settings"); }
+        }
+        Connections {
+            target: home
+            function onScreenChanged() { if (home.screen !== "settings") root.libraryFoldersOpen = false; }
         }
         Music.MusicView {
             id: musicView

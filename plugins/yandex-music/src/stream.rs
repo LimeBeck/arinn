@@ -7,6 +7,29 @@ use arinn_music_common::player::Source;
 use md5::{Digest, Md5};
 use reqwest::{Method, Url};
 const XML_LIMIT: usize = 64 * 1024;
+fn download_info_url(result: &serde_json::Value) -> Result<Url, Error> {
+    let choices = result
+        .as_array()
+        .filter(|v| v.len() <= 32)
+        .ok_or(Error::InvalidResponse)?;
+    let choice = choices
+        .iter()
+        .filter(|v| {
+            // Download-info responses may omit transport for direct MP3 files.
+            // Explicit null, malformed values and other transports stay unsupported.
+            v["codec"] == "mp3"
+                && v.get("transport")
+                    .is_none_or(|transport| transport == "raw")
+                && v["gain"].as_bool() != Some(true)
+        })
+        .max_by_key(|v| v["bitrateInKbps"].as_u64().unwrap_or(0))
+        .ok_or(Error::Forbidden)?;
+    cdn_url(
+        choice["downloadInfoUrl"]
+            .as_str()
+            .ok_or(Error::InvalidResponse)?,
+    )
+}
 fn cdn_url(value: &str) -> Result<Url, Error> {
     let url = Url::parse(value).map_err(|_| Error::InvalidResponse)?;
     let host = url.host_str().ok_or(Error::InvalidResponse)?;
@@ -112,22 +135,7 @@ impl Api {
         let result = self
             .request(Method::GET, &["tracks", id, "download-info"], &[])
             .await?;
-        let choices = result
-            .as_array()
-            .filter(|v| v.len() <= 32)
-            .ok_or(Error::InvalidResponse)?;
-        let choice = choices
-            .iter()
-            .filter(|v| {
-                v["codec"] == "mp3" && v["transport"] == "raw" && v["gain"].as_bool() != Some(true)
-            })
-            .max_by_key(|v| v["bitrateInKbps"].as_u64().unwrap_or(0))
-            .ok_or(Error::Forbidden)?;
-        let url = cdn_url(
-            choice["downloadInfoUrl"]
-                .as_str()
-                .ok_or(Error::InvalidResponse)?,
-        )?;
+        let url = download_info_url(&result)?;
         let mut response = self
             .downloads
             .get(url)
@@ -160,6 +168,96 @@ impl Api {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn mp3_download_info_without_transport_resolves() {
+        let result = serde_json::json!([{
+            "codec": "mp3", "gain": false, "bitrateInKbps": 192,
+            "downloadInfoUrl": "https://storage.mds.yandex.net/download-info/fixture"
+        }]);
+        assert_eq!(
+            download_info_url(&result).unwrap().as_str(),
+            "https://storage.mds.yandex.net/download-info/fixture"
+        );
+    }
+    #[test]
+    fn download_info_keeps_transport_codec_gain_and_bitrate_selection() {
+        let choice = serde_json::json!({
+            "codec": "mp3", "transport": "raw", "gain": false, "bitrateInKbps": 192,
+            "downloadInfoUrl": "https://storage.mds.yandex.net/download-info/fixture"
+        });
+        assert!(download_info_url(&serde_json::json!([choice.clone()])).is_ok());
+        for transport in serde_json::json!(["hls", "dash", "", null, false, 1, {}, []])
+            .as_array()
+            .unwrap()
+        {
+            let mut unsupported = choice.clone();
+            unsupported["transport"] = transport.clone();
+            assert!(matches!(
+                download_info_url(&serde_json::json!([unsupported])),
+                Err(Error::Forbidden)
+            ));
+        }
+        for (field, value) in [
+            ("codec", serde_json::json!("aac")),
+            ("gain", serde_json::json!(true)),
+        ] {
+            let mut unsupported = choice.clone();
+            unsupported[field] = value;
+            assert!(matches!(
+                download_info_url(&serde_json::json!([unsupported])),
+                Err(Error::Forbidden)
+            ));
+        }
+        let mut higher = choice.clone();
+        higher.as_object_mut().unwrap().remove("transport");
+        higher["bitrateInKbps"] = serde_json::json!(320);
+        higher["downloadInfoUrl"] =
+            serde_json::json!("https://storage.mds.yandex.net/download-info/higher");
+        let mut unsupported = choice.clone();
+        unsupported["transport"] = serde_json::json!("hls");
+        unsupported["bitrateInKbps"] = serde_json::json!(512);
+        assert_eq!(
+            download_info_url(&serde_json::json!([choice, higher, unsupported]))
+                .unwrap()
+                .path(),
+            "/download-info/higher"
+        );
+    }
+    #[test]
+    fn download_info_keeps_response_and_url_bounds() {
+        assert!(matches!(
+            download_info_url(&serde_json::json!({})),
+            Err(Error::InvalidResponse)
+        ));
+        assert!(matches!(
+            download_info_url(&serde_json::json!([])),
+            Err(Error::Forbidden)
+        ));
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!("http://storage.mds.yandex.net/fixture"),
+            serde_json::json!("https://example.org/fixture"),
+            serde_json::json!("https://user:password@storage.mds.yandex.net/fixture"),
+            serde_json::json!("https://storage.mds.yandex.net:444/fixture"),
+            serde_json::json!(format!(
+                "https://storage.mds.yandex.net/{}",
+                "x".repeat(16 * 1024)
+            )),
+        ] {
+            let choice = serde_json::json!({"codec":"mp3", "gain":false, "downloadInfoUrl":value});
+            assert!(matches!(
+                download_info_url(&serde_json::json!([choice])),
+                Err(Error::InvalidResponse)
+            ));
+        }
+        let choice = serde_json::json!({"codec":"mp3", "gain":false,
+            "downloadInfoUrl":"https://storage.mds.yandex.net/fixture"});
+        assert!(download_info_url(&serde_json::json!(vec![choice.clone(); 32])).is_ok());
+        assert!(matches!(
+            download_info_url(&serde_json::json!(vec![choice; 33])),
+            Err(Error::InvalidResponse)
+        ));
+    }
     #[test]
     fn signed_source_is_bounded_https_and_cannot_redirect_credentials() {
         let xml = "<download-info><host>storage.mds.yandex.net</host><path>/fixture.mp3</path><ts>123</ts><s>fixture</s></download-info>";

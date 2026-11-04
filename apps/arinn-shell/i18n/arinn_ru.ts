@@ -2018,15 +2018,7 @@
     </message>
     <message>
         <source>Light follows the time of day</source>
-        <translation>Свет следует за временем суток</translation>
-    </message>
-    <message>
-        <source>Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light</source>
-        <translation>Приглушает свет пола вечером и ночью и кладёт тёплую вуаль на экран. Выключено — дневной свет</translation>
-    </message>
-    <message>
-        <source>A warm floor and a pool of light under the focused item. Off removes the floor and the pool</source>
-        <translation>Тёплый пол и пул света под выбранным элементом. Выключено — пол и пул убираются</translation>
+        <translation>Свет меняется со временем суток</translation>
     </message>
     <message>
         <source>Ambient after</source>
@@ -2075,6 +2067,34 @@
     <message>
         <source>Normal</source>
         <translation>Обычно</translation>
+    </message>
+    <message>
+        <source>A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off</source>
+        <translation>Мягкое свечение внизу экрана и за выбранным элементом. Выключено — без свечения</translation>
+    </message>
+    <message>
+        <source>In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look</source>
+        <translation>Вечером и ночью свечение тише, а экран чуть теплее. Выключено — всегда как днём</translation>
+    </message>
+    <message>
+        <source>Local library</source>
+        <translation>Локальная библиотека</translation>
+    </message>
+    <message>
+        <source>Local music</source>
+        <translation>Локальная музыка</translation>
+    </message>
+    <message>
+        <source>Downloads</source>
+        <translation>Загрузки</translation>
+    </message>
+    <message>
+        <source>Desktop applications</source>
+        <translation>Приложения рабочего стола</translation>
+    </message>
+    <message>
+        <source>Media sessions</source>
+        <translation>Медиасеансы</translation>
     </message>
 </context>
 <context>

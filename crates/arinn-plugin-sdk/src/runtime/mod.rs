@@ -496,6 +496,22 @@ pub enum TabAction {
 /// Executes browser commands after the SDK has checked the caller, the
 /// generation, the backend state and the tab ID or URL.
 pub trait BrowserHandler: Send + Sync + 'static {
+    fn reset_temporary(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(async {})
+    }
+    fn open_temporary(
+        &self,
+        _request_id: String,
+        _url: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
+        Box::pin(async { Err(ErrorCode::Unsupported) })
+    }
+    fn close_temporary(
+        &self,
+        _id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        Box::pin(async { Err(ErrorCode::Unsupported) })
+    }
     fn tab(
         &self,
         action: TabAction,
@@ -518,6 +534,7 @@ struct BrowserData {
 /// state changes at runtime: a browser connects and disconnects.
 #[derive(Clone)]
 pub struct BrowserService {
+    temporary_gate: Arc<Mutex<()>>,
     data: Arc<Mutex<BrowserData>>,
     handler: Arc<dyn BrowserHandler>,
     registrations: tokio::sync::watch::Sender<Option<RegistrationContext>>,
@@ -541,6 +558,7 @@ impl BrowserService {
         arinn_protocol::browser::validate_entries(&windows, &tabs)?;
         backend_state(backend)?;
         Ok(Self {
+            temporary_gate: Arc::default(),
             data: Arc::new(Mutex::new(BrowserData {
                 daemon_owner: String::new(),
                 generation: String::new(),
@@ -670,6 +688,40 @@ impl BrowserService {
         self.ready(generation, &h).await?;
         self.handler.open(url.into()).await.map_err(Into::into)
     }
+    async fn open_temporary_url(
+        &self,
+        generation: &str,
+        request_id: &str,
+        url: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<String> {
+        validation::id(request_id)?;
+        web::open_url(url)?;
+        if !url.starts_with("https://") {
+            return Err(ErrorCode::InvalidArgument.into());
+        }
+        let _gate = self.temporary_gate.lock().await;
+        self.ready(generation, &h).await?;
+        let id = self
+            .handler
+            .open_temporary(request_id.into(), url.into())
+            .await?;
+        validation::id(&id)?;
+        Ok(id)
+    }
+    async fn close_temporary_window(
+        &self,
+        generation: &str,
+        request_id: &str,
+        #[zbus(header)] h: Header<'_>,
+    ) -> production::Result<()> {
+        validation::id(request_id)?;
+        self.ready(generation, &h).await?;
+        self.handler
+            .close_temporary(request_id.into())
+            .await
+            .map_err(Into::into)
+    }
     async fn activate_tab(
         &self,
         generation: &str,
@@ -706,6 +758,8 @@ impl Endpoint for BrowserService {
         &self.updates
     }
     async fn clear(&self) {
+        let _gate = self.temporary_gate.lock().await;
+        self.handler.reset_temporary().await;
         let mut data = self.data.lock().await;
         data.snapshots = None;
         data.generation.clear();

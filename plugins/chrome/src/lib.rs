@@ -9,6 +9,7 @@
 //! link below is plugin-internal and never reaches the core. Tab titles and
 //! URLs are never logged.
 pub mod association;
+mod authorization;
 pub mod bridge;
 pub mod framing;
 pub mod host;

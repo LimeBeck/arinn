@@ -16,6 +16,7 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Provider1` | Provider unique bus owner, `/org/arinn/Provider1`; [provider1.xml](provider1.xml) |
 | `org.arinn.Operation1` | Daemon-owned operation path returned by a command; [operation1.xml](operation1.xml) |
 | `org.arinn.Browser1` | Daemon-owned `/org/arinn/Daemon1/providers/p_<uuid_hex>` of a `browser` provider; [browser1.xml](browser1.xml) |
+| `org.arinn.BrowserAuth1` | Daemon root, caller-scoped temporary authorization windows; [browser-auth1.xml](browser-auth1.xml), [lifecycle](browser-authorization.md) |
 | `org.arinn.BrowserProvider1` | Provider unique bus owner, `/org/arinn/Provider1`; [browser-provider1.xml](browser-provider1.xml) |
 | `org.arinn.WebShortcutIcons1` | Optional daemon-root site icons; [web-shortcut-icons1.xml](web-shortcut-icons1.xml). Contract only, production implementation pending |
 | `org.arinn.WebIconProvider1` | Optional browser-provider site discovery; [web-icon-provider1.xml](web-icon-provider1.xml). Contract only, production implementation pending |

@@ -190,13 +190,14 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Search engine"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
+    // Plain words: no internal terms such as "floor" or "pool" (#756 B16).
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "A warm floor and a pool of light under the focused item. "
-                      "Off removes the floor and the pool"),
+                      "A soft glow along the bottom of the screen and behind the "
+                      "item in focus. Off turns the glow off"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light follows the time of day"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "Dims the floor light in the evening and at night and lays a "
-                      "warm veil over the screen. Off keeps the daytime light"),
+                      "In the evening and at night the glow is dimmer and the "
+                      "screen a little warmer. Off keeps the daytime look"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Ambient after"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Idle time on an Arinn screen before "
                                          "the ambient screen appears"),
@@ -213,6 +214,34 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Quiet"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Normal"),
 };
+// The display names of the providers this repository ships, translated in
+// the shell (#756 B16). A provider whose name is not here keeps its own.
+// Matched by plugin id and name together, so a third-party provider that
+// happens to use one of these names keeps its own, and a packaged plugin
+// configured under another instance id still gets its name (review of #779).
+struct PackagedName {
+  const char *pluginId;
+  const char *name;
+};
+constexpr PackagedName kProviderNames[] = {
+    {"library", QT_TRANSLATE_NOOP("SettingsCatalog", "Local library")},
+    {"music-local", QT_TRANSLATE_NOOP("SettingsCatalog", "Local music")},
+    {"mpv", QT_TRANSLATE_NOOP("SettingsCatalog", "Playback")},
+    {"transmission", QT_TRANSLATE_NOOP("SettingsCatalog", "Downloads")},
+    {"desktop", QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications")},
+    {"mpris", QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions")},
+};
+// The source line of a row: none for Arinn's own settings, which need no
+// source, else the provider's name in the shell's language.
+QString sourceName(const QString &providerId, const QString &pluginId,
+                   const QString &name) {
+  if (providerId == QLatin1String(kDaemonProvider))
+    return {};
+  for (const auto &known : kProviderNames)
+    if (pluginId == QLatin1String(known.pluginId) && name == QLatin1String(known.name))
+      return QCoreApplication::translate("SettingsCatalog", known.name);
+  return name;
+}
 QString daemonText(const QString &providerId, const QString &text) {
   if (providerId != QLatin1String(kDaemonProvider))
     return text;
@@ -280,6 +309,8 @@ struct SettingsCatalog::RootScan {
   int pages = 0;
   QSet<QString> tokens;
   QHash<QString, QString> found;
+  // Every provider's plugin id, from the same listing.
+  QHash<QString, QString> plugins;
 };
 
 struct SettingsCatalog::Load {
@@ -317,6 +348,9 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_tickets.clear();
             m_providers.clear();
             m_libraryPaths.clear();
+            // Plugin identities belong to the old daemon: until the new
+            // listing answers, the instance id stands in (review of #779).
+            m_pluginIds.clear();
             m_rootsReading.clear();
             m_rootsAgain.clear();
             m_roots.clear();
@@ -539,10 +573,21 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
           [this, scan](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
-            if (scan->epoch != m_epoch || scan->ticket != m_rootScan ||
-                reply.type() == QDBusMessage::ErrorMessage ||
-                reply.signature() != QLatin1String(providersPage))
+            if (scan->epoch != m_epoch || scan->ticket != m_rootScan)
               return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String(providersPage)) {
+              // The listing that would confirm the plugin identities
+              // failed: a reload may have replaced an instance's plugin, so
+              // the instance id stands in until the next listing (review
+              // of #779).
+              if (!m_pluginIds.isEmpty()) {
+                m_pluginIds.clear();
+                if (m_loaded)
+                  publish();
+              }
+              return;
+            }
             const auto arg =
                 qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             QString snapshot, next;
@@ -561,6 +606,8 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
                   capabilities >> runtime >> backend >> generation >> revision >>
                   error >> errorAt >> recovered >> restarts >> cumulative;
               arg.endStructure();
+              if (!id.isEmpty() && !plugin.isEmpty())
+                scan->plugins.insert(id, plugin);
               if (capabilities.contains(QLatin1String("library")) &&
                   runtime == QLatin1String("ready") && !id.isEmpty() &&
                   !endpoint.path().isEmpty()) {
@@ -575,6 +622,11 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               return;
             }
             m_libraryPaths = scan->found;
+            if (m_pluginIds != scan->plugins) {
+              m_pluginIds = scan->plugins;
+              if (m_loaded)
+                publish();
+            }
             QStringList gone;
             for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
               if (!m_libraryPaths.contains(it.key()))
@@ -791,7 +843,11 @@ void SettingsCatalog::publish() {
               valueFor(setting.kind, setting.valueJson, multiple);
           QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
-              {QStringLiteral("providerName"), provider.name},
+              {QStringLiteral("providerName"), sourceName(provider.id,
+                          // Until Daemon1.Providers answers, the default
+                          // instance, whose id is its plugin's.
+                          m_pluginIds.value(provider.id, provider.id),
+                          provider.name)},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
               {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},
@@ -843,6 +899,16 @@ void SettingsCatalog::publish() {
     m_deferred.remove(key);
     m_deferredGeneration.remove(key);
   }
+  // A category without rows is not shown, so Settings opens on the first
+  // category that has one (#756).
+  QSet<QString> used;
+  for (const auto &row : std::as_const(rows))
+    used.insert(row.toMap().value(QStringLiteral("categoryId")).toString());
+  QVariantList shown;
+  for (const auto &category : std::as_const(categories))
+    if (used.contains(category.toMap().value(QStringLiteral("id")).toString()))
+      shown.append(category);
+  categories = shown;
   // A reload follows every ProvidersChanged. Announcing unchanged rows makes
   // the open settings screen rebuild (#441).
   if (categories == m_categories && rows == m_rows &&

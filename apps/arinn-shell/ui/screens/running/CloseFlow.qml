@@ -163,7 +163,9 @@ FocusScope {
     }
     function restoreFocus() {
         if (phase === "confirm") Ui.Focus.take(cancelButton);
-        else if (phase === "failed") Ui.Focus.take(switchButton);
+        // "Go to" is hidden for a window Arinn cannot activate (review of
+        // #789).
+        else if (phase === "failed") Ui.Focus.take(switchButton.visible ? switchButton : stayButton);
     }
     function check() {
         const listed = (windows || []).map(entry => entry.id);

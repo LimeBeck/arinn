@@ -403,6 +403,11 @@ TestCase {
         focused(flow, "closeFlowStay");
         keyClick(Qt.Key_Left);
         focused(flow, "closeFlowStay");
+        // Review of #789: focus recovery lands on the visible action.
+        const other = createTemporaryObject(openerFactory, suite);
+        other.forceActiveFocus();
+        flow.restoreFocus();
+        focused(flow, "closeFlowStay");
         keyClick(Qt.Key_Return);
         compare(switches.count, 0);
         compare(flow.phase, "");

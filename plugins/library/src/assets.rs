@@ -21,6 +21,7 @@ pub(crate) struct AssetSource {
     pub root: PathBuf,
     pub relative: String,
     pub series: bool,
+    pub episode: bool,
     pub poster: bool,
 }
 
@@ -60,7 +61,7 @@ impl AssetSource {
                     .ok_or(ErrorCode::NotFound)?,
             )
         };
-        let (poster, fanart) = crate::parse::artwork(&root, directory, stem);
+        let (poster, fanart) = crate::parse::artwork(&root, directory, stem, self.episode);
         let candidate = if self.poster { poster } else { fanart }.ok_or(ErrorCode::NotFound)?;
         let candidate = candidate.canonicalize().map_err(|_| ErrorCode::NotFound)?;
         let relative = candidate
@@ -218,6 +219,36 @@ mod tests {
         assert_eq!(f.read(&series.fanart).unwrap().mime, assets::MIME_PNG);
         assert_eq!(f.store.snapshot().unwrap().1, before);
         assert_eq!(f.store.resumes().unwrap(), progress);
+    }
+
+    // #756 C22: a folder-wide poster in a season folder is the season's
+    // image, not every episode's. Only an image named after the file is the
+    // episode's still.
+    #[test]
+    fn episodes_take_only_artwork_named_after_their_file() {
+        let mut f = Fixture::new();
+        let season = f.root.join("Show/Season 1");
+        fs::write(season.join("poster.jpg"), JPEG).unwrap();
+        fs::write(season.join("fanart.jpg"), JPEG).unwrap();
+        fs::write(season.join("Show.S01E02.mkv"), b"video").unwrap();
+        fs::write(season.join("Show.S01E02-thumb.jpg"), JPEG).unwrap();
+        f.store.scan(&f.settings).unwrap();
+        let items = f.store.snapshot().unwrap().1;
+        let episode = |number: u32| {
+            items
+                .iter()
+                .find(|i| i.kind == "episode" && i.episode == number)
+                .unwrap()
+                .clone()
+        };
+        let first = episode(1);
+        assert!(first.poster.is_empty(), "the season poster is not a still");
+        assert!(first.fanart.is_empty());
+        let second = episode(2);
+        assert!(!second.poster.is_empty());
+        assert_eq!(f.read(&second.poster).unwrap().data, JPEG);
+        let series = items.iter().find(|i| i.kind == "series").unwrap();
+        assert!(!series.poster.is_empty());
     }
 
     #[test]

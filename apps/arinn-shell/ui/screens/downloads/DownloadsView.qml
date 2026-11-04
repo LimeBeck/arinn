@@ -20,6 +20,9 @@ FocusScope {
     property string statusTitle: ""
     property string statusDescription: ""
     property string summaryText: ""
+    // The combined transfer rate of the active downloads, already worded
+    // ("32 MB/s"); the shell binds DownloadCatalog.rateText. Empty hides it.
+    property string transferRate: ""
     property var jobs: []
     // The shell's input mode (ADR-0095); tests may assign it directly.
     property bool pointerMode: Ui.InputMode.pointerActive
@@ -43,8 +46,8 @@ FocusScope {
     readonly property bool loadingVisible: viewState === "loading"
     readonly property bool statusVisible: viewState === "empty" || viewState === "error" || viewState === "unavailable"
     readonly property int jobCount: jobs ? jobs.length : 0
-    // "N downloading" while anything downloads, "N done" when every row is
-    // completed, otherwise empty and hidden (#360).
+    // "N downloading · 32 MB/s" while anything downloads (handoff 12), "N
+    // done" when every row is completed, otherwise empty and hidden (#360).
     readonly property string summaryLine: {
         if (summaryText.length) return summaryText;
         let active = 0, done = 0;
@@ -53,7 +56,10 @@ FocusScope {
             if (state === "downloading") active += 1;
             else if (state === "completed") done += 1;
         }
-        if (active > 0) return qsTr("%n downloading", "", active);
+        if (active > 0) {
+            const count = qsTr("%n downloading", "", active);
+            return transferRate.length ? count + " · " + transferRate : count;
+        }
         if (jobCount > 0 && done === jobCount) return qsTr("%n done", "", done);
         return "";
     }
@@ -80,28 +86,25 @@ FocusScope {
     signal watchRequested(string jobId)
     signal refreshRequested()
     signal backRequested()
+    // Left at the screen's edge: nothing lies further left, so the shell
+    // opens navigation (handoff 04, #756 A8).
+    signal navigationRequested()
 
     // Screen-local timings. Callers do not set these, and they are not theme tokens.
     readonly property int toastDurationMs: 2600
     readonly property int hoverSuppressMs: 500
 
-    // Artwork slot of a queue row (handoff 13, #360): the job's artwork
-    // cropped to the slot with the handoff's 18 px corners, or, without
-    // one, the handoff's striped queue plate in neutral grey. There is no
-    // monogram chip and no invented artwork.
+    // Artwork slot of a queue row (handoff 12, #360): the job's artwork
+    // cropped to the slot with the handoff's 18 px corners. Without one, or
+    // until it loads, a title card: the title in the content face on
+    // Charcoal, as Home and the Library draw a missing poster (Hearth light
+    // brief; #756 B12). There is no monogram chip and no invented artwork.
     component QueueArtwork: Item {
         id: slot
         property url source: ""
+        property string title: ""
         readonly property bool artworkReady: picture.status === Image.Ready
         readonly property int radius: 18
-        // Screen-local placeholder colours: the handoff's art() plate
-        // (oklch 0.30 / 0.265 stripes, 10 px, under a 0.50 sheen at 155°)
-        // with the hue's chroma removed. They are not theme tokens.
-        readonly property color stripeLight: "#2e2e2e"
-        readonly property color stripeDark: "#252525"
-        readonly property string sheen: "rgba(99, 99, 99, 0.5)"
-        readonly property string sheenEnd: "rgba(99, 99, 99, 0)"
-        readonly property int stripe: 10
         Image {
             id: picture
             anchors.fill: parent
@@ -117,11 +120,39 @@ FocusScope {
                 plate.requestPaint();
             }
         }
+        Rectangle {
+            objectName: "titleCard"
+            anchors.fill: parent
+            radius: slot.radius
+            visible: !plate.showsArtwork
+            gradient: Gradient {
+                GradientStop { position: 0; color: Ui.Theme.background }
+                GradientStop { position: 1; color: Ui.Theme.chip }
+            }
+            Ui.UiText {
+                objectName: "titleCardTitle"
+                x: 16; width: parent.width - 32
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 14
+                text: slot.title
+                role: "meta"
+                font.family: Ui.Theme.contentFontFamily
+                font.pixelSize: 22
+                font.weight: 600
+                font.features: ({ "tnum": 1, "lnum": 1 })
+                lineHeight: 1.1
+                color: Ui.Theme.textSecondary
+                wrapMode: Text.WordWrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+            }
+        }
         Canvas {
             id: plate
             objectName: "artworkPlate"
             anchors.fill: parent
-            // Whether the last paint drew the artwork or the placeholder.
+            // Whether the last paint drew the artwork; the title card shows
+            // otherwise.
             property bool showsArtwork: false
             onImageLoaded: requestPaint()
             onWidthChanged: requestPaint()
@@ -133,37 +164,28 @@ FocusScope {
                 Artwork.clipRounded(ctx, w, h, slot.radius);
                 const image = picture.source;
                 // Centre crop, as Image.PreserveAspectCrop draws it.
-                if (slot.artworkReady && isImageLoaded(image)
-                        && Artwork.drawCover(ctx, image, picture.implicitWidth, picture.implicitHeight, w, h)) {
-                    showsArtwork = true;
-                    return;
-                }
-                showsArtwork = false;
-                ctx.fillStyle = slot.stripeLight;
-                ctx.fillRect(0, 0, w, h);
-                // 135° bands: x + y = c, a light and a dark band per period.
-                ctx.fillStyle = slot.stripeDark;
-                const band = slot.stripe * Math.SQRT2;
-                for (let c = -h; c < w + h; c += 2 * band) {
-                    ctx.beginPath();
-                    ctx.moveTo(c + band, 0);
-                    ctx.lineTo(c + 2 * band, 0);
-                    ctx.lineTo(c + 2 * band - h, h);
-                    ctx.lineTo(c + band - h, h);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-                const angle = 155 * Math.PI / 180;
-                const dx = Math.sin(angle), dy = -Math.cos(angle);
-                const half = (Math.abs(w * dx) + Math.abs(h * dy)) / 2;
-                const sheen = ctx.createLinearGradient(w / 2 - dx * half, h / 2 - dy * half,
-                                                       w / 2 + dx * half, h / 2 + dy * half);
-                sheen.addColorStop(0, slot.sheen);
-                sheen.addColorStop(0.55, slot.sheenEnd);
-                ctx.fillStyle = sheen;
-                ctx.fillRect(0, 0, w, h);
+                showsArtwork = slot.artworkReady && isImageLoaded(image)
+                        && Artwork.drawCover(ctx, image, picture.implicitWidth, picture.implicitHeight, w, h);
             }
         }
+    }
+    // The status icon of each state (handoff 12). Ember marks only a
+    // finished import; the progress bar is the other Ember mark.
+    function statusIcon(job) {
+        if (!job) return "";
+        if (job.state === "downloading" || job.state === "verifying") return "downloading";
+        if (job.state === "queued") return "schedule";
+        if (job.state === "paused") return "pause_circle";
+        if (job.state === "completed") return "check_circle";
+        if (job.state === "error") return "error";
+        return "";
+    }
+    function statusColor(job) {
+        if (!job) return Ui.Theme.textSecondary;
+        if (job.state === "error") return Ui.Theme.error;
+        if (job.state === "completed" && job.importState === "imported") return Ui.Theme.ember;
+        if (job.state === "queued" || job.state === "paused") return Ui.Theme.textHint;
+        return Ui.Theme.textSecondary;
     }
 
     property var knownImports: ({})
@@ -325,7 +347,11 @@ FocusScope {
         }
     }
     function acceptDirection(event) {
-        if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+        if (event.key === Qt.Key_Left) {
+            Ui.InputMode.keyPressed();
+            if (!event.isAutoRepeat) navigationRequested();
+            event.accepted = true;
+        } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
             moveFocus(event.key, false);
             event.accepted = true;
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
@@ -491,6 +517,7 @@ FocusScope {
                                 objectName: "artwork-" + row.modelData.id
                                 x: 18; y: 18; width: 214; height: 120
                                 source: row.modelData.artwork || ""
+                                title: row.modelData.title || ""
                             }
                             Column {
                                 x: 252
@@ -515,15 +542,26 @@ FocusScope {
                                     maximumLineCount: 1
                                     elide: Text.ElideRight
                                 }
-                                Ui.UiText {
-                                    objectName: "status-" + row.modelData.id
+                                Row {
                                     width: parent.width
-                                    role: "meta"
-                                    color: row.modelData.state === "error" ? Ui.Theme.error
-                                         : (row.modelData.state === "completed" && row.modelData.importState === "imported" ? Ui.Theme.ember : Ui.Theme.textSecondary)
-                                    text: root.statusLine(row.modelData)
-                                    maximumLineCount: 1
-                                    elide: Text.ElideRight
+                                    spacing: 10
+                                    Ui.LineIcon {
+                                        objectName: "statusIcon-" + row.modelData.id
+                                        name: root.statusIcon(row.modelData)
+                                        visible: name.length > 0
+                                        width: 30; height: 30
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        color: root.statusColor(row.modelData)
+                                    }
+                                    Ui.UiText {
+                                        objectName: "status-" + row.modelData.id
+                                        width: parent.width - 40
+                                        role: "meta"
+                                        color: root.statusColor(row.modelData)
+                                        text: root.statusLine(row.modelData)
+                                        maximumLineCount: 1
+                                        elide: Text.ElideRight
+                                    }
                                 }
                                 Ui.ProgressTrack {
                                     objectName: "progress-" + row.modelData.id
@@ -535,9 +573,24 @@ FocusScope {
                                     }
                                 }
                             }
+                            // The row holds focus and OK; the pill shows what OK
+                            // does. Watch is the white primary pill (handoff 12);
+                            // the others keep the action plate.
                             Ui.ActionButton {
                                 id: actionButton
                                 objectName: "action-" + row.modelData.id
+                                readonly property bool watch: row.actionName === "watch"
+                                primary: watch
+                                restingColor: watch ? Ui.Theme.textPrimary : Ui.Theme.plateAction
+                                contentItem: Ui.UiText {
+                                    objectName: "actionLabel-" + row.modelData.id
+                                    text: actionButton.busy ? qsTr("Loading…") : actionButton.text
+                                    role: "control"
+                                    color: actionButton.watch ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    wrapMode: Text.NoWrap
+                                }
                                 anchors.right: parent.right
                                 anchors.rightMargin: 28
                                 anchors.verticalCenter: parent.verticalCenter

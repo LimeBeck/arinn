@@ -321,6 +321,8 @@ private slots:
     QCOMPARE(a.value(QStringLiteral("availableActions")).toStringList(),
              QStringList{QStringLiteral("pause")});
     QCOMPARE(a.value(QStringLiteral("busy")).toBool(), false);
+    // #756 B12: the summary line's rate sums the active downloads only.
+    QCOMPARE(catalog.rateText(), QStringLiteral("3.1 MB/s"));
 
     const auto b = jobById(catalog, QStringLiteral("b"));
     QCOMPARE(b.value(QStringLiteral("progress")).toDouble(), -1.0);

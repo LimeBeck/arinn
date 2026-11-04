@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-11-04
 - **Deciders:** Owner requested browser sign-in and explicitly authorized CloudMus-compatible SDK registration with its embedded secret; maintainer reviews the contract/security change
-- **Amends / Supersedes:** —
+- **Amends / Supersedes:** [ADR-0043](0043-web-shortcuts.md) and [ADR-0048](0048-browser-wire-contract.md), extension permission policy only
 - **Amended by / Superseded by:** —
-- **Specification:** §5.3.1, R-01–R-10, §13
+- **Specification:** §5.3.1, §7.1, R-01–R-10, §13
 
 ## Context
 
@@ -24,6 +24,12 @@ and optional SDK handler. Keep product names out of core. Pin provider owner and
 generation, mint internal lease identities, and retain uncertain mutations until
 cleanup settles. Use fresh windows, isolate child tabs, exclude authorization
 metadata from snapshots/history and revoke on caller/native-port/generation loss.
+This proposed amendment replaces the earlier two-permission requirement with
+exactly `tabs`, `nativeMessaging` and `storage`. The last permission is confined
+to `storage.session`: opaque authorization handles and a fail-closed recovery
+flag only. No authorization/browsing content or local/sync authorization storage
+is permitted. Owner review/merge accepts this security-policy amendment; the
+historical phase-3 pass is not evidence that the new permission was approved.
 The [wire lifecycle](../plugin-api/browser-authorization.md) defines limits,
 privacy recovery and the exceptional browser-session fail-closed latch.
 

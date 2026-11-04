@@ -2,14 +2,16 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Arinn browser bridge (spec §7.1, ADR-0048, ADR-0050). Permissions: tabs
-// and nativeMessaging only. It never reads page content. It sends the complete
+// Arinn browser bridge (spec §7.1, ADR-0048/0050, proposed ADR-0141).
+// Permissions: tabs, nativeMessaging, and session-only authorization storage. It never reads page content. It sends the complete
 // tab state to arinn-chrome-host and executes the host's commands; it never
 // replays a command after a reconnect.
 //
 // Every browser activity Arinn opens is its own fullscreen popup window
 // (ADR-0050). Managed windows are recognised by their type, so the rules
-// survive a service worker restart without extra storage permissions.
+// survive a service worker restart without storing ordinary browsing data.
+// Temporary authorization separately retains only opaque session handles and a
+// fail-closed recovery flag; it never persists URLs, titles, codes or tokens.
 "use strict";
 if (typeof importScripts === "function") importScripts("authorization.js");
 

@@ -530,6 +530,8 @@ RU.update({
     "Try again in a moment.": "Попробуйте чуть позже.",
     "To the home folder": "К домашней папке",
     "OK Open · Back Up one level · ↑ Choose": "OK Открыть · Назад На уровень выше · ↑ Выбрать",
+    "Wait until the last change is saved": "Дождитесь, пока сохранится прошлое изменение",
+    "Library folders cannot be changed now": "Папки медиатеки сейчас нельзя изменить",
 })
 
 # Context-specific overrides: the same English word reads differently.

@@ -83,7 +83,7 @@ FocusScope {
         if (!visible) return;
         if (side === "places" && focusPlace(placeIndex)) return;
         if (side === "folders" && focusFolder(folderIndex)) return;
-        if (listingState === "gone") { Ui.Focus.take(retryButton); return; }
+        if (listingState === "gone" || listingState === "unavailable") { Ui.Focus.take(retryButton); return; }
         Ui.Focus.take(chooseButton);
     }
     onFoldersChanged: { folderIndex = 0; if (visible && side === "folders") Qt.callLater(settle); }
@@ -370,7 +370,9 @@ FocusScope {
                         objectName: "pickerRetry"
                         text: qsTr("Retry")
                         pointerMode: root.pointerMode
-                        onActivated: root.browser.open(root.path)
+                        // Before the first folder opens, Places failed:
+                        // ask for them again (review of #780).
+                        onActivated: root.path.length ? root.browser.open(root.path) : root.browser.refreshPlaces()
                     }
                     Ui.ActionButton {
                         objectName: "pickerHome"

@@ -36,12 +36,17 @@ public:
                           {QStringLiteral("root"), QStringLiteral("/")}};
   QHash<QString, QStringList> folders;
   QHash<QString, QString> errors;
+  QString placesError;
   QStringList listed;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
     if (message.interface() != QLatin1String("org.arinn.Folders1"))
       return false;
     if (message.member() == QLatin1String("Places")) {
+      if (!placesError.isEmpty()) {
+        bus.send(message.createErrorReply(placesError, QStringLiteral("x")));
+        return true;
+      }
       QDBusArgument body;
       body.beginArray(QMetaType::fromType<PlaceWire>());
       for (const auto &place : places)
@@ -146,6 +151,26 @@ private slots:
     browser.open(QStringLiteral("relative"));
     QTest::qWait(100);
     QCOMPARE(daemon->listed.size(), calls);
+  }
+  // Review of #780: a failed Places read before any folder opens is
+  // unavailable, not an endless loading state; a refresh tries again.
+  void placesFailureIsUnavailable() {
+    daemon->placesError = QStringLiteral("org.arinn.Error1.Timeout");
+    FolderBrowser browser;
+    QCOMPARE(browser.state(), QStringLiteral("loading"));
+    browser.refreshPlaces();
+    QTRY_COMPARE(browser.state(), QStringLiteral("unavailable"));
+    QVERIFY(browser.places().isEmpty());
+    daemon->placesError.clear();
+    browser.refreshPlaces();
+    QCOMPARE(browser.state(), QStringLiteral("loading"));
+    QTRY_COMPARE(browser.places().size(), 3);
+    QCOMPARE(browser.state(), QStringLiteral("loading"));
+    // No places at all leaves nothing to open either.
+    daemon->places.clear();
+    FolderBrowser none;
+    none.refreshPlaces();
+    QTRY_COMPARE(none.state(), QStringLiteral("unavailable"));
   }
   void aNewerOpenWins() {
     daemon->folders.insert(QStringLiteral("/a"), {QStringLiteral("one")});

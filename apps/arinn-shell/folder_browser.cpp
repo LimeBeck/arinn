@@ -85,6 +85,11 @@ QString FolderBrowser::parentOf(const QString &path) {
 
 void FolderBrowser::refreshPlaces() {
   const auto request = ++m_placesRequest;
+  // Before the first folder opens, the picker waits for the places.
+  if (m_path.isEmpty() && m_state != QLatin1String("loading")) {
+    m_state = QStringLiteral("loading");
+    emit listingChanged();
+  }
   auto call = QDBusMessage::createMethodCall(kService, kPath, kInterface,
                                              QStringLiteral("Places"));
   auto *watcher = new QDBusPendingCallWatcher(
@@ -96,6 +101,7 @@ void FolderBrowser::refreshPlaces() {
               return;
             const auto reply = watcher->reply();
             QVariantList places;
+            bool read = false;
             if (reply.type() == QDBusMessage::ReplyMessage &&
                 reply.signature() == QLatin1String("a(ss)")) {
               const auto argument =
@@ -113,8 +119,17 @@ void FolderBrowser::refreshPlaces() {
                                           {QStringLiteral("title"), lastSegment(path)}});
               }
               argument.endArray();
+              read = true;
             }
-            if (places == m_places)
+            // A failed read, or no places, before the first folder opens
+            // leaves the picker nothing to show: unavailable, so it offers
+            // Retry (review of #780). A failed refresh keeps the places
+            // read before.
+            if (m_path.isEmpty() && (!read || places.isEmpty())) {
+              m_state = QStringLiteral("unavailable");
+              emit listingChanged();
+            }
+            if (!read || places == m_places)
               return;
             m_places = places;
             emit placesChanged();

@@ -26,15 +26,19 @@ FocusScope {
     // setting is pending (LF-8).
     property string addedPath: ""
     property string removing: ""
+    // The folder whose removal is being saved: "Folder removed" waits until
+    // the row no longer lists it (review of #780).
+    property string removedPath: ""
     // The added folder takes focus once the setting lists it (LF-8).
     property bool focusAdded: false
     readonly property bool picking: picker.visible
+    readonly property var folders: pathsOf(row)
     // A list from C++ is not a JS Array; read it by length.
-    readonly property var folders: {
-        const value = row ? row.currentValue : null;
-        if (!value || value.length === undefined || typeof value === "string") return [];
+    function pathsOf(value) {
+        const list = value ? value.currentValue : null;
+        if (!list || list.length === undefined || typeof list === "string") return [];
         const out = [];
-        for (let i = 0; i < value.length; ++i) out.push(String(value[i]));
+        for (let i = 0; i < list.length; ++i) out.push(String(list[i]));
         return out;
     }
     readonly property var unavailable: {
@@ -48,11 +52,28 @@ FocusScope {
                                     ? Number(row.constraints.maxItems) : 64
     readonly property bool full: folders.length >= maxItems
     readonly property int toastDurationMs: 2600
+    // One change at a time: the catalog drops a second save while the first
+    // is pending, so Add and Remove explain instead (review of #780).
+    readonly property bool busy: !!row.pending || row.enabled === false
+    readonly property string busyText: row.enabled === false ? qsTr("Library folders cannot be changed now")
+                                                              : qsTr("Wait until the last change is saved")
 
     signal valuesRequested(var paths)
     signal closeRequested()
     signal homeRequested()
 
+    // The daemon's error codes in words, as in SettingsView.daemonErrorText.
+    function errorText(code) {
+        if (!code) return "";
+        if (code === "Timeout") return qsTr("Arinn did not reply. Try again.");
+        if (code === "InvalidArgument") return qsTr("This value is not accepted.");
+        if (code === "Unavailable") return qsTr("The service is not available. Try again later.");
+        if (code === "Conflict") return qsTr("The settings changed. Try again.");
+        if (code === "NotFound") return qsTr("This setting is no longer available.");
+        if (code === "PermissionDenied") return qsTr("This setting cannot be changed.");
+        if (code === "Cancelled" || code === "cancelled") return qsTr("Saving was cancelled.");
+        return qsTr("Something went wrong. Try again.");
+    }
     function nameOf(path) {
         if (path === "/") return "/";
         const trimmed = String(path).replace(/\/+$/, "");
@@ -92,6 +113,7 @@ FocusScope {
         Qt.callLater(restore);
     }
     function add() {
+        if (busy) { showToast(busyText); return; }
         if (full) {
             showToast(qsTr("This is the limit: %n folders. Remove one to add another.", "", maxItems));
             return;
@@ -105,6 +127,10 @@ FocusScope {
             picker.errorText = qsTr("This folder is already in the library");
             return;
         }
+        if (busy) {
+            picker.errorText = busyText;
+            return;
+        }
         picker.visible = false;
         addedPath = path;
         focusAdded = true;
@@ -112,6 +138,7 @@ FocusScope {
         Qt.callLater(restore);
     }
     function askRemove(path) {
+        if (busy) { showToast(busyText); return; }
         removing = path;
         confirm.visible = true;
         Qt.callLater(() => Ui.Focus.take(cancelButton));
@@ -119,9 +146,11 @@ FocusScope {
     function confirmRemove() {
         const index = folders.indexOf(removing);
         confirm.visible = false;
-        if (index >= 0) valuesRequested(folders.filter(path => path !== removing));
+        if (index >= 0) {
+            removedPath = removing;
+            valuesRequested(folders.filter(path => path !== removing));
+        }
         removing = "";
-        showToast(qsTr("Folder removed"));
         Qt.callLater(() => focusRow(Math.max(0, index - 1), "row"));
     }
     function cancelRemove() {
@@ -130,6 +159,19 @@ FocusScope {
         Qt.callLater(restore);
     }
     onFoldersChanged: if (visible && !picking && !confirm.visible) Qt.callLater(restore)
+    // The removal settles: the folder left the row, or the save failed and
+    // the row shows the error.
+    onRowChanged: {
+        if (!removedPath.length || row.pending) return;
+        // Read the row itself: the folders binding may not have caught up.
+        if (pathsOf(row).indexOf(removedPath) < 0) {
+            removedPath = "";
+            showToast(qsTr("Folder removed"));
+        } else if (row.error) {
+            removedPath = "";
+            showToast(errorText(row.error));
+        }
+    }
     Keys.onPressed: event => {
         if ([Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right].includes(event.key)) Ui.InputMode.keyPressed();
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
@@ -210,7 +252,7 @@ FocusScope {
                 x: 120; y: 170
                 width: 1500
                 visible: !root.full && !!root.row.error
-                text: root.row.error || ""
+                text: root.errorText(root.row.error)
                 color: Ui.Theme.error
                 elide: Text.ElideRight
             }

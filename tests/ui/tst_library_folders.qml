@@ -31,7 +31,8 @@ TestCase {
                                  "/media/user/Disk": ["Movies"], "/": ["home", "media"],
                                  "/home": ["user"]})
             property var opened: []
-            function refreshPlaces() {}
+            property int placeReads: 0
+            function refreshPlaces() { ++placeReads; }
             function open(value) {
                 opened = opened.concat([value]);
                 path = value;
@@ -119,10 +120,67 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(values.count, 1);
         compare(values.signalArguments[0][0], ["/home/user/Films"]);
+        // Review of #780: "Folder removed" waits for the saved row.
+        verify(!child("foldersToast").visible);
+        view.row = Object.assign({}, view.row, {pending: true});
+        verify(!child("foldersToast").visible);
+        view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Films"], pending: false});
         verify(child("foldersToast").visible);
         compare(child("foldersToastText").text, "Folder removed");
-        view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Films"]});
         focused("folderRow-0");
+    }
+    // Review of #780: a removal the daemon refuses keeps the folder and says
+    // why in words, not as an error code.
+    function test_failed_removal_shows_the_error() {
+        make(["/home/user/Films", "/home/user/Series"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Right); focused("folderRemove-0");
+        keyClick(Qt.Key_Return);
+        focused("foldersConfirmCancel");
+        keyClick(Qt.Key_Right); keyClick(Qt.Key_Return);
+        view.row = Object.assign({}, view.row, {pending: true});
+        view.row = Object.assign({}, view.row, {pending: false, error: "Timeout"});
+        compare(view.folders.length, 2);
+        verify(child("foldersToast").visible);
+        compare(child("foldersToastText").text, "Arinn did not reply. Try again.");
+        verify(child("foldersError").visible);
+        compare(child("foldersError").text, "Arinn did not reply. Try again.");
+    }
+    // Review of #780: while a change is saved, Add and Remove explain
+    // instead of starting a second change the catalog would drop.
+    function test_pending_change_blocks_add_and_remove() {
+        make(["/media/user/Disk/Movies"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Up); focused("foldersAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        verify(picker.visible);
+        tryCompare(browser, "path", "/home/user");
+        const values = createTemporaryObject(spyFactory, suite, {target: view, signalName: "valuesRequested"});
+        // The first save is still pending when a folder is chosen.
+        view.row = Object.assign({}, view.row, {pending: true});
+        tryCompare(findChild(picker, "pickerFolder-0"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        tryCompare(browser, "path", "/home/user/Films");
+        keyClick(Qt.Key_Up);
+        tryCompare(findChild(picker, "pickerChoose"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        compare(values.count, 0);
+        verify(picker.visible);
+        compare(picker.errorText, "Wait until the last change is saved");
+        keyClick(Qt.Key_Escape); keyClick(Qt.Key_Escape); keyClick(Qt.Key_Escape);
+        tryCompare(picker, "visible", false);
+        focused("foldersAdd");
+        keyClick(Qt.Key_Return);
+        verify(!picker.visible);
+        compare(child("foldersToastText").text, "Wait until the last change is saved");
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Right); focused("folderRemove-0");
+        keyClick(Qt.Key_Return);
+        verify(!child("foldersConfirm").visible);
+        compare(values.count, 0);
+        view.row = Object.assign({}, view.row, {pending: false, enabled: false});
+        keyClick(Qt.Key_Return);
+        compare(child("foldersToastText").text, "Library folders cannot be changed now");
     }
     // LF-2: no folders, Add focused.
     function test_empty_offers_add() {
@@ -195,6 +253,22 @@ TestCase {
         keyClick(Qt.Key_Return);
         verify(picker.visible);
         verify(findChild(picker, "pickerError").visible);
+    }
+    // Review of #780: Places failed before any folder opened; the picker
+    // says so and Retry asks for the places again.
+    function test_picker_without_places_offers_retry() {
+        make([]);
+        browser.places = [];
+        browser.state = "unavailable";
+        focused("foldersEmptyAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        verify(picker.visible);
+        compare(browser.placeReads, 1);
+        compare(findChild(picker, "pickerStatusTitle").text, "Folders cannot be read right now");
+        tryCompare(findChild(picker, "pickerRetry"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        compare(browser.placeReads, 2);
     }
     // PK-5, PK-6, PK-7.
     function test_picker_states() {

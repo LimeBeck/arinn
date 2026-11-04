@@ -301,11 +301,17 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     and OK explains in a toast.
   - Remove (LF-6, LF-7): the power-confirm dialog, "Remove “{name}” from the
     library?". Cancel has the default focus and Remove is destructive. The verb
-    is always *Remove*, and nothing is deleted. Then focus goes to the neighbour
-    and the toast "Folder removed" shows.
+    is always *Remove*, and nothing is deleted. Then focus goes to the neighbour.
+    The toast "Folder removed" waits until the row no longer lists the folder;
+    if the save fails, the toast shows the error instead.
   - Added (LF-8): the new row is appended and focused, with "Adding to the
     library…" while the setting is pending.
-  - A daemon refusal shows its text under the title.
+  - A daemon refusal shows under the title in words, with the same mapping as
+    `SettingsView.daemonErrorText`, never as the error code.
+  - One change at a time: while the setting is pending or disabled, *Add
+    folder* and *Remove* explain in a toast, and a folder chosen in the picker
+    is refused there with the same text. `SettingsCatalog.setValue` would drop
+    a second save while one is pending.
 - **Picker (PK).** `FolderPicker` reads `FolderBrowser`
   (`folder_browser.{h,cpp}`):
   - `Places()` gives the start points: the home folder, each mount and the whole
@@ -326,6 +332,9 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
   - Empty (PK-5) moves focus to Choose. No access (PK-6) dims Choose to 40 %.
     A share that has gone (PK-7) offers Retry and *To the home folder*. Arinn
     never mounts anything.
+  - When `Places()` fails or returns nothing before a folder opens, the picker
+    shows "Folders cannot be read right now" with Retry, which asks for the
+    places again.
   - A folder already in the list is refused in the picker with an error plate
     (PK-10).
 - **Not built.**
@@ -337,7 +346,8 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
 - **Verification.**
   - `tests/ui/tst_library_folders.qml` covers the rows, unavailable, remove,
     empty, the limit, picking through the start points and the list, the
-    refusal and PK-5…7.
-  - `folder_browser_test.cpp` covers Places, sorting, paging, the error states
-    and a newer open winning.
+    refusal, PK-5…7, a failed removal, a pending change and a failed
+    `Places()`.
+  - `folder_browser_test.cpp` covers Places, a failed Places read, sorting,
+    paging, the error states and a newer open winning.
   - A real disk, share and TV were not tested.

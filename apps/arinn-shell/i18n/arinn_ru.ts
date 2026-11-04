@@ -1073,6 +1073,46 @@
         <source>Cancel</source>
         <translation>Отмена</translation>
     </message>
+    <message>
+        <source>Library folders cannot be changed now</source>
+        <translation>Папки медиатеки сейчас нельзя изменить</translation>
+    </message>
+    <message>
+        <source>Wait until the last change is saved</source>
+        <translation>Дождитесь, пока сохранится прошлое изменение</translation>
+    </message>
+    <message>
+        <source>Arinn did not reply. Try again.</source>
+        <translation>Arinn не ответил. Попробуйте снова.</translation>
+    </message>
+    <message>
+        <source>This value is not accepted.</source>
+        <translation>Это значение не принимается.</translation>
+    </message>
+    <message>
+        <source>The service is not available. Try again later.</source>
+        <translation>Сервис недоступен. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <source>The settings changed. Try again.</source>
+        <translation>Настройки изменились. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>This setting is no longer available.</source>
+        <translation>Эта настройка больше не доступна.</translation>
+    </message>
+    <message>
+        <source>This setting cannot be changed.</source>
+        <translation>Эту настройку нельзя изменить.</translation>
+    </message>
+    <message>
+        <source>Saving was cancelled.</source>
+        <translation>Сохранение отменено.</translation>
+    </message>
+    <message>
+        <source>Something went wrong. Try again.</source>
+        <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
 </context>
 <context>
     <name>LibraryView</name>

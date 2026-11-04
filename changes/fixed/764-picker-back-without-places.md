@@ -1,0 +1,1 @@
+- Back on the folder picker's Retry screen leaves the picker when no start point could be read, instead of doing nothing ([#764](https://github.com/LimeBeck/arinn/issues/764)).

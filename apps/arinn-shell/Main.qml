@@ -889,9 +889,9 @@ Window {
     // Home from a screen that does not handle it itself; false when the
     // screen is not one of these.
     function goHomeFrom(screen) {
-        if (screen === "library" || screen === "settings" || screen === "downloads"
-                || screen === "music") home.showHome();
+        if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
         else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
+        else if (screen === "music") home.showHome();
         else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
         else if (screen === "session") {
             sessionOpen = false;

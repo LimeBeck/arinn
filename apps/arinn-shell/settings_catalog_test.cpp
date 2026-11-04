@@ -457,6 +457,39 @@ private slots:
                  QStringLiteral("Playback"));
     QCoreApplication::removeTranslator(&translator);
   }
+  // Review of #779: a reload under the same daemon whose provider listing
+  // fails does not keep the old plugin identity either.
+  void pluginIdsAreForgottenWhenARescanFails() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    const auto instance = QStringLiteral("living-room-player");
+    SettingsDaemon daemon;
+    daemon.providers = {{instance, QStringLiteral("Playback")}};
+    daemon.settings.insert(instance, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                              QStringLiteral("boolean"), QStringLiteral("false"),
+                                              QString(), true)});
+    daemon.libraryProviders = {{instance, QDBusObjectPath(QStringLiteral("/p1")),
+                                {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    daemon.providersFail = true;
+    emitProvidersChanged();
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
   void groupsProvidersByCategory() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("beta"), QStringLiteral("Beta")},

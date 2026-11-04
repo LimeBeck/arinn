@@ -187,19 +187,25 @@ FocusScope {
     // Toasts waiting while another one shows: two windows that go in one
     // update each get their own (review of #777).
     property var toastQueue: []
+    // While a system scope hides the flow, a toast waits: its time starts
+    // once the flow shows again (review of #777).
     function showToast(message) {
-        if (toastMessage.length > 0 && toastTimer.running) {
+        if (toastMessage.length > 0) {
             toastQueue = toastQueue.concat([message]);
             return;
         }
         toastMessage = message;
-        toastTimer.restart();
+        if (!suppressed) toastTimer.restart();
     }
     function nextToast() {
         if (!toastQueue.length) { toastMessage = ""; return; }
         toastMessage = toastQueue[0];
         toastQueue = toastQueue.slice(1);
-        toastTimer.restart();
+        if (!suppressed) toastTimer.restart();
+    }
+    onSuppressedChanged: {
+        if (suppressed) toastTimer.stop();
+        else if (toastMessage.length > 0) toastTimer.restart();
     }
     Timer { id: waitTimer; interval: 500; repeat: true; onTriggered: root.check() }
     Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.nextToast() }

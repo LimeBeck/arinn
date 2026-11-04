@@ -1253,6 +1253,7 @@ Window {
             currentId: root.activityWindow && !home.returnIsWebService ? root.activityWindow.id : ""
             closingIds: closeFlow.closingIds
             failedIds: closeFlow.failedIds
+            registryKnown: closeFlow.windowsKnown
             onActivateRequested: windowId => backend.activate(windowId)
             onCloseRequested: windowId => closeFlow.ask(windowId)
             onBackRequested: home.back()

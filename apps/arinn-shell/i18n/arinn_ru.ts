@@ -1980,6 +1980,14 @@
         <source>OK Go to · → Close · Back Exit</source>
         <translation>OK Перейти · → Закрыть · Назад Выйти</translation>
     </message>
+    <message>
+        <source>Running applications are unavailable</source>
+        <translation>Запущенные приложения недоступны</translation>
+    </message>
+    <message>
+        <source>Try again in a moment.</source>
+        <translation>Попробуйте чуть позже.</translation>
+    </message>
 </context>
 <context>
     <name>SessionView</name>

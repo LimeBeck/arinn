@@ -71,7 +71,10 @@ stays focusable; OK shows a toast and opens no dialog.
 
 The list scrolls so focus stays two rows from the bottom, with 72 px fade masks
 and the position "5 of 9" (CL-13). With nothing running (CL-6) the screen shows
-"Nothing is running", a short explanation and "Back to Home" in focus. The hint
+"Nothing is running", a short explanation and "Back to Home" in focus. That
+needs the daemon's registry (`registryKnown`: connected, and `applicationsState`
+ready or empty); otherwise the same place reads "Running applications are
+unavailable" and "Try again in a moment.". The hint
 reads "OK Go to · → Close · Back Exit".
 
 ## Close flow
@@ -84,7 +87,9 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   the warning that unsaved changes and game progress may be lost, and Cancel
   (default focus) and Close (destructive). Back is Cancel; Home closes the dialog
   without closing the application. Focus returns to the opener.
-- **Closing** (CL-9). Close sends `Backend.terminate(id)`. The window is in
+- **Closing** (CL-9). Close sends `Backend.terminate(id)`. If another operation
+  on that window (such as an Activate) is still running, the terminate waits for
+  it and then starts, unless the window has gone. The window is in
   `closingIds` until it leaves `Backend.items`. Rows and the Continue Close
   button show it. On the Running screen focus moves on to the next row at once.
 - **Closed** (CL-10, CL-16). When the window leaves the list, the toast
@@ -93,9 +98,11 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   shown for a window the flow is closing or closed on request. That holds only
   for the Return target the window belonged to: a new target, such as a
   browser activity, starts without it. An id the provider lists again is a new
-  window and loses the mark.
+  window and loses the mark. While the quick menu, the power scope or the ambient
+  screen hides the flow (`suppressed`), a toast waits, and its 2.6 s start when
+  the flow shows again.
 - **Did not close** (CL-11). This happens when `Backend.operationFinished`
-  reports the terminate as anything but succeeded or cancelled, or when the
+  reports the `Terminate` as anything but succeeded or cancelled, or when the
   window is still listed `closeWaitMs` (10 s) after the request. An
   informational dialog then says "{name} did not close" and explains that the
   application may be waiting for an answer on its own screen. Its buttons are
@@ -105,10 +112,13 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
 The 10 s wait answers the handoff's open question on how long Arinn waits. It is
 a delegated technical choice and a named property, not a theme token.
 
-`Backend.operationFinished(id, state)` is new and is emitted for every
+`Backend.operationFinished(id, method, state)` is new and is emitted for every
 application operation:
-- `failed` when the call or the operation could not be read;
-- the Operation1 state otherwise.
+- `method` is the Application1 method: `Launch`, `Activate` or `Terminate`.
+  The close flow reads only `Terminate`, so an Activate that ends while a close
+  is pending is not taken as its result;
+- `state` is `failed` when the call or the operation could not be read, and the
+  Operation1 state otherwise.
 
 ## Verification
 
@@ -122,7 +132,8 @@ application operation:
   - the right sheet and its hand-over to the close flow;
   - the long Menu, O and a short Menu;
   - the Continue Close button.
-- `apps/arinn-shell/backend_test.cpp` checks `operationFinished` on a failed
-  operation.
+- `apps/arinn-shell/backend_test.cpp` checks `operationFinished` with its method
+  on a failed Activate, and that a terminate asked for during it starts
+  afterwards (run through `tests/integration/phase1.py`).
 - A real application on the TV, and so the 10 s wait against a slow
   application, were not tested.

@@ -25,6 +25,9 @@ FocusScope {
     // not close (CL-11).
     property var closingIds: []
     property var failedIds: []
+    // True while the list is the daemon's own registry (ready or empty).
+    // Without it an empty list is not "Nothing is running" (review of #777).
+    property bool registryKnown: true
     property bool ownsFocus: true
     property bool pointerMode: Ui.InputMode.pointerActive
     property string toastMessage: ""
@@ -425,16 +428,21 @@ FocusScope {
                     color: Ui.Theme.textHint
                 }
                 Ui.UiText {
+                    objectName: "runningEmptyTitle"
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: qsTr("Nothing is running")
+                    text: root.registryKnown ? qsTr("Nothing is running")
+                                             : qsTr("Running applications are unavailable")
                     role: "title"
                     font.pixelSize: 48
                 }
                 Ui.UiText {
+                    objectName: "runningEmptyBody"
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: qsTr("Applications and games you open appear here. Online services are in Open services.")
+                    text: root.registryKnown
+                          ? qsTr("Applications and games you open appear here. Online services are in Open services.")
+                          : qsTr("Try again in a moment.")
                     color: Ui.Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }

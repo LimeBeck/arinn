@@ -508,6 +508,8 @@ RU = {
     "In the background": "В фоне",
     "Arinn cannot close “%1”. Close it in the application itself.": "Arinn не может закрыть «%1». Закройте его в самом приложении",
     "Nothing is running": "Ничего не запущено",
+    "Running applications are unavailable": "Запущенные приложения недоступны",
+    "Try again in a moment.": "Попробуйте чуть позже.",
     "Applications and games you open appear here. Online services are in Open services.": "Здесь появятся приложения и игры, которые вы откроете. Онлайн-сервисы — в «Открытых сервисах».",
     "OK Go to · → Close · Back Exit": "OK Перейти · → Закрыть · Назад Выйти",
     "%1 closed": "%1 закрыт",

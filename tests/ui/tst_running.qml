@@ -149,6 +149,32 @@ TestCase {
         compare(homes.count, 1);
         verify(!child(view, "runningHint").visible);
     }
+    // Review of #777: an empty list that is not the daemon's registry is
+    // not "Nothing is running".
+    function test_unknown_registry_is_not_empty() {
+        makeView({windows: [], registryKnown: false});
+        verify(child(view, "runningEmpty").visible);
+        compare(child(view, "runningEmptyTitle").text, "Running applications are unavailable");
+        compare(child(view, "runningEmptyBody").text, "Try again in a moment.");
+        view.registryKnown = true;
+        compare(child(view, "runningEmptyTitle").text, "Nothing is running");
+    }
+    // Review of #777: a close that settles while a system scope hides the
+    // flow keeps its toast until the flow shows again.
+    function test_close_toast_waits_while_suppressed() {
+        flow = createTemporaryObject(flowFactory, suite);
+        flow.ask("w1"); flow.confirm();
+        flow.suppressed = true;
+        flow.windows = [{id: "w4", title: "Locked", terminable: false}];
+        compare(flow.toastMessage, "Northwind closed");
+        verify(!flow.visible);
+        wait(flow.toastDurationMs + 300);
+        compare(flow.toastMessage, "Northwind closed");
+        flow.suppressed = false;
+        verify(flow.visible);
+        verify(child(flow, "closeFlowToast").visible);
+        tryCompare(flow, "toastMessage", "", flow.toastDurationMs + 1500);
+    }
     function test_many_rows_scroll_and_position() {
         const list = [];
         for (let i = 0; i < 9; ++i)

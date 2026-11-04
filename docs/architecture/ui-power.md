@@ -32,8 +32,13 @@ opener (the navigation entry). Opening it clears any old answer and reads
 `GetPower` and `GetSessionSwitch`.
 
 The look follows handoff 15: a full-screen scrim at `rgba(0, 0, 0, 0.55)`, a
-centered glass panel 800 wide with radius 48, a 52/700 title, rows 112 tall
-with radius 30, a 64 px icon plate, a 32 px label and a 26 px description.
+centered glass panel 800 wide with radius 48, a 52/700 title, rows 112 tall,
+a 64 px icon plate, a 32 px label and a 26 px description. Nothing opaque lies
+under the scrim, so the screen behind shows through at brightness 0.45
+([#756](https://github.com/LimeBeck/arinn/issues/756) C30). The rows use the
+container role (ADR-0136): no plate at rest, an 8 % plate and the rim in focus,
+`Theme.containerRadius`, and the label stays light; the icon is `text-2` at
+rest and `text-1` in focus.
 Restart and Shut down replace the rows with two 96 px pills; Cancel has the
 default focus and the action pill is destructive.
 

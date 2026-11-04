@@ -170,6 +170,18 @@ TestCase {
         compare(flow.phase, "");
         compare(terminations.count, 0);
         tryCompare(opener, "activeFocus", true);
+        // Review of #777: a system scope above hides the dialog; it comes
+        // back afterwards.
+        flow.ask("w1");
+        focused(flow, "closeFlowCancel");
+        flow.suppressed = true;
+        verify(!flow.visible);
+        verify(!flow.enabled);
+        flow.suppressed = false;
+        verify(flow.visible);
+        flow.restoreFocus();
+        focused(flow, "closeFlowCancel");
+        keyClick(Qt.Key_Escape);
         // Home closes the dialog without closing the application.
         flow.ask("w1");
         focused(flow, "closeFlowCancel");
@@ -188,6 +200,39 @@ TestCase {
         compare(closed.count, 1);
         verify(child(flow, "closeFlowToast").visible);
         compare(child(flow, "closeFlowToastText").text, "Northwind closed");
+    }
+    // Review of #777: a list the shell does not trust (daemon gone, catalog
+    // reloading) is no evidence that a window closed.
+    function test_close_flow_waits_while_the_list_is_unknown() {
+        flow = createTemporaryObject(flowFactory, suite);
+        const closed = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "closed"});
+        flow.ask("w1");
+        flow.confirm();
+        flow.windowsKnown = false;
+        flow.windows = [];
+        compare(flow.closingIds, ["w1"]);
+        compare(closed.count, 0);
+        verify(!child(flow, "closeFlowToast").visible);
+        flow.windows = [{id: "w1", title: "Northwind", terminable: true}];
+        flow.windowsKnown = true;
+        compare(flow.closingIds, ["w1"]);
+        flow.windows = [];
+        compare(closed.count, 1);
+    }
+    // Review of #777: a window that cannot be activated still takes focus.
+    function test_non_activatable_row_takes_focus() {
+        makeView({windows: [
+            {id: "a", title: "Alpha", applicationId: "a", providerId: "p", terminable: true},
+            {id: "b", title: "Beta", applicationId: "b", providerId: "p", terminable: true, enabled: false}
+        ], currentId: ""});
+        const activates = createTemporaryObject(spyFactory, suite, {target: view, signalName: "activateRequested"});
+        focused(view, "runningRow-a");
+        keyClick(Qt.Key_Down);
+        focused(view, "runningRow-b");
+        keyClick(Qt.Key_Return);
+        compare(activates.count, 0);
+        keyClick(Qt.Key_Right);
+        focused(view, "runningClose-b");
     }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);

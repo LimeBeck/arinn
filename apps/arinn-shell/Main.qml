@@ -513,7 +513,7 @@ Window {
         case "library": libraryView.focusInitial(); break;
         case "downloads": downloadsView.restore(); break;
         case "running": runningView.restore(); break;
-        case "closeFlow": break;
+        case "closeFlow": closeFlow.restoreFocus(); break;
         case "settings": settingsView.focusInitial(); break;
         default: home.restoreFocus();
         }
@@ -1472,9 +1472,15 @@ Window {
     Running.CloseFlow {
         id: closeFlow
         objectName: "closeFlow"
-        z: 9
+        // Below the power scope (z 7), and hidden while power, the quick
+        // menu or ambient is open, so what has focus is what is on top
+        // (review of #777).
+        z: 6.5
+        suppressed: powerOverlay.open || root.quickMenuOpen || ambientScreen.active
         focus: root.focusedScreen === "closeFlow"
         windows: backend.items
+        windowsKnown: backend.connected === true && backend.applicationsState !== "loading"
+                      && backend.applicationsState !== "unavailable"
         onTerminateRequested: windowId => backend.terminate(windowId)
         onSwitchRequested: windowId => backend.activate(windowId)
         Connections {

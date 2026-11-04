@@ -280,14 +280,18 @@ FocusScope {
                                 focusScale: 1.02
                                 focusLift: 0
                                 liftFromBottom: false
-                                enabled: rowSlot.modelData.enabled !== false
+                                // A window that cannot be activated still takes
+                                // focus, so its Close stays reachable; OK does
+                                // nothing on it (review of #777).
+                                readonly property bool activatable: rowSlot.modelData.enabled !== false
+                                opacity: activatable ? 1 : 0.6
                                 pointerMode: root.pointerMode
                                 onActiveFocusChanged: if (activeFocus) {
                                     root.selectedIndex = rowSlot.index;
                                     root.selectedId = rowSlot.modelData.id;
                                     root.focusPart = "row";
                                 }
-                                onActivated: root.activateRequested(rowSlot.modelData.id)
+                                onActivated: if (activatable) root.activateRequested(rowSlot.modelData.id)
                                 Keys.onPressed: event => root.acceptKey(event)
                                 contentItem: Item {
                                     Chip {

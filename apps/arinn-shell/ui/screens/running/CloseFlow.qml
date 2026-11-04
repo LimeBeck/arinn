@@ -13,11 +13,18 @@ import "../.." as Ui
 FocusScope {
     id: root
     anchors.fill: parent
-    visible: phase.length > 0 || toastMessage.length > 0
-    enabled: phase.length > 0
+    // A system scope above it (power, the quick menu, ambient) hides the
+    // dialog while it is open; the dialog comes back with focus after it.
+    property bool suppressed: false
+    visible: !suppressed && (phase.length > 0 || toastMessage.length > 0)
+    enabled: !suppressed && phase.length > 0
 
     // Running windows as the shell lists them: {id, title, terminable}.
     property var windows: []
+    // Whether `windows` is the daemon's current list. While it is not (the
+    // daemon went away, the catalog is reloading), a window missing from it
+    // has not closed (review of #777).
+    property bool windowsKnown: true
     property bool pointerMode: Ui.InputMode.pointerActive
     // How long a window may stay after a successful request before it
     // counts as "did not close" (an open question of the handoff; 10 s).
@@ -102,8 +109,19 @@ FocusScope {
     function operationFinished(id, state) {
         if (state !== "succeeded" && state !== "cancelled") didNotClose(id);
     }
+    function restoreFocus() {
+        if (phase === "confirm") Ui.Focus.take(cancelButton);
+        else if (phase === "failed") Ui.Focus.take(switchButton);
+    }
     function check() {
         const listed = (windows || []).map(entry => entry.id);
+        if (!windowsKnown) {
+            // No evidence either way: only the wait can end a request.
+            for (const id of closingIds.slice())
+                if (Date.now() - (startedAt[id] || 0) >= closeWaitMs) didNotClose(id);
+            if (!closingIds.length) waitTimer.stop();
+            return;
+        }
         for (const id of closingIds.slice()) {
             if (listed.indexOf(id) < 0) {
                 const title = (target.id === id && target.title) || titles[id] || "";
@@ -130,6 +148,7 @@ FocusScope {
         titles = next;
     }
     onWindowsChanged: check()
+    onWindowsKnownChanged: check()
     function showToast(message) {
         toastMessage = message;
         toastTimer.restart();

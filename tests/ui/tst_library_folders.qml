@@ -21,6 +21,7 @@ TestCase {
     Component {
         id: browserFactory
         QtObject {
+            id: fakeBrowser
             property var places: [{kind: "home", path: "/home/user", title: "user"},
                                   {kind: "mount", path: "/media/user/Disk", title: "Disk"},
                                   {kind: "root", path: "/", title: "/"}]
@@ -31,11 +32,27 @@ TestCase {
                                  "/media/user/Disk": ["Movies"], "/": ["home", "media"],
                                  "/home": ["user"]})
             property var opened: []
+            // Answer open() later, as Folders1 over D-Bus does.
+            property bool async: false
+            property string waiting: ""
+            property Timer reply: Timer {
+                interval: 150
+                onTriggered: fakeBrowser.answer(fakeBrowser.waiting)
+            }
             property int placeReads: 0
             function refreshPlaces() { ++placeReads; }
             function open(value) {
                 opened = opened.concat([value]);
                 path = value;
+                if (async) {
+                    folders = []; state = "loading";
+                    waiting = value;
+                    reply.restart();
+                    return;
+                }
+                answer(value);
+            }
+            function answer(value) {
                 const list = tree[value];
                 if (value === "/secret") { folders = []; state = "denied"; return; }
                 if (list === undefined) { folders = []; state = "gone"; return; }
@@ -246,6 +263,42 @@ TestCase {
         view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Films", "/media/user/Disk"], pending: false});
         focused("folderRow-1");
         verify(!child("folderStatus-1").visible);
+        // Review of #780: the add is done; a later removal does not read
+        // "Adding to the library…" on it.
+        compare(view.addedPath, "");
+        view.row = Object.assign({}, view.row, {pending: true});
+        verify(!child("folderStatus-1").visible);
+    }
+    // Review of #780: a listing that answers later still gets the first
+    // folder focused, not Choose.
+    function test_async_listing_focuses_the_first_folder() {
+        make([]);
+        browser.async = true;
+        focused("foldersEmptyAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        tryVerify(() => { const item = findChild(picker, "pickerFolder-0"); return !!item && item.activeFocus; }, 3000, "pickerFolder-0");
+        keyClick(Qt.Key_Down);
+        tryVerify(() => { const item = findChild(picker, "pickerFolder-1"); return !!item && item.activeFocus; }, 3000, "pickerFolder-1");
+        keyClick(Qt.Key_Up);
+        tryVerify(() => { const item = findChild(picker, "pickerFolder-0"); return !!item && item.activeFocus; }, 3000, "pickerFolder-0");
+        keyClick(Qt.Key_Return);
+        tryCompare(browser, "path", "/home/user/Films");
+        tryCompare(browser, "state", "empty");
+        tryCompare(findChild(picker, "pickerChoose"), "activeFocus", true);
+        // Back goes up; the folder list takes focus again once it answers.
+        keyClick(Qt.Key_Escape);
+        tryCompare(browser, "path", "/home/user");
+        tryVerify(() => { const item = findChild(picker, "pickerFolder-0"); return !!item && item.activeFocus; }, 3000, "pickerFolder-0");
+    }
+    // Review of #780: the setting going away closes the screen.
+    function test_missing_setting_closes_the_screen() {
+        make(["/home/user/Films"]);
+        const closes = createTemporaryObject(spyFactory, suite, {target: view, signalName: "closeRequested"});
+        focused("folderRow-0");
+        view.row = ({});
+        compare(closes.count, 1);
     }
     // Review of #780: an added folder the daemon refuses leaves the list
     // with the error in words.
@@ -333,6 +386,7 @@ TestCase {
         const picker = child("folderPicker");
         tryCompare(browser, "path", "/home/user/");
         tryCompare(findChild(picker, "pickerFolder-0"), "activeFocus", true);
+        compare(findChild(picker, "pickerPathName").text, "user");
         keyClick(Qt.Key_Return);
         tryCompare(browser, "path", "/home/user/Films");
         verify(findChild(picker, "pickerPlaceDot-0").visible);

@@ -306,6 +306,8 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
   chevron. OK emits `SettingsView.foldersRequested(row)`. `Main.qml` then opens
   `LibraryFoldersView` over Settings (`focusedScreen` `libraryFolders`) and binds
   it to the live row, so pending, errors and unavailable folders show at once.
+  If the setting disappears (a reload, a disconnect, a schema change), the
+  screen closes instead of editing an empty list.
 - **Wording.** `SettingsCatalog` marks a folder list `libraryFolders` when its
   provider has the `library` capability in `Daemon1.Providers`. Such a list
   uses the handoff's library wording ("Library folders", films and series,
@@ -336,6 +338,7 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     library…" while the setting is pending. The catalog keeps the old value
     until the save settles, so the screen shows the new folder itself
     meanwhile; a refused add leaves the list, and the error shows in a toast.
+    Once saved, the add is done, so a later save does not read "Adding…".
   - A daemon refusal shows under the title in words, with the same mapping as
     `SettingsView.daemonErrorText`, never as the error code.
   - One change at a time: while the setting is pending or disabled, *Add
@@ -353,7 +356,9 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     order, folders only.
   - The path line shows the parent in `text-2` and the last segment in `text-1`.
     A long parent collapses its middle to `/…/`.
-  - *Choose this folder* chooses the path shown (Up from the first row).
+  - *Choose this folder* chooses the path shown (Up from the first row). While
+    a listing loads, Choose holds focus for the folders, and the first folder
+    takes it once `Folders1` answers.
   - Keys:
     - Up and Down move;
     - OK or Right enters a folder;

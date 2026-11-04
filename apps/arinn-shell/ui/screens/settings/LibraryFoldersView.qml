@@ -121,9 +121,9 @@ FocusScope {
     function restore() {
         if (picking) { picker.settle(); return; }
         if (confirm.visible) { Ui.Focus.take(cancelButton); return; }
-        if (focusAdded && folders.indexOf(addedPath) >= 0) {
+        if (focusAdded && addedPath.length && indexOfPath(folders, addedPath) >= 0) {
             focusAdded = false;
-            focusRow(folders.indexOf(addedPath), "row");
+            focusRow(indexOfPath(folders, addedPath), "row");
             return;
         }
         if (side === "add" || !folders.length) { side = "add"; Ui.Focus.take(folders.length ? addButton : emptyAdd); return; }
@@ -186,7 +186,24 @@ FocusScope {
     // The removal settles: the folder left the row, or the save failed and
     // the row shows the error.
     onRowChanged: {
+        // The setting went away (a reload, a disconnect, a schema change):
+        // the screen closes instead of editing an empty list (review of
+        // #780).
+        if (visible && !(row && row.id)) {
+            closeRequested();
+            return;
+        }
         if (row.pending) return;
+        // The add is saved: the tracker ends, so a later save does not read
+        // "Adding…" on this row (review of #780).
+        if (addedPath.length && !row.error && indexOfPath(pathsOf(row), addedPath) >= 0) {
+            const index = indexOfPath(pathsOf(row), addedPath);
+            addedPath = "";
+            if (focusAdded) {
+                focusAdded = false;
+                Qt.callLater(() => focusRow(index, "row"));
+            }
+        }
         // An added folder the daemon refused leaves the list with the error.
         if (addedPath.length && row.error && indexOfPath(pathsOf(row), addedPath) < 0) {
             addedPath = "";

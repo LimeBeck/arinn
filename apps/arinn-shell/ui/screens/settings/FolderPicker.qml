@@ -59,14 +59,17 @@ FocusScope {
         return place.path.indexOf("/mnt/") === 0 ? "lan" : "usb";
     }
     // Long paths collapse their middle to "/…/" (PK-1).
-    function shownParent(value) {
+    function shownParent(raw) {
+        // A start point may end in "/" (review of #780).
+        const value = trimmed(raw);
         const parent = value.lastIndexOf("/") > 0 ? value.slice(0, value.lastIndexOf("/") + 1) : "/";
         if (value === "/") return "";
         if (parent.length <= 44) return parent;
         const parts = parent.split("/").filter(part => part.length);
         return "/" + parts[0] + "/…/" + parts[parts.length - 1] + "/";
     }
-    function lastSegment(value) {
+    function lastSegment(raw) {
+        const value = trimmed(raw);
         if (value === "/") return "/";
         return value.slice(value.lastIndexOf("/") + 1);
     }
@@ -85,9 +88,18 @@ FocusScope {
     }
     // Places arrive after the picker opens: open the first one then.
     onPlacesChanged: if (visible && !path.length && places.length && browser) browser.open(places[0].path)
+    // While a listing loads, Choose holds focus for the folders: the first
+    // folder takes it once the listing is ready (review of #780).
+    property bool holdFolders: false
     function settle() {
         if (!visible) return;
         if (side === "status" && !statusActions) side = "folders";
+        if (side === "folders" && listingState === "loading") {
+            holdFolders = true;
+            Ui.Focus.take(chooseButton);
+            holdFolders = false;
+            return;
+        }
         if (side === "places" && focusPlace(placeIndex)) return;
         if (side === "folders" && focusFolder(folderIndex)) return;
         if (side === "status" && (retryButton.activeFocus || homeButton.activeFocus)) return;
@@ -224,7 +236,7 @@ FocusScope {
                 text: qsTr("Choose this folder")
                 opacity: root.canChoose ? 1 : 0.4
                 pointerMode: root.pointerMode
-                onActiveFocusChanged: if (activeFocus) root.side = "choose"
+                onActiveFocusChanged: if (activeFocus && !root.holdFolders) root.side = "choose"
                 onActivated: root.choose()
             }
             Rectangle {

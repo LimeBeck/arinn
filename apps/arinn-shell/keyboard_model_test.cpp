@@ -211,6 +211,40 @@ private slots:
              QStringLiteral(".local"));
   }
 
+  // ADR-0140 §4: the context rows hold no ":", "." or "-", which the
+  // letter rows already have; the multi-character keys stay.
+  void contextRowsDoNotRepeatLetterRowKeys_data() {
+    QTest::addColumn<QString>("context");
+    QTest::addColumn<QStringList>("expected");
+    QTest::newRow("address") << QStringLiteral("address")
+                             << QStringList{QStringLiteral("https://"), QStringLiteral("www."),
+                                            QStringLiteral(".ru"), QStringLiteral(".com"),
+                                            QStringLiteral(".local"), QStringLiteral("/")};
+    QTest::newRow("path") << QStringLiteral("path")
+                          << QStringList{QStringLiteral("/"), QStringLiteral("~/"),
+                                         QStringLiteral("/media/"), QStringLiteral("/run/media/"),
+                                         QStringLiteral("/mnt/"), QStringLiteral("..")};
+  }
+  void contextRowsDoNotRepeatLetterRowKeys() {
+    QFETCH(QString, context);
+    QFETCH(QStringList, expected);
+    KeyboardModel model;
+    model.setContext(context);
+    model.open();
+    const auto rows = model.rows();
+    QVERIFY(rows.size() > 1);
+    QStringList contextKeys;
+    for (const auto &key : rows.first().toList())
+      contextKeys.append(key.toMap().value(QStringLiteral("label")).toString());
+    QCOMPARE(contextKeys, expected);
+    QStringList letters;
+    for (int row = 1; row < rows.size(); ++row)
+      for (const auto &key : rows.at(row).toList())
+        letters.append(key.toMap().value(QStringLiteral("label")).toString());
+    for (const auto &key : contextKeys)
+      QVERIFY2(key.size() > 1 || !letters.contains(key), qPrintable(key));
+  }
+
   void reopenRestoresTheLanguageAndKeyPerField() {
     {
       KeyboardModel model;

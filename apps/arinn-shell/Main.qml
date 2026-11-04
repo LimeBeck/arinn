@@ -627,9 +627,48 @@ Window {
         // power scope open over the sheet it leaves as Home inside that scope
         // does: a request in flight goes on and a late refusal comes back.
         function onHomeRequested() {
-            if (!root.quickMenuOpen && !root.activityBehind) return;
-            if (powerOverlay.open) powerOverlay.leaveHome();
-            else root.quickMenuHome();
+            // During ambient the request only wakes, as the quick-menu key
+            // does: the first event triggers nothing underneath (§5.7
+            // Ambient; review of #778).
+            if (ambientScreen.active) {
+                if (ambientScreen.armed) ambientScreen.wake();
+                return;
+            }
+            // The topmost layer takes it as its own Home key does (§6.3,
+            // review of #778): a launch's dialog or progress, then the
+            // power scope.
+            for (const launch of [applicationLaunch, launchOverlay]) {
+                if (launch.showOverlay) {
+                    launch.leaveForHome();
+                    return;
+                }
+            }
+            if (powerOverlay.open) {
+                powerOverlay.leaveHome();
+                return;
+            }
+            // A launch still in its reveal delay stays hidden: Home is on
+            // screen next (§6.5; review of #778).
+            for (const pending of [applicationLaunch, launchOverlay])
+                if (pending.active && !pending.homeHidden && !pending.showDialog) pending.hideForHome();
+            if (!root.quickMenuOpen && !root.activityBehind) {
+                // The shell is on screen: the global Home key shows Home from
+                // Open services and the other screens, as the Home key does
+                // (§6.3, #756 A6). Home itself handles its own key.
+                // A Settings editor or option list closes without saving
+                // first, as for the Home key there (review of #778).
+                if (root.focusedScreen === "settings") settingsView.dropTransient();
+                // Library Detail closes too, as for the Home key there.
+                if (root.focusedScreen === "library") libraryView.dropDetailForHome();
+                // Home's own scopes (navigation, Applications, a sheet or the
+                // shortcut editor) and managed playback take it through their
+                // own Home paths (review of #778).
+                if (root.focusedScreen === "home") home.homeKey();
+                else if (root.focusedScreen === "player") playerView.onHome();
+                else root.goHomeFrom(root.focusedScreen);
+                return;
+            }
+            root.quickMenuHome();
         }
     }
     Connections {
@@ -866,6 +905,7 @@ Window {
     function goHomeFrom(screen) {
         if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
         else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
+        else if (screen === "music") home.showHome();
         else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
         else if (screen === "session") {
             sessionOpen = false;
@@ -1048,7 +1088,9 @@ Window {
             visible: root.browserOpen && !root.playerOpen
             enabled: root.browserOpen && !root.playerOpen
             interactive: root.browserOpen && !root.playerOpen && !root.browseOpen
-            tabs: browserCatalog.tabs
+            // An empty new-tab window is not a service: the screen lists and
+            // counts what Home and navigation count (#756 A10).
+            tabs: browserCatalog.serviceTabs
             windows: browserCatalog.windows
             shortcuts: browserCatalog.shortcuts
             browserState: browserCatalog.browserState

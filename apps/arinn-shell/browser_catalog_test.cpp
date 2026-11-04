@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QtDBus>
 #include <QtTest>
+#include <QQmlProperty>
 #include <QSignalSpy>
 
 struct ReturnWindowWire { QString generation, token; };
@@ -426,6 +427,8 @@ public:
   QStringList m_busy;
 signals:
   void changed();
+  // The platform's global Home key (ADR-0094).
+  void homeRequested();
 };
 class BrowserCatalogTest : public QObject {
   Q_OBJECT
@@ -539,6 +542,11 @@ private slots:
     auto home = engine.rootObjects().first()->findChild<QQuickItem *>(QStringLiteral("productionHome"));
     QVERIFY(home);
     QTRY_COMPARE(home->property("openServices").toList().size(), 1);
+    // #756 A10: Open services lists and counts the same services, so the
+    // screen's count matches the navigation badge.
+    auto browserView = engine.rootObjects().first()->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
+    QVERIFY(browserView);
+    QTRY_COMPARE(browserView->property("orderedTabs").toList().size(), 1);
     // The complete browser inventory still supports activating internal tabs.
     const auto internal = catalog.tabs().at(1).toMap().value("id").toString();
     catalog.activateTab(internal);
@@ -908,7 +916,9 @@ private slots:
         TabWire{"idle", "w2", "Episode IV - A New Hope",
                 "https://hd.videos.example/watch", false, false},
         TabWire{"scheme", "w3", "Scheme page — Example site",
-                "http://example.test:8443/c", true, false}};
+                "http://example.test:8443/c", true, false},
+        TabWire{"uk", "w3", "Story — Example News",
+                "https://www.example.co.uk/s", false, false}};
     daemon.scriptedShortcuts = {
         ShortcutWire{"port", "Port", "https://example.test:8443/s",
                      "packaged:mark"},
@@ -944,6 +954,12 @@ private slots:
         scheme = entry.toMap();
     }
     QCOMPARE(scheme.value("serviceTitle").toString(), QString("Scheme page"));
+    // Review of #768: under a country's second-level suffix the site is the
+    // label before it ("example" of www.example.co.uk), not "co".
+    for (const auto &entry : catalog.tabs())
+      if (entry.toMap().value("id").toString().isEmpty() == false &&
+          entry.toMap().value("title").toString() == QStringLiteral("Story — Example News"))
+        QCOMPARE(entry.toMap().value("serviceTitle").toString(), QString("Story"));
     // A last part that is not the site's name stays in the title.
     QCOMPARE(idle.value("serviceTitle").toString(),
              QString("Episode IV - A New Hope"));
@@ -1327,6 +1343,9 @@ private slots:
                              QString("unavailable")}) {
       QTest::newRow(qPrintable(state + "-escape")) << int(Qt::Key_Escape) << state;
       QTest::newRow(qPrintable(state + "-backspace")) << int(Qt::Key_Backspace) << state;
+      // #756 A6: Home, as a key and as the platform's global Home.
+      QTest::newRow(qPrintable(state + "-home")) << int(Qt::Key_Home) << state;
+      QTest::newRow(qPrintable(state + "-global-home")) << 0 << state;
     }
   }
   void openServicesBackSurvivesHomeRefresh() {
@@ -1371,11 +1390,169 @@ private slots:
     QTimer::singleShot(0, &engine, [&] { refreshed = true; });
     QTRY_VERIFY(refreshed);
     QVERIFY(focusInside(browser));
-    QTest::keyClick(window, Qt::Key(key));
+    if (key)
+      QTest::keyClick(window, Qt::Key(key));
+    else
+      emit backend.homeRequested();
     QTRY_VERIFY(!window->property("browserOpen").toBool());
     QTRY_COMPARE(home->property("screen").toString(), QString("home"));
     QTRY_VERIFY(focusInside(home));
     QCOMPARE(backend.backs, 0);
+  }
+  // Review of #778: the platform's Home closes an open Settings editor
+  // without saving, as the Home key does there.
+  void globalHomeClosesASettingsEditor() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto settings = window->findChild<QQuickItem *>("productionSettings");
+    QVERIFY(home && settings);
+    settings->setProperty("screenState", QStringLiteral("ready"));
+    settings->setProperty("categories", QVariantList{QVariantMap{
+        {QStringLiteral("id"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("System")},
+        {QStringLiteral("icon"), QStringLiteral("memory")}}});
+    settings->setProperty("rows", QVariantList{QVariantMap{
+        {QStringLiteral("providerId"), QStringLiteral("shell")},
+        {QStringLiteral("providerName"), QStringLiteral("Shell")},
+        {QStringLiteral("id"), QStringLiteral("idle")},
+        {QStringLiteral("categoryId"), QStringLiteral("system")},
+        {QStringLiteral("title"), QStringLiteral("Idle minutes")},
+        {QStringLiteral("description"), QString()},
+        {QStringLiteral("type"), QStringLiteral("integer")},
+        {QStringLiteral("currentValue"), 10},
+        {QStringLiteral("constraints"), QVariantMap{{QStringLiteral("min"), 1},
+                                                    {QStringLiteral("max"), 60}}},
+        {QStringLiteral("enabled"), true}}});
+    home->setProperty("screen", QStringLiteral("settings"));
+    QTRY_VERIFY(settings->isVisible());
+    // Open the row's editor as OK on it does.
+    const auto row = settings->property("rows").toList().constFirst();
+    QVERIFY(QMetaObject::invokeMethod(settings, "openInteger", Q_ARG(QVariant, row)));
+    QTRY_COMPARE(settings->property("editingKey").toString(), QStringLiteral("shell-idle"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QCOMPARE(settings->property("editingKey").toString(), QString());
+  }
+  // Review of #778: the platform's Home closes Library Detail, as the Home
+  // key does there, so the library opens on its grid next time.
+  void globalHomeClosesLibraryDetail() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto library = window->findChild<QQuickItem *>("productionLibrary");
+    QVERIFY(home && library);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_VERIFY(library->isVisible());
+    library->setProperty("detailEntryId", QStringLiteral("movie"));
+    QVERIFY(library->property("detailOpen").toBool());
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QCOMPARE(library->property("detailEntryId").toString(), QString());
+  }
+  // Review of #778: the platform's Home goes through the topmost layer as
+  // the Home key there does: a launch's progress, then the power scope;
+  // Music goes Home too.
+  void globalHomeGoesThroughTheTopmostLayer() {
+    ExternalHomeBackend backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    installAssetImageProvider(&engine);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    QVERIFY(!engine.rootObjects().isEmpty());
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>("productionHome");
+    auto launch = window->findChild<QQuickItem *>("launchOverlay");
+    auto power = window->findChild<QQuickItem *>("powerOverlay");
+    QVERIFY(home && launch && power);
+    // Music.
+    home->setProperty("screen", QStringLiteral("music"));
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("music"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    // Review of #778: Home's own scopes take it through Home's Home path:
+    // Applications and the navigation give way to Home.
+    home->setProperty("screen", QStringLiteral("applications"));
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("home"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!home->property("navOpen").toBool());
+    // Managed playback takes it through the player's own Home path.
+    auto player = window->findChild<QQuickItem *>("productionPlayer");
+    QVERIFY(player);
+    QSignalSpy playerHomes(player, SIGNAL(homeRequested()));
+    window->setProperty("playerOpen", true);
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("player"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(playerHomes.count(), 1);
+    window->setProperty("playerOpen", false);
+    // A launch still in its reveal delay is hidden for Home (§6.5).
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 5000));
+    launch->setProperty("serviceTitle", QStringLiteral("Service"));
+    launch->setProperty("active", true);
+    QVERIFY(!launch->property("showOverlay").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(launch->property("homeHidden").toBool());
+    launch->setProperty("active", false);
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 400));
+    // A revealed launch over Library hides for Home and stays hidden.
+    home->setProperty("screen", QStringLiteral("library"));
+    launch->setProperty("serviceTitle", QStringLiteral("Service"));
+    launch->setProperty("active", true);
+    QTRY_VERIFY(launch->property("showOverlay").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!launch->property("showOverlay").toBool());
+    QVERIFY(launch->property("homeHidden").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    launch->setProperty("active", false);
+    // Review of #778: during ambient the request only wakes; the screen
+    // underneath stays.
+    auto ambient = window->findChild<QQuickItem *>("ambientScreen");
+    QVERIFY(ambient);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+    QTRY_VERIFY(ambient->property("active").toBool());
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTest::qWait(50);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    // The power scope leaves as Home inside it does.
+    home->setProperty("screen", QStringLiteral("settings"));
+    QVERIFY(QMetaObject::invokeMethod(power, "openMenu"));
+    QTRY_VERIFY(power->property("open").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!power->property("open").toBool());
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
   }
   void productionOpenTabSurvivesShellRestartWithoutReturn() {
     auto bus = QDBusConnection::connectToBus(qEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"), "return-fixture");

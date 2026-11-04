@@ -6,6 +6,7 @@
 #include <QInputDevice>
 #include <QKeyEvent>
 #include <QtDBus>
+#include <QTranslator>
 #include <QtTest>
 namespace {
 // A fake daemon on its own connection, as the real one is, so the catalog's
@@ -334,6 +335,37 @@ private slots:
                            QDBusConnection::UnregisterTree);
       bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
     }
+  }
+  // Review of #779: a packaged provider's name is translated only for its
+  // own id; a third-party provider with the same name keeps it.
+  void packagedProviderNamesAreMatchedById() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("mpv"), QStringLiteral("Playback")},
+                        {QStringLiteral("thirdparty"), QStringLiteral("Playback")}};
+    for (const auto &id : {QStringLiteral("mpv"), QStringLiteral("thirdparty")})
+      daemon.settings.insert(id, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                          QStringLiteral("boolean"), QStringLiteral("false"),
+                                          QString(), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QCOMPARE(rowAt(catalog, QStringLiteral("mpv"), QStringLiteral("x"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Wiedergabe"));
+    QCOMPARE(rowAt(catalog, QStringLiteral("thirdparty"), QStringLiteral("x"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
   }
   void groupsProvidersByCategory() {
     SettingsDaemon daemon;

@@ -367,6 +367,21 @@ TestCase {
         compare(findChild(view, "provider-arinn-follows"), null);
     }
 
+    // Review of #779: when a reload drops a category, the selected one is
+    // kept by id, or the nearest stays selected.
+    function test_selected_category_survives_a_shorter_list() {
+        const all = view.categories;
+        verify(all.length >= 3);
+        view.categoryIndex = 2;
+        const kept = all[2].id;
+        view.categories = all.filter((category, index) => index !== 0);
+        compare(view.categories[view.categoryIndex].id, kept);
+        view.categories = [all[0]];
+        compare(view.categoryIndex, 0);
+        verify(view.categories[view.categoryIndex] !== undefined);
+        view.categories = all;
+    }
+
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

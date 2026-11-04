@@ -1382,7 +1382,9 @@ FocusScope {
                                         // A title alone sits on the row's centre, level with
                                         // the value and chevron (handoff 14, ED-1; #641).
                                         y: Math.max(20, Math.round((parent.height - height) / 2))
-                                        width: parent.width - 64 - (rowScope.switchRow ? 88 : simpleEditor.visible ? 520 : 280)
+                                        // A toggle row keeps 24 px between its text and the
+                                        // 88 px toggle, so long text wraps before it (#734).
+                                        width: parent.width - 64 - (rowScope.switchRow ? 88 + 24 : simpleEditor.visible ? 520 : 280)
                                         spacing: 6
                                         Ui.UiText {
                                             objectName: rowScope.simpleRow ? "title-" + rowScope.key : ""

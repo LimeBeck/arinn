@@ -348,6 +348,25 @@ TestCase {
         compare(Math.round(described.mapToItem(child("setting-p-light"), 0, 0).y), 20);
     }
 
+    // #734: a long description in a toggle row wraps at least 24 px before
+    // the toggle, never under it.
+    function test_toggle_row_text_keeps_clear_of_the_toggle() {
+        view.rows = [{providerId: "arinn", providerName: "", id: "follows", categoryId: "media",
+                      title: "Light follows the time of day",
+                      description: "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look and a long tail of words to force wrapping",
+                      type: "boolean", currentValue: true, constraints: {}, enabled: true}];
+        keyClick(Qt.Key_Right);
+        focused("setting-arinn-follows");
+        const detail = child("detail-arinn-follows");
+        const toggle = child("toggle-arinn-follows");
+        const textRight = detail.mapToItem(view, detail.width, 0).x;
+        const toggleLeft = toggle.mapToItem(view, 0, 0).x;
+        verify(toggleLeft - textRight >= 24, "gap " + (toggleLeft - textRight));
+        verify(detail.lineCount > 1);
+        // #756 B16: Arinn's own settings have no source line.
+        compare(findChild(view, "provider-arinn-follows"), null);
+    }
+
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

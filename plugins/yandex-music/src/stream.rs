@@ -67,7 +67,8 @@ fn signed(xml: &str) -> Result<String, Error> {
     if !path.starts_with('/')
         || path.starts_with("//")
         || path.contains(['?', '#', '\\'])
-        || !timestamp.bytes().all(|b| b.is_ascii_digit())
+        || timestamp.len() > 64
+        || !timestamp.bytes().all(|b| b.is_ascii_hexdigit())
         || host.contains(['/', ':', '@', '?', '#'])
     {
         return Err(Error::InvalidResponse);
@@ -168,6 +169,24 @@ impl Api {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn hexadecimal_timestamp_is_preserved_and_delimiters_are_rejected() {
+        let xml = "<download-info><host>storage.mds.yandex.net</host><path>/fixture.mp3</path><ts>6aBc123F</ts><s>fixture</s></download-info>";
+        assert!(signed(xml).unwrap().contains("/6aBc123F/fixture.mp3"));
+        for invalid in [
+            "0x123",
+            "xyz",
+            "../123",
+            "123?x",
+            "123#x",
+            "123%2f",
+            "123 456",
+            "123\n456",
+            &"a".repeat(65),
+        ] {
+            assert!(signed(&xml.replace("6aBc123F", invalid)).is_err());
+        }
+    }
     #[test]
     fn mp3_download_info_without_transport_resolves() {
         let result = serde_json::json!([{

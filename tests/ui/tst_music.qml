@@ -34,6 +34,26 @@ TestCase {
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
     Component {id:homeFactory;Ui.HomeView {}}
     Component {id:rowFactory;Ui.HomeRow {width:1600;entries:[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause"}]}}
+    function test_connected_actions_have_distinct_geometry_and_remote_navigation() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"connected",facets:["selections"],actions:["scan","disconnect"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const refresh=findChild(view,"musicRescan"),disconnect=findChild(view,"musicDisconnect");
+        verify(refresh.visible && disconnect.visible);
+        verify(refresh.x+refresh.width<=disconnect.x || disconnect.x+disconnect.width<=refresh.x || refresh.y+refresh.height<=disconnect.y || disconnect.y+disconnect.height<=refresh.y);
+        Ui.Focus.take(refresh);keyClick(Qt.Key_Right);tryCompare(disconnect,"activeFocus",true);
+        keyClick(Qt.Key_Left);tryCompare(refresh,"activeFocus",true);
+    }
+    function test_player_heading_matches_loading_paused_and_failed_state() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"player"});verify(view);
+        const heading=findChild(view,"musicHeading");verify(heading);
+        compare(heading.text,"Now playing");
+        for(const state of [{playback:"playing",error:"Unavailable",title:"Now playing"},{playback:"paused",error:"Unavailable",title:"Paused"},{playback:"loading",title:"Loading music…"},{playback:"paused",title:"Paused"},{playback:"stopped",title:"Stopped"},{playback:"stopped",error:"Unavailable",title:"Playback failed"}]) {
+            catalog.activeState={playback:state.playback,error:state.error,actions:[],upcoming:[]};
+            tryCompare(heading,"text",state.title);
+        }
+    }
     function test_browsing_preserves_active_session_and_replacement_waits_for_confirmation() {
         const catalog=createTemporaryObject(catalogFactory,suite);
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);

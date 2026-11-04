@@ -500,14 +500,6 @@ RU = {
     "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
 }
 
-# Packaged provider names on the Settings source line (#756 B16).
-RU.update({
-    "Local library": "Локальная библиотека",
-    "Local music": "Локальная музыка",
-    "Desktop applications": "Приложения рабочего стола",
-    "Media sessions": "Медиасеансы",
-})
-
 # Library folders and the folder picker (#764, handoff LF, PK)
 RU.update({
     "%n folder(s)": "Папок: %n",
@@ -545,6 +537,14 @@ RU.update({
     "Nothing is deleted from the disk.": "С диска ничего не удаляется.",
     "This folder is already in the list": "Эта папка уже в списке",
     "Remove “%1” from the list?": "Убрать «%1» из списка?",
+})
+
+# Packaged provider names on the Settings source line (#756 B16).
+RU.update({
+    "Local library": "Локальная библиотека",
+    "Local music": "Локальная музыка",
+    "Desktop applications": "Приложения рабочего стола",
+    "Media sessions": "Медиасеансы",
 })
 
 # Context-specific overrides: the same English word reads differently.

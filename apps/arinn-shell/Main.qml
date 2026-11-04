@@ -43,8 +43,6 @@ Window {
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
-    // Settings › Library folders (handoff LF-1…8, #764) over Settings.
-    property bool libraryFoldersOpen: false
     readonly property bool navBlur: home.navOpen && home.navBlurAvailable
     // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
     // no screen: `activityBehind` stays set while Back hands the screen back
@@ -57,6 +55,8 @@ Window {
     // managed playback the window is already on screen, and Back may come
     // before that refresh.
     property string quickMenuTarget: ""
+    // Settings › Library folders (handoff LF-1…8, #764) over Settings.
+    property bool libraryFoldersOpen: false
     function openQuickMenu() {
         if (sessionGuard.blocked) return;
         // During ambient the key only wakes, and that first event triggers
@@ -486,14 +486,15 @@ Window {
         : browseOpen ? "browse"
         : browserOpen ? "browser"
         : home.screen === "music" ? "music"
+        : home.screen === "settings" && libraryFoldersOpen ? "libraryFolders"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
-        : home.screen === "settings" ? (libraryFoldersOpen ? "libraryFolders" : "settings")
+        : home.screen === "settings" ? "settings"
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
-                 music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
                  libraryFolders: libraryFoldersView,
+                 music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
                  power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
@@ -840,10 +841,10 @@ Window {
     // §6.3). Home handles both itself; these are the other screens.
     function unhandledKey(event) {
         if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
-        const section = focusedScreen === "library" || focusedScreen === "settings" || focusedScreen === "libraryFolders"
+        const section = focusedScreen === "library" || focusedScreen === "settings"
             || focusedScreen === "downloads";
         const overlay = focusedScreen === "browser" || focusedScreen === "browse"
-            || focusedScreen === "session";
+            || focusedScreen === "session" || focusedScreen === "libraryFolders";
         // A Settings editor keeps Menu; Home reaches the shell through the
         // view's homeRequested, which also cancels the editor.
         if (focusedScreen === "settings" && settingsView.editingKey.length) return;

@@ -1479,8 +1479,10 @@ Window {
         suppressed: powerOverlay.open || root.quickMenuOpen || ambientScreen.active
         focus: root.focusedScreen === "closeFlow"
         windows: backend.items
-        windowsKnown: backend.connected === true && backend.applicationsState !== "loading"
-                      && backend.applicationsState !== "unavailable"
+        // Only a complete snapshot: an `error` one may lack a failed
+        // provider's windows (review of #777).
+        windowsKnown: backend.connected === true && (backend.applicationsState === "ready"
+                                                     || backend.applicationsState === "empty")
         onTerminateRequested: windowId => backend.terminate(windowId)
         onSwitchRequested: windowId => backend.activate(windowId)
         Connections {

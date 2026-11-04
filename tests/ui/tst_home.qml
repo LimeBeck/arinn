@@ -1365,4 +1365,26 @@ TestCase {
         compare(findChild(tile, "applicationFallback").visible, true);
         verify(Qt.colorEqual(findChild(tile, "applicationChip").color, Ui.Theme.chip));
     }
+    // Review of #777: navigation opened from the Running screen focuses
+    // Running; the tile sheet opens for Close while favourites are off.
+    function test_running_screen_navigation_and_sheet_without_favorites() {
+        home.showRunning();
+        compare(home.screen, "running");
+        home.openNavigation();
+        focused("nav-6");
+        home.closeNavigation();
+        home.showHome();
+        home.actionsEnabled = false;
+        home.favoriteEntries = [{id: "f", title: "Favorite", providerId: "fixture", running: true, runningId: "w"}];
+        child("entry-f").forceActiveFocus(); focused("entry-f");
+        home.openTileActions("f");
+        verify(home.tileActionsOpen);
+        focused("closeAppAction");
+        verify(!child("favoriteAction").enabled);
+        keyClick(Qt.Key_Escape);
+        // Nothing to offer: no sheet.
+        home.favoriteEntries = [{id: "g", title: "Plain", providerId: "fixture"}];
+        home.openTileActions("g");
+        verify(!home.tileActionsOpen);
+    }
 }

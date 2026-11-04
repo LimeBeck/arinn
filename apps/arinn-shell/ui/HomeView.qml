@@ -182,7 +182,10 @@ FocusScope {
     onFavoriteErrorChanged: Qt.callLater(settleActionFocus)
     function openTileActions(entryId) {
         const entry = entryById(entryId);
-        if (!actionsEnabled || !entry || !entry.providerId) return;
+        // The sheet opens while favourites cannot be edited too, when it has
+        // something else to offer: Close, or Refresh list (review of #777).
+        if (!entry || !entry.providerId) return;
+        if (!actionsEnabled && !entry.runningId && !favoriteError.length) return;
         actionOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
         actionEntryId = entryId;
         Qt.callLater(restoreActionFocus);
@@ -553,7 +556,8 @@ FocusScope {
     function openNavigation() {
         if (navOpen) return;
         navigationOpener = root.Window.window ? root.Window.window.activeFocusItem : null;
-        navIndex = Math.max(0, routes.indexOf(screen));
+        // Running is not a section route; its item follows Open services.
+        navIndex = screen === "running" ? sections.length + 1 : Math.max(0, routes.indexOf(screen));
         navOpen = true;
         interfaceSounds.playOpen();
         Qt.callLater(() => Focus.take(navItems.itemAt(navIndex)));

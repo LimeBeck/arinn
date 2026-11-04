@@ -1504,6 +1504,19 @@ private slots:
     QVERIFY(launch->property("homeHidden").toBool());
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
     launch->setProperty("active", false);
+    // Review of #778: during ambient the request only wakes; the screen
+    // underneath stays.
+    auto ambient = window->findChild<QQuickItem *>("ambientScreen");
+    QVERIFY(ambient);
+    home->setProperty("screen", QStringLiteral("library"));
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("library"));
+    QVERIFY(QMetaObject::invokeMethod(window, "startAmbient"));
+    QTRY_VERIFY(ambient->property("active").toBool());
+    QTRY_VERIFY(ambient->property("armed").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!ambient->property("active").toBool());
+    QTest::qWait(50);
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("library"));
     // The power scope leaves as Home inside it does.
     home->setProperty("screen", QStringLiteral("settings"));
     QVERIFY(QMetaObject::invokeMethod(power, "openMenu"));

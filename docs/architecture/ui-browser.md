@@ -82,7 +82,8 @@ parsing URLs.
 
 The global Home key (the platform's Home request, ADR-0094) shows Home from Open
 services and the other shell screens while the shell is on screen, as the Home
-key does there (§6.3, #756 A6). It goes through the topmost layer first, as the
+key does there (§6.3, #756 A6). During ambient it only wakes, as the quick-menu
+key does (§5.7). Otherwise it goes through the topmost layer first, as the
 Home key there would: a launch's dialog or progress closes or hides for Home,
 then the power scope leaves as its own Home does. A Settings editor and Library
 Detail close, and Music goes Home like the other sections. The bottom hint reads "→ Save or close": Right

@@ -622,6 +622,13 @@ Window {
         // power scope open over the sheet it leaves as Home inside that scope
         // does: a request in flight goes on and a late refusal comes back.
         function onHomeRequested() {
+            // During ambient the request only wakes, as the quick-menu key
+            // does: the first event triggers nothing underneath (§5.7
+            // Ambient; review of #778).
+            if (ambientScreen.active) {
+                if (ambientScreen.armed) ambientScreen.wake();
+                return;
+            }
             // The topmost layer takes it as its own Home key does (§6.3,
             // review of #778): a launch's dialog or progress, then the
             // power scope.

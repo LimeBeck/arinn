@@ -791,6 +791,9 @@ void Backend::readApplications(const std::shared_ptr<Catalog> &catalog,
                           {"generation", generation},
                           {"localId", id},
                           {"applicationId", application},
+                          // The platform window token (ADR-0119): Home finds
+                          // which application the Return window belongs to.
+                          {"windowToken", window},
                           {"providerId", provider.value("id")},
                           {"terminable", terminate}});
         }

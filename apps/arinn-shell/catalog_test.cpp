@@ -535,6 +535,8 @@ private slots:
         QCOMPARE(backend.applications()[1].toMap()["running"].toBool(), false);
         QCOMPARE(window["iconSource"], app["iconSource"]);
         QCOMPARE(window["visualIdentity"], app["visualIdentity"]);
+        // The window token lets Home find the Return window's application.
+        QCOMPARE(window["windowToken"].toString(), QString("window-token"));
         QVERIFY(!backend.items()[1].toMap().contains("iconSource"));
         QCOMPARE(daemon.pages, 2);
         QCOMPARE(backend.applications()[1].toMap()["enabled"].toBool(), false);

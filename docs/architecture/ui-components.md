@@ -213,7 +213,9 @@ chip and the clock, only while known; `network` (`wired` or `disconnected`)
 shows the cable or the crossed-out Wi-Fi icon in the Wi-Fi icon's place
 ([#408](https://github.com/LimeBeck/arinn/issues/408)); `ambientSuppressed` marks
 an Activity background: the light field stays on and the floor takes the
-Activity's identity hue (`AmbientGlow.floorTint`), and the near state draws dark
+Activity's identity hue (`AmbientGlow.floorTint`; `returnActivityIdentity` is the
+identity of the running window whose platform token is the Return target, and
+without one the warm hearth stays), and the near state draws dark
 bands over the top 180 px and the bottom 140 px of the Activity
 ([ADR-0140](../adr/0140-tv-review-visual-decisions.md)). A media entry whose
 `serviceId` names an open service is that service's card

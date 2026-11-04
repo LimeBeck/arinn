@@ -1214,8 +1214,12 @@ TestCase {
         home.ambientSuppressed = true;
         const glow = child("ambientGlow");
         verify(glow.lit);
+        // Without the owning application the warm hearth stays: the opaque
+        // Return token is never hashed into a hue.
+        compare(glow.floorTint.a, 0);
+        home.returnActivityIdentity = "provider:player";
         verify(glow.floorTint.a > 0);
-        verify(Math.abs(glow.floorBaseHue - Ui.Theme.toOklch(Qt.tint(Ui.Theme.identityColor("a"), "transparent")).h) < 0.5);
+        verify(Math.abs(glow.floorBaseHue - Ui.Theme.toOklch(Qt.tint(Ui.Theme.identityColor("provider:player"), "transparent")).h) < 0.5);
         child("entry-a").forceActiveFocus(); focused("entry-a");
         tryCompare(home, "activityNear", true);
         const background = child("activityBackground");

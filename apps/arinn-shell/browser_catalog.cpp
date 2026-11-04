@@ -92,10 +92,21 @@ QString letterOf(const QString &text) {
   }
   return host.isEmpty() ? QString() : host.left(1).toUpper();
 }
+// Letters and digits only, lower case: "Example Site" and "example.site"
+// compare equal.
+QString nameKey(const QString &text) {
+  QString key;
+  for (const auto c : text.toLower())
+    if (c.isLetterOrNumber())
+      key.append(c);
+  return key;
+}
 // A page title without the site name that pages append after a separator
-// ("Episode 4 — Site", "Page | Site"). Only a short last part goes, and
-// only when something remains; no site is named here (R-01, #756 B14).
-QString pageTitle(const QString &title) {
+// ("Episode 4 — Site", "Page | Site"). The last part goes only when it is
+// the site's own name: it starts with the host's main label ("example" of
+// www.example.test). Any other last part is part of the title ("Episode
+// IV - A New Hope"). No site is named here (R-01, #756 B14).
+QString pageTitle(const QString &title, const QString &host) {
   const auto text = title.trimmed();
   qsizetype cut = -1, width = 0;
   for (const auto separator :
@@ -109,8 +120,12 @@ QString pageTitle(const QString &title) {
   }
   if (cut <= 0)
     return text;
-  const auto tail = text.mid(cut + width).trimmed();
-  if (tail.isEmpty() || tail.size() > 32)
+  const auto tail = nameKey(text.mid(cut + width));
+  auto labels = host.toLower().split(QLatin1Char('.'), Qt::SkipEmptyParts);
+  if (!labels.isEmpty() && labels.last().contains(QLatin1Char(':')))
+    labels.last() = labels.last().section(QLatin1Char(':'), 0, 0);
+  const auto label = labels.size() >= 2 ? nameKey(labels.at(labels.size() - 2)) : QString();
+  if (tail.isEmpty() || label.size() < 3 || !tail.startsWith(label))
     return text;
   return text.left(cut).trimmed();
 }
@@ -1049,7 +1064,8 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     map.insert(QStringLiteral("domain"), displayHost(url));
     // What Home calls this service: the shortcut's name, else the page
     // title without its site suffix, else the host (#756 B14).
-    const auto cleaned = pageTitle(map.value(QStringLiteral("title")).toString());
+    const auto cleaned = pageTitle(map.value(QStringLiteral("title")).toString(),
+                                   displayHost(url));
     map.insert(QStringLiteral("serviceTitle"),
                !shortcutTitle.isEmpty() ? shortcutTitle
                : !cleaned.isEmpty()     ? cleaned

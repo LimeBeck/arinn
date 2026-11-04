@@ -122,11 +122,15 @@ FocusScope {
     // Activity's identity hue instead of switching off (owner decision on
     // #756, ADR-0140; amends ADR-0027).
     property bool ambientSuppressed: false
+    // The identity of the application that owns the Return window, matched
+    // by its platform window token; empty when no running window matches.
+    property string returnActivityIdentity: ""
     readonly property string activityIdentity: {
         if (!ambientSuppressed) return "";
         if (returnIsWebService && currentServiceId) return currentServiceId;
-        const entry = continueEntries.find(item => item && item.id === returnActivityId);
-        return entry ? (entry.visualIdentity || entry.id) : returnActivityId;
+        if (returnActivityIdentity) return returnActivityIdentity;
+        const entry = continueEntries.find(item => item && item.id === returnActivityId && item.visualIdentity);
+        return entry ? entry.visualIdentity : "";
     }
     // The last frame of the Activity behind Home (§12.3), empty for none.
     // Near while the Activity's own card has focus, otherwise far (handoff

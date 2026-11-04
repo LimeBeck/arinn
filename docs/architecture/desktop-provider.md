@@ -180,6 +180,14 @@ The transient-unit reference mechanism is also used by
 Desktop semantics are delegated according to the
 [Desktop Entry Specification](https://specifications.freedesktop.org/desktop-entry/latest-single/).
 
+**Full screen after a launch** ([ADR-0138](../adr/0138-launched-applications-go-full-screen.md),
+[#758](https://github.com/LimeBeck/arinn/issues/758)). When a launch succeeds the daemon
+queues `launched` for the KWin adapter, or `dismiss` for an application of the Online
+group (a browser opened as an ordinary window). `launched` hides Home and makes the
+launched window full screen: the active window when it is an ordinary application
+window, otherwise the newest one mapped in the last 120 s. The managed player and
+windows from before the adapter started are never chosen.
+
 ## Windows and registration lifetime
 
 The provider uses the SDK registration watch to construct WindowClient on its

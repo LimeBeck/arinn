@@ -494,6 +494,10 @@
         <source>Downloads</source>
         <translation>Загрузки</translation>
     </message>
+    <message>
+        <source>Loading…</source>
+        <translation>Загрузка…</translation>
+    </message>
 </context>
 <context>
     <name>HomeRow</name>
@@ -984,7 +988,7 @@
     </message>
     <message>
         <source>Series</source>
-        <translation>Сериалы</translation>
+        <translation>Сериал</translation>
     </message>
     <message>
         <source>No file</source>
@@ -1065,6 +1069,30 @@
     <message>
         <source>Something went wrong. Try again.</source>
         <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>Less than a minute left</source>
+        <translation>Осталось меньше минуты</translation>
+    </message>
+    <message>
+        <source>%1 min left</source>
+        <translation>Осталось %1 мин</translation>
+    </message>
+    <message>
+        <source>%1 h left</source>
+        <translation>Осталось %1 ч</translation>
+    </message>
+    <message>
+        <source>%1 h %2 min left</source>
+        <translation>Осталось %1 ч %2 мин</translation>
+    </message>
+    <message>
+        <source>Continue · S%1 E%2</source>
+        <translation>Продолжить · С%1 Э%2</translation>
+    </message>
+    <message>
+        <source>Continue from %1</source>
+        <translation>Продолжить с %1</translation>
     </message>
 </context>
 <context>

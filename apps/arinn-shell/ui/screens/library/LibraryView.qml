@@ -114,6 +114,49 @@ FocusScope {
         }
         return out;
     }
+    // The Series badge tells a series apart from films. A tab that holds
+    // only series (the Series tab) does not repeat it on every poster
+    // (#756 C23, #728).
+    readonly property bool seriesBadgeShown: {
+        if (folderMode) return true;
+        const tab = (catalogueTabs || []).find(t => t.id === currentTabId);
+        if (tab && tab.kind === "series") return false;
+        const list = visibleEntries;
+        return !list.length || list.some(entry => entry.kind !== "series");
+    }
+    // Time left and where Continue starts (handoff 06, 07; #728). The
+    // catalogue gives the resume position and duration in microseconds.
+    function formatTime(us) {
+        const total = Math.max(0, Math.floor(us / 1000000));
+        const h = Math.floor(total / 3600), m = Math.floor(total % 3600 / 60), sec = total % 60;
+        const two = n => (n < 10 ? "0" : "") + n;
+        return h > 0 ? h + ":" + two(m) + ":" + two(sec) : m + ":" + two(sec);
+    }
+    function remainingText(us) {
+        const minutes = Math.max(0, Math.round(us / 60000000));
+        const h = Math.floor(minutes / 60), m = minutes % 60;
+        if (minutes < 1) return qsTr("Less than a minute left");
+        if (!h) return qsTr("%1 min left").arg(m);
+        if (!m) return qsTr("%1 h left").arg(h);
+        return qsTr("%1 h %2 min left").arg(h).arg(m);
+    }
+    function progressText(entry) {
+        if (!entry || !(entry.progress > 0)) return "";
+        const position = Number(entry.resumePositionUs), duration = Number(entry.resumeDurationUs);
+        if (isFinite(position) && isFinite(duration) && duration > 0)
+            return remainingText(Math.max(0, duration - position));
+        // Without a known duration there is no honest time left.
+        return "";
+    }
+    function playLabel(entry) {
+        if (!entry || !(entry.progress > 0)) return qsTr("Play");
+        if (entry.resumeSeason !== undefined && entry.resumeEpisode !== undefined)
+            return qsTr("Continue · S%1 E%2").arg(entry.resumeSeason).arg(entry.resumeEpisode);
+        const position = Number(entry.resumePositionUs);
+        if (entry.kind !== "series" && isFinite(position) && position > 0)
+            return qsTr("Continue from %1").arg(formatTime(position));
+        return qsTr("Continue");
+    }
     readonly property var detailEntry: {
         const id = detailEntryId;
         const source = (entries || []).concat(folderEntries || []);
@@ -222,6 +265,9 @@ FocusScope {
     signal retryRequested()
     signal backRequested()
     signal homeRequested()
+    // Left where nothing lies further left (the first poster of a row, the
+    // first tab): the shell opens navigation (handoff 04, #756 A8).
+    signal navigationRequested()
 
     function adoptTab() {
         if (!tabs || !tabs.length) {
@@ -401,6 +447,46 @@ FocusScope {
             y: parent.height - 11; height: 4; radius: 2
             color: Ui.Theme.ember
             visible: pill.selected && !pill.activeFocus
+        }
+    }
+    // Catalogue tabs are text tabs (ADR-0140, Hearth light brief *Library*):
+    // a white pill with ink text in focus; the selected tab is `text-1` with
+    // an Ember dot under its label. No plate and no rim otherwise.
+    component LibraryTab: Ui.Surface {
+        id: tab
+        property bool selected: false
+        property string labelName: objectName + "Label"
+        property string dotName: objectName + "Dot"
+        implicitWidth: label.implicitWidth + 56
+        implicitHeight: 64
+        height: 64
+        cornerRadius: 32
+        focusScale: 1
+        focusLift: 0
+        liftFromBottom: false
+        shapeRole: "action"
+        rimEnabled: false
+        restingColor: "transparent"
+        focusedColor: Ui.Theme.textPrimary
+        transform: Translate { y: 0 }
+        contentItem: Ui.UiText {
+            id: label
+            objectName: tab.labelName
+            text: tab.text
+            font.pixelSize: 28
+            font.weight: 600
+            color: tab.activeFocus ? Ui.Theme.ink
+                 : tab.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        Rectangle {
+            objectName: tab.dotName
+            width: 8; height: 8; radius: 4
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height - 6
+            color: Ui.Theme.ember
+            visible: tab.selected && !tab.activeFocus
         }
     }
     function chooseView(folders) {
@@ -660,6 +746,8 @@ FocusScope {
                 next += step;
             if (next >= rowStart && next <= rowEnd)
                 focusPosterIndex(next);
+            else if (key === Qt.Key_Left)
+                navigationRequested();
             return;
         }
         if (key === Qt.Key_Up) {
@@ -854,6 +942,8 @@ FocusScope {
                 const next = index + step;
                 if (next >= 0 && next < catalogueTabs.length)
                     focusTab(next);
+                else if (next < 0 && !event.isAutoRepeat)
+                    navigationRequested();
             } else if (event.key === Qt.Key_Up && hasFolderView) {
                 focusPlace = "mode"; Ui.Focus.take(catalogueModeButton);
             } else if (event.key === Qt.Key_Down) {
@@ -906,12 +996,12 @@ FocusScope {
         Repeater {
             id: tabRepeater
             model: root.catalogueTabs
-            delegate: LibraryPill {
+            delegate: LibraryTab {
                 required property var modelData
                 required property int index
                 objectName: "tab-" + modelData.id
                 labelName: "tabLabel-" + modelData.id
-                underlineName: "tabUnderline-" + modelData.id
+                dotName: "tabDot-" + modelData.id
                 selected: modelData.id === root.currentTabId
                 text: modelData.title || ""
                 pointerMode: root.pointerMode
@@ -1211,20 +1301,23 @@ FocusScope {
                                 }
                                 Rectangle {
                                     objectName: "posterKind-" + modelData.id
-                                    visible: modelData.kind === "series"
+                                    visible: modelData.kind === "series" && root.seriesBadgeShown
                                     anchors.right: parent.right
                                     anchors.top: parent.top
                                     anchors.margins: 12
-                                    height: 36
-                                    radius: 18
+                                    height: 40
+                                    radius: 20
                                     width: kindLabel.implicitWidth + 24
                                     color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.6)
                                     Ui.UiText {
                                         id: kindLabel
                                         objectName: "posterKindLabel-" + modelData.id
                                         anchors.centerIn: parent
+                                        // One item's kind, singular in translation:
+                                        // the LibraryView context, not the tab's
+                                        // plural (#728).
                                         text: qsTr("Series")
-                                        font.pixelSize: 20
+                                        font.pixelSize: 24
                                         font.weight: 600
                                     }
                                 }
@@ -1482,7 +1575,7 @@ FocusScope {
                         visible: !!(root.detailEntry && !root.detailEntry.missing)
                         busy: root.launchingDetail
                         primary: true
-                        text: root.detailEntry && root.detailEntry.progress > 0 ? qsTr("Continue") : qsTr("Play")
+                        text: root.playLabel(root.detailEntry)
                         pointerMode: root.pointerMode
                         hoverFocusEnabled: root.hoverFocusEnabled
                         onDpadRequested: Ui.InputMode.keyPressed()
@@ -1520,12 +1613,11 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
+                        objectName: "detailProgressText"
                         font.pixelSize: 26
                         font.weight: 500
                         color: Ui.Theme.textSecondary
-                        text: root.detailEntry && root.detailEntry.progress
-                              ? Math.round(root.detailEntry.progress * 100) + "%"
-                              : ""
+                        text: root.progressText(root.detailEntry)
                     }
                 }
             }

@@ -1285,4 +1285,94 @@ TestCase {
         compare(findChild(tile, "applicationFallback").visible, true);
         verify(Qt.colorEqual(findChild(tile, "applicationChip").color, Ui.Theme.chip));
     }
+
+    // #756 C17: the page under the navigation is darkened, not made
+    // see-through. The software renderer keeps the veil without the blur.
+    function test_navigation_dims_the_page_instead_of_fading_it() {
+        const stage = child("homeStage");
+        const dim = child("navigationDim");
+        compare(dim.opacity, 0);
+        home.openNavigation();
+        focused("nav-0");
+        compare(stage.opacity, 1);
+        tryCompare(dim, "opacity", 0.55);
+        verify(dim.visible);
+        compare(home.navBlurAvailable, false);
+        compare(stage.layer.enabled, false);
+        home.closeNavigation();
+        tryCompare(dim, "opacity", 0);
+        verify(!dim.visible);
+    }
+    function sectionFixture() {
+        home.shortcutManagement = true;
+        const apps = [];
+        for (const group of ["online", "games", "media", "other"])
+            for (let i = 0; i < 3; ++i)
+                apps.push({id: group + i, title: group + " " + i, group: group === "other" ? "" : group});
+        home.applicationEntries = apps;
+        home.runningEntries = [{id: "window1", title: "Window"}];
+        home.selectSection(3);
+        focused("entry-online0");
+    }
+    // #756 A9, C25, #740: every focusable in Applications is revealed
+    // between the header band and the bottom edge, and nothing scrolls
+    // under the lockup at full opacity.
+    function test_applications_reveal_every_focusable_below_the_header() {
+        sectionFixture();
+        const names = ["entry-games0", "entry-media0", "entry-other0", "addApplication",
+                       "entry-window1", "sectionBack"];
+        for (const name of names) {
+            keyClick(Qt.Key_Down);
+            focused(name);
+            const item = child(name);
+            tryVerify(() => {
+                const top = item.mapToItem(home, 0, 0).y;
+                const bottom = item.mapToItem(home, 0, item.height).y;
+                return top >= home.headerClearance + home.headerFade - 1 && bottom <= home.height - 48;
+            }, 2000, name + " must be on screen below the header");
+            // Whatever holds it is fully shown, so it is not inside the fade.
+            tryVerify(() => {
+                let cursor = item, value = 1;
+                while (cursor && cursor !== home) { value *= cursor.opacity; cursor = cursor.parent; }
+                return value > 0.99;
+            }, 2000, name + " must be fully shown");
+        }
+        // Scrolled down, the title is out of the header band, not under it.
+        verify(home.sectionOffset > 0);
+        tryVerify(() => child("sectionTitle").opacity < 0.01);
+        for (let i = 0; i < 6; ++i) keyClick(Qt.Key_Up);
+        focused("entry-online0");
+        tryCompare(child("sectionTitle"), "opacity", 1);
+        tryCompare(child("sectionDescription"), "opacity", 1);
+    }
+    // #756 C25: the plus and the label sit centred in the pill.
+    function test_add_application_pill_content_is_centred() {
+        sectionFixture();
+        const pill = child("addApplication");
+        const content = child("addApplicationContent");
+        const centre = content.mapToItem(pill, content.width / 2, content.height / 2);
+        verify(Math.abs(centre.x - pill.width / 2) < 2, "x " + centre.x);
+        verify(Math.abs(centre.y - pill.height / 2) < 2, "y " + centre.y);
+        const icon = child("addApplicationIcon"), label = child("addApplicationLabel");
+        const iconMid = icon.mapToItem(pill, 0, icon.height / 2).y;
+        const labelMid = label.mapToItem(pill, 0, label.height / 2).y;
+        verify(Math.abs(iconMid - labelMid) < 2);
+        verify(icon.mapToItem(pill, 0, 0).x < label.mapToItem(pill, 0, 0).x);
+    }
+    // #756 C27: Applications rows run to the screen edge and fade there.
+    function test_application_rows_fade_at_the_screen_edge() {
+        sectionFixture();
+        const row = child("group-online");
+        verify(row.fadeRight);
+        const fade = child("rowRightFade");
+        verify(fade.visible);
+        const fadeStart = fade.mapToItem(home, 0, 0).x;
+        const fadeEnd = fade.mapToItem(home, fade.width, 0).x;
+        compare(Math.round(fadeStart), 1920 - Ui.Theme.edgeFadeEnd);
+        compare(Math.round(fadeEnd), 1920 - Ui.Theme.edgeFadeStart);
+        const viewport = child("group-onlineViewport");
+        compare(Math.round(viewport.mapToItem(home, viewport.width, 0).x), 1920 - Ui.Theme.edgeFadeStart);
+        // Home rows keep the safe right edge.
+        verify(!child("continue").fadeRight);
+    }
 }

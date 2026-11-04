@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Window
 
 FocusScope {
@@ -227,6 +228,15 @@ FocusScope {
         return Math.max(0, Math.min(1, (top - headerClearance) / headerFade));
     }
     function rowClearsHeader(row) { return rowHeaderOpacity(row) >= 1; }
+    // The same header band for the Applications column (#756 C25, #740):
+    // its title, description, group labels and controls fade out as they
+    // near the lockup instead of scrolling under it.
+    function sectionHeaderOpacity(item) {
+        if (!item) return 1;
+        const top = sectionColumn.y + item.y;
+        return Math.max(0, Math.min(1, (top - headerClearance) / headerFade));
+    }
+    readonly property bool navBlurAvailable: GraphicsInfo.api !== GraphicsInfo.Software
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     property string musicTitle: ""
@@ -455,6 +465,18 @@ FocusScope {
     }
     function revealRow(row) {
         sectionOffset = Math.max(0, row.y + row.height - 700);
+    }
+    // Any other focusable in the Applications column (the edit, add and
+    // Back pills): scroll only as far as it takes to show it whole between
+    // the header band and the hint line (#756 A9).
+    readonly property real sectionTop: 180
+    readonly property real sectionViewport: 700
+    function revealItem(item) {
+        if (!item || screen !== "applications") return;
+        let next = sectionOffset;
+        if (item.y + item.height - next > sectionViewport) next = item.y + item.height - sectionViewport;
+        if (item.y - next < 0) next = item.y;
+        sectionOffset = Math.max(0, next);
     }
     function focusApplicationRowBelow(fromRow) {
         const rows = applicationRows();
@@ -720,11 +742,22 @@ FocusScope {
     }
     Item {
         id: content
+        objectName: "homeStage"
         anchors.fill: parent
         visible: !root.coveredByScreen
         enabled: !root.navOpen && !root.tileActionsOpen
-        opacity: root.navOpen ? 0.45 : 1
-        Behavior on opacity { NumberAnimation { duration: 320 } }
+        // Under the navigation the stage is blurred (6 px) and darkened to
+        // brightness 0.45 by navigationDim (Hearth light brief, *Global
+        // navigation*; #756 C17). Opacity would let the page read through
+        // the panel. The software renderer has no shader effects: it keeps
+        // the veil without the blur.
+        layer.enabled: root.navOpen && root.navBlurAvailable
+        layer.effect: MultiEffect {
+            objectName: "navigationBlur"
+            blurEnabled: true
+            blurMax: 12
+            blur: 0.5
+        }
         BrandButton {
             id: menuButton
             objectName: "menuButton"
@@ -741,166 +774,21 @@ FocusScope {
             }
         }
         // Status area, right to left: clock, Wi-Fi, mute, downloads, browser
-        // state (handoff 01). Unknown platform state shows nothing (#387).
-        Row {
-            objectName: "statusArea"
+        // state (handoff 01). The shell shows the same area on its section
+        // screens (#756 C26).
+        StatusArea {
+            id: statusArea
             z: 1
             anchors.right: parent.right; anchors.rightMargin: Theme.safeRight
-            y: 44; height: 64; spacing: 24
-            Row {
-                objectName: "browserStatusChip"
-                anchors.verticalCenter: parent.verticalCenter
-                spacing: 12
-                visible: root.browserUnavailable
-                Rectangle { width: 28; height: 28; radius: 14; color: Theme.error; anchors.verticalCenter: parent.verticalCenter }
-                UiText {
-                    objectName: "browserStatusLabel"
-                    text: qsTr("Browser unavailable")
-                    role: "caption"
-                    color: Theme.error
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-            }
-            Rectangle {
-                objectName: "downloadChip"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.downloadActive
-                height: 48; radius: 24
-                width: downloadLabel.x + downloadLabel.width + 22
-                color: "transparent"
-                Accessible.role: Accessible.StaticText
-                Accessible.name: downloadLabel.text
-                UiText {
-                    id: downloadArrow
-                    x: 20; anchors.verticalCenter: parent.verticalCenter
-                    text: "↓"; role: "caption"; font.weight: 700; color: Theme.ember
-                }
-                UiText {
-                    id: downloadLabel
-                    objectName: "downloadChipLabel"
-                    x: downloadArrow.x + downloadArrow.width + 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    role: "caption"; font.weight: 600; wrapMode: Text.NoWrap
-                    text: root.downloadProgress >= 0
-                        ? qsTr("%1%").arg(Math.floor(Math.min(1, root.downloadProgress) * 100))
-                        : qsTr("Downloading")
-                }
-            }
-            Canvas {
-                objectName: "muteIcon"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.muted
-                width: 32; height: 32
-                Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Sound muted")
-                onPaint: {
-                    const ctx = getContext("2d");
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.fillStyle = Theme.textSecondary;
-                    ctx.strokeStyle = Theme.textSecondary;
-                    ctx.lineWidth = 2.6;
-                    ctx.lineCap = "round";
-                    // A speaker and a cross: Material Symbols volume_off.
-                    ctx.beginPath();
-                    ctx.moveTo(4, 12); ctx.lineTo(9, 12); ctx.lineTo(16, 6);
-                    ctx.lineTo(16, 26); ctx.lineTo(9, 20); ctx.lineTo(4, 20);
-                    ctx.closePath();
-                    ctx.fill();
-                    ctx.beginPath();
-                    ctx.moveTo(20, 12); ctx.lineTo(28, 20);
-                    ctx.moveTo(28, 12); ctx.lineTo(20, 20);
-                    ctx.stroke();
-                }
-            }
-            Canvas {
-                objectName: "wifiIcon"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.wifi
-                width: 32; height: 32
-                // Dot and three arcs light up to the level; all of them
-                // when the level is unknown.
-                readonly property int lit: root.wifiLevel > 0 ? root.wifiLevel : 4
-                onLitChanged: requestPaint()
-                Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Wi-Fi connected")
-                onPaint: {
-                    const ctx = getContext("2d");
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.lineWidth = 3;
-                    ctx.lineCap = "round";
-                    const tone = part => part <= lit ? Theme.textSecondary : Theme.plateFocus;
-                    ctx.fillStyle = tone(1);
-                    ctx.beginPath(); ctx.arc(16, 25, 2.6, 0, Math.PI * 2); ctx.fill();
-                    for (let part = 2; part <= 4; ++part) {
-                        ctx.strokeStyle = tone(part);
-                        ctx.beginPath();
-                        ctx.arc(16, 25, 6 + (part - 2) * 6, Math.PI * 1.22, Math.PI * 1.78);
-                        ctx.stroke();
-                    }
-                }
-            }
-            Canvas {
-                objectName: "wiredIcon"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.network === "wired" && !root.wifi
-                width: 32; height: 32
-                Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("Connected by cable")
-                onPaint: {
-                    // Material Symbols lan: one node above two, joined.
-                    const ctx = getContext("2d");
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.fillStyle = Theme.textSecondary;
-                    ctx.strokeStyle = Theme.textSecondary;
-                    ctx.lineWidth = 2.6;
-                    ctx.fillRect(12, 3, 8, 8);
-                    ctx.fillRect(3, 21, 8, 8);
-                    ctx.fillRect(21, 21, 8, 8);
-                    ctx.beginPath();
-                    ctx.moveTo(16, 11); ctx.lineTo(16, 16);
-                    ctx.moveTo(7, 21); ctx.lineTo(7, 16); ctx.lineTo(25, 16); ctx.lineTo(25, 21);
-                    ctx.stroke();
-                }
-            }
-            Canvas {
-                objectName: "noNetworkIcon"
-                anchors.verticalCenter: parent.verticalCenter
-                visible: root.network === "disconnected" && !root.wifi
-                width: 32; height: 32
-                Accessible.role: Accessible.StaticText
-                Accessible.name: qsTr("No network")
-                onPaint: {
-                    // Material Symbols wifi_off: the Wi-Fi glyph, crossed out.
-                    const ctx = getContext("2d");
-                    ctx.clearRect(0, 0, width, height);
-                    ctx.lineWidth = 3;
-                    ctx.lineCap = "round";
-                    ctx.fillStyle = Theme.textSecondary;
-                    ctx.strokeStyle = Theme.textSecondary;
-                    ctx.beginPath(); ctx.arc(16, 25, 2.6, 0, Math.PI * 2); ctx.fill();
-                    for (let part = 2; part <= 4; ++part) {
-                        ctx.beginPath();
-                        ctx.arc(16, 25, 6 + (part - 2) * 6, Math.PI * 1.22, Math.PI * 1.78);
-                        ctx.stroke();
-                    }
-                    // The slash, with a gap cut out of the arcs around it.
-                    ctx.globalCompositeOperation = "destination-out";
-                    ctx.lineWidth = 7;
-                    ctx.beginPath();
-                    ctx.moveTo(5, 4); ctx.lineTo(27, 28);
-                    ctx.stroke();
-                    ctx.globalCompositeOperation = "source-over";
-                    ctx.lineWidth = 3;
-                    ctx.beginPath();
-                    ctx.moveTo(5, 4); ctx.lineTo(27, 28);
-                    ctx.stroke();
-                }
-            }
-            UiText {
-                objectName: "clock"
-                anchors.verticalCenter: parent.verticalCenter
-                text: root.clockText; role: "meta"; font.pixelSize: 30; wrapMode: Text.NoWrap
-            }
+            y: 44
+            browserUnavailable: root.browserUnavailable
+            downloadActive: root.downloadActive
+            downloadProgress: root.downloadProgress
+            muted: root.muted
+            wifi: root.wifi
+            wifiLevel: root.wifiLevel
+            network: root.network
+            clockText: root.clockText
         }
         Item {
             anchors.fill: parent
@@ -1048,13 +936,25 @@ FocusScope {
             }
         }
         Column {
+            id: sectionColumn
+            objectName: "sectionColumn"
             // Scrolls so the focused group stays on screen at TV sizes.
-            x: 120; y: 180 - root.sectionOffset; width: 1300; spacing: 40
+            x: 120; y: root.sectionTop - root.sectionOffset; width: 1300; spacing: 40
             visible: root.screen !== "home"
             enabled: !root.tileActionsOpen
             Behavior on y { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
-            UiText { role: "title"; text: root.sections[root.routes.indexOf(root.screen)] || "" }
-            UiText { width: parent.width; text: root.sectionDescription; color: Theme.textSecondary }
+            UiText {
+                id: sectionTitle
+                objectName: "sectionTitle"
+                role: "title"; text: root.sections[root.routes.indexOf(root.screen)] || ""
+                opacity: root.sectionHeaderOpacity(sectionTitle)
+            }
+            UiText {
+                id: sectionDescriptionText
+                objectName: "sectionDescription"
+                width: parent.width; text: root.sectionDescription; color: Theme.textSecondary
+                opacity: root.sectionHeaderOpacity(sectionDescriptionText)
+            }
             Repeater {
                 id: groupRows
                 model: root.applicationGroups
@@ -1063,6 +963,9 @@ FocusScope {
                     required property string modelData
                     objectName: "group-" + modelData
                     width: 1704; variant: "app"; identityLight: true
+                    fadeRight: true
+                    opacity: root.sectionHeaderOpacity(groupRow)
+                    pointerBlocked: opacity < 1
                     cellWidth: 300
                     title: root.groupTitles[modelData]
                     visible: root.screen === "applications" && count > 0
@@ -1093,6 +996,9 @@ FocusScope {
             HomeRow {
                 id: runningRow; objectName: "runningApplications"
                 width: 1704; variant: "app"; identityLight: true; cellWidth: 300; title: qsTr("Open windows")
+                fadeRight: true
+                opacity: root.sectionHeaderOpacity(runningRow)
+                pointerBlocked: opacity < 1
                 visible: root.screen === "applications" && count > 0
                 entries: root.runningEntries; busyEntryIds: root.busyEntryIds
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
@@ -1115,6 +1021,8 @@ FocusScope {
                 id: shortcutEditButton; objectName: "editShortcutButton"
                 text: qsTr("Edit shortcut")
                 visible: root.shortcutManagement && root.screen === "applications" && !!root.focusedEntry.webShortcut
+                opacity: root.sectionHeaderOpacity(shortcutEditButton)
+                onActiveFocusChanged: if (activeFocus) root.revealItem(shortcutEditButton)
                 onActivated: root.editShortcut(root.focusedEntry.id)
                 Keys.onUpPressed: root.restoreScreen()
                 Keys.onDownPressed: {
@@ -1145,6 +1053,8 @@ FocusScope {
                 focusedColor: Theme.textPrimary
                 pointerMode: root.pointerMode
                 hoverFocusEnabled: root.hoverFocusEnabled
+                opacity: root.sectionHeaderOpacity(addApplication)
+                onActiveFocusChanged: if (activeFocus) root.revealItem(addApplication)
                 onDpadRequested: InputMode.keyPressed()
                 onActivated: root.editShortcut("")
                 Keys.onLeftPressed: root.openNavigation()
@@ -1156,27 +1066,39 @@ FocusScope {
                     if (!(runningRow.visible && (runningRow.focusIndex(0) || runningRow.restore())))
                         Focus.take(sectionBack);
                 }
-                contentItem: Row {
-                    anchors.centerIn: parent
-                    spacing: 12
-                    LineIcon {
-                        width: 28; height: 28
-                        anchors.verticalCenter: parent.verticalCenter
-                        name: "add"
-                        color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
-                    }
-                    UiText {
-                        id: addLabel
-                        text: addApplication.text
-                        role: "control"
-                        color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
-                        wrapMode: Text.NoWrap
+                // The control sizes and places its contentItem, so the icon
+                // and label are centred inside a plain Item; a Row that is
+                // itself the contentItem and anchors to the control drifts
+                // down and left (#756 C25).
+                contentItem: Item {
+                    Row {
+                        objectName: "addApplicationContent"
+                        anchors.centerIn: parent
+                        spacing: 12
+                        LineIcon {
+                            objectName: "addApplicationIcon"
+                            width: 28; height: 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            name: "add"
+                            color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
+                        }
+                        UiText {
+                            id: addLabel
+                            objectName: "addApplicationLabel"
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: addApplication.text
+                            role: "control"
+                            color: addApplication.activeFocus ? Theme.ink : Theme.textPrimary
+                            wrapMode: Text.NoWrap
+                        }
                     }
                 }
             }
             ActionButton {
                 id: sectionBack; objectName: "sectionBack"
                 text: qsTr("Back to Home")
+                opacity: root.sectionHeaderOpacity(sectionBack)
+                onActiveFocusChanged: if (activeFocus) root.revealItem(sectionBack)
                 pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                 onActivated: root.showHome()
                 onDpadRequested: InputMode.keyPressed()
@@ -1195,6 +1117,18 @@ FocusScope {
         id: activityNotice
         visible: false; x: 560; y: 960; width: 800; height: 80; radius: 40; color: "#33363b"
         UiText { anchors.centerIn: parent; text: qsTr("Activity is no longer available"); role: "meta" }
+    }
+    // Brightness 0.45 for everything under the navigation: a black veil at
+    // 0.55 multiplies the stage, its light and an Activity behind it by
+    // 0.45. A covering section screen gets the same veil from the panel
+    // below.
+    Rectangle {
+        objectName: "navigationDim"
+        anchors.fill: parent
+        color: "black"
+        opacity: root.navOpen ? 0.55 : 0
+        visible: opacity > 0 && !root.coveredByScreen
+        Behavior on opacity { NumberAnimation { duration: 260 } }
     }
     FocusScope {
         id: navigation

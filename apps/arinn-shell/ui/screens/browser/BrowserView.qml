@@ -33,6 +33,10 @@ FocusScope {
     property string statusDescription: ""
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
+    // The view's own clock, for a view shown alone (tests, the gallery).
+    // The shell draws its shared status area over this screen instead and
+    // sets this to false (#756 C26).
+    property bool ownClock: true
     // A fixed time for captures and tests; empty shows the live clock.
     property string clockText: ""
     property string liveClock: Qt.formatTime(new Date(), "hh:mm")
@@ -594,6 +598,7 @@ FocusScope {
             Text {
                 id: clock
                 objectName: "browserClock"
+                visible: root.ownClock
                 y: 44
                 height: 64
                 anchors.right: parent.right
@@ -608,7 +613,7 @@ FocusScope {
                 Ui.FontWeightAxis {}
                 Timer {
                     interval: 30000
-                    running: root.clockText === ""
+                    running: root.ownClock && root.clockText === ""
                     repeat: true
                     triggeredOnStart: true
                     onTriggered: root.liveClock = Qt.formatTime(new Date(), "hh:mm")

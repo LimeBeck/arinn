@@ -63,6 +63,13 @@ FocusScope {
     // Distance from this row's left to where the screen fade begins.
     readonly property real fadeInset: Math.max(0, screenX - Theme.edgeFadeStart)
     readonly property real leftBleed: Math.max(glowMargin, fadeInset)
+    // Applications rows run to the screen's right edge and fade out there,
+    // mirroring the left fade, instead of being cut at the safe edge
+    // (#756 C27). Home rows keep the handoff's safe right edge.
+    property bool fadeRight: false
+    readonly property real rightRoom: fadeRight
+        ? Math.max(0, Theme.canvasWidth - Theme.edgeFadeStart - (screenX + width)) : 0
+    readonly property real rightBleed: Math.max(glowMargin, rightRoom)
     signal selected(var entry)
     signal activated(string entryId)
     signal secondaryActivated(string entryId)
@@ -174,10 +181,10 @@ FocusScope {
         id: viewport
         objectName: root.objectName + "Viewport"
         x: -root.leftBleed; y: root.shelf ? 29 : 10
-        width: parent.width + root.leftBleed + root.glowMargin
+        width: parent.width + root.leftBleed + root.rightBleed
         height: root.shelf ? root.height - y : root.cellHeight + 104
         clip: true
-        contentWidth: cardsRow.width + root.leftBleed + root.glowMargin
+        contentWidth: cardsRow.width + root.leftBleed + root.rightBleed
         contentHeight: height
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.HorizontalFlick
@@ -203,13 +210,16 @@ FocusScope {
                     // The row's safe area (handoff 01: x120 to x1824) in
                     // this slot's coordinates.
                     readonly property real safeLeft: viewport.contentX - x
-                    readonly property real safeRight: safeLeft + root.width
+                    readonly property real safeEdge: safeLeft + root.width
+                    // Where painting stops on the right: the safe edge, or
+                    // the screen fade's end on an Applications row.
+                    readonly property real safeRight: safeEdge + root.rightRoom
                     // Only a focused card whose body is inside the safe
                     // area may paint past it: its glow and focus scale use
                     // the viewport's margin. Every other card is cut at the safe edges, so
                     // no neighbour or flicked card shows past them (#564).
                     readonly property bool focusedInside: !!item && item.activeFocus
-                        && safeLeft <= 0 && safeRight >= width
+                        && safeLeft <= 0 && safeEdge >= width
                     readonly property bool painted: focusedInside || (safeLeft < width && safeRight > 0)
                     // Left: the screen fade, not a hard cut. Right: the safe edge.
                     readonly property real clipX: slot.focusedInside ? -root.leftBleed
@@ -461,10 +471,26 @@ FocusScope {
             GradientStop { position: 1; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0) }
         }
     }
+    // The right fade of an Applications row, from x 1808 to x 1896 of the
+    // screen, the mirror of the left one.
+    Rectangle {
+        objectName: "rowRightFade"
+        z: 80
+        x: Theme.canvasWidth - Theme.edgeFadeEnd - root.screenX
+        y: viewport.y
+        width: Theme.edgeFadeEnd - Theme.edgeFadeStart
+        height: viewport.height
+        visible: root.fadeRight
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0) }
+            GradientStop { position: 1; color: Theme.background }
+        }
+    }
     MouseArea {
         objectName: "rowPointerBlocker"
         // The cards' viewport reaches past the row's edges.
-        x: -root.leftBleed; width: parent.width + root.leftBleed + root.glowMargin; height: parent.height
+        x: -root.leftBleed; width: parent.width + root.leftBleed + root.rightBleed; height: parent.height
         z: 2000
         enabled: root.pointerBlocked
         hoverEnabled: true

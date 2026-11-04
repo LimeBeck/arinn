@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtTest
+import "../../apps/arinn-shell/ui" as Ui
 import "../../apps/arinn-shell/ui/screens/power" as Power
 
 TestCase {
@@ -217,6 +218,21 @@ TestCase {
         focused("restartButton");
     }
 
+    // #756 C30: nothing opaque lies under the scrim; the screen behind
+    // shows through at 0.45.
+    Component { id: backdropFactory; Rectangle { width: 1920; height: 1080; color: "white" } }
+    function test_scrim_lets_the_screen_through() {
+        menu.destroy();
+        const backdrop = createTemporaryObject(backdropFactory, suite);
+        menu = createTemporaryObject(factory, suite, {closingApplications: []});
+        focused("sleepButton");
+        verify(waitForRendering(menu));
+        const pixels = grabImage(suite);
+        const corner = {r: pixels.red(20, 20), g: pixels.green(20, 20), b: pixels.blue(20, 20)};
+        verify(Math.abs(corner.r - 115) < 12 && Math.abs(corner.g - 115) < 12 && Math.abs(corner.b - 115) < 12,
+               JSON.stringify(corner));
+    }
+
     function test_panel_matches_handoff() {
         const scrim = child("powerScrim");
         compare(scrim.width, 1920);
@@ -236,8 +252,13 @@ TestCase {
         compare(title.font.weight, 700);
         const sleep = child("sleepButton");
         compare(sleep.height, 112);
-        compare(sleep.cornerRadius, 30);
-        verify(sleep.focusedColor.r > 0.9);
+        // #756 C30: rows are containers: no plate at rest, 8 % and the rim
+        // in focus, the label stays light.
+        compare(sleep.shapeRole, "container");
+        compare(sleep.cornerRadius, Ui.Theme.containerRadius);
+        verify(Math.abs(sleep.focusedColor.a - 0.08) < 0.01);
+        verify(sleep.restingColor.a < 0.01);
+        verify(child("sleepLabel").color.r > 0.9);
         compare(child("sleepIcon").width, 64);
         compare(child("sleepIcon").height, 64);
         compare(child("sleepLabel").font.pixelSize, 32);

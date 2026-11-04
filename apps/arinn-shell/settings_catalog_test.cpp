@@ -367,11 +367,14 @@ private slots:
     QVERIFY(registerBus(daemon));
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
-    QCOMPARE(catalog.categories().size(), 7);
-    QCOMPARE(catalog.categories().at(0).toMap().value(QStringLiteral("id")).toString(),
-             QStringLiteral("media"));
-    QCOMPARE(catalog.categories().at(6).toMap().value(QStringLiteral("id")).toString(),
-             QStringLiteral("system"));
+    // #756: only categories with rows, in the fixed order; Playback,
+    // Network and Appearance have none here.
+    QStringList shownCategories;
+    for (const auto &category : catalog.categories())
+      shownCategories.append(category.toMap().value(QStringLiteral("id")).toString());
+    QCOMPARE(shownCategories, QStringList({QStringLiteral("media"), QStringLiteral("sound"),
+                                           QStringLiteral("applications"),
+                                           QStringLiteral("system")}));
     QStringList order;
     for (const auto &value : catalog.rows()) {
       const auto row = value.toMap();
@@ -393,6 +396,7 @@ private slots:
              true);
     QCOMPARE(roots.value(QStringLiteral("providerName")).toString(),
              QStringLiteral("Alpha"));
+
     const auto output = rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("output"));
     QCOMPARE(output.value(QStringLiteral("currentValue")).toString(),
              QStringLiteral("stereo"));
@@ -592,6 +596,11 @@ private slots:
                            QStringLiteral("ambient_timeout"));
     QCOMPARE(row.value(QStringLiteral("constraints")).toMap()
                  .value(QStringLiteral("options")).toList().size(), 5);
+    // #756 B16: Arinn's own settings carry no source line; a provider's do.
+    QCOMPARE(row.value(QStringLiteral("providerName")).toString(), QString());
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("light_field"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Alpha"));
     // A value the daemon does not offer keeps the last one.
     daemon.settings[QStringLiteral("arinn")][1].value = QStringLiteral("\"7\"");
     auto signal = QDBusMessage::createSignal(
@@ -626,7 +635,7 @@ private slots:
                         QStringLiteral("{}"), true);
     core.title = QStringLiteral("Light follows the time of day");
     core.description = QStringLiteral(
-        "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light");
+        "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look");
     daemon.settings.insert(QStringLiteral("arinn"), {core});
     SettingsCatalog catalog;
     QCOMPARE(catalog.lightFollowsTime(), true);

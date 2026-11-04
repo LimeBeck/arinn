@@ -190,13 +190,14 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Search engine"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Used when typed text is not an address"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light field"),
+    // Plain words: no internal terms such as "floor" or "pool" (#756 B16).
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "A warm floor and a pool of light under the focused item. "
-                      "Off removes the floor and the pool"),
+                      "A soft glow along the bottom of the screen and behind the "
+                      "item in focus. Off turns the glow off"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Light follows the time of day"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
-                      "Dims the floor light in the evening and at night and lays a "
-                      "warm veil over the screen. Off keeps the daytime light"),
+                      "In the evening and at night the glow is dimmer and the "
+                      "screen a little warmer. Off keeps the daytime look"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Ambient after"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Idle time on an Arinn screen before "
                                          "the ambient screen appears"),
@@ -213,6 +214,26 @@ constexpr auto kDaemonProvider = "arinn";
     QT_TRANSLATE_NOOP("SettingsCatalog", "Quiet"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Normal"),
 };
+// The display names of the providers this repository ships, translated in
+// the shell (#756 B16). A provider whose name is not here keeps its own.
+[[maybe_unused]] constexpr const char *kProviderNames[] = {
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Local library"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Local music"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Playback"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Downloads"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions"),
+};
+// The source line of a row: none for Arinn's own settings, which need no
+// source, else the provider's name in the shell's language.
+QString sourceName(const QString &providerId, const QString &name) {
+  if (providerId == QLatin1String(kDaemonProvider))
+    return {};
+  for (const auto *known : kProviderNames)
+    if (name == QLatin1String(known))
+      return QCoreApplication::translate("SettingsCatalog", known);
+  return name;
+}
 QString daemonText(const QString &providerId, const QString &text) {
   if (providerId != QLatin1String(kDaemonProvider))
     return text;
@@ -791,7 +812,7 @@ void SettingsCatalog::publish() {
               valueFor(setting.kind, setting.valueJson, multiple);
           QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
-              {QStringLiteral("providerName"), provider.name},
+              {QStringLiteral("providerName"), sourceName(provider.id, provider.name)},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
               {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},
@@ -843,6 +864,16 @@ void SettingsCatalog::publish() {
     m_deferred.remove(key);
     m_deferredGeneration.remove(key);
   }
+  // A category without rows is not shown, so Settings opens on the first
+  // category that has one (#756).
+  QSet<QString> used;
+  for (const auto &row : std::as_const(rows))
+    used.insert(row.toMap().value(QStringLiteral("categoryId")).toString());
+  QVariantList shown;
+  for (const auto &category : std::as_const(categories))
+    if (used.contains(category.toMap().value(QStringLiteral("id")).toString()))
+      shown.append(category);
+  categories = shown;
   // A reload follows every ProvidersChanged. Announcing unchanged rows makes
   // the open settings screen rebuild (#441).
   if (categories == m_categories && rows == m_rows &&

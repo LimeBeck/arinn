@@ -33,6 +33,13 @@ private slots:
     QCOMPARE(QCoreApplication::translate("SettingsView", "Restart Arinn after audio starts"),
              QStringLiteral("Перезапустите Arinn после появления звука"));
     QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Media"), QStringLiteral("Медиа"));
+    // #756 B16: the packaged providers' names, and plain Appearance copy.
+    QCOMPARE(QCoreApplication::translate("SettingsCatalog", "Local library"),
+             QStringLiteral("Локальная библиотека"));
+    QVERIFY(!QCoreApplication::translate(
+                 "SettingsCatalog",
+                 "A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off")
+                 .contains(QStringLiteral("пол")));
     // Library tabs are named by the shell, not by the provider (#431).
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Films"), QStringLiteral("Фильмы"));
     QCOMPARE(QCoreApplication::translate("LibraryCatalog", "Series"), QStringLiteral("Сериалы"));

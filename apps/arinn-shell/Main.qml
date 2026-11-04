@@ -915,7 +915,8 @@ Window {
             // The shortcut editor's on-screen keyboard (KB-2, KB-3).
             shortcutAddressSuggestions: { browseCatalog.tabs; return browseCatalog.openServices(shortcutTypingText); }
             shortcutNameSuggestions: { browseCatalog.tabs; return browseCatalog.nameSuggestions(shortcutDraftUrl, shortcutTypingText); }
-            openServices: browserCatalog.serviceTabs.map(tab => ({id: tab.id, title: tab.title || tab.domain || "",
+            openServices: browserCatalog.serviceTabs.map(tab => ({id: tab.id, title: tab.serviceTitle || tab.title || tab.domain || "",
+                                                            domain: tab.domain || "",
                                                             letter: tab.letter || "", icon: tab.icon || ""}))
             downloadActive: downloadCatalog.downloading
             downloadProgress: downloadCatalog.downloadProgress

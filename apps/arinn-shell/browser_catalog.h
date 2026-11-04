@@ -90,6 +90,7 @@ private:
   };
   struct ShortcutOrigin {
     QString id;
+    QString title;
     QString icon;
     QString scheme;
     QString host;

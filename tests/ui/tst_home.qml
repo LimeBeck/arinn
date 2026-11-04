@@ -546,6 +546,13 @@ TestCase {
         compare(tabs.signalArguments[0][0], "tab-1");
         compare(returns.count, 0);
         compare(serviceCard.count, 0);
+        // The hero never reads `undefined`: the card carries the domain, and
+        // without one the meta is Return alone (#756 A1).
+        child("entry-open-service").forceActiveFocus(); focused("entry-open-service");
+        compare(child("heroMeta").text, "Return");
+        home.openServices = [{id: "tab-1", title: "Page 1", domain: "video.example"}];
+        focused("entry-open-service");
+        compare(child("heroMeta").text, "video.example · Return");
         home.openServices = [{id: "replacement", title: "Another page"}];
         home.activate(home.continuePresentation[0].id);
         compare(tabs.signalArguments[1][0], "replacement");
@@ -770,8 +777,10 @@ TestCase {
     function test_hero_describes_the_focused_item() {
         home.continueEntries = [
             {id: "a", title: "Player", running: true},
-            {id: "film", title: "Film", kind: "media", positionUs: 4422e6, durationUs: 9960e6},
-            {id: "episode", title: "Show", subtitle: "S1 E4 · Pilot", kind: "media", positionUs: 0, durationUs: 2220e6},
+            {id: "film", title: "Film", kind: "media", mediaKind: "film", year: 2024,
+             positionUs: 4422e6, durationUs: 9960e6},
+            {id: "episode", title: "Show", subtitle: "Pilot", kind: "media", mediaKind: "series",
+             season: 1, episode: 4, positionUs: 0, durationUs: 2220e6},
             {id: "live", title: "Song", kind: "media", running: true, positionUs: 10e6, durationUs: 200e6}
         ];
         home.favoriteEntries = [
@@ -784,14 +793,18 @@ TestCase {
         verify(child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Player");
         compare(child("heroMeta").text, "Return");
+        // The eyebrow says what the item is, never the row label above it
+        // (Hearth light brief, Home; #756 C20).
         keyClick(Qt.Key_Right); focused("entry-film");
-        compare(child("heroEyebrow").text, "Continue");
+        compare(child("heroEyebrow").text, "Film · 2024");
         verify(!child("heroLiveDot").visible);
         compare(child("heroTitle").text, "Film");
         compare(child("heroMeta").text, "1:13:42 of 2:46:00 · 1 h 32 min left");
         keyClick(Qt.Key_Right); focused("entry-episode");
-        compare(child("heroMeta").text, "S1 E4 · Pilot · 37 min left");
+        compare(child("heroEyebrow").text, "Series · S1 E4");
+        compare(child("heroMeta").text, "Pilot · 37 min left");
         keyClick(Qt.Key_Right); focused("entry-live");
+        compare(child("heroEyebrow").text, "Playing");
         compare(child("heroMeta").text, "Playing");
         child("entry-f").forceActiveFocus(); focused("entry-f");
         compare(child("heroEyebrow").text, "Favorites · Online");
@@ -1188,6 +1201,45 @@ TestCase {
         compare(plateTitle.font.family, "Playfair Display");
         compare(plateTitle.font.weight, 600);
         compare(plateTitle.font.features["lnum"], 1);
+    }
+
+    // Over an Activity the floor takes its identity hue instead of switching
+    // off, and the near state darkens the header band and the bottom edge
+    // (owner decisions on #756, ADR-0140).
+    function test_floor_and_bands_over_an_activity() {
+        home.ambientEnabled = true;
+        home.continueEntries = [{id: "a", title: "Player", running: true}];
+        home.returnActivityId = "a";
+        home.activitySource = Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg");
+        home.ambientSuppressed = true;
+        const glow = child("ambientGlow");
+        verify(glow.lit);
+        verify(glow.floorTint.a > 0);
+        verify(Math.abs(glow.floorBaseHue - Ui.Theme.toOklch(Qt.tint(Ui.Theme.identityColor("a"), "transparent")).h) < 0.5);
+        child("entry-a").forceActiveFocus(); focused("entry-a");
+        tryCompare(home, "activityNear", true);
+        const background = child("activityBackground");
+        compare(findChild(background, "activityTopBand").visible, true);
+        compare(findChild(background, "activityBottomBand").visible, true);
+        home.ambientSuppressed = false;
+        compare(glow.floorTint.a, 0);
+    }
+
+    // An icon that never loads leaves no empty square on the shelf; one that
+    // loads gets its chip (D-10, #756 C18).
+    function test_shelf_chip_only_for_a_loaded_icon() {
+        home.favoriteEntries = [
+            {id: "missing", title: "Missing", iconSource: Qt.resolvedUrl("does-not-exist.png")},
+            {id: "loaded", title: "Loaded", iconSource: Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg")}
+        ];
+        const missing = child("entry-missing");
+        const loaded = child("entry-loaded");
+        tryCompare(loaded, "iconReady", true);
+        compare(findChild(loaded, "applicationChip").visible, true);
+        wait(50);
+        compare(missing.iconReady, false);
+        compare(findChild(missing, "applicationChip").visible, false);
+        compare(findChild(missing, "tileTitle").x, 16);
     }
 
     function test_navigation_is_a_full_height_edge_panel() {

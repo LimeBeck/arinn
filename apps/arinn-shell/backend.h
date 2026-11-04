@@ -48,6 +48,8 @@ class Backend : public QObject {
   // Other launches keep running behind it, one per application.
   Q_PROPERTY(bool launchActive READ launchActive NOTIFY changed)
   Q_PROPERTY(QString launchTitle READ launchTitle NOTIFY changed)
+  // The application's icon on the launch overlay, empty for none (#756 C19).
+  Q_PROPERTY(QString launchIcon READ launchIcon NOTIFY changed)
   Q_PROPERTY(bool launchCancellable READ launchCancellable NOTIFY changed)
   Q_PROPERTY(QString launchError READ launchError NOTIFY changed)
   // Cancel is confirmed but the processes are still exiting (ADR-0110).
@@ -106,6 +108,10 @@ public:
   QString launchTitle() const {
     const auto *launch = shownLaunch();
     return launch ? launch->title : QString();
+  }
+  QString launchIcon() const {
+    const auto *launch = shownLaunch();
+    return launch ? launch->icon : QString();
   }
   bool launchCancellable() const {
     const auto *launch = shownLaunch();
@@ -195,7 +201,7 @@ private:
   // One record per application ID with a launch in flight or a failure not
   // dismissed yet; m_shownLaunch is the one the overlay shows (§6.5).
   struct Launch {
-    QString id, title, operation, error;
+    QString id, title, icon, operation, error;
     bool cancellable = false, cancelling = false;
     // The provider did not confirm the stop in time (Timeout): the processes
     // are still exiting, and the operation ends when they are gone.

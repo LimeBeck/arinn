@@ -119,7 +119,10 @@ in-process image key, not a transport file. No PNG encoding runs in the composit
 same contract with platform-owned native capture; it is separate implementation
 work and cannot substitute a desktop/root capture for the selected window.
 Near/far rendering remains .95/.90 scale, blur 8/36 and .6/.32 brightness through
-the shell's own rendering, preserving the accepted visual contract.
+the shell's own rendering, preserving the accepted visual contract. Near adds dark
+gradient bands over the top 180 px and the bottom 140 px, so the application's own
+controls stay under Home's header and lowest row, and the hearth floor takes the
+Activity's identity hue ([ADR-0140](../adr/0140-tv-review-visual-decisions.md)).
 
 ## Budgets and verification obligations
 

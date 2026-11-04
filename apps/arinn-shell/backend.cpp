@@ -819,13 +819,26 @@ void Backend::finishCatalog(const std::shared_ptr<Catalog> &catalog,
   for (auto &value : m_applications) {
     auto app = value.toMap();
     QVariantList matches;
-    for (const auto &running : m_items) {
-      const auto row = running.toMap();
-      if (row.value("providerId") == app.value("providerId") &&
-          row.value("applicationId") == app.value("localId") &&
-          row.value("terminable").toBool())
+    bool running = false;
+    for (auto &item : m_items) {
+      auto row = item.toMap();
+      if (row.value("providerId") != app.value("providerId") ||
+          row.value("applicationId") != app.value("localId"))
+        continue;
+      running = true;
+      // A window shows its application's icon and identity, never a bare
+      // letter of its own (#756 A3).
+      row.insert("iconSource", app.value("iconSource"));
+      row.insert("visualIdentity", app.value("visualIdentity"));
+      row.insert("monogram", app.value("monogram"));
+      if (row.value("title").toString().isEmpty())
+        row.insert("title", app.value("title"));
+      item = row;
+      if (row.value("terminable").toBool())
         matches.append(row);
     }
+    // The tile's running dot (#756 A3); Close needs exactly one window.
+    app["running"] = running;
     if (matches.size() == 1)
       app["runningId"] = matches.first().toMap().value("id");
     value = app;
@@ -1007,6 +1020,7 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
     Launch launch;
     launch.id = id;
     launch.title = selected.value("title").toString();
+    launch.icon = selected.value("iconSource").toUrl().toString();
     launch.started = QDateTime::currentMSecsSinceEpoch();
     m_launches.insert(id, launch);
     showLaunch(id);
@@ -1207,8 +1221,12 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
     return;
   const auto epoch = m_connectionEpoch;
   m_pendingIds.insert(id);
-  m_message = tr("Working…");
-  m_connectionBanner = false;
+  // A launch already has its overlay; a toast would be a third progress
+  // indicator (#756 C19).
+  if (!m_launches.contains(id)) {
+    m_message = tr("Working…");
+    m_connectionBanner = false;
+  }
   publishState();
   auto pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(msg, 3000), this);

@@ -153,8 +153,10 @@ TestCase {
         tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-1"), "transparent"));
         home.currentServiceId = "tab-2";
         tryCompare(glow, "tint", Qt.tint(Ui.Theme.identityColor("tab-2"), "transparent"));
+        // Over an Activity the light stays on; its floor takes the
+        // Activity's hue (ADR-0140, amending ADR-0027).
         home.ambientSuppressed = true;
-        verify(!glow.lit);
+        verify(glow.lit);
         home.ambientSuppressed = false;
         home.ambientEnabled = false;
         verify(!glow.lit);

@@ -80,8 +80,13 @@ Item {
     readonly property string period: Theme.period
     readonly property real lightScale: period === "night" ? 0.6 : period === "evening" ? 0.85 : 1
     readonly property real veilAmount: period === "night" ? 0.22 : period === "evening" ? 0.06 : 0
+    // Identity colour of the Activity behind Home; transparent keeps the
+    // warm hearth. Over an Activity the floor takes the application's hue
+    // (owner decision on #756, ADR-0140).
+    property color floorTint: "transparent"
+    readonly property real floorBaseHue: floorTint.a > 0 ? toOklch(floorTint).h : floorHueDay
     // Warmer is a lower hue: evening −5°, night −8°.
-    readonly property real floorHue: floorHueDay - (period === "night" ? 8 : period === "evening" ? 5 : 0)
+    readonly property real floorHue: floorBaseHue - (period === "night" ? 8 : period === "evening" ? 5 : 0)
 
     // 1 at hue 240°, 0 once the hue is 70° or more away. Chroma falls from
     // 0.10 to 0.065 across that span (brief, *Colour*).

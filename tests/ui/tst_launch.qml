@@ -74,7 +74,11 @@ TestCase {
         compare(monogram.text, "E");
         compare(child("launchChip").width, 180);
         compare(child("launchChip").height, 180);
-        compare(child("launchGlow").visible, true);
+        // A neutral chip, never a hashed pastel or a centred colour glow
+        // (#756 C19).
+        verify(Qt.colorEqual(child("launchChip").color, Ui.Theme.chip));
+        compare(findChild(overlay, "launchGlow"), null);
+        compare(child("launchIcon").visible, false);
         compare(child("launchBackdrop").opacity, 0.92);
         overlay.serviceTitle = "  Game";
         compare(monogram.text, "G");
@@ -83,6 +87,18 @@ TestCase {
         compare(monogram.visible, true);
         overlay.failure = "Unavailable";
         compare(monogram.visible, false);
+    }
+
+    // The application's own icon replaces the letter (#756 C19).
+    function test_application_icon_replaces_the_letter() {
+        overlay.revealDelay = 600000;
+        overlay.kind = "application";
+        overlay.active = true;
+        overlay.revealed = true;
+        overlay.iconSource = Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg");
+        tryCompare(child("launchIcon"), "visible", true);
+        compare(child("launchMonogram").visible, false);
+        verify(!Qt.colorEqual(child("launchChip").color, Ui.Theme.chip));
     }
 
     function test_slow_message_and_cancel() {

@@ -92,6 +92,28 @@ QString letterOf(const QString &text) {
   }
   return host.isEmpty() ? QString() : host.left(1).toUpper();
 }
+// A page title without the site name that pages append after a separator
+// ("Episode 4 — Site", "Page | Site"). Only a short last part goes, and
+// only when something remains; no site is named here (R-01, #756 B14).
+QString pageTitle(const QString &title) {
+  const auto text = title.trimmed();
+  qsizetype cut = -1, width = 0;
+  for (const auto separator :
+       {QStringLiteral(" — "), QStringLiteral(" – "), QStringLiteral(" | "),
+        QStringLiteral(" - ")}) {
+    const auto at = text.lastIndexOf(separator);
+    if (at > cut) {
+      cut = at;
+      width = separator.size();
+    }
+  }
+  if (cut <= 0)
+    return text;
+  const auto tail = text.mid(cut + width).trimmed();
+  if (tail.isEmpty() || tail.size() > 32)
+    return text;
+  return text.left(cut).trimmed();
+}
 } // namespace
 struct BrowserCatalog::Catalog {
   quint64 epoch = 0, evidenceVersion = 0;
@@ -638,7 +660,7 @@ void BrowserCatalog::readShortcuts(quint64 epoch) {
                 const auto token = originToken(origin);
                 if (!token.isEmpty())
                   confirmed.insert(token);
-                origins.append(ShortcutOrigin{id, icon, origin.scheme,
+                origins.append(ShortcutOrigin{id, title, icon, origin.scheme,
                                               origin.host, origin.port,
                                               origin.ok});
                 shortcuts.append(QVariantMap{{"id", id}, {"title", title}});
@@ -1010,12 +1032,14 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     const auto origin = originOf(url);
     QString icon;
     QString shortcutId;
+    QString shortcutTitle;
     if (origin.ok) {
       for (const auto &shortcut : m_origins) {
         if (!shortcut.ok || shortcut.scheme != origin.scheme ||
             shortcut.host != origin.host || shortcut.port != origin.port)
           continue;
         shortcutId = shortcut.id;
+        shortcutTitle = shortcut.title.trimmed();
         if (!shortcut.icon.isEmpty())
           icon = shortcut.icon;
         break;
@@ -1023,6 +1047,13 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
     }
     map.insert(QStringLiteral("letter"), letterOf(url));
     map.insert(QStringLiteral("domain"), displayHost(url));
+    // What Home calls this service: the shortcut's name, else the page
+    // title without its site suffix, else the host (#756 B14).
+    const auto cleaned = pageTitle(map.value(QStringLiteral("title")).toString());
+    map.insert(QStringLiteral("serviceTitle"),
+               !shortcutTitle.isEmpty() ? shortcutTitle
+               : !cleaned.isEmpty()     ? cleaned
+                                        : displayHost(url));
     if (icon.isEmpty())
       map.remove(QStringLiteral("icon"));
     else
@@ -1036,10 +1067,9 @@ void BrowserCatalog::presentTabs(QVariantList tabs) {
       openIds.append(shortcutId);
     if (current.isEmpty() && windowId == onScreen && active) {
       const auto domain = map.value(QStringLiteral("domain")).toString();
-      const auto title = map.value(QStringLiteral("title")).toString();
       current = QVariantMap{
           {QStringLiteral("id"), map.value(QStringLiteral("id"))},
-          {QStringLiteral("title"), title.isEmpty() ? domain : title},
+          {QStringLiteral("title"), map.value(QStringLiteral("serviceTitle"))},
           {QStringLiteral("subtitle"),
            domain.isEmpty() ? tr("Return")
                             : tr("%1 · Return").arg(domain)}};

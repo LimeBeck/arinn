@@ -342,21 +342,41 @@ pub fn apply_nfo(parsed: &mut Parsed, nfo: &Nfo) {
     }
 }
 
-pub fn artwork(root: &Path, directory: &Path, stem: &str) -> (Option<PathBuf>, Option<PathBuf>) {
-    (
-        find_art(
-            root,
-            directory,
-            stem,
+/// The poster and fanart of a film, an episode or a series folder (`stem`
+/// `*`). An episode takes only images named after its own file
+/// (`<stem>-thumb`, `<stem>-poster`, `<stem>-fanart`): a folder-wide
+/// `poster.jpg` is the series or season image, and taking it would repeat
+/// that image on every episode card (#756 C22).
+pub fn artwork(
+    root: &Path,
+    directory: &Path,
+    stem: &str,
+    episode: bool,
+) -> (Option<PathBuf>, Option<PathBuf>) {
+    let (poster_named, poster_plain): (&[&str], &[&str]) = if episode {
+        (
+            &["-thumb.jpg", "-thumb.png", "-poster.jpg", "-poster.png"],
+            &[],
+        )
+    } else {
+        (
             &["-poster.jpg", "-poster.png"],
             &["poster.jpg", "poster.png", "folder.jpg", "cover.jpg"],
-        ),
+        )
+    };
+    let fanart_plain: &[&str] = if episode {
+        &[]
+    } else {
+        &["fanart.jpg", "fanart.png", "backdrop.jpg", "backdrop.png"]
+    };
+    (
+        find_art(root, directory, stem, poster_named, poster_plain),
         find_art(
             root,
             directory,
             stem,
             &["-fanart.jpg", "-fanart.png"],
-            &["fanart.jpg", "fanart.png", "backdrop.jpg", "backdrop.png"],
+            fanart_plain,
         ),
     )
 }

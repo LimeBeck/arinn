@@ -1,0 +1,1 @@
+- An application started from Arinn now opens full screen as Home hides; a browser opened as an application still opens as an ordinary window with its own UI ([#758](https://github.com/LimeBeck/arinn/issues/758), [ADR-0138](docs/adr/0138-launched-applications-go-full-screen.md)).

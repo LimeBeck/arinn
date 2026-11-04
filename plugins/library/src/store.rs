@@ -372,6 +372,7 @@ impl Store {
             root,
             relative: source.1,
             series: source.2 == "series",
+            episode: source.2 == "episode",
             poster: source.3 == id,
         })
     }
@@ -1692,7 +1693,8 @@ fn disk_file(root: &Path, path: &Path, rules: &Rules) -> Result<Option<DiskFile>
         .and_then(|stem| stem.to_str())
         .unwrap_or_default();
     let directory = path.parent().unwrap_or(root);
-    let (poster, fanart) = parse::artwork(root, directory, stem);
+    let episode = parsed.kind == parse::Kind::Episode;
+    let (poster, fanart) = parse::artwork(root, directory, stem, episode);
     Ok(Some(DiskFile {
         rel,
         absolute: path.to_path_buf(),
@@ -1964,7 +1966,7 @@ fn link_series(
                     series.year = year;
                 }
             }
-            let (poster, fanart) = parse::artwork(root, &root.join(metadata_dir), "*");
+            let (poster, fanart) = parse::artwork(root, &root.join(metadata_dir), "*", false);
             series.poster_id = art_id(poster.is_some(), &series.poster_id);
             series.fanart_id = art_id(fanart.is_some(), &series.fanart_id);
         } else if key.starts_with("name:") {

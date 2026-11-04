@@ -20,7 +20,8 @@ by a filesystem import (`tests/ui/tst_downloads.qml`). It reuses `Theme`,
 `UiText`, `LogicalCanvas`, `ContentCard`, `ProgressTrack`, `ActionButton`,
 `Skeleton` and `StatusPane` from `apps/arinn-shell/ui`. Those types are not
 modified. The row's artwork slot is the screen-local `QueueArtwork`
-([Summary and artwork](#summary-and-artwork)).
+([Summary and artwork](#summary-and-artwork)); the status icons are
+`LineIcon` names ([Rows](#rows)).
 
 QML knows job states and action names (`pause`, `resume`, `start_now`, `retry`)
 and the import marker `imported`. It does not know product names, protocols or
@@ -35,6 +36,7 @@ not emit an intent for it.
 | `viewState` | `populated`, `empty`, `loading`, `error`, `unavailable` |
 | `jobs` | Array of `{id, title, subtitle, state, progress, statusText, errorText, availableActions, importState, artwork, busy, enabled}` |
 | `summaryText`, `statusTitle`, `statusDescription` | Optional copy. Empty values use generic English fallbacks; see [Summary and artwork](#summary-and-artwork) for the summary |
+| `transferRate` | The worded combined rate of the active downloads ("32 MB/s"), appended to the summary; the shell binds `DownloadCatalog.rateText` |
 | `pointerMode` | Set when the pointer moves; cleared on an arrow key |
 | `toastMessage` | Set when a job already on screen changes `importState` to `imported`, or by `showToast(message)` |
 | `toastQueue` | Notices that arrived while another was shown or while the screen was hidden; each is shown in turn for `toastDurationMs` once the screen is on display. A notice cut short by leaving is shown again on return |
@@ -57,7 +59,7 @@ line under the title is:
 
 | Queue | Summary |
 | --- | --- |
-| At least one row `downloading` | "N downloading" (N counts those rows) |
+| At least one row `downloading` | "N downloading", followed by " · " and `transferRate` when it is set (handoff 12) |
 | Every row `completed`, imported or not | "N done" |
 | Anything else (queued, paused, verifying or failed rows, nothing downloading) | Hidden |
 | `empty`, `loading`, `error`, `unavailable` | Hidden; the state's own pane is shown |
@@ -66,12 +68,38 @@ A hidden summary keeps its line, so the rows do not move when it appears.
 Both strings are plural forms (`%n`) with Russian translations in
 `apps/arinn-shell/i18n`.
 
-The artwork slot (214 × 120, 18 px corners, handoff 13) draws the job's
+The artwork slot (214 × 120, 18 px corners, handoff 12) draws the job's
 `artwork` cropped to the slot. Without artwork, or until it loads, the slot
-shows the handoff's striped queue plate (10 px bands at 135° under a sheen
-at 155°) in neutral grey. The colours are screen-local constants, not theme
-tokens. The slot has no monogram chip and invents no artwork. A row's
-`artworkReady` and its plate's `showsArtwork` report what is drawn.
+is a title card, as a missing poster is on Home and in the Library (Hearth
+light brief; [#756](https://github.com/LimeBeck/arinn/issues/756) B12): the
+job's title in the content face (Playfair Display 600, 22) on a Charcoal
+gradient (`Theme.background` to `Theme.chip`). The prototype's striped plate
+is gone. The slot has no monogram chip and invents no artwork. A row's
+`artworkReady`, its plate's `showsArtwork` and the `titleCard` visibility
+report what is drawn.
+
+The title is the provider's title as delivered. The shell does not clean
+release names and does not substitute the library title (owner decision on
+[#761](https://github.com/LimeBeck/arinn/issues/761), 2026-11-04).
+
+## Rows
+
+The status line starts with a 30 px state icon (handoff 12). Ember marks
+only a finished import and the progress bar:
+
+| State | Icon | Colour |
+| --- | --- | --- |
+| `downloading`, `verifying` | `downloading` | `text-2` |
+| `queued` | `schedule` | `text-3` |
+| `paused` | `pause_circle` | `text-3` |
+| `completed`, imported | `check_circle` | Ember |
+| `completed`, any other import state | `check_circle` | `text-2` |
+| `error` | `error` | error |
+| `unsupported` | none | `text-2` |
+
+The action pill is shown on the focused row only and is not focusable: the
+row takes OK. Watch is the white primary pill with ink text; Pause,
+Resume, Start now and Retry keep the action plate.
 
 In the shell, `Main.qml` sets `artwork` only for an imported row: the first
 library ref (`DownloadCatalog.watchTarget`, the id Watch uses) goes to
@@ -89,7 +117,8 @@ provider call of its own.
 
 `pauseRequested(id)`, `resumeRequested(id)`, `startNowRequested(id)`,
 `retryRequested(id)`, `watchRequested(id)`, `refreshRequested()` for the
-error and unavailable Retry control, and `backRequested()` when the focused
+error and unavailable Retry control, `navigationRequested()` on Left, and
+`backRequested()` when the focused
 item receives Escape, Backspace or the remote Back key. Back does not change
 `jobs`, `viewState` or focus; the parent decides where it leads. Nothing in
 the view applies action intents to the `jobs` array. A completion toast is
@@ -102,7 +131,10 @@ for `hoverSuppressMs` (500). Both durations are named constants in
 ## Focus
 
 The view is its own focus scope. Up and Down move between rows and stop at the
-ends. Left and Right stay on the current row. Tab wraps inside the queue.
+ends. Right stays on the current row. Left emits `navigationRequested()`:
+nothing lies further left, and the handoff opens navigation there
+([#756](https://github.com/LimeBeck/arinn/issues/756) A8); focus stays on the
+row. Tab wraps inside the queue.
 Error and unavailable keep D-pad focus on Retry. Loading shows four `Skeleton`
 rows and does not offer an action. Empty uses `StatusPane` without an action.
 After a focused id disappears, focus moves to the previous index. Reordering
@@ -190,18 +222,38 @@ Watch calls `watchTarget(id)`, the first library ref of an imported download.
 the episode's series. Main then opens the library on that entry's Detail. When the library catalog
 does not list the item yet, Main switches to the library, asks the catalog to
 read again, and opens the Detail once a later read lists it. Leaving the
-library drops that request. Back
-from the screen returns Home.
+library drops that request. Main sets `libraryDetailFromDownloads` on Watch:
+Back from that Detail, or from the library while the Detail is still
+pending, returns to Downloads on the row that opened it
+([#756](https://github.com/LimeBeck/arinn/issues/756) A7). Leaving the library
+any other way clears the flag. Back from the screen returns Home, and Left
+opens navigation.
+
+`rateText` sums the `rate` of the `downloading` rows (saturating) and words
+it with the same units as the row subtitle ("3.1 MB/s"), or is empty.
 
 ## Known presentation gaps
 
 `ProgressTrack` always fills with the shared progress colour, including while
-paused. Watch uses the shared `ActionButton` focus treatment. The summary sits
-under the title rather than beside it, and carries no transfer rate. The
-artwork is not dimmed on unfocused rows as in the handoff. Full handoff fidelity,
+paused (the handoff draws a white 40 % bar). The summary sits under the title
+rather than beside it. The artwork is not dimmed on unfocused rows as in the
+handoff. Full handoff fidelity,
 3-metre TV review and AC-17 are not claimed.
 
 ## Verification
+
+TV design review fixes ([#761](https://github.com/LimeBeck/arinn/issues/761),
+#756 B12, A7, A8):
+
+- `ui-components`, `Downloads::` cases `test_state_icons_and_colours`,
+  `test_watch_is_the_white_primary_pill`, `test_summary_carries_the_rate`,
+  `test_left_asks_for_navigation`, and `test_artwork_poster_and_placeholder`
+  (now the title card). Each fails on the previous view.
+- `download-catalog`: `statesAndPresentation` checks `rateText`.
+- `library-catalog`: `downloadsScreenWatchesTheImportedFilm` presses Back on
+  the Detail Watch opened and checks that Downloads is shown with the same
+  row focused, and that Left opens navigation there.
+- The TV re-check was not done.
 
 Summary and artwork (#360), local run on 2026-10-21, Qt 6.10.2 (dev container, Ubuntu 26.04), offscreen,
 software backend:

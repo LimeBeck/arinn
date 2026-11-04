@@ -291,6 +291,23 @@ TestCase {
         compare(flow.target.id, "w1");
         compare(child(flow, "closeFlowTitle").text, "Northwind did not close");
     }
+    // Review of #777: two windows that go in one update each get their
+    // toast; an id the provider lists again is no longer a closed one.
+    function test_close_flow_toasts_queue_and_reused_ids() {
+        flow = createTemporaryObject(flowFactory, suite, {windows: [
+            {id: "w1", title: "Northwind", terminable: true},
+            {id: "w2", title: "Harbor", terminable: true}]});
+        flow.ask("w1"); flow.confirm();
+        flow.ask("w2"); flow.confirm();
+        compare(flow.closingIds, ["w1", "w2"]);
+        flow.windows = [];
+        compare(flow.closedIds, ["w1", "w2"]);
+        compare(child(flow, "closeFlowToastText").text, "Northwind closed");
+        tryCompare(child(flow, "closeFlowToastText"), "text", "Harbor closed", 4000);
+        tryCompare(flow, "toastMessage", "", 4000);
+        flow.windows = [{id: "w1", title: "New window", terminable: true}];
+        compare(flow.closedIds, ["w2"]);
+    }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);
         const switches = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "switchRequested"});

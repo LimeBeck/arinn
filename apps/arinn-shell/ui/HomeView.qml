@@ -720,10 +720,17 @@ FocusScope {
     onActivityWindowIdChanged: if (activityWindowId.length) lastActivityWindowId = activityWindowId
     onReturnActivityIdChanged: {
         // A window the close flow is closing gets its own "closed" toast.
-        if (!returnActivityId && closedWindowIds.indexOf(lastActivityWindowId) < 0) {
-            activityNotice.visible = true;
-            noticeTimer.restart();
+        if (!returnActivityId) {
+            if (closedWindowIds.indexOf(lastActivityWindowId) < 0) {
+                activityNotice.visible = true;
+                noticeTimer.restart();
+            }
+            return;
         }
+        // A new Return target remembers its own window, or none for a
+        // browser activity, so a closed application's id is not carried
+        // over to it (review of #777).
+        lastActivityWindowId = activityWindowId;
     }
     Component.onCompleted: Qt.callLater(restoreScreen)
     Timer { id: hoverDelay; interval: 500 }

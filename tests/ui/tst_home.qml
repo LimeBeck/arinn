@@ -1418,6 +1418,17 @@ TestCase {
         verify(findChild(home, "entry-close:w-b") === null);
         home.returnActivityId = "";
         verify(child("activityNotice").visible);
+        child("activityNotice").visible = false;
+        // Return moves on to a browser activity after the closed window:
+        // its disappearance still gets the notice.
+        home.returnActivityId = "a";
+        home.activityTerminable = true;
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-a"];
+        home.activityWindowId = "";
+        home.returnActivityId = "tab";
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
     }
 
     // #756 C17: the page under the navigation is darkened, not made

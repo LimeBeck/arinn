@@ -149,6 +149,10 @@ FocusScope {
         // a request stays pending until a trusted snapshot settles it
         // (review of #777).
         if (!windowsKnown) return;
+        // An id the provider lists again is a new window: its own
+        // disappearance is not the one asked for (review of #777).
+        if (closedIds.some(id => listed.indexOf(id) >= 0))
+            closedIds = closedIds.filter(id => listed.indexOf(id) < 0);
         for (const id of closingIds.slice()) {
             if (listed.indexOf(id) < 0) {
                 const title = (target.id === id && target.title) || titles[id] || "";
@@ -180,12 +184,25 @@ FocusScope {
     }
     onWindowsChanged: check()
     onWindowsKnownChanged: check()
+    // Toasts waiting while another one shows: two windows that go in one
+    // update each get their own (review of #777).
+    property var toastQueue: []
     function showToast(message) {
+        if (toastMessage.length > 0 && toastTimer.running) {
+            toastQueue = toastQueue.concat([message]);
+            return;
+        }
         toastMessage = message;
         toastTimer.restart();
     }
+    function nextToast() {
+        if (!toastQueue.length) { toastMessage = ""; return; }
+        toastMessage = toastQueue[0];
+        toastQueue = toastQueue.slice(1);
+        toastTimer.restart();
+    }
     Timer { id: waitTimer; interval: 500; repeat: true; onTriggered: root.check() }
-    Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.toastMessage = "" }
+    Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.nextToast() }
 
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Home) {

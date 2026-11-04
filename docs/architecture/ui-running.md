@@ -88,8 +88,12 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   `closingIds` until it leaves `Backend.items`. Rows and the Continue Close
   button show it. On the Running screen focus moves on to the next row at once.
 - **Closed** (CL-10, CL-16). When the window leaves the list, the toast
-  "{name} closed" shows for 2.6 s. Home's "Activity is no longer available"
-  notice is not shown for a window the flow is closing.
+  "{name} closed" shows for 2.6 s; windows that go together get their toasts
+  one after another. Home's "Activity is no longer available" notice is not
+  shown for a window the flow is closing or closed on request. That holds only
+  for the Return target the window belonged to: a new target, such as a
+  browser activity, starts without it. An id the provider lists again is a new
+  window and loses the mark.
 - **Did not close** (CL-11). This happens when `Backend.operationFinished`
   reports the terminate as anything but succeeded or cancelled, or when the
   window is still listed `closeWaitMs` (10 s) after the request. An

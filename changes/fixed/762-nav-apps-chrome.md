@@ -1,0 +1,3 @@
+- The page under the navigation is blurred and darkened instead of shown through it, and the Power dialog's scrim no longer hides the screen behind it; Power and Quick menu rows use the container focus treatment ([#762](https://github.com/LimeBeck/arinn/issues/762)).
+- Applications keeps every focused control on screen, fades its title and rows out under the header instead of scrolling them under the lockup, centres the *Add application* pill and fades rows out at the screen edge ([#740](https://github.com/LimeBeck/arinn/issues/740), [#762](https://github.com/LimeBeck/arinn/issues/762)).
+- Library, Settings, Downloads and Open services show Home's status area: network, mute, downloads and the clock ([#762](https://github.com/LimeBeck/arinn/issues/762)).

@@ -301,7 +301,8 @@ TestCase {
         verify(view);
         view.forceActiveFocus();
         tryCompare(view, "activeFocus", true);
-        const targets = ["timeline", "subtitles", "audio", "more"];
+        // The More pill is gone; play/pause leads the row (#756 C21).
+        const targets = ["timeline", "playpause", "subtitles", "audio"];
         const reached = new Set(["timeline"]);
         const queue = ["timeline"];
         while (queue.length) {

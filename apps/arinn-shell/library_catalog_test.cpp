@@ -2715,6 +2715,28 @@ private slots:
     QVERIFY(catalog.artworkFor(provider, QStringLiteral("missing")).isEmpty());
     QVERIFY(catalog.artworkFor(QStringLiteral("other"), QStringLiteral("north")).isEmpty());
   }
+  // #756 B11: the player names the library entry, not the file: a film by
+  // its title, an episode by its series and "S1 E2 · Episode".
+  void titleForNamesTheFilmOrTheSeriesAndEpisode() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")},
+                          {QStringLiteral("shows"), QStringLiteral("Series"),
+                           QStringLiteral("series")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North")), showItem(),
+                    episodeItem(QStringLiteral("ep2"), QStringLiteral("Second"), 1, 2)};
+    QVERIFY(registerBus(daemon));
+    LibraryCatalog catalog;
+    QTRY_COMPARE(catalog.libraryState(), QStringLiteral("ready"));
+    const auto provider = QStringLiteral("library-provider");
+    const auto north = catalog.titleFor(provider, QStringLiteral("north"));
+    QCOMPARE(north.value(QStringLiteral("title")).toString(), QStringLiteral("North"));
+    QVERIFY(!north.contains(QStringLiteral("episodeLine")));
+    const auto episode = catalog.titleFor(provider, QStringLiteral("ep2"));
+    QCOMPARE(episode.value(QStringLiteral("title")).toString(), QStringLiteral("Serial"));
+    QCOMPARE(episode.value(QStringLiteral("episodeLine")).toString(), QStringLiteral("S1 E2 · Second"));
+    QVERIFY(catalog.titleFor(provider, QStringLiteral("missing")).isEmpty());
+  }
   // #360: Downloads shows the poster of the entry Watch opens.
   void posterForUsesTheTopLevelEntrysPoster() {
     LibraryDaemon daemon;

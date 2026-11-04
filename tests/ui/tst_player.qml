@@ -39,6 +39,8 @@ TestCase {
     SignalSpy { id: subtitlePicks; signalName: "selectSubtitle" }
     SignalSpy { id: stops; signalName: "stop" }
     SignalSpy { id: leaves; signalName: "leave" }
+    SignalSpy { id: previouses; signalName: "previous" }
+    SignalSpy { id: nexts; signalName: "next" }
 
     function child(name) {
         const item = findChild(player, name)
@@ -68,6 +70,7 @@ TestCase {
         verify(player)
         arm(plays); arm(pauses); arm(seeks)
         arm(audioPicks); arm(subtitlePicks); arm(stops); arm(leaves)
+        arm(previouses); arm(nexts)
         player.forceActiveFocus()
         tryCompare(player, "activeFocus", true)
     }
@@ -78,6 +81,8 @@ TestCase {
         audioPicks.target = null
         subtitlePicks.target = null
         stops.target = null
+        previouses.target = null
+        nexts.target = null
         leaves.target = null
     }
 
@@ -95,7 +100,10 @@ TestCase {
         compare(child("thumbnailLabel").text.length, 9)
         compare(child("subtitlePillLabel").text, "Subtitles · Notes")
         compare(child("audioPillLabel").text, "Audio · One")
-        compare(child("morePillLabel").text, "More")
+        // No More pill: the OSD row is play/pause, previous, next and the
+        // track chips (#756 A5, C21).
+        compare(findChild(player, "morePill"), null)
+        compare(child("playpauseButton").visible, true)
         const surface = child("playbackSurface")
         const title = child("titleLabel").mapToItem(surface, 0, 0)
         verify(Math.abs(title.x - 120) < 2)
@@ -123,13 +131,15 @@ TestCase {
         compare(child("videoLabel").visible, true)
         compare(child("subtitlePill").color, Ui.Theme.plate)
         compare(child("audioPill").color, Ui.Theme.plate)
-        compare(child("morePill").color, Ui.Theme.plate)
+        compare(child("playpauseButton").color, Ui.Theme.plate)
+        // Focus is the white fill with ink (#756 C21).
         player.osdFocus = "audio"
-        compare(child("audioPill").color, Ui.Theme.plateFocus)
+        compare(child("audioPill").color, Ui.Theme.textPrimary)
+        compare(child("audioPillLabel").color, Ui.Theme.ink)
         compare(child("subtitlePill").color, Ui.Theme.plate)
         player.sheetKind = "subtitles"
         compare(child("trackSheet").visible, true)
-        compare(child("sheetRow").color, Ui.Theme.plateFocus)
+        compare(child("sheetRow").color, Ui.Theme.textPrimary)
         player.pictureStandIn = false
         compare(child("pictureStandIn").color, "#00000000")
         compare(child("videoLabel").visible, false)
@@ -248,8 +258,10 @@ TestCase {
 
     function test_track_intents_need_ok() {
         keyClick(Qt.Key_Down)
-        compare(player.osdFocus, "subtitles")
+        compare(player.osdFocus, "playpause")
         compare(child("timelineKnob").visible, false)
+        keyClick(Qt.Key_Right)
+        compare(player.osdFocus, "subtitles")
         keyClick(Qt.Key_Right)
         compare(player.osdFocus, "audio")
         compare(seeks.count, 0)
@@ -289,6 +301,32 @@ TestCase {
         compare(seeks.count, 0)
     }
 
+    // Play/pause, previous and next are round buttons on the OSD row; OK on
+    // each acts at once (Hearth light brief, *Player OSD*; #756 A5, C21).
+    function test_transport_buttons() {
+        player.canPrevious = true
+        player.canNext = true
+        keyClick(Qt.Key_Down)
+        compare(player.osdFocus, "playpause")
+        compare(child("playpauseButton").color, Ui.Theme.textPrimary)
+        const toggles = plays.count + pauses.count
+        keyClick(Qt.Key_Return)
+        compare(plays.count + pauses.count, toggles + 1)
+        keyClick(Qt.Key_Right)
+        compare(player.osdFocus, "previous")
+        keyClick(Qt.Key_Return)
+        compare(previouses.count, 1)
+        keyClick(Qt.Key_Right)
+        compare(player.osdFocus, "next")
+        keyClick(Qt.Key_Return)
+        compare(nexts.count, 1)
+        keyClick(Qt.Key_Right)
+        compare(player.osdFocus, "subtitles")
+        player.canNext = false
+        compare(child("nextButton").visible, false)
+        compare(seeks.count, 0)
+    }
+
     function test_missing_tracks_are_unavailable() {
         player.audioTracks = []
         player.subtitleTracks = []
@@ -299,6 +337,8 @@ TestCase {
         compare(child("audioPillLabel").text, "Audio unavailable")
         compare(child("subtitlePillLabel").text, "Subtitles unavailable")
         keyClick(Qt.Key_Down)
+        compare(player.osdFocus, "playpause")
+        keyClick(Qt.Key_Right)
         compare(player.osdFocus, "subtitles")
         keyClick(Qt.Key_Return)
         compare(player.sheetKind, "")
@@ -413,19 +453,17 @@ TestCase {
         player.buffered = 20
         compare(child("subtitlePill").visible, false)
         compare(child("audioPill").visible, false)
-        compare(child("morePill").visible, true)
+        compare(child("playpauseButton").visible, true)
         compare(child("timelineThumb").visible, true)
         compare(player.chapterCount, 2)
         keyClick(Qt.Key_Down)
-        compare(player.osdFocus, "more")
-        compare(player.sheetKind, "")
-        keyClick(Qt.Key_Return)
+        compare(player.osdFocus, "playpause")
         compare(player.sheetKind, "")
         compare(audioPicks.count, 0)
         compare(subtitlePicks.count, 0)
         keyClick(Qt.Key_Left)
         compare(seeks.count, 0)
-        compare(player.osdFocus, "more")
+        compare(player.osdFocus, "playpause")
         keyClick(Qt.Key_Up)
         compare(player.osdFocus, "timeline")
         keyClick(Qt.Key_Right)

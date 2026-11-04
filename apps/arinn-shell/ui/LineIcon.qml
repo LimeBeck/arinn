@@ -36,6 +36,16 @@ Canvas {
             ctx.moveTo(7,4);ctx.lineTo(20,12);ctx.lineTo(7,20);ctx.closePath();ctx.fill();break;
         case "pause":
             ctx.rect(6,4,4,16);ctx.rect(14,4,4,16);ctx.fill();break;
+        case "check":
+            ctx.lineWidth = 2.5;
+            ctx.moveTo(5, 12.5); ctx.lineTo(10, 17.5); ctx.lineTo(19.5, 7);
+            ctx.stroke();
+            break;
+        // Player OSD previous / next (Hearth light brief, *Player OSD*).
+        case "skip_previous":
+            ctx.rect(5,5,3,14);ctx.moveTo(19,5);ctx.lineTo(9,12);ctx.lineTo(19,19);ctx.closePath();ctx.fill();break;
+        case "skip_next":
+            ctx.rect(16,5,3,14);ctx.moveTo(5,5);ctx.lineTo(15,12);ctx.lineTo(5,19);ctx.closePath();ctx.fill();break;
         case "keyboard":
         case "keyboard_hide":
             ctx.roundedRect(2.5, root.name === "keyboard" ? 5 : 3, 19, 13, 2, 2);

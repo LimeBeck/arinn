@@ -285,7 +285,7 @@ assert (PREFIX / "lib/arinn/plugins/arinn-plugin-chrome").is_file()
 assert (PREFIX / "share/arinn/plugins/chrome.toml").is_file()
 assert HOST.is_file() and os.access(HOST, os.X_OK), "missing Chrome native host"
 manifest = json.loads((EXTENSION / "manifest.json").read_text())
-assert sorted(manifest["permissions"]) == ["nativeMessaging", "tabs"], manifest["permissions"]
+assert sorted(manifest["permissions"]) == ["nativeMessaging", "storage", "tabs"], manifest["permissions"]
 assert (EXTENSION / "background.js").is_file()
 assert (EXTENSION / "authorization.js").is_file()
 assert (EXTENSION / "authorization.html").is_file()

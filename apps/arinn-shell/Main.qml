@@ -896,6 +896,9 @@ Window {
         Ui.StatusArea {
             objectName: "screenStatusArea"
             z: 4.5
+            // Blurred with the screen it sits on (review of #775).
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             anchors.right: parent.right; anchors.rightMargin: Ui.Theme.safeRight
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible

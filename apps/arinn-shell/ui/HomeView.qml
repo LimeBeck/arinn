@@ -237,6 +237,18 @@ FocusScope {
         return Math.max(0, Math.min(1, (top - headerClearance) / headerFade));
     }
     readonly property bool navBlurAvailable: GraphicsInfo.api !== GraphicsInfo.Software
+    // A pill faded into the header band takes no pointer input, as a faded
+    // row does (HomeRow.pointerBlocked); D-pad focus still reaches it and
+    // reveals it (review of #775).
+    component FadedPointerBlocker: MouseArea {
+        objectName: "fadedPointerBlocker"
+        anchors.fill: parent
+        z: 1000
+        enabled: parent.opacity < 1
+        hoverEnabled: true
+        acceptedButtons: Qt.AllButtons
+        onWheel: wheel => wheel.accepted = true
+    }
     onHomeOffsetChanged: hoverDelay.restart()
     readonly property bool hoverFocusEnabled: !hoverDelay.running
     property string musicTitle: ""
@@ -1022,7 +1034,10 @@ FocusScope {
                 text: qsTr("Edit shortcut")
                 visible: root.shortcutManagement && root.screen === "applications" && !!root.focusedEntry.webShortcut
                 opacity: root.sectionHeaderOpacity(shortcutEditButton)
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled && opacity >= 1
                 onActiveFocusChanged: if (activeFocus) root.revealItem(shortcutEditButton)
+                FadedPointerBlocker {}
                 onActivated: root.editShortcut(root.focusedEntry.id)
                 Keys.onUpPressed: root.restoreScreen()
                 Keys.onDownPressed: {
@@ -1052,9 +1067,10 @@ FocusScope {
                 restingColor: Theme.plateAction
                 focusedColor: Theme.textPrimary
                 pointerMode: root.pointerMode
-                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverFocusEnabled: root.hoverFocusEnabled && opacity >= 1
                 opacity: root.sectionHeaderOpacity(addApplication)
                 onActiveFocusChanged: if (activeFocus) root.revealItem(addApplication)
+                FadedPointerBlocker {}
                 onDpadRequested: InputMode.keyPressed()
                 onActivated: root.editShortcut("")
                 Keys.onLeftPressed: root.openNavigation()
@@ -1104,7 +1120,8 @@ FocusScope {
                 text: qsTr("Back to Home")
                 opacity: root.sectionHeaderOpacity(sectionBack)
                 onActiveFocusChanged: if (activeFocus) root.revealItem(sectionBack)
-                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
+                FadedPointerBlocker {}
+                pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && opacity >= 1
                 onActivated: root.showHome()
                 onDpadRequested: InputMode.keyPressed()
                 Keys.onLeftPressed: root.openNavigation()

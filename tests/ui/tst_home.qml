@@ -1375,4 +1375,21 @@ TestCase {
         // Home rows keep the safe right edge.
         verify(!child("continue").fadeRight);
     }
+    // Review of #775: a pill faded into the header band takes no pointer
+    // input; D-pad focus still reaches it.
+    function test_faded_pills_take_no_pointer_input() {
+        sectionFixture();
+        const pill = child("addApplication");
+        const blocker = findChild(pill, "fadedPointerBlocker");
+        verify(blocker !== null);
+        verify(!blocker.enabled);
+        verify(pill.hoverFocusEnabled);
+        // Scroll the column until the pill's top is inside the header band,
+        // once the column has laid the pill out.
+        tryVerify(() => pill.y > 0);
+        home.sectionOffset = pill.y + home.sectionTop - home.headerClearance - 10;
+        tryVerify(() => pill.opacity < 1);
+        verify(blocker.enabled);
+        verify(!pill.hoverFocusEnabled);
+    }
 }

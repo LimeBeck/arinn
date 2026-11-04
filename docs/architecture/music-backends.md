@@ -245,8 +245,11 @@ not claimed. Outward state revisions remain monotonic through account changes.
 
 Audio resolution uses authenticated download-info metadata, then a separate
 anonymous client for allowlisted HTTPS download metadata, signed audio and
-artwork. Credentials never accompany media-host requests. XML, URLs, image bytes
-and cumulative catalogue metadata have explicit bounds; redirects are disabled.
+artwork. MP3 choices may omit the optional `transport` field; when present it must
+be the string `raw`. Gain-enabled choices remain excluded, and the highest
+bitrate among supported choices is selected. Credentials never accompany
+media-host requests. XML, URLs, image bytes and cumulative catalogue metadata
+have explicit bounds; redirects are disabled.
 Track URLs and authorization headers stay inside the provider/player boundary.
 
 ### Radio and qualification

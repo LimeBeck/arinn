@@ -1401,6 +1401,7 @@ TestCase {
         home.closedWindowIds = ["w-a"];
         home.returnActivityId = "";
         verify(!child("activityNotice").visible);
+    }
 
     // #756 C17: the page under the navigation is darkened, not made
     // see-through. The software renderer keeps the veil without the blur.

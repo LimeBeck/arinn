@@ -55,13 +55,15 @@ in the design order, once a snapshot has loaded, so the screen opens on the
 first category with rows. A category with no rows is not listed: a missing
 playback, download or network setting is not shown as a working control, and
 there is no empty pane ([#764](https://github.com/LimeBeck/arinn/issues/764),
-#756 B16).
+#756 B16). A reload keeps the selected category by id, else the nearest
+index; when the focused row's category leaves the list, focus moves to that
+nearest category.
 
 | Field | Role |
 | --- | --- |
 | Category `id`, `title` | Left-hand list entry, in the given order |
 | Category `icon` | Optional mark name (`video_library`, `play_circle`, `volume_up`, `wifi`, `apps`, `palette`, `memory`, drawn as the filled 38 px Material-style icons of handoff se-lf-1; `memory` is the gear the handoff shows for System); anything else is a plain mark |
-| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption on the focused row only; at rest a row is label and description as in handoff 14 (owner decision on #566, 2026-11-01). `providerName` is empty for Arinn's own settings (`arinn`), so they have no source line, and the names of the providers this repository ships (`Local library`, `Local music`, `Playback`, `Downloads`, `Desktop applications`, `Media sessions`) are translated by the shell when both the plugin id and the name match. The plugin id comes from `Daemon1.Providers`, because `Settings1.ListProviders` carries only the instance id; until that listing answers, the instance id stands in. Any other name is shown as the provider sends it (#756 B16) |
+| Row `providerId`, `providerName` | Provider that declared the setting. The name is a caption on the focused row only; at rest a row is label and description as in handoff 14 (owner decision on #566, 2026-11-01). `providerName` is empty for Arinn's own settings (`arinn`), so they have no source line, and the names of the providers this repository ships (`Local library`, `Local music`, `Playback`, `Downloads`, `Desktop applications`, `Media sessions`) are translated by the shell when both the plugin id and the name match. The plugin id comes from `Daemon1.Providers`, because `Settings1.ListProviders` carries only the instance id; until that listing answers, and after the daemon changes owner, the instance id stands in. Any other name is shown as the provider sends it (#756 B16) |
 | Row `id`, `categoryId`, `title`, `description` | One setting |
 | Row `type` | `boolean`, `enum`, `string`, `integer` or `path` |
 | Row `currentValue` | Current value from `GetSettings` |

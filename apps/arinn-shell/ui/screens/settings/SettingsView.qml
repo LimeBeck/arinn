@@ -1025,8 +1025,13 @@ FocusScope {
         const list = categories || [];
         const found = list.findIndex(category => category && category.id === selectedCategoryId);
         const next = found >= 0 ? found : Math.max(0, Math.min(categoryIndex, list.length - 1));
+        // The focused row's category left: its rows are gone, so focus
+        // moves to the nearest category instead of a row that no longer
+        // exists (review of #779).
+        const orphaned = found < 0 && detailFocused && selectedCategoryId.length > 0;
         if (next !== categoryIndex) categoryIndex = next;
         else if (list[next] && list[next].id) selectedCategoryId = list[next].id;
+        if (orphaned) Qt.callLater(() => { if (visible && enabled) focusCategory(categoryIndex); });
     }
     Keys.onPressed: event => {
         if (homeKey(event)) return;

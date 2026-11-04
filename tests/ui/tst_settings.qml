@@ -382,6 +382,21 @@ TestCase {
         view.categories = all;
     }
 
+    // Review of #779: the category of the focused row leaves the list; focus
+    // goes to the nearest category, not to nowhere.
+    function test_focus_survives_its_category_leaving() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        verify(view.detailFocused);
+        const all = view.categories;
+        view.rows = view.rows.filter(row => row.categoryId !== "media");
+        view.categories = all.filter(category => category.id !== "media");
+        tryVerify(() => !view.detailFocused);
+        compare(view.focusedRowKey, "");
+        focused("category-playback");
+        keyClick(Qt.Key_Down);
+        focused("category-sound");
+    }
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

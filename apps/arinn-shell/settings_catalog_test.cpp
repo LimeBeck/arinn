@@ -122,6 +122,8 @@ public:
   int settingsReads = 0;
   // Library providers on Daemon1.Providers, their Features and roots.
   QList<DaemonProviderWire> libraryProviders;
+  // Daemon1.Providers answers with an error.
+  bool providersFail = false;
   QStringList libraryFeatures;
   QList<RootWire> roots;
   QString rootsError;
@@ -226,6 +228,12 @@ public:
       settings.insert(call.provider, rows);
       bus.send(message.createReply(QVariant::fromValue(
           QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/settings")))));
+      return true;
+    }
+    if (message.member() == QLatin1String("Providers") &&
+        message.interface() == QLatin1String("org.arinn.Daemon1") && providersFail) {
+      bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"),
+                                        QStringLiteral("fixture")));
       return true;
     }
     if (message.member() == QLatin1String("Providers") &&
@@ -403,6 +411,48 @@ private slots:
                      .value(QStringLiteral("providerName")).toString(),
                  QStringLiteral("Wiedergabe"));
     QTRY_COMPARE(rowAt(catalog, QStringLiteral("mpv"), QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #779: a new daemon drops the old plugin identities, also when
+  // its own listing fails.
+  void pluginIdsAreForgottenWithTheDaemon() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    const auto instance = QStringLiteral("living-room-player");
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{instance, QStringLiteral("Playback")}};
+    first.settings.insert(instance, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                             QStringLiteral("boolean"), QStringLiteral("false"),
+                                             QString(), true)});
+    first.libraryProviders = {{instance, QDBusObjectPath(QStringLiteral("/p1")),
+                               {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")}};
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    // The next daemon runs a third-party plugin under the same instance id,
+    // and its provider listing fails.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings = first.settings;
+    second.providersFail = true;
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
                      .value(QStringLiteral("providerName")).toString(),
                  QStringLiteral("Playback"));
     QCoreApplication::removeTranslator(&translator);

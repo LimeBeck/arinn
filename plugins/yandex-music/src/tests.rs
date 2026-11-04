@@ -118,18 +118,18 @@ fn response(value: Value) -> (u16, String) {
 async fn radio_uses_session_json_feedback_and_advances_with_the_completed_track() {
     let mock = Mock::new(vec![
         response(
-            json!({"radioSessionId":"session-a","batchId":"batch-a","sequence":[{"type":"track","track":{"id":123,"available":true}}]}),
+            json!({"radioSessionId":"session-a","batchId":"batch-a.fixture","sequence":[{"type":"track","track":{"id":123,"available":true}}]}),
         ),
         response(json!(true)),
         response(
-            json!({"batchId":"batch-b","sequence":[{"type":"track","track":{"id":124,"available":true}}]}),
+            json!({"batchId":"batch-b.fixture","sequence":[{"type":"track","track":{"id":124,"available":true}}]}),
         ),
         response(json!(true)),
     ]);
     let session = mock.api.start_radio("123:456").await.unwrap();
     assert_eq!(session.batch.tracks[0].id, "123");
     let batch = mock.api.next_batch(&session, "123:456").await.unwrap();
-    assert_eq!(batch.id, "batch-b");
+    assert_eq!(batch.id, "batch-b.fixture");
     assert_eq!(
         mock.api
             .feedback(&session, &batch, Feedback::TrackFinished("123", 1500))
@@ -147,11 +147,11 @@ async fn radio_uses_session_json_feedback_and_advances_with_the_completed_track(
     let requests = mock.finish();
     assert!(requests[0].0.starts_with("POST /rotor/session/new "));
     assert_eq!(requests[0].1["seeds"], json!(["track:123"]));
-    assert_eq!(requests[1].1["batch_id"], "batch-a");
+    assert_eq!(requests[1].1["batch_id"], "batch-a.fixture");
     assert_eq!(requests[1].1["event"]["type"], "radioStarted");
     assert!(requests[1].1["event"]["timestamp"].as_u64().unwrap() > 0);
     assert_eq!(requests[2].1["queue"], json!(["123"]));
-    assert_eq!(requests[3].1["batch_id"], "batch-a");
+    assert_eq!(requests[3].1["batch_id"], "batch-a.fixture");
     assert_eq!(requests[3].1["event"]["totalPlayedSeconds"], 1.5);
 }
 

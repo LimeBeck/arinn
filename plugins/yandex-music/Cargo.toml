@@ -20,3 +20,6 @@ zbus.workspace = true
 uuid.workspace = true
 md-5 = "0.10"
 roxmltree = "0.21"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

@@ -21,6 +21,7 @@ struct AppWire {
 struct RunningWire {
   QString id;
   QString application = QStringLiteral("application");
+  bool terminable = false;
 };
 struct HomeWire {};
 struct ShortcutWire {
@@ -54,7 +55,7 @@ QDBusArgument &operator<<(QDBusArgument &a, const AppWire &p) {
 QDBusArgument &operator<<(QDBusArgument &a, const RunningWire &p) {
   a.beginStructure();
   a << p.id << p.application << QString("Window")
-    << QString("window-token") << true << false;
+    << QString("window-token") << true << p.terminable;
   a.endStructure();
   return a;
 }
@@ -116,6 +117,10 @@ public:
   bool holdStatus = false;
   QList<QDBusMessage> statusCalls;
   QString operationError = QStringLiteral("Unavailable");
+  // GetApplications of the "test" provider fails, as in a partial snapshot.
+  bool failTest = false;
+  // Running windows can be closed (Terminate).
+  bool terminable = false;
   int pages = 0;
   int launches = 0;
   int opens = 0;
@@ -201,7 +206,7 @@ public:
         << QString();
       a.endStructure();
     } else if (m.member() == "GetApplications") {
-      if (m.path().endsWith("/broken")) {
+      if (m.path().endsWith("/broken") || (failTest && m.path().endsWith("/test"))) {
         bus.send(m.createErrorReply(QDBusError::Failed, "Unavailable"));
         return true;
       }
@@ -217,10 +222,10 @@ public:
                                  : QStringLiteral("/usr/share/icons/hicolor/"
                                                   "48x48/apps/fixture.png")}}
         << QList<RunningWire>{{first ? "window-first" : "window-second",
-                               first ? "first" : "application"}}
+                               first ? "first" : "application", terminable}}
         << (first || mode == "cycle" ? QString("next") : QString());
       a.endStructure();
-    } else if (m.member() == "Activate") {
+    } else if (m.member() == "Activate" || m.member() == "Terminate") {
       invokedMethod = m.member();
       invokedId = m.arguments().at(1).toString();
       bus.send(m.createReply(QVariant::fromValue(
@@ -1202,6 +1207,37 @@ private slots:
     QCOMPARE(Backend::errorText(QStringLiteral("SomethingNew")),
              Backend::errorText(QStringLiteral("Internal")));
     QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #777: a close queued behind an Activate is sent when the
+  // Activate ends, also when a partial snapshot has left the window out.
+  void queuedCloseSurvivesAPartialSnapshot() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = QStringLiteral("partial");
+    daemon.operationDone = false;
+    daemon.terminable = true;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    Backend backend;
+    QTRY_VERIFY(!backend.items().isEmpty());
+    const auto id = backend.items().at(0).toMap().value("id").toString();
+    backend.activate(id);
+    QTRY_COMPARE(daemon.invokedMethod, QStringLiteral("Activate"));
+    QTRY_VERIFY(backend.busyEntryIds().contains(id));
+    backend.terminate(id);
+    // The window's provider fails: the snapshot leaves the window out.
+    daemon.failTest = true;
+    const auto polls = daemon.providerCalls;
+    backend.refresh();
+    QTRY_VERIFY(daemon.providerCalls > polls);
+    QTRY_VERIFY(backend.items().isEmpty());
+    // The Activate ends; the queued close is sent all the same.
+    daemon.operationDone = true;
+    QTRY_COMPARE(daemon.invokedMethod, QStringLiteral("Terminate"));
+    QCOMPARE(daemon.invokedId, QStringLiteral("window-first"));
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
   }
   void operationResultSurvivesStatusRefresh() {
     auto bus = QDBusConnection::sessionBus();

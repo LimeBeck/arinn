@@ -1226,6 +1226,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   const auto epoch = m_connectionEpoch;
   const auto method = msg.member();
   m_pendingIds.insert(id);
+  emit operationStarted(id, method);
   // A launch already has its overlay; a toast would be a third progress
   // indicator (#756 C19).
   if (!m_launches.contains(id)) {
@@ -1266,14 +1267,21 @@ void Backend::operationEnded(const QString &id, const QString &method,
                              const QString &state) {
   emit operationFinished(id, method, state);
   // A close asked for while another operation on the window ran (#759).
-  if (!m_queuedTerminates.remove(id))
+  if (!m_queuedTerminates.contains(id))
     return;
-  QTimer::singleShot(0, this, [this, id] {
+  const auto queued = m_queuedTerminates.take(id);
+  QTimer::singleShot(0, this, [this, id, queued] {
     for (const auto &item : std::as_const(m_items))
       if (item.toMap().value("id").toString() == id) {
         terminate(id);
         return;
       }
+    // A partial snapshot is no proof that the window went: the request is
+    // sent with the entry kept when it was queued (review of #777).
+    if (m_snapshotError && !queued.isEmpty()) {
+      runApplication(id, QVariantList{queued}, "Terminate");
+      return;
+    }
     // The window went meanwhile: the close flow sees it go.
   });
 }
@@ -1625,7 +1633,13 @@ void Backend::terminate(const QString &id) {
   // Another operation on this window still runs, such as an Activate: the
   // close starts when it ends instead of being dropped (review of #777).
   if (m_pendingIds.contains(id)) {
-    m_queuedTerminates.insert(id);
+    QVariantMap entry;
+    for (const auto &item : std::as_const(m_items))
+      if (item.toMap().value("id").toString() == id) {
+        entry = item.toMap();
+        break;
+      }
+    m_queuedTerminates.insert(id, entry);
     return;
   }
   runApplication(id, m_items, "Terminate");

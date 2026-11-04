@@ -92,7 +92,10 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
 - **Closing** (CL-9). Close sends `Backend.terminate(id)`. If another operation
   on that window (such as an Activate) is still running, the terminate waits for
   it and then starts, unless the window has gone or the flow has given up on it
-  (`CloseFlow.gaveUp` calls `Backend.cancelQueuedTerminate`). The window is in
+  (`CloseFlow.gaveUp` calls `Backend.cancelQueuedTerminate`). The entry is kept
+  with the queued request, so a partial catalog snapshot that leaves the window
+  out does not drop it. `Backend.operationStarted(id, method)` reports when the
+  Terminate is sent, and the 10 s wait starts again then. The window is in
   `closingIds` until it leaves `Backend.items`. Rows and the Continue Close
   button show it, and an application tile in Favorites, Applications or Open
   windows whose `runningId` is closing shows "…" in place of its Ember dot. On the Running screen focus moves on to the next row at once.
@@ -136,6 +139,10 @@ application operation:
   - the right sheet and its hand-over to the close flow;
   - the long Menu, O and a short Menu;
   - the Continue Close button.
+- `tests/ui/visual` renders the Running screen and the close flow (CL-3a…CL-16)
+  for the handoff comparison (`scripts/ui-compare.py`).
+- `apps/arinn-shell/catalog_test.cpp` checks that a queued close is sent after a
+  partial snapshot.
 - `apps/arinn-shell/backend_test.cpp` checks `operationFinished` with its method
   on a failed Activate, and that a terminate asked for during it starts
   afterwards (run through `tests/integration/phase1.py`).

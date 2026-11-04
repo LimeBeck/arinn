@@ -1553,6 +1553,7 @@ Window {
             // Test stand-ins of the backend may not have the signal.
             ignoreUnknownSignals: true
             function onOperationFinished(id, method, state) { closeFlow.operationFinished(id, method, state); }
+            function onOperationStarted(id, method) { closeFlow.operationStarted(id, method); }
         }
     }
     Power.PowerOverlay {

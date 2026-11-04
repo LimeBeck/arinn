@@ -136,6 +136,15 @@ FocusScope {
         }
         showFailure(id);
     }
+    // The Terminate was admitted and sent, possibly after an earlier
+    // operation on the window: the wait for the window to go starts now
+    // (review of #777).
+    function operationStarted(id, method) {
+        if (method !== "Terminate" || closingIds.indexOf(id) < 0) return;
+        const started = Object.assign({}, startedAt);
+        started[id] = Date.now();
+        startedAt = started;
+    }
     // The shell's operation result: only a Terminate answers a close
     // request; an Activate that ends meanwhile is not its result (review of
     // #777).

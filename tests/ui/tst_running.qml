@@ -340,6 +340,21 @@ TestCase {
         flow.windows = [];
         compare(child(flow, "closeFlowToastText").text, "Closed");
     }
+    // Review of #777: the wait starts again when the Terminate is admitted,
+    // so a close queued behind another operation is not given up on while
+    // it runs.
+    function test_close_wait_restarts_when_the_terminate_starts() {
+        flow = createTemporaryObject(flowFactory, suite);
+        flow.ask("w1"); flow.confirm();
+        wait(200);
+        flow.operationStarted("w1", "Activate");
+        flow.operationStarted("w1", "Terminate");
+        wait(200);
+        flow.check();
+        compare(flow.phase, "");
+        compare(flow.closingIds, ["w1"]);
+        tryCompare(flow, "phase", "failed", 3000);
+    }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);
         const switches = createTemporaryObject(spyFactory, suite, {target: flow, signalName: "switchRequested"});

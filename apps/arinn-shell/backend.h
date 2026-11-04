@@ -182,6 +182,9 @@ signals:
   // failed Terminate only (#759, CL-11).
   void operationFinished(const QString &id, const QString &method,
                          const QString &state);
+  // An application operation was admitted and sent: the close flow starts
+  // its wait for a Terminate here (review of #777).
+  void operationStarted(const QString &id, const QString &method);
 
 private:
   const NativeShellFocusIdentity m_focusIdentity;
@@ -208,7 +211,9 @@ private:
   quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
   // Terminate requests that wait for another operation on the same entry.
-  QSet<QString> m_queuedTerminates;
+  // The entry is kept with the request: a partial catalog snapshot may
+  // leave the window out meanwhile (review of #777).
+  QHash<QString, QVariantMap> m_queuedTerminates;
   // One record per application ID with a launch in flight or a failure not
   // dismissed yet; m_shownLaunch is the one the overlay shows (§6.5).
   struct Launch {

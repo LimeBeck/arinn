@@ -85,7 +85,10 @@ services and the other shell screens while the shell is on screen, as the Home
 key does there (§6.3, #756 A6). During ambient it only wakes, as the quick-menu
 key does (§5.7). Otherwise it goes through the topmost layer first, as the
 Home key there would: a launch's dialog or progress closes or hides for Home,
-then the power scope leaves as its own Home does. A Settings editor and Library
+then the power scope leaves as its own Home does. A launch still in its reveal
+delay is hidden for Home (§6.5). Home's own scopes (Applications, navigation, a
+sheet or the shortcut editor) take it through `HomeView.homeKey()`, and managed
+playback through the player's own Home path. A Settings editor and Library
 Detail close, and Music goes Home like the other sections. The bottom hint reads "→ Save or close": Right
 reaches the Save button first, then Close (#756 C32). The navigation item has the
 screen's own name.

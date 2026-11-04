@@ -18,6 +18,7 @@
 #include <QTimer>
 #include <QtDBus>
 #include <QtTest>
+#include <QQmlProperty>
 #include <QSignalSpy>
 
 struct ReturnWindowWire { QString generation, token; };
@@ -1494,6 +1495,34 @@ private slots:
     QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("music"));
     emit backend.homeRequested();
     QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    // Review of #778: Home's own scopes take it through Home's Home path:
+    // Applications and the navigation give way to Home.
+    home->setProperty("screen", QStringLiteral("applications"));
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("home"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(home->property("navOpen").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(!home->property("navOpen").toBool());
+    // Managed playback takes it through the player's own Home path.
+    auto player = window->findChild<QQuickItem *>("productionPlayer");
+    QVERIFY(player);
+    QSignalSpy playerHomes(player, SIGNAL(homeRequested()));
+    window->setProperty("playerOpen", true);
+    QTRY_COMPARE(window->property("focusedScreen").toString(), QStringLiteral("player"));
+    emit backend.homeRequested();
+    QTRY_COMPARE(playerHomes.count(), 1);
+    window->setProperty("playerOpen", false);
+    // A launch still in its reveal delay is hidden for Home (§6.5).
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 5000));
+    launch->setProperty("serviceTitle", QStringLiteral("Service"));
+    launch->setProperty("active", true);
+    QVERIFY(!launch->property("showOverlay").toBool());
+    emit backend.homeRequested();
+    QTRY_VERIFY(launch->property("homeHidden").toBool());
+    launch->setProperty("active", false);
+    QVERIFY(QQmlProperty::write(launch, QStringLiteral("revealDelay"), 400));
     // A revealed launch over Library hides for Home and stays hidden.
     home->setProperty("screen", QStringLiteral("library"));
     launch->setProperty("serviceTitle", QStringLiteral("Service"));

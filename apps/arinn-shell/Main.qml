@@ -642,6 +642,10 @@ Window {
                 powerOverlay.leaveHome();
                 return;
             }
+            // A launch still in its reveal delay stays hidden: Home is on
+            // screen next (§6.5; review of #778).
+            for (const pending of [applicationLaunch, launchOverlay])
+                if (pending.active && !pending.homeHidden && !pending.showDialog) pending.hideForHome();
             if (!root.quickMenuOpen && !root.activityBehind) {
                 // The shell is on screen: the global Home key shows Home from
                 // Open services and the other screens, as the Home key does
@@ -651,7 +655,12 @@ Window {
                 if (root.focusedScreen === "settings") settingsView.dropTransient();
                 // Library Detail closes too, as for the Home key there.
                 if (root.focusedScreen === "library") libraryView.dropDetailForHome();
-                if (root.focusedScreen !== "home") root.goHomeFrom(root.focusedScreen);
+                // Home's own scopes (navigation, Applications, a sheet or the
+                // shortcut editor) and managed playback take it through their
+                // own Home paths (review of #778).
+                if (root.focusedScreen === "home") home.homeKey();
+                else if (root.focusedScreen === "player") playerView.onHome();
+                else root.goHomeFrom(root.focusedScreen);
                 return;
             }
             root.quickMenuHome();

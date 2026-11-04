@@ -1,0 +1,1 @@
+- Show the Yandex Music sign-in prompt when OAuth returns its exact `https://ya.ru/device` short address, normalizing it to the existing canonical verification page while retaining strict URL validation ([#766](https://github.com/LimeBeck/arinn/issues/766)).

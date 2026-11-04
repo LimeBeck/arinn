@@ -584,6 +584,13 @@ fn parse_code(v: Value, generation: u64) -> Result<Attempt, Error> {
         .get("verification_url")
         .and_then(Value::as_str)
         .ok_or(Error::InvalidResponse)?;
+    // OAuth also returns this exact static alias for its device page. Keep
+    // the projected destination canonical without following redirects.
+    let raw = if raw == "https://ya.ru/device" {
+        "https://oauth.yandex.ru/device"
+    } else {
+        raw
+    };
     let url = Url::parse(raw).map_err(|_| Error::InvalidResponse)?;
     if raw.len() > 2048
         || url.scheme() != "https"

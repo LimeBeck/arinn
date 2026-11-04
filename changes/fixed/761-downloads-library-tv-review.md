@@ -1,0 +1,5 @@
+- Downloads rows show a state icon, use Ember only for finished imports and progress, show a white *Watch* pill, and draw a title card instead of the striped placeholder; the summary line carries the transfer rate ([#761](https://github.com/LimeBeck/arinn/issues/761)).
+- Back from a Detail opened with *Watch* returns to Downloads, and Left at the start of a Library row or on Downloads opens navigation ([#761](https://github.com/LimeBeck/arinn/issues/761)).
+- Episodes no longer repeat a folder-wide poster as their still; the library takes only images named after the episode file ([#761](https://github.com/LimeBeck/arinn/issues/761)).
+- The Library *Series* badge is singular, 24 px and hidden in the Series tab; the detail eyebrow is singular, and progress reads as the time left with "Continue from …" or "Continue · S1 E4" ([#728](https://github.com/LimeBeck/arinn/issues/728)).
+- Library tabs are a white pill in focus with an Ember dot under the selected label ([ADR-0140](docs/adr/0140-tv-review-visual-decisions.md)).

@@ -494,6 +494,9 @@ RU = {
     "Japanese": "Японский",
     "Chinese": "Китайский",
     "Korean": "Корейский",
+    # Library detail: where Continue starts (#728, handoff 06, 07)
+    "Continue from %1": "Продолжить с %1",
+    "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
 }
 
 # Context-specific overrides: the same English word reads differently.
@@ -512,6 +515,9 @@ CONTEXT = {
     # The hero names one item: a series, not the Series tab (#756 C20).
     ("HomeView", "Series"): "Сериал",
     ("HomeView", "S%1 E%2"): "С%1 Э%2",
+    # One item's kind (the poster badge, the detail eyebrow), not the
+    # Series tab (#728, #756 C23).
+    ("LibraryView", "Series"): "Сериал",
     ("LibraryCatalog", "S%1 E%2"): "С%1 Э%2",
     ("PowerMenu", "Power"): "Питание",
     # Stops a starting application (spec §6.5).

@@ -3,3 +3,6 @@
 
 module Arinn.Settings
 SettingsView 1.0 SettingsView.qml
+LibraryFoldersView 1.0 LibraryFoldersView.qml
+FolderPicker 1.0 FolderPicker.qml
+FolderGlyph 1.0 FolderGlyph.qml

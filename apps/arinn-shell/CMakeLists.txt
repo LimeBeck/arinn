@@ -10,7 +10,7 @@ add_subdirectory(background)
 add_subdirectory("${PROJECT_SOURCE_DIR}/platform/keyboard"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-keyboard")
 
-qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h interface_sounds.cpp interface_sounds.h)
+qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h interface_sounds.cpp interface_sounds.h)
 target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
 set(ARINN_UI_SOUND_NAMES tap edge select back open close ignite kindle error)
@@ -34,7 +34,7 @@ target_compile_definitions(arinn-interface-sounds-test PRIVATE ARINN_INTERFACE_S
 add_test(NAME interface-sounds COMMAND arinn-interface-sounds-test)
 set_tests_properties(interface-sounds PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
-qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
@@ -87,7 +87,7 @@ add_test(NAME focus-fill COMMAND ${Python3_EXECUTABLE}
     "${PROJECT_SOURCE_DIR}")
 
 # Exercise the production window binding against isolated lifecycle/daemon doubles.
-target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+target_sources(arinn-session-lifecycle-test PRIVATE backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_include_directories(arinn-session-lifecycle-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 qt_add_resources(arinn-session-lifecycle-test lifecycle_test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-session-lifecycle-test PRIVATE Qt6::Quick Qt6::Qml)
@@ -98,7 +98,7 @@ qt_add_executable(arinn-catalog-test catalog_test.cpp backend.cpp backend.h)
 target_link_libraries(arinn-catalog-test PRIVATE Qt6::DBus Qt6::Test)
 add_test(NAME application-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-catalog-test>)
 
-qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+qt_add_executable(arinn-browser-catalog-test browser_catalog_test.cpp browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-browser-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-browser-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -117,7 +117,9 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} music_screen PREFIX "/" FILES ${ARINN_MUSIC_FILES})
 endforeach()
 
-set(ARINN_SETTINGS_FILES ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml)
+set(ARINN_SETTINGS_FILES ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml
+    ui/screens/settings/LibraryFoldersView.qml ui/screens/settings/FolderPicker.qml
+    ui/screens/settings/FolderGlyph.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} settings_screen PREFIX "/" FILES ${ARINN_SETTINGS_FILES})
 endforeach()
@@ -145,7 +147,7 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
 endforeach()
 
 qt_add_executable(arinn-media-catalog-test media_catalog_test.cpp media_catalog.cpp media_catalog.h
-    browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-media-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-media-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -156,7 +158,7 @@ set_tests_properties(media-catalog PROPERTIES ENVIRONMENT
 # The quick menu in Main.qml with the real Backend and a fake daemon (ADR-0106).
 qt_add_executable(arinn-quick-menu-test quick_menu_test.cpp backend.cpp backend.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
-    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-quick-menu-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-quick-menu-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -168,7 +170,7 @@ set_tests_properties(quick-menu PROPERTIES ENVIRONMENT
 # daemon that launches (spec §6.5, ADR-0110).
 qt_add_executable(arinn-launch-screen-test launch_screen_test.cpp backend.cpp backend.h
     media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
-    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-launch-screen-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-launch-screen-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -177,7 +179,7 @@ set_tests_properties(launch-screen PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
 qt_add_executable(arinn-library-catalog-test library_catalog_test.cpp library_catalog.cpp library_catalog.h
-    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    media_catalog.cpp media_catalog.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-library-catalog-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-library-catalog-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml")
@@ -185,9 +187,14 @@ add_test(NAME library-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-li
 set_tests_properties(library-catalog PROPERTIES ENVIRONMENT
     "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 
-qt_add_executable(arinn-settings-catalog-test settings_catalog_test.cpp settings_catalog.cpp settings_catalog.h)
+qt_add_executable(arinn-settings-catalog-test settings_catalog_test.cpp settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h)
 target_link_libraries(arinn-settings-catalog-test PRIVATE Qt6::DBus Qt6::Gui Qt6::Qml Qt6::Test)
 add_test(NAME settings-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-settings-catalog-test>)
+
+# The folder picker's Folders1 client (#764, ADR-0071).
+qt_add_executable(arinn-folder-browser-test folder_browser_test.cpp folder_browser.cpp folder_browser.h)
+target_link_libraries(arinn-folder-browser-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+add_test(NAME folder-browser COMMAND dbus-run-session -- $<TARGET_FILE:arinn-folder-browser-test>)
 
 qt_add_executable(arinn-asset-images-test asset_images_test.cpp asset_images.cpp asset_images.h)
 target_link_libraries(arinn-asset-images-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Quick Qt6::Test)
@@ -217,7 +224,7 @@ endforeach()
 qt_add_executable(arinn-external-keyboard-test external_keyboard_test.cpp
     browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h
     media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h
-    settings_catalog.cpp settings_catalog.h asset_images.cpp asset_images.h)
+    settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-external-keyboard-test PRIVATE Qt6::DBus Qt6::Multimedia Qt6::Qml Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-external-keyboard-test PRIVATE
     ARINN_MAIN_QML="${CMAKE_CURRENT_SOURCE_DIR}/Main.qml"

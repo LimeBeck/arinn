@@ -43,6 +43,8 @@ Window {
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    // Settings › Library folders (handoff LF-1…8, #764) over Settings.
+    property bool libraryFoldersOpen: false
     readonly property bool navBlur: home.navOpen && home.navBlurAvailable
     // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
     // no screen: `activityBehind` stays set while Back hands the screen back
@@ -486,11 +488,12 @@ Window {
         : home.screen === "music" ? "music"
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
-        : home.screen === "settings" ? "settings"
+        : home.screen === "settings" ? (libraryFoldersOpen ? "libraryFolders" : "settings")
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
                  music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 libraryFolders: libraryFoldersView,
                  power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
@@ -507,6 +510,7 @@ Window {
         case "library": libraryView.focusInitial(); break;
         case "downloads": downloadsView.restore(); break;
         case "settings": settingsView.focusInitial(); break;
+        case "libraryFolders": libraryFoldersView.restore(); break;
         default: home.restoreFocus();
         }
     }
@@ -836,7 +840,7 @@ Window {
     // §6.3). Home handles both itself; these are the other screens.
     function unhandledKey(event) {
         if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
-        const section = focusedScreen === "library" || focusedScreen === "settings"
+        const section = focusedScreen === "library" || focusedScreen === "settings" || focusedScreen === "libraryFolders"
             || focusedScreen === "downloads";
         const overlay = focusedScreen === "browser" || focusedScreen === "browse"
             || focusedScreen === "session";
@@ -1155,7 +1159,38 @@ Window {
             clockText: home.clockText
             onDismissRequested: home.back()
             onHomeRequested: root.goHomeFrom("settings")
+            onFoldersRequested: row => {
+                libraryFoldersView.providerId = row.providerId || "";
+                libraryFoldersView.settingId = row.id || "";
+                root.libraryFoldersOpen = true;
+                libraryFoldersView.open();
+            }
             onRetryRequested: settingsCatalog.refresh()
+        }
+        FolderBrowser { id: folderBrowser; objectName: "folderBrowser" }
+        Settings.LibraryFoldersView {
+            id: libraryFoldersView
+            objectName: "productionLibraryFolders"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
+            property string providerId: ""
+            property string settingId: ""
+            // The live row, so a save, a pending state or an unavailable
+            // folder shows at once.
+            row: (settingsCatalog.rows || []).find(entry => entry.providerId === providerId
+                                                   && entry.id === settingId) || ({})
+            visible: root.libraryFoldersOpen && home.screen === "settings" && !root.playerOpen
+            enabled: visible
+            focus: root.focusedScreen === "libraryFolders"
+            z: 4.2
+            browser: folderBrowser
+            onValuesRequested: paths => settingsCatalog.setValue(providerId, settingId, paths)
+            onCloseRequested: { root.libraryFoldersOpen = false; Qt.callLater(root.restoreFocus); }
+            onHomeRequested: { root.libraryFoldersOpen = false; root.goHomeFrom("settings"); }
+        }
+        Connections {
+            target: home
+            function onScreenChanged() { if (home.screen !== "settings") root.libraryFoldersOpen = false; }
         }
         Music.MusicView {
             id: musicView

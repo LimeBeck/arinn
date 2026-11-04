@@ -37,7 +37,7 @@ TestCase {
                   currentValue: false, constraints: {}, enabled: true },
                 { providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
                   title: "Folders", description: "Places to read", type: "path",
-                  currentValue: ["/videos"], constraints: { directory: true, multiple: true, maxItems: 3 },
+                  currentValue: ["/videos"], constraints: { directory: false, multiple: true, maxItems: 3 },
                   enabled: true },
                 { providerId: "library", providerName: "Library", id: "folder", categoryId: "media",
                   title: "Download location", description: "Where files go", type: "path",
@@ -256,7 +256,7 @@ TestCase {
     function test_full_path_list_add_hint() {
         view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
                       title: "Folders", description: "Places to read", type: "path",
-                      currentValue: ["/a", "/b"], constraints: {directory: true, multiple: true, maxItems: 2},
+                      currentValue: ["/a", "/b"], constraints: {directory: false, multiple: true, maxItems: 2},
                       enabled: true}];
         keyClick(Qt.Key_Right);
         tryVerify(() => view.detailFocused);
@@ -277,7 +277,7 @@ TestCase {
         for (let i = 0; i < 12; ++i) paths.push("/srv/media/folder-" + i);
         view.rows = [{providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
                       title: "Folders", description: "Places to read", type: "path", currentValue: paths,
-                      constraints: {directory: true, multiple: true, maxItems: 64}, enabled: true}];
+                      constraints: {directory: false, multiple: true, maxItems: 64}, enabled: true}];
         const top = child("rowFadeTop");
         const bottom = child("rowFadeBottom");
         tryCompare(bottom, "visible", true);
@@ -346,6 +346,26 @@ TestCase {
                "title centre " + centre + " in a row of " + row.height);
         const described = child("title-p-light");
         compare(Math.round(described.mapToItem(child("setting-p-light"), 0, 0).y), 20);
+    }
+
+    // #764 C24: a list of folders is a plain row that opens the Library
+    // folders screen; other path lists keep the inline list (fixture
+    // `roots` is not a folder list).
+    Component { id: foldersSpyFactory; SignalSpy { signalName: "foldersRequested" } }
+    function test_folder_list_opens_the_library_folders_screen() {
+        view.rows = [{providerId: "library", providerName: "Library", id: "dirs", categoryId: "media",
+                      title: "Library folders", description: "", type: "path",
+                      currentValue: ["/a", "/b"], unavailablePaths: ["/b"],
+                      constraints: {directory: true, multiple: true}, enabled: true}];
+        const spy = createTemporaryObject(foldersSpyFactory, suite, {target: view});
+        keyClick(Qt.Key_Right);
+        focused("setting-library-dirs");
+        compare(findChild(view, "path-library-dirs-0"), null);
+        verify(child("value-library-dirs").text.indexOf("2") >= 0);
+        verify(child("value-library-dirs").text.indexOf("1 unavailable") >= 0);
+        keyClick(Qt.Key_Return);
+        compare(spy.count, 1);
+        compare(spy.signalArguments[0][0].id, "dirs");
     }
 
     function test_boolean_toggle() {

@@ -499,6 +499,39 @@ RU = {
     "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
 }
 
+# Library folders and the folder picker (#764, handoff LF, PK)
+RU.update({
+    "%n folder(s)": "Папок: %n",
+    "%n unavailable": "недоступно: %n",
+    "Library folders": "Папки медиатеки",
+    "Add folder": "Добавить папку",
+    "This is the limit: %n folders.": "Это предел: папок — %n.",
+    "This is the limit: %n folders. Remove one to add another.": "Это предел: папок — %n. Уберите одну, чтобы добавить другую.",
+    "This folder is already in the library": "Эта папка уже в медиатеке",
+    "Folder removed": "Папка убрана",
+    "Unavailable. Its films stay in the library as unavailable": "Недоступна. Фильмы из неё остаются в медиатеке как недоступные",
+    "Adding to the library…": "Добавляется в медиатеку…",
+    "No folders yet": "Папок пока нет",
+    "Add a folder with films and series. Arinn finds them and keeps the library up to date.": "Добавьте папку с фильмами и сериалами. Arinn найдёт их и будет обновлять медиатеку.",
+    "Remove “%1” from the library?": "Убрать «%1» из медиатеки?",
+    "Its films and series leave the library. Nothing is deleted from the disk.": "Её фильмы и сериалы уйдут из медиатеки. С диска ничего не удаляется.",
+    "Home folder": "Домашняя папка",
+    "Whole computer": "Весь компьютер",
+    "Choose a folder": "Выбор папки",
+    "Choose this folder": "Выбрать эту папку",
+    "Drives and network folders appear here when the system connects them": "Диски и сетевые папки появятся здесь, когда система их подключит",
+    "No subfolders": "Вложенных папок нет",
+    "No access to this folder": "Нет доступа к папке",
+    "The network folder disconnected": "Сетевая папка отключилась",
+    "Folders cannot be read right now": "Папки сейчас не читаются",
+    "Files are not shown here. Choose this folder, or go back.": "Файлы здесь не показываются. Выберите эту папку или вернитесь назад.",
+    "Arinn may not read this folder. Choose another one.": "Arinn не может читать эту папку. Выберите другую.",
+    "Arinn never mounts anything itself. Connect the share and try again.": "Arinn ничего не подключает сам. Подключите папку и попробуйте снова.",
+    "Try again in a moment.": "Попробуйте чуть позже.",
+    "To the home folder": "К домашней папке",
+    "OK Open · Back Up one level · ↑ Choose": "OK Открыть · Назад На уровень выше · ↑ Выбрать",
+})
+
 # Context-specific overrides: the same English word reads differently.
 CONTEXT = {
     ("SessionView", "Play"): "Воспроизвести",
@@ -525,6 +558,8 @@ CONTEXT = {
     # A folder or path only leaves the list; nothing is deleted (§5.6,
     # handoff LF-6: «Убрать», never «Удалить»; #558).
     ("SettingsView", "Remove"): "Убрать",
+    # A library folder only leaves the list (LF-6: «Убрать», never «Удалить»).
+    ("LibraryFoldersView", "Remove"): "Убрать",
     ("SettingsView", "Edit"): "Изменить",
     ("SettingsView", "To sections"): "К разделам",
 }

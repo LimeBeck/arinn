@@ -103,9 +103,11 @@ that button; Save and Cancel stay available. `KeyboardMonitor` reports a
 keyboard only when an input device of that type is present. Arrow keys and other
 remote navigation do not mark one. The first character key enables the field.
 
-A single path, and a path with `multiple`, stay inline text fields with Add and
-Remove. The owner kept this inline list for the MVP instead of the handoff's
-Library folders screen and folder picker (LF, PK; #566, 2026-11-01). While a path editor is open, its keyboard pill opens the
+A single path, and a path list that is not a list of folders, stay inline text
+fields with Add and Remove. A list of folders (`multiple` and `directory`) opens
+the Library folders screen and the folder picker instead
+([Library folders](#library-folders-lf-pk), owner decision on #756 C24,
+2026-11-04, replacing the inline-list decision of #566). While a path editor is open, its keyboard pill opens the
 [on-screen keyboard](ui-keyboard.md) in the same full-screen typing layer, with
 the `path` context row (KB-5); its main key saves as Enter does. Without a
 keyboard the editor opens on that pill.
@@ -133,9 +135,8 @@ absolute:
   When it is unset or not an absolute path, `~` stays relative and is
   rejected, as by the contract.
 
-Subfolder suggestions, the folder list and the folder picker in
-specification §5.6 wait on the folder-listing contract
-([DR-27](../design/integration-review.md)).
+Subfolder suggestions in the typing layer (KB-5, DR-44) are not built yet; the
+folder picker below lists folders through `Folders1`.
 
 ### Unavailable library folders
 
@@ -271,3 +272,72 @@ python scripts/check-docs.py
 ```
 
 `arinn-shell` linked. The catalog test passed 13 cases, including `Unsupported` on a succeeded operation and on a failed one, and `KeyboardMonitor` staying unavailable after remote navigation keys. `arinn-ui-test -input tests/ui` passed 196 cases, including every `SettingsView` case in `tst_settings.qml` (the same suite as `ctest -R '^ui-components$'`, which also passed). `arinn-browser-catalog-test` passed 10 cases; it loads `Main.qml`, which binds `KeyboardMonitor`. `python scripts/check-docs.py` passed. Operator tests were not run. This does not close AC-02, AC-12 or AC-18. The catalog test and `check-docs.py` were run again after the next-start and keyboard fixes; the UI and browser-catalog counts above are from the earlier run of this change.
+
+## Library folders (LF, PK)
+
+[#764](https://github.com/LimeBeck/arinn/issues/764), the handoff's *Settings
+editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
+([ADR-0071](../adr/0071-settings-editor-contract.md)).
+
+- **Row.** A folder list (`path`, `multiple`, `directory`) is a plain row with
+  "N folders", plus "· N unavailable" when the provider reports any, and a
+  chevron. OK emits `SettingsView.foldersRequested(row)`. `Main.qml` then opens
+  `LibraryFoldersView` over Settings (`focusedScreen` `libraryFolders`) and binds
+  it to the live row, so pending, errors and unavailable folders show at once.
+- **Screen (LF-1).**
+  - The title is followed by the count, and *Add folder* sits right of the title
+    (Up from the first row).
+  - Rows follow Open services: min-h128 r26, a chip 76 with `folder`, the last
+    path segment at 30/600, and the full path in monospace at 24. A 128-wide
+    Remove square is reached with Right.
+  - The order is the order added.
+  - Edits go out as `valuesRequested(paths)`, which Main sends to
+    `SettingsCatalog.setValue`. The daemon validates and stores them.
+- **States.**
+  - Empty (LF-2): the 160 plate, "No folders yet" and *Add folder* in focus.
+  - Unavailable (LF-4): `folder_off` on a 6 % chip and the error-coloured
+    status; the folder can still be removed.
+  - At `maxItems`, 64 by default (LF-5): *Add folder* at 40 % stays focusable,
+    and OK explains in a toast.
+  - Remove (LF-6, LF-7): the power-confirm dialog, "Remove “{name}” from the
+    library?". Cancel has the default focus and Remove is destructive. The verb
+    is always *Remove*, and nothing is deleted. Then focus goes to the neighbour
+    and the toast "Folder removed" shows.
+  - Added (LF-8): the new row is appended and focused, with "Adding to the
+    library…" while the setting is pending.
+  - A daemon refusal shows its text under the title.
+- **Picker (PK).** `FolderPicker` reads `FolderBrowser`
+  (`folder_browser.{h,cpp}`):
+  - `Places()` gives the start points: the home folder, each mount and the whole
+    computer, with an Ember dot on the current one, and a note when there are no
+    mounts (PK-9).
+  - `List(path, after, limit)` is read page by page, 256 names at a time, up to
+    2048 names. Names are sorted case-insensitively with numbers in numeric
+    order, folders only.
+  - The path line shows the parent in `text-2` and the last segment in `text-1`.
+    A long parent collapses its middle to `/…/`.
+  - *Choose this folder* chooses the path shown (Up from the first row).
+  - Keys:
+    - Up and Down move;
+    - OK or Right enters a folder;
+    - Left goes to the start points;
+    - Back goes up one level, or at a start point first to the start points
+      and then out.
+  - Empty (PK-5) moves focus to Choose. No access (PK-6) dims Choose to 40 %.
+    A share that has gone (PK-7) offers Retry and *To the home folder*. Arinn
+    never mounts anything.
+  - A folder already in the list is refused in the picker with an error plate
+    (PK-10).
+- **Not built.**
+  - Typing a path in the picker (PK-8);
+  - paging with Ch± and the letter jump;
+  - opening the library filtered to a folder from its row (OK on a row does
+    nothing yet);
+  - the empty library's link to this screen.
+- **Verification.**
+  - `tests/ui/tst_library_folders.qml` covers the rows, unavailable, remove,
+    empty, the limit, picking through the start points and the list, the
+    refusal and PK-5…7.
+  - `folder_browser_test.cpp` covers Places, sorting, paging, the error states
+    and a newer open winning.
+  - A real disk, share and TV were not tested.

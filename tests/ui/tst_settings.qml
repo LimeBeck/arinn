@@ -1024,7 +1024,8 @@ TestCase {
         // The path context row on top; English letters below it, focus on
         // the fifth key of the middle letter row.
         const context = child("pathOnScreenKeyboard").model.rows[0].map(key => key.label);
-        compare(context, ["/", "~/", "/media/", "/run/media/", "/mnt/", "..", "-", "_", "."]);
+        // ADR-0140 §4: no character the letter rows already have.
+        compare(context, ["/", "~/", "/media/", "/run/media/", "/mnt/", ".."]);
         tryCompare(pathKeyAt(2, 4), "focused", true);
         compare(pathKeyAt(2, 4).modelData.label, "g");
         keyClick(Qt.Key_Up);

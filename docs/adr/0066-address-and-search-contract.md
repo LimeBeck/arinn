@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Deciders:** delegated technical choice ([ADR-0037](0037-agent-autonomy-and-owner-gated-decisions.md)) within the owner decisions of [ADR-0051](0051-address-and-search-entry.md)
 - **Amends / Supersedes:** amends [ADR-0048](0048-browser-wire-contract.md) (the shell may open typed text) and [ADR-0051](0051-address-and-search-entry.md) (wire details)
-- **Amended by / Superseded by:** —
+- **Amended by / Superseded by:** amended by [ADR-0139](0139-site-or-search-recents-privacy.md) (recents keep no query and no loopback address)
 - **Specification:** [§7.1](../specifications/arinn-specification.md#71-browser-chromechromium), [§11](../specifications/arinn-specification.md#11-state-ownership-and-persistence), [§13](../specifications/arinn-specification.md#13-security)
 
 ## Context

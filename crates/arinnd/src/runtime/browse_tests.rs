@@ -203,6 +203,19 @@ async fn open_records_recent_entries_newest_first() {
     assert!(error_name(api.open("h", &request).await).ends_with("Conflict"));
     assert_eq!(api.get_recent().await.unwrap(), ["g", "f", "e", "d", "c"]);
 
+    // ADR-0139: no query or fragment, and no loopback address.
+    for text in [
+        "example.org/watch?v=1#t",
+        "http://127.0.0.1:8080/cb?secret=x",
+    ] {
+        let path = api.open(text, &rid()).await.unwrap();
+        assert_eq!(f.wait(path).await, Err("Unavailable".into()));
+    }
+    assert_eq!(
+        api.get_recent().await.unwrap(),
+        ["example.org/watch", "g", "f", "e", "d"]
+    );
+
     api.clear_recent().await.unwrap();
     assert!(api.get_recent().await.unwrap().is_empty());
 }

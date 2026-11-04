@@ -159,7 +159,8 @@ TestCase {
     function test_right_hint_describes_close_action() {
         const hint = child("browserCloseHint");
         verify(hint.visible);
-        compare(hint.text, "Close");
+        // #756 C32: → reaches Save first, then Close.
+        compare(hint.text, "Save or close");
         focused("row-t2");
         keyClick(Qt.Key_Right);
         focused("bookmark-t2");

@@ -573,6 +573,9 @@ RU.update({
     "Media sessions": "Медиасеансы",
 })
 
+# Open services hint: → reaches Save, then Close (#756 C32).
+RU["Save or close"] = "Сохранить или закрыть"
+
 # Context-specific overrides: the same English word reads differently.
 CONTEXT = {
     ("SessionView", "Play"): "Воспроизвести",
@@ -584,7 +587,8 @@ CONTEXT = {
     # Restart Arinn itself, not the computer (ADR-0098).
     ("HomeView", "Restart"): "Перезапустить",
     ("BrowserView", "Open services"): "Открытые сервисы",
-    ("HomeView", "Open services"): "Все открытые сервисы",
+    # The navigation item reads as the screen title (#756 C32).
+    ("HomeView", "Open services"): "Открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
     # The hero names one item: a series, not the Series tab (#756 C20).
     ("HomeView", "Series"): "Сериал",

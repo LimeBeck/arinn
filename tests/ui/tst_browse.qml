@@ -65,19 +65,45 @@ TestCase {
         verify(child("browseIntent").text.indexOf("http") >= 0);
     }
 
+    // #756 C28: Clear on the Recent label's line, then the entries, each
+    // with the history icon and left-aligned text.
     function test_recent_and_clear_are_reachable() {
         view.recent = ["one.example", "second query"];
-        // Field, keyboard button, then the list.
+        // Field, keyboard button, Clear, then the entries.
         keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        tryCompare(child("browseClear"), "activeFocus", true);
+        const clear = child("browseClear");
+        const header = child("browseRecentHeader");
+        compare(clear.parent, header);
+        verify(clear.mapToItem(view, 0, 0).y < child("browseRecent-0").mapToItem(view, 0, 0).y);
         keyClick(Qt.Key_Down);
         tryCompare(child("browseRecent-0"), "activeFocus", true);
+        compare(child("browseRecentIcon-0").name, "history");
+        verify(child("browseRecentIcon-0").visible);
+        compare(child("browseRecentText-0").horizontalAlignment, Text.AlignLeft);
+        verify(child("browseRecentText-0").mapToItem(child("browseRecent-0"), 0, 0).x
+               > child("browseRecentIcon-0").mapToItem(child("browseRecent-0"), 0, 0).x);
         keyClick(Qt.Key_Return);
         compare(edited.count, 1);
         compare(edited.signalArguments[0][0], "one.example");
         for (let i = 0; i < 4; ++i) keyClick(Qt.Key_Down)
-        tryCompare(child("browseClear"), "activeFocus", true);
-        keyClick(Qt.Key_Up);
         tryCompare(child("browseRecent-1"), "activeFocus", true);
+        keyClick(Qt.Key_Up);
+        tryCompare(child("browseRecent-0"), "activeFocus", true);
+    }
+    // #756 C28: the first focus is visible on the field, with or without a
+    // hardware keyboard, and there is no on-screen Back.
+    function test_field_focus_has_a_rim_and_no_back_pill() {
+        view.focusInitial();
+        tryCompare(child("browseInput"), "activeFocus", true);
+        verify(child("browseFieldRim").shown);
+        verify(child("browseInput").cursorVisible);
+        view.keyboardAvailable = false;
+        view.focusInitial();
+        tryCompare(child("browseKeyboard"), "activeFocus", true);
+        verify(child("browseFieldRim").shown);
+        compare(findChild(view, "browseBack"), null);
     }
 
     // IN-8 is no longer a dead end: without a hardware keyboard, focus
@@ -143,12 +169,20 @@ TestCase {
         compare(edited.count, 1);
         compare(edited.signalArguments[0][0], "g");
         compare(child("browseInput").text, "g");
-        // Context row: https:// at the top left.
+        // Context row: Up twice reaches the key above "g" (ADR-0140 §4: the
+        // row has no ":", "." or "-", so its keys are wider).
         keyClick(Qt.Key_Up);
         keyClick(Qt.Key_Up);
-        tryCompare(keyAt(0, 2), "focused", true);
+        let above = -1;
+        tryVerify(() => {
+            for (let i = 0; i < 6; ++i)
+                if (keyAt(0, i).focused) { above = i; return true; }
+            return false;
+        });
+        const label = keyAt(0, above).modelData.label;
+        verify(label.length > 1, label);
         keyClick(Qt.Key_Return);
-        compare(child("browseInput").text, "g.ru");
+        compare(child("browseInput").text, "g" + label);
         // Back hides the panel and focuses the button; the screen stays.
         keyClick(Qt.Key_Escape);
         tryCompare(view, "keyboardOpen", false);
@@ -164,7 +198,7 @@ TestCase {
         const intent = child("browseIntent");
         verify(panel.visible);
         verify(intent.y + 40 <= panel.y, "intent at " + intent.y + ", panel at " + panel.y);
-        verify(!child("browseBack").visible);
+        compare(findChild(view, "browseBack"), null);
         compare(panel.y + panel.height, 1080);
     }
 
@@ -377,7 +411,7 @@ TestCase {
         view.focusInitial();
         tryCompare(child("browseRetry"), "activeFocus", true);
         keyClick(Qt.Key_Down);
-        tryCompare(child("browseBack"), "activeFocus", true);
+        tryCompare(child("browseRetry"), "activeFocus", true);
     }
 
     name: "BrowseInput"

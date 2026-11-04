@@ -138,6 +138,9 @@ private:
   QHash<QString, quint64> m_tickets;
   // Library providers: id → the daemon path that serves its Library1.
   QHash<QString, QString> m_libraryPaths;
+  // Provider instance id → plugin id, from Daemon1.Providers: Settings1
+  // lists only the instance id and name.
+  QHash<QString, QString> m_pluginIds;
   // Root availability per library provider (path → available), only for a
   // provider whose GetRoots answered. No entry means no unavailable state.
   QHash<QString, QHash<QString, bool>> m_roots;

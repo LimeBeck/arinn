@@ -41,6 +41,7 @@ struct DaemonProviderWire {
   QDBusObjectPath endpoint;
   QStringList capabilities;
   QString generation;
+  QString plugin;
 };
 struct RootWire {
   QString path;
@@ -48,7 +49,9 @@ struct RootWire {
 };
 QDBusArgument &operator<<(QDBusArgument &argument, const DaemonProviderWire &row) {
   argument.beginStructure();
-  argument << row.id << QStringLiteral("plugin") << QStringLiteral("system")
+  argument << row.id
+           << (row.plugin.isEmpty() ? QStringLiteral("plugin") : row.plugin)
+           << QStringLiteral("system")
            << row.id << QStringLiteral("1") << row.endpoint << row.capabilities
            << QStringLiteral("ready") << QStringLiteral("ready")
            << (row.generation.isEmpty() ? QStringLiteral("g-") + row.id
@@ -365,6 +368,43 @@ private slots:
     QCOMPARE(rowAt(catalog, QStringLiteral("thirdparty"), QStringLiteral("x"))
                  .value(QStringLiteral("providerName")).toString(),
              QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #779: a packaged plugin configured under another instance id
+  // keeps its translated name; Daemon1.Providers names the plugin.
+  void packagedProviderNamesFollowThePluginId() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("living-room-player"), QStringLiteral("Playback")},
+                        {QStringLiteral("mpv"), QStringLiteral("Playback")}};
+    for (const auto &id : {QStringLiteral("living-room-player"), QStringLiteral("mpv")})
+      daemon.settings.insert(id, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                          QStringLiteral("boolean"), QStringLiteral("false"),
+                                          QString(), true)});
+    // The instance "living-room-player" runs the packaged mpv plugin; the
+    // instance "mpv" runs a third-party plugin.
+    daemon.libraryProviders = {
+        {QStringLiteral("living-room-player"), QDBusObjectPath(QStringLiteral("/p1")),
+         {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")},
+        {QStringLiteral("mpv"), QDBusObjectPath(QStringLiteral("/p2")),
+         {QStringLiteral("playback")}, QString(), QStringLiteral("vendor-player")}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("living-room-player"), QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("mpv"), QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
     QCoreApplication::removeTranslator(&translator);
   }
   void groupsProvidersByCategory() {

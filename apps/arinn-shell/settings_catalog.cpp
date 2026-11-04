@@ -216,10 +216,11 @@ constexpr auto kDaemonProvider = "arinn";
 };
 // The display names of the providers this repository ships, translated in
 // the shell (#756 B16). A provider whose name is not here keeps its own.
-// Matched by provider id and name together, so a third-party provider that
-// happens to use one of these names keeps its own (review of #779).
+// Matched by plugin id and name together, so a third-party provider that
+// happens to use one of these names keeps its own, and a packaged plugin
+// configured under another instance id still gets its name (review of #779).
 struct PackagedName {
-  const char *id;
+  const char *pluginId;
   const char *name;
 };
 constexpr PackagedName kProviderNames[] = {
@@ -232,11 +233,12 @@ constexpr PackagedName kProviderNames[] = {
 };
 // The source line of a row: none for Arinn's own settings, which need no
 // source, else the provider's name in the shell's language.
-QString sourceName(const QString &providerId, const QString &name) {
+QString sourceName(const QString &providerId, const QString &pluginId,
+                   const QString &name) {
   if (providerId == QLatin1String(kDaemonProvider))
     return {};
   for (const auto &known : kProviderNames)
-    if (providerId == QLatin1String(known.id) && name == QLatin1String(known.name))
+    if (pluginId == QLatin1String(known.pluginId) && name == QLatin1String(known.name))
       return QCoreApplication::translate("SettingsCatalog", known.name);
   return name;
 }
@@ -307,6 +309,8 @@ struct SettingsCatalog::RootScan {
   int pages = 0;
   QSet<QString> tokens;
   QHash<QString, QString> found;
+  // Every provider's plugin id, from the same listing.
+  QHash<QString, QString> plugins;
 };
 
 struct SettingsCatalog::Load {
@@ -588,6 +592,8 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
                   capabilities >> runtime >> backend >> generation >> revision >>
                   error >> errorAt >> recovered >> restarts >> cumulative;
               arg.endStructure();
+              if (!id.isEmpty() && !plugin.isEmpty())
+                scan->plugins.insert(id, plugin);
               if (capabilities.contains(QLatin1String("library")) &&
                   runtime == QLatin1String("ready") && !id.isEmpty() &&
                   !endpoint.path().isEmpty()) {
@@ -602,6 +608,11 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               return;
             }
             m_libraryPaths = scan->found;
+            if (m_pluginIds != scan->plugins) {
+              m_pluginIds = scan->plugins;
+              if (m_loaded)
+                publish();
+            }
             QStringList gone;
             for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
               if (!m_libraryPaths.contains(it.key()))
@@ -818,7 +829,11 @@ void SettingsCatalog::publish() {
               valueFor(setting.kind, setting.valueJson, multiple);
           QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
-              {QStringLiteral("providerName"), sourceName(provider.id, provider.name)},
+              {QStringLiteral("providerName"), sourceName(provider.id,
+                          // Until Daemon1.Providers answers, the default
+                          // instance, whose id is its plugin's.
+                          m_pluginIds.value(provider.id, provider.id),
+                          provider.name)},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
               {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},

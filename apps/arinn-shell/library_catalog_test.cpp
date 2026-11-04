@@ -2363,6 +2363,57 @@ private slots:
   }
   // #329: Menu opens the side navigation over Library and Settings, drawn
   // above them; Escape returns to the screen; Home from Settings goes Home.
+  // #756 C26: Library, Settings, Downloads and Open services share Home's
+  // status area at the same place; Home draws its own.
+  void sectionScreensShareTheStatusArea() {
+    LibraryDaemon daemon;
+    daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),
+                           QStringLiteral("film")}};
+    daemon.page1 = {film(QStringLiteral("north"), QStringLiteral("North"))};
+    QVERIFY(registerBus(daemon));
+    ShellStandIn backend;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    InterfaceSounds interfaceSounds;
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto home = window->findChild<QQuickItem *>(QStringLiteral("productionHome"));
+    auto shared = window->findChild<QQuickItem *>(QStringLiteral("screenStatusArea"));
+    auto browser = window->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
+    QVERIFY(home);
+    QVERIFY(shared);
+    QVERIFY(browser);
+    auto homeArea = findItem(home, QStringLiteral("statusArea"));
+    QVERIFY(homeArea);
+    QVERIFY(!shared->isVisible());
+    const auto clockOf = [](QQuickItem *area) {
+      auto clock = findItem(area, QStringLiteral("clock"));
+      return clock ? clock->property("text").toString() : QStringLiteral("<none>");
+    };
+    for (const auto &screen : {QStringLiteral("library"), QStringLiteral("settings"),
+                               QStringLiteral("downloads")}) {
+      home->setProperty("screen", screen);
+      QTRY_VERIFY2(shared->isVisible(), qPrintable(screen));
+      QCOMPARE(shared->mapToScene(QPointF(shared->width(), 0)).y(),
+               homeArea->mapToScene(QPointF(homeArea->width(), 0)).y());
+      QCOMPARE(shared->mapToScene(QPointF(shared->width(), 0)).x(),
+               homeArea->mapToScene(QPointF(homeArea->width(), 0)).x());
+      QCOMPARE(clockOf(shared), home->property("clockText").toString());
+    }
+    home->setProperty("screen", QStringLiteral("home"));
+    QTRY_VERIFY(!shared->isVisible());
+    // Open services drops its own clock for the shared area.
+    window->setProperty("browserOpen", true);
+    QTRY_VERIFY(shared->isVisible());
+    auto ownClock = findItem(browser, QStringLiteral("browserClock"));
+    QVERIFY(ownClock);
+    QVERIFY(!ownClock->isVisible());
+  }
   void menuOpensNavigationOverSectionScreens() {
     LibraryDaemon daemon;
     daemon.collections = {{QStringLiteral("films"), QStringLiteral("Films"),

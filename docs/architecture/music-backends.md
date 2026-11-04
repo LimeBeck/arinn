@@ -1,14 +1,10 @@
 # Music backend implementation increment
 
-Status: **native local/Yandex integration in verification; MR remains draft**. Task
-[#707](https://github.com/LimeBeck/arinn/issues/707), parent
-[#677](https://github.com/LimeBeck/arinn/issues/677). The owner authorized one
-implementation MR for local music, Yandex and their common API/UI on 2026-11-01.
-On 2026-11-02 the owner clarified that the design must be included in the same
-MR. [#710](https://github.com/LimeBeck/arinn/pull/710) now carries the
-[visual prototype](../design/prototypes/music/README.md), owner-selected layout
-B, review captures and backend implementation together. Design PR #700 is
-superseded; no separate design merge is required.
+Status: **local/Yandex native integration merged in [#710](https://github.com/LimeBeck/arinn/pull/710); browser sign-in and Music API verification follow-up [#771](https://github.com/LimeBeck/arinn/issues/771)**.
+Parent tasks [#707](https://github.com/LimeBeck/arinn/issues/707) and
+[#677](https://github.com/LimeBeck/arinn/issues/677) retain qualification work.
+The owner requested one implementation MR for local/Yandex and the selected
+single-row layout B; #710 consolidated the earlier design PR #700.
 The [research](music-discovery.md) remains the source for feasibility limits.
 
 ## Current code boundary
@@ -22,8 +18,8 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 The proposed [music contract](../plugin-api/music.md) and
 [ADR-0134](../adr/0134-native-music-catalogue-and-session.md) add protocol, SDK,
 daemon and native shell integration in the owner-authorized unified MR. New
-executables/manifests are included in Arch/Debian install rules. This is pending
-package validation, not a claim of installed-product qualification.
+executables/manifests are included in Arch/Debian install rules. The prior MR includes package validation; the #771 follow-up requires its own
+checks and does not claim live account/audio qualification.
 
 `Track` has no path, stream URL, token or header. Providers alone resolve files
 and streams. The shell browses one source while the daemon projects the active
@@ -39,11 +35,39 @@ an in-flight bounded ffprobe may finish before exit. Unavailable/incomplete root
 produce a degraded state while preserving last-known metadata.
 
 Yandex account connection, catalogue and playback share the native provider.
-The owner supplied the public Arinn client ID
-`4173e0c60dfa4066bd6ec2a504b8ae9a` on 2026-11-03. It is the default identity;
-`ARINN_YANDEX_CLIENT_ID` overrides it and an explicit empty value disables
-Connect. Registration alone does not establish Music API or device-flow access.
-No third-party application identity or secret is bundled.
+The default registration now matches the pinned SDK used by CloudMus, following
+the owner's explicit compatibility choice on 2026-11-04. Its embedded application
+ID/secret are third-party compatibility data, not credentials owned by Arinn and
+not user tokens. Only those public registration constants are included, with
+pinned source attribution in `plugins/yandex-music/src/compatibility.rs`; no SDK
+implementation or Python dependency is vendored. This replaces the earlier own
+Arinn registration default, which completed OAuth but returned Music API 403 on
+the owner's TV. Matching CloudMus's registration does not establish official API
+support, service permission, subscription or regional eligibility.
+
+`ARINN_YANDEX_CLIENT_ID` overrides the default; an explicit empty value disables
+Connect. An override does not receive the compatibility registration's secret.
+Stored tokens carry their issuing client ID; unknown/old-client tokens require
+fresh sign-in rather than silently restoring under another registration.
+
+Connect obtains the short code and exposes **Open sign-in in browser**. The
+provider opens its verification page through the generic
+[temporary authorization route](../plugin-api/browser-authorization.md). The
+user enters/confirms the displayed code; polling receives the token automatically.
+Phone confirmation remains possible. No redirect URI, backend server or
+Authorization Code/PKCE flow is claimed for this third-party registration.
+Temporary windows and their child tabs are excluded from Arinn tab snapshots and
+recent-address history. Regular browser-profile history, cookies and site data
+remain governed by the browser/user; Arinn neither reads nor clears them. This
+is a temporary leased window, not an incognito session. Arinn retains cleanup
+ownership on cancellation, expiry, disconnect or a failed launch, and returns
+Home only after the dispatched launch and window cleanup settle.
+
+Before publishing `connected`, both new and restored credentials must pass
+`account/status` and the authenticated liked-tracks endpoint. An empty valid
+library succeeds; HTTP 403 becomes `restricted`/PermissionDenied with an explicit
+Music access explanation, rather than an empty connected library. Temporary API
+failures become `unavailable`/degraded without deleting valid OAuth credentials.
 
 If this registration requires a client secret, provision it locally through
 Secret Service as a unique unlocked `text/plain` item with attributes
@@ -213,10 +237,10 @@ grant. Keyring calls have deadlines, cleanup is bounded, known sessions close
 on error/drop, and locked/ambiguous storage fails without opening prompts or
 falling back to plaintext credentials.
 
-The provider process and connection UI are integrated. The deployment identity
-still needs live qualification for device flow and Music API access. The upstream
-example establishes the interaction, not official API support or permission to
-reuse its registration. Expired access requires reconnect; automatic refresh is
+The provider process and connection UI are integrated. The compatibility identity
+still needs live qualification for device flow, Music API access and audio. The
+owner authorized compatibility registration reuse; this is not evidence of
+third-party service approval or official API support. Expired access requires reconnect; automatic refresh is
 not claimed. Outward state revisions remain monotonic through account changes.
 
 Audio resolution uses authenticated download-info metadata, then a separate

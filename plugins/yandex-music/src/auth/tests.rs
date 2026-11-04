@@ -298,6 +298,7 @@ async fn expired_saved_tokens_and_locally_expired_codes_require_a_new_connection
             nonce: uuid::Uuid::new_v4().to_string(),
             access_token: "synthetic-expired".into(),
             expires_at: Some(1),
+            client_id: Some("synthetic".into()),
         })
         .await
         .unwrap();
@@ -577,4 +578,24 @@ async fn startup_restore_reserved_before_connect_cannot_invalidate_that_connect(
     assert_eq!(auth.restore_prepared(startup).await, Err(Error::Cancelled));
     auth.current(connect.generation).unwrap();
     assert!(mock.finish().is_empty());
+}
+
+#[tokio::test]
+async fn changing_client_identity_requires_fresh_music_authorization() {
+    let store = MemoryStore::default();
+    let mock = Mock::new(vec![reply(200, code()), reply(200, token())]);
+    let auth = mock.client(store.clone());
+    let attempt = auth.start().await.unwrap();
+    auth.complete(attempt).await.unwrap();
+    assert!(store.bytes.lock().unwrap().is_some());
+    let other = DeviceAuth::new(
+        "another-registration",
+        None,
+        "synthetic-device",
+        store.clone(),
+    )
+    .unwrap();
+    assert!(!other.restore().await.unwrap());
+    assert!(store.bytes.lock().unwrap().is_none());
+    mock.finish();
 }

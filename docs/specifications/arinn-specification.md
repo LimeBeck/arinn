@@ -219,8 +219,15 @@ The [music design brief](../design/music-design-brief.md) and
 [proposed protocol](../plugin-api/music.md) describe this extension. Provider
 processes own playback and credentials; no user token, stream URL or local media
 path may cross the shell interface. Yandex uses provider-hosted device-code
-sign-in and Secret Service storage. This extension does not change MVP acceptance
-criteria, phase status or the Plugin API stability gate; #710 remains owner-gated.
+sign-in and Secret Service storage. The owner authorized the CloudMus-compatible
+SDK application registration (including its embedded secret) on 2026-11-04,
+superseding the own-public-client-only constraint. The browser confirms the short
+code; the provider receives and stores the user's token automatically, closes the
+owned temporary browser window, and returns to Arinn. A source MUST verify Music
+API access before reporting connected; denied access MUST show an explicit error
+instead of an empty connected library. See [ADR-0141](../adr/0141-temporary-browser-authorization.md).
+This extension does not change MVP acceptance criteria, phase status or the
+Plugin API stability gate; the follow-up #771 remains owner-gated.
 
 ### 5.4. Downloads
 
@@ -414,7 +421,7 @@ Chrome ──Extension API──▶ Arinn Chrome extension (Manifest V3)
        ──Plugin API──▶ arinnd
 ```
 
-The extension requests only `tabs` and `nativeMessaging`; no content scripts and no host permissions. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Saved web shortcuts may independently obtain site icons through the browser provider, without extension permission changes, authenticated browser data or shell-side network access. Public HTTPS origins, redirects, DNS pinning, timeouts, image/request limits and a bounded local cache follow [ADR-0075](../adr/0075-web-shortcut-site-icons.md) and the [site-icon contract](../architecture/web-shortcut-icons.md). Manifest and apple-touch icons may supply higher-resolution raster candidates. Unsupported, missing or rejected images preserve the monogram. The owner authorized this exception to ADR-0043/0048 on 2026-10-01. Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
+The extension requests only `tabs`, `nativeMessaging` and `storage`; no content scripts and no host permissions. `storage` is limited to `chrome.storage.session` for opaque temporary authorization window/tab handles and a fail-closed recovery flag. The extension MUST NOT write authorization URLs, titles, codes, credentials, tokens, ordinary browsing history or web-shortcut data to extension storage; it MUST NOT use local/sync storage for authorization. This permission amendment accompanies the owner-requested browser sign-in in [#771](https://github.com/LimeBeck/arinn/issues/771) and remains subject to owner review in [proposed ADR-0141](../adr/0141-temporary-browser-authorization.md); it does not requalify a phase gate. Version 1 needs no page scraping, DOM automation, arbitrary JavaScript or content analysis. The plugin works only with windows, tabs, URL, title and active/audible state; version 1 transfers no favicon, because reading one would need a further extension permission ([ADR-0048](../adr/0048-browser-wire-contract.md)). Saved web shortcuts may independently obtain site icons through the browser provider, without extension permission changes, authenticated browser data or shell-side network access. Public HTTPS origins, redirects, DNS pinning, timeouts, image/request limits and a bounded local cache follow [ADR-0075](../adr/0075-web-shortcut-site-icons.md) and the [site-icon contract](../architecture/web-shortcut-icons.md). Manifest and apple-touch icons may supply higher-resolution raster candidates. Unsupported, missing or rejected images preserve the monogram. The owner authorized this exception to ADR-0043/0048 on 2026-10-01. Incognito is not connected by default. Several browser profiles may produce several connections without creating Arinn profiles.
 
 Generic `open` accepts only `http` and `https`. The desktop ApplicationProvider launches the browser application; `arinn-plugin-chrome` declares only `browser`, not `application`. The application and browser entities are linked through a validated platform window token, never through titles or product-specific core logic. This resolves OQ-03 by owner decision on 2026-09-28 ([ADR-0038](../adr/0038-browser-launch-ownership.md)). Details: [plugin runtime](../architecture/plugin-runtime.md).
 

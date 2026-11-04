@@ -92,6 +92,7 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_settings().await?;
     core.export_folders().await?;
     core.export_browse().await?;
+    core.export_browser_auth().await?;
     connection
         .object_server()
         .at(

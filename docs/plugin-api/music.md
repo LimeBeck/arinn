@@ -43,7 +43,7 @@ Snapshots contain at most 100,000 unique entities. Search is at most 1024 bytes.
 occurrence, position_us, replaces_provider, replaces_session and text. The last two
 fields default to empty for non-replacing commands. Known actions are play,
 pause, resume, stop, previous, next, seek, remove, like, dislike, radio, retry,
-pin, connect, cancel, disconnect, scan, save_playlist and delete_playlist; providers advertise only implemented
+pin, connect, authorize, cancel, disconnect, scan, save_playlist and delete_playlist; providers advertise only implemented
 actions. Removal addresses an upcoming occurrence. Times are microseconds.
 `text` defaults to empty, is at most 1024 bytes without control characters and
 must contain a nonblank playlist name for save_playlist. Saving a group uses
@@ -66,12 +66,17 @@ of the source currently browsed. Owner loss invalidates cached sessions.
 
 ## Account and playback boundaries
 
-Account states are local, disconnected, connecting, connected, expired and
-unconfigured. A connecting prompt contains only verification_url (HTTPS),
-user_code and expires_in. Providers keep device_code, client secrets and user
-tokens private. Connect/Cancel/Disconnect run through the same verified command
-route. Configured client identity and live-service eligibility are deployment
-qualification, not an inference from a successful synthetic device-flow test.
+Account states are local, disconnected, connecting, connected, expired,
+unconfigured, restricted and unavailable. `restricted` means authenticated service
+access was denied; `unavailable` represents a transient account/API failure.
+Neither is a connected empty catalogue. A connecting prompt contains only
+verification_url (HTTPS), user_code and expires_in. Providers keep device_code,
+client secrets and user tokens private. Connect/Authorize/Cancel/Disconnect use
+the same verified command route. Optional `authorize` takes no session/entity
+and opens the prompt through [BrowserAuth1](browser-authorization.md); the shell
+never launches third-party processes. Providers must verify their actual music
+API before reporting connected. OAuth success alone is insufficient. Client
+identity and live-service eligibility remain deployment qualification.
 
 Playback states are stopped, loading, playing, paused and ended. A load receipt
 means loading; only a native file-loaded observation confirms readiness. A native

@@ -6,6 +6,18 @@ use arinn_protocol::music::Entity;
 use reqwest::Method;
 use serde_json::Value;
 impl Api {
+    /// OAuth identity is not Music API eligibility. Probe both the account and a
+    /// music-library endpoint before the native source can report connected.
+    pub(crate) async fn check_music_access(&self) -> Result<(), Error> {
+        let uid = self.account_uid().await?;
+        let library = self
+            .request(Method::GET, &["users", &uid, "likes", "tracks"], &[])
+            .await?;
+        if !library["library"]["tracks"].is_array() {
+            return Err(Error::InvalidResponse);
+        }
+        Ok(())
+    }
     pub async fn account_uid(&self) -> Result<String, Error> {
         let value = self
             .request(Method::GET, &["account", "status"], &[])

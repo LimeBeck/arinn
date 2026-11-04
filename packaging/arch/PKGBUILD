@@ -120,6 +120,7 @@ package() {
   install -Dm644 packaging/chrome/org.arinn.chrome_host.json \
     "${pkgdir}/etc/chromium/native-messaging-hosts/org.arinn.chrome_host.json"
   install -Dm644 plugins/chrome/extension/manifest.json plugins/chrome/extension/background.js \
+    plugins/chrome/extension/authorization.js plugins/chrome/extension/authorization.html \
     -t "${pkgdir}/usr/share/arinn/chrome-extension/"
   install -Dm644 packaging/web-shortcuts/web-shortcuts.toml "${pkgdir}/usr/share/arinn/web-shortcuts.toml"
   install -Dm644 packaging/browser/browser-applications.toml "${pkgdir}/usr/share/arinn/browser-applications.toml"

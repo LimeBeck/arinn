@@ -67,7 +67,7 @@ TestCase {
         browser = createTemporaryObject(browserFactory, suite);
         view = createTemporaryObject(viewFactory, suite, Object.assign({
             browser: browser,
-            row: {providerId: "library", id: "roots", type: "path", currentValue: paths,
+            row: {providerId: "library", id: "roots", type: "path", libraryFolders: true, currentValue: paths,
                   constraints: {multiple: true, directory: true}, unavailablePaths: []}
         }, extra || {}));
         verify(view);
@@ -92,7 +92,7 @@ TestCase {
     }
     // LF-4: an unavailable folder stays in place and can be removed.
     function test_unavailable_folder() {
-        make(["/media/user/Share"], {row: {providerId: "library", id: "roots", type: "path",
+        make(["/media/user/Share"], {row: {providerId: "library", id: "roots", type: "path", libraryFolders: true,
               currentValue: ["/media/user/Share"], constraints: {multiple: true, directory: true},
               unavailablePaths: ["/media/user/Share"]}});
         focused("folderRow-0");
@@ -180,7 +180,7 @@ TestCase {
         compare(values.count, 0);
         view.row = Object.assign({}, view.row, {pending: false, enabled: false});
         keyClick(Qt.Key_Return);
-        compare(child("foldersToastText").text, "Library folders cannot be changed now");
+        compare(child("foldersToastText").text, "These folders cannot be changed now");
     }
     // LF-2: no folders, Add focused.
     function test_empty_offers_add() {
@@ -190,7 +190,7 @@ TestCase {
     }
     // LF-5: at the limit Add stays focusable and explains.
     function test_limit_explains_instead_of_opening_the_picker() {
-        make(["/a", "/b"], {row: {providerId: "library", id: "roots", type: "path", currentValue: ["/a", "/b"],
+        make(["/a", "/b"], {row: {providerId: "library", id: "roots", type: "path", libraryFolders: true, currentValue: ["/a", "/b"],
               constraints: {multiple: true, directory: true, maxItems: 2}, unavailablePaths: []}});
         focused("folderRow-0");
         keyClick(Qt.Key_Up); focused("foldersAdd");
@@ -237,9 +237,61 @@ TestCase {
         compare(values.count, 1);
         compare(values.signalArguments[0][0], ["/home/user/Films", "/media/user/Disk"]);
         verify(!picker.visible);
-        view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Films", "/media/user/Disk"], pending: true});
+        // Review of #780: the catalog keeps the old value while the save is
+        // pending; the new folder shows at once, "Adding to the library…".
+        view.row = Object.assign({}, view.row, {pending: true});
         focused("folderRow-1");
         compare(child("folderStatus-1").text, "Adding to the library…");
+        compare(child("foldersCount").text, "2");
+        view.row = Object.assign({}, view.row, {currentValue: ["/home/user/Films", "/media/user/Disk"], pending: false});
+        focused("folderRow-1");
+        verify(!child("folderStatus-1").visible);
+    }
+    // Review of #780: an added folder the daemon refuses leaves the list
+    // with the error in words.
+    function test_refused_add_leaves_the_list() {
+        make(["/home/user/Series"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        keyClick(Qt.Key_Up);
+        tryCompare(findChild(picker, "pickerChoose"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        view.row = Object.assign({}, view.row, {pending: true});
+        compare(view.folders.length, 2);
+        view.row = Object.assign({}, view.row, {pending: false, error: "InvalidArgument"});
+        compare(view.folders, ["/home/user/Series"]);
+        compare(child("foldersToastText").text, "This value is not accepted.");
+    }
+    // Review of #780: "/home/user/" and "/home/user" are one folder.
+    function test_trailing_slash_is_the_same_folder() {
+        make(["/home/user/"]);
+        focused("folderRow-0");
+        keyClick(Qt.Key_Up); keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        keyClick(Qt.Key_Up);
+        tryCompare(findChild(picker, "pickerChoose"), "activeFocus", true);
+        keyClick(Qt.Key_Return);
+        verify(picker.visible);
+        compare(picker.errorText, "This folder is already in the library");
+    }
+    // Review of #780: another provider's folder list gets plain folder
+    // wording and its own title, not the library's.
+    function test_other_folder_lists_use_plain_wording() {
+        make(["/srv/backup"], {row: {providerId: "backup", id: "dirs", type: "path", title: "Backup folders",
+              description: "Folders to copy each night.", currentValue: ["/srv/backup", "/srv/gone"],
+              constraints: {multiple: true, directory: true}, unavailablePaths: ["/srv/gone"]}});
+        focused("folderRow-0");
+        compare(child("foldersTitle").text, "Backup folders");
+        compare(child("folderStatus-1").text, "Unavailable");
+        keyClick(Qt.Key_Right); focused("folderRemove-0");
+        keyClick(Qt.Key_Return);
+        compare(child("foldersConfirmTitle").text, "Remove “backup” from the list?");
+        keyClick(Qt.Key_Escape);
+        view.row = Object.assign({}, view.row, {currentValue: []});
+        tryCompare(child("foldersEmptyBody"), "text", "Folders to copy each night.");
     }
     // PK-10: a folder already in the list is refused in the picker.
     function test_picker_refuses_a_listed_folder() {

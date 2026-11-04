@@ -574,7 +574,10 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               readLibraryProviders(scan, next);
               return;
             }
+            const bool libraryChanged = m_libraryPaths != scan->found;
             m_libraryPaths = scan->found;
+            if (libraryChanged && m_loaded)
+              publish();
             QStringList gone;
             for (auto it = m_roots.cbegin(); it != m_roots.cend(); ++it)
               if (!m_libraryPaths.contains(it.key()))
@@ -817,6 +820,11 @@ void SettingsCatalog::publish() {
                 if (!states->value(entry, true) && !unavailable.contains(entry))
                   unavailable.append(entry);
             row.insert(QStringLiteral("unavailablePaths"), unavailable);
+            // A folder list of a provider with the library capability: the
+            // Library folders screen uses the library's wording for it
+            // (review of #780).
+            row.insert(QStringLiteral("libraryFolders"),
+                       m_libraryPaths.contains(provider.id));
           }
           rows.append(row);
         }

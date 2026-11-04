@@ -531,7 +531,11 @@ RU.update({
     "To the home folder": "К домашней папке",
     "OK Open · Back Up one level · ↑ Choose": "OK Открыть · Назад На уровень выше · ↑ Выбрать",
     "Wait until the last change is saved": "Дождитесь, пока сохранится прошлое изменение",
-    "Library folders cannot be changed now": "Папки медиатеки сейчас нельзя изменить",
+    "These folders cannot be changed now": "Эти папки сейчас нельзя изменить",
+    "Adding…": "Добавление…",
+    "Nothing is deleted from the disk.": "С диска ничего не удаляется.",
+    "This folder is already in the list": "Эта папка уже в списке",
+    "Remove “%1” from the list?": "Убрать «%1» из списка?",
 })
 
 # Context-specific overrides: the same English word reads differently.

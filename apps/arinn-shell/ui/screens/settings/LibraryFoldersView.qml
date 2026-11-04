@@ -32,7 +32,30 @@ FocusScope {
     // The added folder takes focus once the setting lists it (LF-8).
     property bool focusAdded: false
     readonly property bool picking: picker.visible
-    readonly property var folders: pathsOf(row)
+    // The setting's folders as saved.
+    readonly property var savedFolders: pathsOf(row)
+    // The folders shown: the saved ones, and the folder being added while
+    // the save is pending, so it shows "Adding…" at once (LF-8). The catalog
+    // keeps the old value until the save settles (review of #780).
+    readonly property var folders: addedPath.length && !!row.pending && indexOfPath(savedFolders, addedPath) < 0
+                                   ? savedFolders.concat([addedPath]) : savedFolders
+    // The library's own folder lists use the handoff's library wording; any
+    // other provider's folder list gets plain folder wording (review of
+    // #780). The catalog marks the lists of providers with the library
+    // capability.
+    readonly property bool library: row.libraryFolders === true
+    // "/srv/films/" and "/srv/films" are one folder (review of #780).
+    function normalPath(path) {
+        const text = String(path);
+        if (text.length <= 1) return text;
+        return text.replace(/\/+$/, "") || "/";
+    }
+    function indexOfPath(list, path) {
+        const wanted = normalPath(path);
+        for (let i = 0; i < list.length; ++i)
+            if (normalPath(list[i]) === wanted) return i;
+        return -1;
+    }
     // A list from C++ is not a JS Array; read it by length.
     function pathsOf(value) {
         const list = value ? value.currentValue : null;
@@ -50,12 +73,12 @@ FocusScope {
     }
     readonly property int maxItems: row.constraints && row.constraints.maxItems !== undefined
                                     ? Number(row.constraints.maxItems) : 64
-    readonly property bool full: folders.length >= maxItems
+    readonly property bool full: savedFolders.length >= maxItems
     readonly property int toastDurationMs: 2600
     // One change at a time: the catalog drops a second save while the first
     // is pending, so Add and Remove explain instead (review of #780).
     readonly property bool busy: !!row.pending || row.enabled === false
-    readonly property string busyText: row.enabled === false ? qsTr("Library folders cannot be changed now")
+    readonly property string busyText: row.enabled === false ? qsTr("These folders cannot be changed now")
                                                               : qsTr("Wait until the last change is saved")
 
     signal valuesRequested(var paths)
@@ -123,8 +146,9 @@ FocusScope {
         picker.start();
     }
     function chosen(path) {
-        if (folders.indexOf(path) >= 0) {
-            picker.errorText = qsTr("This folder is already in the library");
+        if (indexOfPath(folders, path) >= 0) {
+            picker.errorText = library ? qsTr("This folder is already in the library")
+                                       : qsTr("This folder is already in the list");
             return;
         }
         if (busy) {
@@ -134,7 +158,7 @@ FocusScope {
         picker.visible = false;
         addedPath = path;
         focusAdded = true;
-        valuesRequested(folders.concat([path]));
+        valuesRequested(savedFolders.concat([path]));
         Qt.callLater(restore);
     }
     function askRemove(path) {
@@ -148,7 +172,7 @@ FocusScope {
         confirm.visible = false;
         if (index >= 0) {
             removedPath = removing;
-            valuesRequested(folders.filter(path => path !== removing));
+            valuesRequested(savedFolders.filter(path => path !== removing));
         }
         removing = "";
         Qt.callLater(() => focusRow(Math.max(0, index - 1), "row"));
@@ -162,7 +186,14 @@ FocusScope {
     // The removal settles: the folder left the row, or the save failed and
     // the row shows the error.
     onRowChanged: {
-        if (!removedPath.length || row.pending) return;
+        if (row.pending) return;
+        // An added folder the daemon refused leaves the list with the error.
+        if (addedPath.length && row.error && indexOfPath(pathsOf(row), addedPath) < 0) {
+            addedPath = "";
+            focusAdded = false;
+            showToast(errorText(row.error));
+        }
+        if (!removedPath.length) return;
         // Read the row itself: the folders binding may not have caught up.
         if (pathsOf(row).indexOf(removedPath) < 0) {
             removedPath = "";
@@ -212,7 +243,7 @@ FocusScope {
                 spacing: 20
                 Ui.UiText {
                     objectName: "foldersTitle"
-                    text: qsTr("Library folders")
+                    text: root.library ? qsTr("Library folders") : (root.row.title || qsTr("Folders"))
                     role: "title"
                 }
                 Ui.UiText {
@@ -334,8 +365,9 @@ FocusScope {
                                             objectName: "folderStatus-" + slot.index
                                             width: parent.width
                                             visible: text.length > 0
-                                            text: slot.missing ? qsTr("Unavailable. Its films stay in the library as unavailable")
-                                                : slot.adding ? qsTr("Adding to the library…") : ""
+                                            text: slot.missing ? (root.library ? qsTr("Unavailable. Its films stay in the library as unavailable")
+                                                                               : qsTr("Unavailable"))
+                                                : slot.adding ? (root.library ? qsTr("Adding to the library…") : qsTr("Adding…")) : ""
                                             font.pixelSize: 24
                                             color: slot.missing ? Ui.Theme.error : Ui.Theme.ember
                                             elide: Text.ElideRight
@@ -390,9 +422,12 @@ FocusScope {
                     role: "title"; font.pixelSize: 52
                 }
                 Ui.UiText {
+                    objectName: "foldersEmptyBody"
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
-                    text: qsTr("Add a folder with films and series. Arinn finds them and keeps the library up to date.")
+                    visible: text.length > 0
+                    text: root.library ? qsTr("Add a folder with films and series. Arinn finds them and keeps the library up to date.")
+                                       : (root.row.description || "")
                     color: Ui.Theme.textSecondary
                     wrapMode: Text.WordWrap
                 }
@@ -449,13 +484,15 @@ FocusScope {
                         Ui.UiText {
                             objectName: "foldersConfirmTitle"
                             width: parent.width
-                            text: qsTr("Remove “%1” from the library?").arg(root.nameOf(root.removing))
+                            text: (root.library ? qsTr("Remove “%1” from the library?")
+                                                : qsTr("Remove “%1” from the list?")).arg(root.nameOf(root.removing))
                             role: "title"; font.pixelSize: 48
                             wrapMode: Text.WordWrap
                         }
                         Ui.UiText {
                             width: parent.width
-                            text: qsTr("Its films and series leave the library. Nothing is deleted from the disk.")
+                            text: root.library ? qsTr("Its films and series leave the library. Nothing is deleted from the disk.")
+                                               : qsTr("Nothing is deleted from the disk.")
                             color: Ui.Theme.textSecondary
                             wrapMode: Text.WordWrap
                         }

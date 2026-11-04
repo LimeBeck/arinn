@@ -284,6 +284,12 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
   chevron. OK emits `SettingsView.foldersRequested(row)`. `Main.qml` then opens
   `LibraryFoldersView` over Settings (`focusedScreen` `libraryFolders`) and binds
   it to the live row, so pending, errors and unavailable folders show at once.
+- **Wording.** `SettingsCatalog` marks a folder list `libraryFolders` when its
+  provider has the `library` capability in `Daemon1.Providers`. Such a list
+  uses the handoff's library wording ("Library folders", films and series,
+  "from the library"). Any other provider's folder list uses its row title,
+  its description for the empty state, and plain folder wording ("from the
+  list", "Unavailable", "Adding…").
 - **Screen (LF-1).**
   - The title is followed by the count, and *Add folder* sits right of the title
     (Up from the first row).
@@ -305,7 +311,9 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     The toast "Folder removed" waits until the row no longer lists the folder;
     if the save fails, the toast shows the error instead.
   - Added (LF-8): the new row is appended and focused, with "Adding to the
-    library…" while the setting is pending.
+    library…" while the setting is pending. The catalog keeps the old value
+    until the save settles, so the screen shows the new folder itself
+    meanwhile; a refused add leaves the list, and the error shows in a toast.
   - A daemon refusal shows under the title in words, with the same mapping as
     `SettingsView.daemonErrorText`, never as the error code.
   - One change at a time: while the setting is pending or disabled, *Add
@@ -336,7 +344,8 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     shows "Folders cannot be read right now" with Retry, which asks for the
     places again.
   - A folder already in the list is refused in the picker with an error plate
-    (PK-10).
+    (PK-10). Paths are compared without trailing slashes, so `/srv/films/` and
+    `/srv/films` are one folder.
 - **Not built.**
   - Typing a path in the picker (PK-8);
   - paging with Ch± and the letter jump;

@@ -1074,10 +1074,6 @@
         <translation>Отмена</translation>
     </message>
     <message>
-        <source>Library folders cannot be changed now</source>
-        <translation>Папки медиатеки сейчас нельзя изменить</translation>
-    </message>
-    <message>
         <source>Wait until the last change is saved</source>
         <translation>Дождитесь, пока сохранится прошлое изменение</translation>
     </message>
@@ -1112,6 +1108,34 @@
     <message>
         <source>Something went wrong. Try again.</source>
         <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>These folders cannot be changed now</source>
+        <translation>Эти папки сейчас нельзя изменить</translation>
+    </message>
+    <message>
+        <source>This folder is already in the list</source>
+        <translation>Эта папка уже в списке</translation>
+    </message>
+    <message>
+        <source>Folders</source>
+        <translation>Папки</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Adding…</source>
+        <translation>Добавление…</translation>
+    </message>
+    <message>
+        <source>Remove “%1” from the list?</source>
+        <translation>Убрать «%1» из списка?</translation>
+    </message>
+    <message>
+        <source>Nothing is deleted from the disk.</source>
+        <translation>С диска ничего не удаляется.</translation>
     </message>
 </context>
 <context>

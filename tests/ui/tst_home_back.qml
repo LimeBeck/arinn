@@ -206,6 +206,8 @@ TestCase {
         const playerHomes = watch(player, "homeRequested")
         player.forceActiveFocus()
         keyClick(Qt.Key_Down)
+        compare(player.osdFocus, "playpause")
+        keyClick(Qt.Key_Right)
         compare(player.osdFocus, "subtitles")
         keyClick(Qt.Key_Return)
         compare(player.sheetKind, "subtitles")

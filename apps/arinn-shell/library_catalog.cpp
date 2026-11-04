@@ -1212,6 +1212,36 @@ QString LibraryCatalog::artworkFor(const QString &providerId,
   }
   return {};
 }
+QVariantMap LibraryCatalog::titleFor(const QString &providerId,
+                                     const QString &localId) const {
+  const ItemRow *item = nullptr;
+  for (const auto &row : m_items)
+    if (row.providerId == providerId && row.localId == localId)
+      item = &row;
+  if (!item)
+    return {};
+  // Bounded walk to the top-level entry, as in entryIdFor.
+  const ItemRow *top = item;
+  for (int depth = 0; depth <= m_items.size() && !top->parentLocal.isEmpty(); ++depth) {
+    const ItemRow *parent = nullptr;
+    for (const auto &row : m_items)
+      if (row.providerId == providerId && row.localId == top->parentLocal)
+        parent = &row;
+    if (!parent)
+      break;
+    top = parent;
+  }
+  QVariantMap names{{QStringLiteral("title"), top->title}};
+  if (top != item) {
+    QStringList line;
+    if (item->hasSeason && item->hasEpisode)
+      line << tr("S%1 E%2").arg(item->season).arg(item->episode);
+    if (!item->title.isEmpty() && item->title != top->title)
+      line << item->title;
+    names.insert(QStringLiteral("episodeLine"), line.join(QStringLiteral(" · ")));
+  }
+  return names;
+}
 void LibraryCatalog::launchContent(const QString &providerId,
                                    const QString &localId) {
   for (const auto &item : m_items) {

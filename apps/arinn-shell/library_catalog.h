@@ -53,6 +53,11 @@ public:
   // returns for this provider-local item, or an empty string (#360).
   Q_INVOKABLE QString posterFor(const QString &providerId,
                                 const QString &localId) const;
+  // What the player names this provider-local item: `title`, the film or
+  // its series, and `episodeLine`, "S1 E4 · Episode" for an episode. Empty
+  // when the item is not in the library (#756 B11).
+  Q_INVOKABLE QVariantMap titleFor(const QString &providerId,
+                                   const QString &localId) const;
 public slots:
   void refresh();
 signals:

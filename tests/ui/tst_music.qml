@@ -126,9 +126,10 @@ TestCase {
         home.selectSection(2);compare(home.screen,"music");
         home.navOpen=true;
         // With a music section the system items move down by one: Open
-        // services stays visible and Return stays hidden without an activity.
+        // services and Running stay visible.
         compare(findChild(home,"nav-6").text,"Open services");compare(findChild(home,"nav-6").visible,true);
-        compare(findChild(home,"nav-7").text,"Return to activity");compare(findChild(home,"nav-7").visible,false);
+        // #759 CL-7: Running replaces the activity row and stays.
+        compare(findChild(home,"nav-7").text,"Running");compare(findChild(home,"nav-7").visible,true);
         home.returnActivityId="activity";compare(findChild(home,"nav-7").visible,true);
         home.currentServiceTitle="Fixture service";
         compare(home.navIcon(2),"volume_up");compare(home.navIcon(3),"download");

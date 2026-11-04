@@ -13,6 +13,7 @@ import "ui/screens/library" as Library
 import "ui/screens/music" as Music
 import "ui/screens/player" as Player
 import "ui/screens/power" as Power
+import "ui/screens/running" as Running
 import "ui/screens/session" as Session
 import "ui/screens/settings" as Settings
 
@@ -43,6 +44,10 @@ Window {
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    // The running window of the application on screen: the window whose
+    // platform token is the Return target (ADR-0119).
+    readonly property var activityWindow: (backend.items || []).find(row => row.windowToken
+                                                && row.windowToken === backend.returnWindow) || null
     readonly property bool navBlur: home.navOpen && home.navBlurAvailable
     // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
     // no screen: `activityBehind` stays set while Back hands the screen back
@@ -480,6 +485,7 @@ Window {
     readonly property string focusedScreen: ambientScreen.active ? "ambient"
         : powerOverlay.open ? "power"
         : quickMenuOpen ? "quickMenu"
+        : closeFlow.open ? "closeFlow"
         : playerOpen ? "player"
         : home.navOpen || home.shortcutEditorOpen || home.tileActionsOpen ? "home"
         : sessionOpen ? "session"
@@ -490,11 +496,13 @@ Window {
         : home.screen === "library" ? "library"
         : home.screen === "downloads" ? "downloads"
         : home.screen === "settings" ? "settings"
+        : home.screen === "running" ? "running"
         : "home"
     function screenItem(name) {
         return ({player: playerView, session: sessionView, browser: browserView, browse: browseView,
                  libraryFolders: libraryFoldersView,
                  music: musicView, library: libraryView, downloads: downloadsView, settings: settingsView, home: home,
+                 running: runningView, closeFlow: closeFlow,
                  power: powerOverlay, ambient: ambientScreen, quickMenu: quickMenu})[name];
     }
     // Focus the screen on display at its preferred item.
@@ -510,6 +518,8 @@ Window {
         case "music": musicView.focusInitial(); break;
         case "library": libraryView.focusInitial(); break;
         case "downloads": downloadsView.restore(); break;
+        case "running": runningView.restore(); break;
+        case "closeFlow": closeFlow.restoreFocus(); break;
         case "settings": settingsView.focusInitial(); break;
         case "libraryFolders": libraryFoldersView.restore(); break;
         default: home.restoreFocus();
@@ -881,7 +891,7 @@ Window {
     function unhandledKey(event) {
         if (event.isAutoRepeat || event.modifiers !== Qt.NoModifier) return;
         const section = focusedScreen === "library" || focusedScreen === "settings"
-            || focusedScreen === "downloads";
+            || focusedScreen === "downloads" || focusedScreen === "running";
         const overlay = focusedScreen === "browser" || focusedScreen === "browse"
             || focusedScreen === "session" || focusedScreen === "libraryFolders";
         // A Settings editor keeps Menu; Home reaches the shell through the
@@ -903,7 +913,7 @@ Window {
     // Home from a screen that does not handle it itself; false when the
     // screen is not one of these.
     function goHomeFrom(screen) {
-        if (screen === "library" || screen === "settings" || screen === "downloads") home.showHome();
+        if (screen === "library" || screen === "settings" || screen === "downloads" || screen === "running") home.showHome();
         else if (screen === "browser") { browserOpen = false; Qt.callLater(home.showHome); }
         else if (screen === "music") home.showHome();
         else if (screen === "browse") { browseOpen = false; browseCatalog.reset(); Qt.callLater(home.showHome); }
@@ -947,7 +957,7 @@ Window {
             anchors.right: parent.right; anchors.rightMargin: Ui.Theme.safeRight
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
-                || downloadsView.visible || browserView.visible)
+                || downloadsView.visible || browserView.visible || runningView.visible)
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress
@@ -965,6 +975,7 @@ Window {
             // Open services, Browse and Session (z 5), below the player (z 6).
             z: navOpen || tileActionsOpen ? 5.5 : 0
             coveredByScreen: musicView.visible || libraryView.visible || settingsView.visible || downloadsView.visible
+                || runningView.visible
                 || browserView.visible || browseView.visible || sessionView.visible
             // Home remains painted beneath other screens, but its catalog
             // callbacks and hovered cards must not take their input focus.
@@ -975,7 +986,16 @@ Window {
             favoriteSaving: backend.favoriteSaving === true
             favoriteError: backend.favoriteError || ""
             onFavoriteRequested: (entryId, pinned) => backend.setFavorite(entryId, pinned)
-            onTerminateRequested: entryId => backend.terminate(entryId)
+            onCloseRequested: windowId => closeFlow.ask(windowId)
+            closingIds: closeFlow.closingIds
+            // Only windows being closed or closed on request: a window that
+            // did not close and later disappears still gets the notice.
+            closedWindowIds: closeFlow.closingIds.concat(closeFlow.closedIds)
+            // The application on screen, when Arinn can close its window
+            // (CL-3a) and for the Running item's subline (CL-7).
+            activityWindowId: root.activityWindow ? root.activityWindow.id : ""
+            activityTerminable: !!root.activityWindow && root.activityWindow.terminable === true
+            activityWindowTitle: root.activityWindow ? (root.activityWindow.title || "") : ""
             shortcutManagement: true
             keyboardAvailable: keyboardMonitor.available
             shortcutEditor: backend.shortcutEditor || ({})
@@ -1292,6 +1312,32 @@ Window {
                 home.showHome();
             }
         }
+        // Running applications (#759, CL-4…7, CL-13…15): every running
+        // window of an ordinary application; browser windows stay on Open
+        // services.
+        Running.RunningView {
+            id: runningView
+            objectName: "productionRunning"
+            // A section screen: blurred under the navigation, with the
+            // shared status area (#756 C17, C26; review of #777).
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
+            focus: root.focusedScreen === "running"
+            ownsFocus: root.focusedScreen === "running"
+            visible: home.screen === "running" && !root.playerOpen
+            enabled: visible
+            z: 4
+            windows: backend.items
+            currentId: root.activityWindow && !home.returnIsWebService ? root.activityWindow.id : ""
+            closingIds: closeFlow.closingIds
+            failedIds: closeFlow.failedIds
+            registryKnown: closeFlow.windowsKnown
+            onActivateRequested: windowId => backend.activate(windowId)
+            onCloseRequested: windowId => closeFlow.ask(windowId)
+            onBackRequested: home.back()
+            onHomeRequested: home.showHome()
+            onNavigationRequested: home.openNavigation()
+        }
         Downloads.DownloadsView {
             id: downloadsView
             focus: root.focusedScreen === "downloads"
@@ -1559,7 +1605,36 @@ Window {
         Keys.onPressed: event => root.unhandledKey(event)
         // The power scope above every screen and the quick menu, and the
         // volume HUD (§5.7, §6.1: dialog › power › sheet).
-        Power.PowerOverlay {
+        // One close flow for the tile sheet, the Continue card and the
+    // Running screen (#759, CL-8…11, CL-16). Above the screens and Home's
+    // sheet, below the quick menu and the power scope.
+    Running.CloseFlow {
+        id: closeFlow
+        objectName: "closeFlow"
+        // Below the power scope (z 7), and hidden while power, the quick
+        // menu or ambient is open, so what has focus is what is on top
+        // (review of #777).
+        z: 6.5
+        suppressed: powerOverlay.open || root.quickMenuOpen || ambientScreen.active
+        focus: root.focusedScreen === "closeFlow"
+        windows: backend.items
+        // Only a complete snapshot: an `error` one may lack a failed
+        // provider's windows (review of #777).
+        windowsKnown: backend.connected === true && (backend.applicationsState === "ready"
+                                                     || backend.applicationsState === "empty")
+        onTerminateRequested: windowId => backend.terminate(windowId)
+        onGaveUp: windowId => { if (typeof backend.cancelQueuedTerminate === "function") backend.cancelQueuedTerminate(windowId); }
+        onSwitchRequested: windowId => backend.activate(windowId)
+        onHomeRequested: { root.closeOverlays(); Qt.callLater(home.showHome); }
+        Connections {
+            target: backend
+            // Test stand-ins of the backend may not have the signal.
+            ignoreUnknownSignals: true
+            function onOperationFinished(id, method, state) { closeFlow.operationFinished(id, method, state); }
+            function onOperationStarted(id, method) { closeFlow.operationStarted(id, method); }
+        }
+    }
+    Power.PowerOverlay {
             id: powerOverlay
             anchors.fill: parent
             z: 7

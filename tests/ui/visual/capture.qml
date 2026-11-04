@@ -11,6 +11,7 @@ import "../../../apps/arinn-shell/ui/screens/downloads" as Downloads
 import "../../../apps/arinn-shell/ui/screens/library" as Library
 import "../../../apps/arinn-shell/ui/screens/player" as Player
 import "../../../apps/arinn-shell/ui/screens/power" as Power
+import "../../../apps/arinn-shell/ui/screens/running" as Running
 import "../../../apps/arinn-shell/ui/screens/session" as Session
 import "../../../apps/arinn-shell/ui/screens/settings" as Settings
 // Generated under the output directory and supplied with arinn-ui-test -import.
@@ -266,6 +267,32 @@ TestCase {
             {id: "g2", providerId: "fixture", title: "Tidepool", monogram: "T", group: "games", pinned: true},
             {id: "o1", providerId: "fixture", title: "Text Editor", monogram: "E", group: "other", runningId: "w2", running: true}
         ];
+    }
+    // Running windows for the Running screen and the close flow (#759,
+    // handoff CL-3a…CL-16).
+    function runningWindows(count) {
+        const list = [
+            {id: "w1", title: "Cinder Rally", applicationId: "g1", providerId: "fixture", terminable: true},
+            {id: "w2", title: "Text Editor — notes.txt", applicationId: "o1", providerId: "fixture", terminable: true},
+            {id: "w3", title: "Text Editor — draft.txt", applicationId: "o1", providerId: "fixture", terminable: true},
+            {id: "w4", title: "System Monitor", applicationId: "m1", providerId: "fixture", terminable: false}
+        ];
+        for (let i = list.length; i < (count || 0); ++i)
+            list.push({id: "w" + (i + 1), title: "A window with a very long name that the row has to cut short " + (i + 1),
+                       applicationId: "x" + i, providerId: "fixture", terminable: true});
+        return list;
+    }
+    function runningScene(extra, act, expect) {
+        const props = {width: 1920, height: 1080, windows: runningWindows(), currentId: "w1"};
+        const keys = Object.keys(extra || {});
+        for (let i = 0; i < keys.length; ++i)
+            props[keys[i]] = extra[keys[i]];
+        return {factory: runningFactory, props: props, tune: act, settle: 400, expect: expect};
+    }
+    // The close flow over Home or over the Running screen.
+    function closeScene(overRunning, act, expect, animationMs) {
+        return {factory: overRunning ? closeRunningFactory : closeHomeFactory, props: {},
+                tune: act, settle: 400, expect: expect, animationMs: animationMs};
     }
     function appScene(act, expect) {
         return {factory: homeFactory, props: homeProps({
@@ -559,13 +586,56 @@ TestCase {
                 ? 1400 + 700 : stillMs};
         if (id === "apps-tile-running")
             return appScene(view => view.openTileActions("g1"), ["tileActions", "closeAppAction"]);
+        // The close flow's confirmation (CL-8) over Home.
         if (id === "apps-close-confirm")
-            return appScene(view => {
-                view.openTileActions("g1");
-                wait(50);
-                view.confirmAppClose = true;
-                Ui.Focus.take(findChild(view, "closeAppCancel"));
-            }, "closeAppConfirmation");
+            return closeScene(false, scene => scene.flow.ask("w1"), ["closeConfirmDialog", "closeFlowCancel"]);
+        // CL-3a: Close beside the application's Continue card.
+        if (id === "home-continue-close")
+            return {factory: homeFactory, props: homeProps({
+                continueEntries: [{id: "activity", title: "Cinder Rally", subtitle: "Return", running: true},
+                                  {id: "film", title: "The Quiet Harbor", kind: "media", positionUs: 4422e6, durationUs: 9960e6, artwork: art()}],
+                returnActivityId: "activity", activityWindowId: "w1", activityTerminable: true,
+                activityWindowTitle: "Cinder Rally"
+            }), tune: view => { view.restoreHome(); wait(50); Ui.Focus.take(findChild(view, "entry-close:w1")); },
+                settle: 500, expect: "entry-close:w1"};
+        // The Running screen (CL-4…CL-7, CL-9, CL-13…CL-16).
+        if (id === "running-list")
+            return runningScene({}, null, ["runningRow-w1", "runningRow-w4"]);
+        if (id === "running-close-focus")
+            return runningScene({}, view => Ui.Focus.take(findChild(view, "runningClose-w2")), "runningClose-w2");
+        if (id === "running-empty")
+            return runningScene({windows: [], currentId: ""}, null, "runningEmpty");
+        if (id === "running-nav")
+            return {factory: homeFactory, props: homeProps({screen: "running",
+                runningEntries: [{id: "w1", title: "Cinder Rally", monogram: "C", running: true}],
+                activityWindowId: "w1", activityWindowTitle: "Cinder Rally"}),
+                tune: view => view.openNavigation(), settle: 500, expect: ["navigationPanel", "runningBadge"]};
+        if (id === "running-closing")
+            return runningScene({closingIds: ["w2"]}, view => Ui.Focus.take(findChild(view, "runningRow-w3")), "runningClosing-w2");
+        if (id === "running-many")
+            return runningScene({windows: runningWindows(9)}, view => Ui.Focus.take(findChild(view, "runningRow-w8")), "runningPosition");
+        if (id === "running-two-windows")
+            return runningScene({}, view => Ui.Focus.take(findChild(view, "runningRow-w2")), "runningStatus-w2");
+        if (id === "running-cannot-close")
+            return runningScene({}, view => Ui.Focus.take(findChild(view, "runningClose-w4")), "runningRow-w4");
+        // The close flow's results (CL-10, CL-11, CL-16).
+        if (id === "running-closed")
+            return closeScene(false, scene => {
+                scene.flow.ask("w1"); scene.flow.confirm();
+                scene.flow.windows = runningWindows().slice(1);
+            }, "closeFlowToast", toastMs);
+        if (id === "running-did-not-close")
+            return closeScene(false, scene => {
+                scene.flow.ask("w1"); scene.flow.confirm();
+                scene.flow.operationFinished("w1", "Terminate", "failed");
+            }, ["closeFlowSwitch", "closeFlowTitle"]);
+        if (id === "running-closed-in-list")
+            return closeScene(true, scene => {
+                scene.flow.ask("w2"); scene.flow.confirm();
+                const rest = runningWindows().filter(entry => entry.id !== "w2");
+                scene.flow.windows = rest;
+                scene.running.windows = rest;
+            }, "closeFlowToast", toastMs);
         if (id === "home-tile-actions")
             return {factory: homeFactory, props: homeProps({
                 actionsEnabled: true,
@@ -863,6 +933,32 @@ TestCase {
     Component { id: sessionFactory; Session.SessionView { width: 1920; height: 1080 } }
     Component { id: ambientFactory; Power.AmbientScreen { width: 1920; height: 1080 } }
     Component { id: browseFactory; Browse.BrowseView { width: 1920; height: 1080 } }
+    Component { id: runningFactory; Running.RunningView { width: 1920; height: 1080 } }
+    // The close flow over Home, or over the Running screen.
+    Component {
+        id: closeHomeFactory
+        Item {
+            width: 1920; height: 1080
+            readonly property alias flow: homeFlow
+            Ui.HomeView { Component.onCompleted: suite.apply(this, suite.homeProps()) }
+            Running.CloseFlow { id: homeFlow; anchors.fill: parent; windows: suite.runningWindows() }
+        }
+    }
+    Component {
+        id: closeRunningFactory
+        Item {
+            width: 1920; height: 1080
+            readonly property alias flow: listFlow
+            readonly property alias running: listView
+            Running.RunningView {
+                id: listView
+                width: 1920; height: 1080
+                windows: suite.runningWindows(); currentId: "w1"
+                closingIds: listFlow.closingIds; failedIds: listFlow.failedIds
+            }
+            Running.CloseFlow { id: listFlow; anchors.fill: parent; windows: suite.runningWindows() }
+        }
+    }
     // The quick menu over the shell (Home behind it), or over an Activity.
     // The shell window is transparent over an Activity, so a fixture image
     // stands in for the application window behind it.

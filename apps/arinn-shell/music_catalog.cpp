@@ -55,7 +55,7 @@ void MusicCatalog::refresh(){
 void MusicCatalog::providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens){
   if(tokens.size()>=32||rows.size()>1024){m_registryBusy=false;fail(QStringLiteral("Unavailable"));return;}
   if(!token.isEmpty()&&tokens.contains(token)){m_registryBusy=false;fail(QStringLiteral("Conflict"));return;}tokens.insert(token);
-  auto message=call(QStringLiteral("/org/arinn/Daemon1"),"org.arinn.Daemon1","GetProviders");message<<token;
+  auto message=call(QStringLiteral("/org/arinn/Daemon1"),"org.arinn.Daemon1","Providers");message<<token;
   auto *pending=new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message,3000),this);
   connect(pending,&QDBusPendingCallWatcher::finished,this,[this,ticket,snapshot,rows,tokens](auto *watch)mutable{
     const auto reply=watch->reply();watch->deleteLater();if(ticket!=m_registryTicket)return;

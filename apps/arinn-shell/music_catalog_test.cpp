@@ -11,6 +11,7 @@
 #include <QQmlEngine>
 #include <QQmlPropertyMap>
 #include <QRegularExpression>
+#include <QXmlStreamReader>
 #include <memory>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -45,11 +46,16 @@ public:
   QHash<QString, QString> stateErrors;
   QHash<QString, int> pageReads;
   QStringList commands;
+  QSet<QString> registryMethods;
   QString active = QStringLiteral("null");
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
     const auto member = message.member();
-    if (member == QLatin1String("GetProviders")) {
+    // The fixture may not invent a daemon method absent from the wire contract.
+    if (message.interface() == QLatin1String("org.arinn.Daemon1")
+        && !registryMethods.contains(member))
+      return false;
+    if (member == QLatin1String("Providers")) {
       QDBusArgument body;
       body.beginStructure();
       body << QStringLiteral("snapshot");
@@ -117,6 +123,21 @@ class MusicCatalogTest : public QObject {
 private slots:
   void initTestCase() {
     qDBusRegisterMetaType<ProviderRow>();
+    QFile contract(QString::fromUtf8(ARINN_DAEMON_XML));
+    QVERIFY(contract.open(QIODevice::ReadOnly));
+    QXmlStreamReader xml(contract.readAll());
+    QString interface;
+    while (!xml.atEnd()) {
+      xml.readNext();
+      if (xml.isStartElement() && xml.name() == QLatin1String("interface"))
+        interface = xml.attributes().value("name").toString();
+      if (xml.isStartElement() && xml.name() == QLatin1String("method")
+          && interface == QLatin1String("org.arinn.Daemon1"))
+        daemon.registryMethods.insert(xml.attributes().value("name").toString());
+    }
+    QVERIFY(!xml.hasError());
+    QVERIFY(daemon.registryMethods.contains(QStringLiteral("Providers")));
+    QVERIFY(!daemon.registryMethods.contains(QStringLiteral("GetProviders")));
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
     QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
@@ -128,6 +149,59 @@ private slots:
     daemon.stateErrors.clear();
     daemon.pageReads.clear();
     daemon.active = QStringLiteral("null");
+  }
+  void registeredSourcesExposeMusicNavigationAndRecover() {
+    MusicCatalog catalog;
+    QQmlEngine engine;
+    engine.rootContext()->setContextProperty("musicCatalog", &catalog);
+    QFile main(QString::fromUtf8(ARINN_MAIN_QML));
+    QFile home(QString::fromUtf8(ARINN_HOME_QML));
+    QVERIFY(main.open(QIODevice::ReadOnly));
+    QVERIFY(home.open(QIODevice::ReadOnly));
+    // Evaluate the production entry-point bindings, rather than duplicating
+    // their source-list condition in a test-only navigation model.
+    const auto mainText = QString::fromUtf8(main.readAll());
+    const auto homeText = QString::fromUtf8(home.readAll());
+    const auto title = QRegularExpression(QStringLiteral(R"(\n\s*musicTitle: ([^\n]+))")).match(mainText);
+    const auto sections = QRegularExpression(QStringLiteral(R"(readonly property var sections: ([^\n]+))")).match(homeText);
+    const auto routes = QRegularExpression(QStringLiteral(R"(readonly property var routes: ([^\n]+))")).match(homeText);
+    QVERIFY(title.hasMatch() && sections.hasMatch() && routes.hasMatch());
+    QQmlComponent component(&engine);
+    component.setData((QStringLiteral("import QtQml\nQtObject { id: root; property string musicTitle: ")
+                       + title.captured(1) + QStringLiteral("\nreadonly property var sections: ")
+                       + sections.captured(1) + QStringLiteral("\nreadonly property var routes: ")
+                       + routes.captured(1) + QStringLiteral("\n}")).toUtf8(), QUrl());
+    std::unique_ptr<QObject> navigation(component.create());
+    QVERIFY2(navigation != nullptr, qPrintable(component.errorString()));
+    auto navigationRoutes = [&] {
+      return qvariant_cast<QJSValue>(navigation->property("routes")).toVariant().toStringList();
+    };
+    QVERIFY(!navigationRoutes().contains(QStringLiteral("music")));
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    daemon.states.insert("account", state({}, "disconnected"));
+    catalog.refresh();
+    QTRY_COMPARE(catalog.sources().size(), 2);
+    QTRY_VERIFY(navigationRoutes().contains(QStringLiteral("music")));
+    QCOMPARE(navigationRoutes().indexOf(QStringLiteral("music")),
+             navigationRoutes().indexOf(QStringLiteral("library")) + 1);
+    const auto labels = qvariant_cast<QJSValue>(navigation->property("sections")).toVariant().toStringList();
+    QCOMPARE(labels.at(navigationRoutes().indexOf(QStringLiteral("music"))), catalog.sectionTitle());
+
+    // A source generation change must be discovered without restarting shell.
+    daemon.providers[0].generation = QStringLiteral("g2");
+    catalog.refresh();
+    QTRY_COMPARE(catalog.sources().first().toMap().value("generation").toString(), QStringLiteral("g2"));
+    QVERIFY(navigationRoutes().contains(QStringLiteral("music")));
+
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.unregisterService(QStringLiteral("org.arinn.Daemon1")));
+    QTRY_VERIFY(catalog.sources().isEmpty());
+    QTRY_VERIFY(!navigationRoutes().contains(QStringLiteral("music")));
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QTRY_COMPARE(catalog.sources().size(), 2);
+    QTRY_VERIFY(navigationRoutes().contains(QStringLiteral("music")));
+    QTRY_COMPARE(catalog.state().value("account").toString(), QStringLiteral("local"));
   }
   // Review of #710: a source without facets (an account that is not
   // connected) was asked for a page, so "This action is not available"

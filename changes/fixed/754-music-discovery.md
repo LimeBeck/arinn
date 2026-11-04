@@ -1,0 +1,1 @@
+- Restore the Music navigation entry for registered music sources by using the daemon's existing provider registry method; verify discovery and restart recovery against the published registry contract ([#754](https://github.com/LimeBeck/arinn/issues/754)).

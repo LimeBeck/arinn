@@ -37,6 +37,9 @@ FocusScope {
     property var closingIds: []
     // Windows whose request failed or that stayed (CL-11).
     property var failedIds: []
+    // Windows that closed after a request, so the shell can tell an asked-for
+    // close from an application that disappeared on its own.
+    property var closedIds: []
     property var startedAt: ({})
     property var opener: null
     property string toastMessage: ""
@@ -99,6 +102,10 @@ FocusScope {
         if (phase !== "confirm") return;
         const id = target.id;
         phase = "";
+        // Focus goes back first, so a screen that moves it on when the
+        // window starts closing (the Running screen, CL-9) has the last word
+        // (review of #777).
+        restoreOpener();
         failedIds = failedIds.filter(other => other !== id);
         closingIds = closingIds.concat([id]);
         const started = Object.assign({}, startedAt);
@@ -106,7 +113,6 @@ FocusScope {
         startedAt = started;
         waitTimer.start();
         terminateRequested(id);
-        Qt.callLater(restoreOpener);
         Qt.callLater(showQueued);
     }
     function forget(id) {
@@ -144,6 +150,7 @@ FocusScope {
             if (listed.indexOf(id) < 0) {
                 const title = (target.id === id && target.title) || titles[id] || "";
                 forget(id);
+                if (closedIds.indexOf(id) < 0) closedIds = closedIds.concat([id]);
                 closed(id);
                 showToast(title.length ? qsTr("%1 closed").arg(title) : qsTr("Closed"));
             } else if (Date.now() - (startedAt[id] || 0) >= closeWaitMs) {

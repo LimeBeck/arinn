@@ -121,6 +121,25 @@ TestCase {
         view.closingIds = ["w2"];
         focused(view, "runningRow-w1");
     }
+    // Review of #777: confirming a close opened from the Running screen
+    // leaves focus on the next row; the dialog does not hand it back to the
+    // closing row's Close button.
+    function test_confirm_from_running_keeps_the_focus_move() {
+        makeView();
+        flow = createTemporaryObject(flowFactory, suite, {windows: view.windows});
+        view.closingIds = Qt.binding(() => flow.closingIds);
+        focused(view, "runningRow-w2");
+        keyClick(Qt.Key_Right); focused(view, "runningClose-w2");
+        verify(flow.ask("w2"));
+        focused(flow, "closeFlowCancel");
+        keyClick(Qt.Key_Right); focused(flow, "closeFlowConfirm");
+        keyClick(Qt.Key_Return);
+        compare(flow.closingIds, ["w2"]);
+        focused(view, "runningRow-w1");
+        wait(50);
+        verify(child(view, "runningRow-w1").activeFocus);
+        verify(!child(view, "runningClose-w2").activeFocus);
+    }
     function test_nothing_running() {
         makeView({windows: []});
         verify(child(view, "runningEmpty").visible);
@@ -201,6 +220,7 @@ TestCase {
         flow.windows = [{id: "w4", title: "Locked", terminable: false}];
         compare(flow.closingIds, []);
         compare(closed.count, 1);
+        compare(flow.closedIds, ["w1"]);
         verify(child(flow, "closeFlowToast").visible);
         compare(child(flow, "closeFlowToastText").text, "Northwind closed");
     }
@@ -282,6 +302,8 @@ TestCase {
         tryCompare(flow, "phase", "failed", 3000);
         compare(flow.closingIds, []);
         compare(flow.failedIds, ["w1"]);
+        // A window that did not close is not among the closed ones.
+        compare(flow.closedIds, []);
         focused(flow, "closeFlowSwitch");
         compare(child(flow, "closeFlowTitle").text, "Northwind did not close");
         compare(child(flow, "closeFlowSwitch").text, "Go to Northwind");

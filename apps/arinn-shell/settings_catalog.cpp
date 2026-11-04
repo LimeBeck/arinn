@@ -573,10 +573,21 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
           [this, scan](auto *call) {
             const auto reply = call->reply();
             call->deleteLater();
-            if (scan->epoch != m_epoch || scan->ticket != m_rootScan ||
-                reply.type() == QDBusMessage::ErrorMessage ||
-                reply.signature() != QLatin1String(providersPage))
+            if (scan->epoch != m_epoch || scan->ticket != m_rootScan)
               return;
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != QLatin1String(providersPage)) {
+              // The listing that would confirm the plugin identities
+              // failed: a reload may have replaced an instance's plugin, so
+              // the instance id stands in until the next listing (review
+              // of #779).
+              if (!m_pluginIds.isEmpty()) {
+                m_pluginIds.clear();
+                if (m_loaded)
+                  publish();
+              }
+              return;
+            }
             const auto arg =
                 qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             QString snapshot, next;

@@ -38,6 +38,8 @@ struct Connection {
 struct State {
     connections: BTreeMap<String, Connection>,
     counter: u64,
+    temporary: std::collections::HashMap<String, (String, String)>,
+    cancelled: std::collections::HashMap<String, std::time::Instant>,
 }
 
 #[derive(Clone)]
@@ -196,7 +198,7 @@ impl Bridge {
         tab: i64,
         url: &str,
     ) -> Result<(), ErrorCode> {
-        Self::command_result(connection, host, action, tab, url)
+        Self::command_result(connection, host, action, tab, url, "")
             .await
             .map(|_| ())
     }
@@ -207,6 +209,7 @@ impl Bridge {
         action: &str,
         tab: i64,
         url: &str,
+        request_id: &str,
     ) -> Result<(i64, bool), ErrorCode> {
         let proxy = HostProxy::builder(connection)
             .destination(host.to_owned())
@@ -214,10 +217,11 @@ impl Bridge {
             .build()
             .await
             .map_err(|_| ErrorCode::Unavailable)?;
-        let reply = tokio::time::timeout(COMMAND_TIMEOUT, proxy.command(action, tab, url))
-            .await
-            .map_err(|_| ErrorCode::Timeout)?
-            .map_err(|_| ErrorCode::Unavailable)?;
+        let reply =
+            tokio::time::timeout(COMMAND_TIMEOUT, proxy.command(action, tab, url, request_id))
+                .await
+                .map_err(|_| ErrorCode::Timeout)?
+                .map_err(|_| ErrorCode::Unavailable)?;
         match reply.0.as_str() {
             "" => Ok((reply.1, reply.2)),
             "NotFound" => Err(ErrorCode::NotFound),
@@ -244,7 +248,7 @@ impl Bridge {
                 .map(|(id, c)| (id.clone(), c.owner.clone()))
                 .ok_or(ErrorCode::Unavailable)?
         };
-        let (window, created) = Self::command_result(connection, &host, "open", 0, url).await?;
+        let (window, created) = Self::command_result(connection, &host, "open", 0, url, "").await?;
         if window < 0 {
             return Err(ErrorCode::Unavailable);
         }
@@ -255,6 +259,118 @@ impl Bridge {
             .filter(|c| c.owner == host)
             .ok_or(ErrorCode::Unavailable)?;
         Ok((format!("{id}:w{window}"), created))
+    }
+    pub async fn open_temporary(
+        &self,
+        connection: &zbus::Connection,
+        request_id: &str,
+        url: &str,
+    ) -> Result<String, ErrorCode> {
+        // Failed generation reset keeps the old uncertain mutation as an
+        // admission barrier. Reconcile it before any newer browser launch.
+        let pending: Vec<_> = {
+            let state = self.state.lock().unwrap();
+            state
+                .temporary
+                .keys()
+                .filter(|id| state.cancelled.contains_key(*id))
+                .cloned()
+                .collect()
+        };
+        for old in pending {
+            self.close_temporary(connection, &old).await?;
+        }
+        let (id, host) = {
+            let mut state = self.state.lock().unwrap();
+            state
+                .cancelled
+                .retain(|_, at| at.elapsed() < Duration::from_secs(180));
+            if state.cancelled.contains_key(request_id) {
+                return Err(ErrorCode::Cancelled);
+            }
+            if state.temporary.len() >= 16 || state.cancelled.len() >= 128 {
+                return Err(ErrorCode::Unavailable);
+            }
+            let pair = state
+                .connections
+                .iter()
+                .max_by_key(|(_, c)| (c.focused_at, c.attached_at))
+                .map(|(id, c)| (id.clone(), c.owner.clone()))
+                .ok_or(ErrorCode::Unavailable)?;
+            if state.temporary.contains_key(request_id) {
+                return Err(ErrorCode::Conflict);
+            }
+            state.temporary.insert(request_id.to_owned(), pair.clone());
+            pair
+        };
+        let (window, created) =
+            Self::command_result(connection, &host, "openTemporary", 0, url, request_id).await?;
+        if window < 0 || !created {
+            return Err(ErrorCode::Unavailable);
+        }
+        self.state
+            .lock()
+            .unwrap()
+            .connections
+            .get(&id)
+            .filter(|c| c.owner == host)
+            .ok_or(ErrorCode::Unavailable)?;
+        Ok(request_id.to_owned())
+    }
+    pub async fn close_temporary(
+        &self,
+        connection: &zbus::Connection,
+        request_id: &str,
+    ) -> Result<(), ErrorCode> {
+        let route = {
+            let mut state = self.state.lock().unwrap();
+            state
+                .cancelled
+                .retain(|_, at| at.elapsed() < Duration::from_secs(180));
+            if !state.cancelled.contains_key(request_id) && state.cancelled.len() >= 128 {
+                return Err(ErrorCode::Unavailable);
+            }
+            state
+                .cancelled
+                .insert(request_id.to_owned(), std::time::Instant::now());
+            state.temporary.get(request_id).cloned()
+        };
+        let Some((profile, host)) = route else {
+            return Ok(());
+        };
+        let alive = self
+            .state
+            .lock()
+            .unwrap()
+            .connections
+            .get(&profile)
+            .is_some_and(|c| c.owner == host);
+        if alive {
+            Self::command_result(connection, &host, "closeTemporary", 0, "", request_id).await?;
+        }
+        // Absent hosts have disconnected their native port; the extension revokes
+        // all leases of that port. Never send this ID to a replacement profile.
+        self.state.lock().unwrap().temporary.remove(request_id);
+        Ok(())
+    }
+    pub async fn reset_temporary(&self, connection: &zbus::Connection) {
+        let ids: Vec<_> = {
+            let mut state = self.state.lock().unwrap();
+            let ids: Vec<_> = state.temporary.keys().cloned().collect();
+            for id in &ids {
+                state
+                    .cancelled
+                    .insert(id.clone(), std::time::Instant::now());
+            }
+            ids
+        };
+        for id in ids {
+            // SDK clear must not acknowledge generation revocation while an
+            // uncertain native create can still focus. Keep retry ownership.
+            while self.close_temporary(connection, &id).await.is_err() {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
     }
 
     /// Drop a host's connections as soon as its unique name disappears.
@@ -362,10 +478,16 @@ impl Bridge {
         &self,
         connection: String,
         windows: Vec<WireWindow>,
-        tabs: Vec<WireTab>,
+        mut tabs: Vec<WireTab>,
         #[zbus(header)] header: Header<'_>,
     ) -> fdo::Result<()> {
         let owner = sender(&header)?;
+        for (_, _, title, url, _, _) in &mut tabs {
+            if let Some(safe) = crate::authorization::redact(url) {
+                *url = safe;
+                *title = "Sign-in".into();
+            }
+        }
         if windows.len() > crate::messages::MAX_WINDOWS || tabs.len() > crate::messages::MAX_TABS {
             return Err(fdo::Error::LimitsExceeded("snapshot too large".into()));
         }
@@ -403,6 +525,7 @@ pub trait Host {
         action: &str,
         tab: i64,
         url: &str,
+        request_id: &str,
     ) -> zbus::Result<crate::host::CommandResult>;
 }
 

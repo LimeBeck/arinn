@@ -162,6 +162,13 @@ pub mod provider {
         fn get_tabs(&self, token: &str) -> zbus::Result<(TabPage,)>;
         fn backend_state(&self) -> zbus::Result<String>;
         fn open_url(&self, generation: &str, url: &str) -> zbus::Result<()>;
+        fn open_temporary_url(
+            &self,
+            generation: &str,
+            request_id: &str,
+            url: &str,
+        ) -> zbus::Result<String>;
+        fn close_temporary_window(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn activate_tab(&self, generation: &str, id: &str) -> zbus::Result<()>;
         fn close_tab(&self, generation: &str, id: &str) -> zbus::Result<()>;
         #[zbus(signal, name = "StateChanged")]
@@ -169,6 +176,26 @@ pub mod provider {
     }
 }
 pub use provider::BrowserProviderProxy;
+
+/// Caller-scoped handoff in a fresh window, excluded from Arinn recents and tab snapshots.
+/// Browser-profile history, cookies and site data remain governed by the browser;
+/// this interface neither reads nor clears them.
+/// Open returns an Operation1; Close settles and removes only this caller's window.
+pub mod authorization {
+    #[zbus::proxy(
+        interface = "org.arinn.BrowserAuth1",
+        default_service = "org.arinn.Daemon1",
+        default_path = "/org/arinn/Daemon1"
+    )]
+    pub trait BrowserAuth {
+        fn open(
+            &self,
+            url: &str,
+            request_id: &str,
+        ) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
+        fn close(&self, request_id: &str) -> zbus::Result<()>;
+    }
+}
 
 /// `org.arinn.Browser1`, exported by the daemon for each registered browser
 /// provider at the provider's `/org/arinn/Daemon1/providers/p_<uuid_hex>` path,

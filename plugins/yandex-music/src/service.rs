@@ -15,17 +15,22 @@ use arinn_protocol::{
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 
-// Public Arinn application identity supplied by the project owner on 2026-11-03.
-const DEFAULT_CLIENT_ID: &str = "4173e0c60dfa4066bd6ec2a504b8ae9a";
+// Default compatibility registration was explicitly authorized by the owner on 2026-11-04.
+const DEFAULT_CLIENT_ID: &str = crate::compatibility::CLIENT_ID;
 struct Account {
     state: State,
     epoch: u64,
     prompt_deadline: Option<tokio::time::Instant>,
+    browser_request: Option<tokio::sync::oneshot::Sender<()>>,
 }
 struct Service<S: CredentialStore + 'static = SecretService> {
     auth: Option<Arc<DeviceAuth<S>>>,
     account: Arc<Mutex<Account>>,
     runtime: Option<Arc<crate::runtime::Runtime>>,
+    #[cfg(test)]
+    test_api: Option<crate::Api>,
+    browser: Option<Arc<dyn crate::browser::Handoff>>,
+    connection_gate: Arc<Mutex<Option<String>>>,
     projection: Arc<Mutex<Option<State>>>,
 }
 impl<S: CredentialStore + 'static> Clone for Service<S> {
@@ -34,6 +39,10 @@ impl<S: CredentialStore + 'static> Clone for Service<S> {
             auth: self.auth.clone(),
             account: self.account.clone(),
             runtime: self.runtime.clone(),
+            #[cfg(test)]
+            test_api: self.test_api.clone(),
+            browser: self.browser.clone(),
+            connection_gate: self.connection_gate.clone(),
             projection: self.projection.clone(),
         }
     }
@@ -44,10 +53,15 @@ impl<S: CredentialStore + 'static> Service<S> {
         Self {
             auth,
             runtime: None,
+            #[cfg(test)]
+            test_api: None,
+            browser: None,
+            connection_gate: Arc::default(),
             projection: Arc::new(Mutex::new(None)),
             account: Arc::new(Mutex::new(Account {
                 epoch: 0,
                 prompt_deadline: None,
+                browser_request: None,
                 state: State {
                     backend: if configured {
                         "available"
@@ -78,6 +92,7 @@ impl<S: CredentialStore + 'static> Service<S> {
                 account: Arc::new(Mutex::new(Account {
                     epoch: 0,
                     prompt_deadline: None,
+                    browser_request: None,
                     state: State {
                         backend: "unavailable".into(),
                         account: "unconfigured".into(),
@@ -91,6 +106,10 @@ impl<S: CredentialStore + 'static> Service<S> {
     }
     fn runtime(mut self, runtime: Arc<crate::runtime::Runtime>) -> Self {
         self.runtime = Some(runtime);
+        self
+    }
+    fn browser(mut self, browser: Arc<dyn crate::browser::Handoff>) -> Self {
+        self.browser = Some(browser);
         self
     }
     async fn snapshot(&self) -> State {
@@ -132,13 +151,89 @@ impl<S: CredentialStore + 'static> Service<S> {
             return;
         };
         let shown = self.account.lock().await.state.account.clone();
-        if shown == "connected" || shown == "connecting" || auth.api().await.is_err() {
+        if ["connected", "connecting", "restricted", "unavailable"].contains(&shown.as_str())
+            || auth.api().await.is_err()
+        {
             return;
         }
         if let Err(error) = auth.disconnect().await {
             let mut a = self.account.lock().await;
             a.state.error = Some(normalize(error));
             a.state.revision += 1;
+        }
+    }
+    async fn connection_api(&self) -> Result<crate::Api, auth::Error> {
+        let api = self
+            .auth
+            .as_ref()
+            .ok_or(auth::Error::InvalidInput)?
+            .api()
+            .await?;
+        #[cfg(test)]
+        if let Some(fixture) = &self.test_api {
+            let mut fixture = fixture.clone();
+            fixture.lease = api.lease;
+            fixture.expires_at = api.expires_at;
+            fixture.deadline = api.deadline;
+            return Ok(fixture);
+        }
+        Ok(api)
+    }
+    async fn finish_connection(&self, epoch: u64, api: Result<crate::Api, auth::Error>) {
+        let result = match api {
+            Ok(api) => match tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                api.check_music_access(),
+            )
+            .await
+            {
+                Ok(Ok(())) => Ok(api),
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(crate::Error::Transport),
+            },
+            Err(_) => Err(crate::Error::Authentication),
+        };
+        let mut account = self.account.lock().await;
+        if account.epoch != epoch {
+            drop(account);
+            self.reconcile().await;
+            return;
+        }
+        account.browser_request = None;
+        account.state.prompt = None;
+        account.prompt_deadline = None;
+        account.state.revision += 1;
+        match result {
+            Ok(api) => {
+                if let Some(runtime) = &self.runtime {
+                    runtime.connected(api).await;
+                }
+                account.state.backend = "available".into();
+                account.state.account = "connected".into();
+                account.state.actions = vec!["disconnect".into()];
+                account.state.error = None;
+            }
+            Err(error) => {
+                account.state.backend = if error == crate::Error::Forbidden {
+                    "unavailable"
+                } else {
+                    "degraded"
+                }
+                .into();
+                account.state.account = match error {
+                    crate::Error::Forbidden => "restricted",
+                    crate::Error::Authentication => "expired",
+                    _ => "unavailable",
+                }
+                .into();
+                account.state.error = Some(match error {
+                    crate::Error::Forbidden | crate::Error::Authentication => {
+                        ErrorCode::PermissionDenied
+                    }
+                    _ => ErrorCode::Unavailable,
+                });
+                account.state.actions = vec!["connect".into(), "disconnect".into()];
+            }
         }
     }
     async fn restore(&self, start: Option<auth::Start>) {
@@ -159,26 +254,22 @@ impl<S: CredentialStore + 'static> Service<S> {
         }
         match result {
             Ok(true) => {
-                if let Some(runtime) = &self.runtime {
-                    match auth.api().await {
-                        Ok(api) => runtime.connected(api).await,
-                        Err(error) => {
-                            account.state.error = Some(normalize(error));
-                            account.state.actions = vec!["disconnect".into()];
-                            return;
-                        }
-                    }
-                }
-                account.state.account = "connected".into();
-                account.state.actions = vec!["disconnect".into()];
+                account.state.account = "connecting".into();
+                account.state.actions = vec!["cancel".into()];
+                account.state.revision += 1;
+                drop(account);
+                self.finish_connection(0, self.connection_api().await).await;
             }
             Ok(false) => {}
-            Err(error) => account.state.error = Some(normalize(error)),
+            Err(error) => {
+                account.state.error = Some(normalize(error));
+                account.state.revision += 1;
+            }
         }
-        account.state.revision += 1;
     }
     async fn connect(&self) -> Result<(), ErrorCode> {
         let auth = self.auth.clone().ok_or(ErrorCode::Unsupported)?;
+        let browser = self.browser.clone().ok_or(ErrorCode::Unsupported)?;
         let reconnect = if let Some(runtime) = &self.runtime {
             runtime.expired().await
         } else {
@@ -193,6 +284,7 @@ impl<S: CredentialStore + 'static> Service<S> {
             a.epoch += 1;
             a.state.revision += 1;
             a.state.account = "connecting".into();
+            a.state.backend = "available".into();
             a.state.prompt = None;
             a.state.actions = vec!["cancel".into()];
             a.state.error = None;
@@ -203,67 +295,122 @@ impl<S: CredentialStore + 'static> Service<S> {
         }
         let this = self.clone();
         tokio::spawn(async move {
-            let result = async {
-                let attempt = auth.start_prepared(start).await?;
-                {
+            let mut cleanup = this.connection_gate.lock().await;
+            if let Some(previous) = cleanup.clone() {
+                if browser.close(&previous).await.is_err() {
                     let mut a = this.account.lock().await;
-                    if a.epoch != epoch {
-                        return Err(auth::Error::Cancelled);
+                    if a.epoch == epoch {
+                        a.state.account = "disconnected".into();
+                        a.state.actions = vec!["connect".into()];
+                        a.state.error = Some(ErrorCode::Unavailable);
+                        a.state.revision += 1;
                     }
-                    let remaining = attempt.remaining_seconds().max(1);
-                    a.prompt_deadline = Some(
-                        tokio::time::Instant::now() + std::time::Duration::from_secs(remaining),
-                    );
-                    a.state.prompt = Some(Prompt {
-                        verification_url: attempt.prompt.verification_url.clone(),
-                        user_code: attempt.prompt.user_code.clone(),
-                        expires_in: remaining,
-                    });
-                    a.state.revision += 1;
+                    return;
                 }
-                auth.complete(attempt).await
+                *cleanup = None;
             }
-            .await;
-            let mut a = this.account.lock().await;
-            if a.epoch != epoch {
-                drop(a);
-                if result.is_ok() {
-                    this.reconcile().await;
-                }
+            if this.account.lock().await.epoch != epoch {
                 return;
             }
-            a.state.prompt = None;
-            a.state.revision += 1;
+            let request = uuid::Uuid::new_v4().to_string();
+            let mut opened = false;
+            *cleanup = Some(request.clone());
+            let result=async {
+                let attempt=auth.start_prepared(start).await?;
+                let url=attempt.prompt.verification_url.clone();
+                let (open,requested)=tokio::sync::oneshot::channel();
+                {
+                    let mut a=this.account.lock().await;
+                    if a.epoch!=epoch {return Err(auth::Error::Cancelled);}
+                    let remaining=attempt.remaining_seconds().max(1);
+                    a.state.prompt=Some(Prompt {verification_url:url.clone(),user_code:attempt.prompt.user_code.clone(),expires_in:remaining});
+                    a.prompt_deadline=Some(tokio::time::Instant::now()+std::time::Duration::from_secs(remaining));
+                    a.browser_request=Some(open);
+                    a.state.actions=vec!["authorize".into(),"cancel".into()];a.state.revision+=1;
+                }
+                let completion=auth.complete(attempt);tokio::pin!(completion);
+                tokio::select! {
+                    result=&mut completion=>result,
+                    requested=requested=>{
+                        requested.map_err(|_|auth::Error::Cancelled)?;
+                        browser.open(&url,&request).await.map_err(|_|auth::Error::Unavailable)?;
+                        opened=true;
+                        if this.account.lock().await.epoch!=epoch {return Err(auth::Error::Cancelled);}
+                        completion.await
+                    }
+                }
+            }.await;
+            // An already dispatched window mutation is settled and closed before Home.
+            let closed = browser.close(&request).await;
+            if closed.is_ok() {
+                *cleanup = None;
+            }
+            let result = result.and_then(|_| {
+                closed
+                    .as_ref()
+                    .map(|_| ())
+                    .map_err(|_| auth::Error::Unavailable)
+            });
+            if this.account.lock().await.epoch != epoch {
+                this.reconcile().await;
+                return;
+            }
+            {
+                let mut a = this.account.lock().await;
+                a.browser_request = None;
+                a.state.prompt = None;
+                a.prompt_deadline = None;
+                a.state.actions = vec!["cancel".into()];
+                a.state.revision += 1;
+            }
             match result {
                 Ok(()) => {
-                    if let Some(runtime) = &this.runtime {
-                        match auth.api().await {
-                            Ok(api) => runtime.connected(api).await,
-                            Err(error) => {
-                                a.state.error = Some(normalize(error));
-                                a.state.actions = vec!["disconnect".into()];
-                                return;
-                            }
-                        }
-                    }
-                    a.state.account = "connected".into();
-                    a.state.actions = vec!["disconnect".into()];
-                    a.state.error = None;
+                    this.finish_connection(epoch, this.connection_api().await)
+                        .await
                 }
                 Err(error) => {
-                    a.state.account = if error == auth::Error::Expired {
-                        "expired"
-                    } else {
-                        "disconnected"
+                    let mut a = this.account.lock().await;
+                    if a.epoch == epoch {
+                        a.state.revision += 1;
+                        a.state.account = if error == auth::Error::Expired {
+                            "expired"
+                        } else {
+                            "disconnected"
+                        }
+                        .into();
+                        a.state.actions = vec!["connect".into()];
+                        a.state.error = Some(normalize(error));
                     }
-                    .into();
-                    a.state.actions = vec!["connect".into()];
-                    a.state.error = Some(normalize(error));
                 }
             }
-            drop(a);
+            let current = this.account.lock().await.epoch == epoch;
+            if opened
+                && closed.is_ok()
+                && current
+                && let Err(error) = browser.home(&request).await
+            {
+                let mut a = this.account.lock().await;
+                if a.epoch == epoch {
+                    a.state.error = Some(error);
+                    a.state.revision += 1;
+                }
+            }
             this.reconcile().await;
         });
+        Ok(())
+    }
+    async fn authorize(&self) -> Result<(), ErrorCode> {
+        let mut a = self.account.lock().await;
+        if a.state.account != "connecting" {
+            return Err(ErrorCode::Conflict);
+        }
+        a.browser_request
+            .take()
+            .ok_or(ErrorCode::Conflict)?
+            .send(())
+            .map_err(|_| ErrorCode::Conflict)?;
+        a.state.actions = vec!["cancel".into()];
+        a.state.revision += 1;
         Ok(())
     }
     async fn cancel(&self) {
@@ -272,14 +419,15 @@ impl<S: CredentialStore + 'static> Service<S> {
             return;
         }
         if let Some(auth) = &self.auth {
-            auth.cancel();
+            let error = auth.disconnect().await.err();
+            a.state.error = error.map(normalize);
         }
         a.epoch += 1;
         a.state.revision += 1;
         a.state.prompt = None;
+        a.browser_request = None;
         a.state.account = "disconnected".into();
         a.state.actions = vec!["connect".into()];
-        a.state.error = None;
     }
 }
 fn normalize(error: auth::Error) -> ErrorCode {
@@ -332,6 +480,7 @@ impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
         Box::pin(async move {
             match command.action.as_str() {
                 "connect" => self.connect().await?,
+                "authorize" => self.authorize().await?,
                 "cancel" => self.cancel().await,
                 "disconnect" => {
                     let auth = self.auth.as_ref().ok_or(ErrorCode::Unsupported)?;
@@ -411,9 +560,13 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         let reference = paths::group("account", &provider).replace(':', "-");
         let store = SecretService::new(bus, &reference, &directory.join("oauth-approval"))
             .map_err(normalize)?;
-        let client_secret = tokio::runtime::Handle::current()
-            .block_on(store.application_secret(&client_id))
-            .map_err(normalize)?;
+        let client_secret = if client_id == crate::compatibility::CLIENT_ID {
+            Some(crate::compatibility::CLIENT_SECRET.to_owned())
+        } else {
+            tokio::runtime::Handle::current()
+                .block_on(store.application_secret(&client_id))
+                .map_err(normalize)?
+        };
         DeviceAuth::new(&client_id, client_secret.as_deref(), &device, store)
             .map(|auth| Some(Arc::new(auth)))
             .map_err(normalize)
@@ -429,7 +582,10 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         std::path::PathBuf::from("mpv"),
     )?;
     let runtime = crate::runtime::Runtime::new(player, pins)?;
-    let handler = Service::from_initialization(auth).runtime(runtime);
+    let browser = Arc::new(crate::browser::Browser::new(connection.clone()).await?);
+    let handler = Service::from_initialization(auth)
+        .runtime(runtime)
+        .browser(browser);
     let restore_start = handler.auth.as_ref().map(|auth| auth.prepare());
     let restore = handler.clone();
     tokio::spawn(async move {
@@ -489,14 +645,10 @@ mod tests {
         let mock = Mock::new(vec![reply(200, code()), reply(200, token())]);
         let store = MemoryStore::default();
         let service = Service::new(Some(Arc::new(mock.client(store.clone()))));
-        service.connect().await.unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            while service.snapshot().await.account != "connected" {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
+        let auth = service.auth.clone().unwrap();
+        let attempt = auth.start().await.unwrap();
+        auth.complete(attempt).await.unwrap();
+        service.account.lock().await.state.account = "connected".into();
         let auth = service.auth.clone().unwrap();
         assert!(auth.api().await.is_ok());
         assert!(store.bytes.lock().unwrap().is_some());
@@ -534,5 +686,225 @@ mod tests {
         assert!(state.error.is_some());
         assert!(state.validate().is_ok());
         assert_eq!(service.connect().await, Err(ErrorCode::Unsupported));
+    }
+    #[tokio::test]
+    async fn oauth_success_does_not_hide_music_api_forbidden() {
+        use crate::auth::tests::MemoryStore;
+        for account_denied in [true, false] {
+            let mut responses = vec![];
+            if !account_denied {
+                responses.push((
+                    200,
+                    serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+                ));
+            }
+            responses.push((403, "{}".into()));
+            let mock = crate::tests::Mock::new(responses);
+            let auth = DeviceAuth::new(
+                "synthetic-client",
+                None,
+                "synthetic-device",
+                MemoryStore::default(),
+            )
+            .unwrap();
+            let service = Service::new(Some(Arc::new(auth)));
+            {
+                let mut account = service.account.lock().await;
+                account.epoch = 7;
+                account.state.account = "connecting".into();
+            }
+            service.finish_connection(7, Ok(mock.api.clone())).await;
+            let state = service.snapshot().await;
+            assert_eq!(state.account, "restricted");
+            assert_eq!(state.backend, "unavailable");
+            assert_eq!(state.error, Some(ErrorCode::PermissionDenied));
+            assert!(state.facets.is_empty());
+            assert!(state.actions.contains(&"disconnect".to_owned()));
+            assert!(state.validate().is_ok());
+            let requests = mock.finish();
+            assert_eq!(requests.len(), if account_denied { 1 } else { 2 });
+        }
+    }
+    #[tokio::test]
+    async fn only_a_confirmed_music_api_accepts_the_connection() {
+        use crate::auth::tests::MemoryStore;
+        let mock = crate::tests::Mock::new(vec![
+            (
+                200,
+                serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+            ),
+            (
+                200,
+                serde_json::json!({"result":{"library":{"tracks":[]}}}).to_string(),
+            ),
+        ]);
+        let auth = DeviceAuth::new(
+            "synthetic-client",
+            None,
+            "synthetic-device",
+            MemoryStore::default(),
+        )
+        .unwrap();
+        let service = Service::new(Some(Arc::new(auth)));
+        service.finish_connection(0, Ok(mock.api.clone())).await;
+        let state = service.snapshot().await;
+        assert_eq!(state.account, "connected");
+        assert_eq!(state.error, None);
+        assert_eq!(mock.finish().len(), 2);
+    }
+    #[derive(Default)]
+    struct BrowserFixture {
+        calls: std::sync::Mutex<Vec<(String, String)>>,
+        fail_close: std::sync::atomic::AtomicBool,
+    }
+    impl crate::browser::Handoff for BrowserFixture {
+        fn open<'a>(&'a self, _url: &'a str, id: &'a str) -> crate::browser::Work<'a> {
+            self.calls.lock().unwrap().push(("open".into(), id.into()));
+            Box::pin(async { Ok(()) })
+        }
+        fn close<'a>(&'a self, id: &'a str) -> crate::browser::Work<'a> {
+            self.calls.lock().unwrap().push(("close".into(), id.into()));
+            let fail = self
+                .fail_close
+                .swap(false, std::sync::atomic::Ordering::AcqRel);
+            Box::pin(async move {
+                if fail {
+                    Err(ErrorCode::Unavailable)
+                } else {
+                    Ok(())
+                }
+            })
+        }
+        fn home<'a>(&'a self, id: &'a str) -> crate::browser::Work<'a> {
+            self.calls.lock().unwrap().push(("home".into(), id.into()));
+            Box::pin(async { Ok(()) })
+        }
+    }
+    async fn wait_for_prompt(service: &Service<crate::auth::tests::MemoryStore>) {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while service.snapshot().await.prompt.is_none() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    #[tokio::test]
+    async fn browser_confirmation_checks_music_and_returns_only_after_window_cleanup() {
+        use crate::auth::tests::{MemoryStore, Mock, code, reply, token};
+        let oauth = Mock::new(vec![reply(200, code()), reply(200, token())]);
+        let music = crate::tests::Mock::new(vec![
+            (
+                200,
+                serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+            ),
+            (
+                200,
+                serde_json::json!({"result":{"library":{"tracks":[]}}}).to_string(),
+            ),
+        ]);
+        let browser = Arc::new(BrowserFixture::default());
+        let store = MemoryStore::default();
+        let mut service =
+            Service::new(Some(Arc::new(oauth.client(store.clone())))).browser(browser.clone());
+        service.test_api = Some(music.api.clone());
+        service.connect().await.unwrap();
+        wait_for_prompt(&service).await;
+        assert!(
+            service
+                .snapshot()
+                .await
+                .actions
+                .contains(&"authorize".into())
+        );
+        service.authorize().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while !browser
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(action, _)| action == "home")
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(service.snapshot().await.account, "connected");
+        assert!(store.bytes.lock().unwrap().is_some());
+        let calls = browser.calls.lock().unwrap().clone();
+        assert_eq!(
+            calls.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(),
+            vec!["open", "close", "home"]
+        );
+        assert!(calls.iter().all(|(_, id)| id == &calls[0].1));
+        assert_eq!(oauth.finish().len(), 2);
+        assert_eq!(music.finish().len(), 2);
+    }
+    #[tokio::test]
+    async fn a_failed_close_is_retried_before_a_new_browser_attempt() {
+        use crate::auth::tests::{MemoryStore, Mock, code, reply, token};
+        let oauth = Mock::new(vec![
+            reply(200, code()),
+            reply(200, token()),
+            reply(200, code()),
+            reply(200, token()),
+        ]);
+        let music = crate::tests::Mock::new(vec![
+            (
+                200,
+                serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+            ),
+            (
+                200,
+                serde_json::json!({"result":{"library":{"tracks":[]}}}).to_string(),
+            ),
+        ]);
+        let browser = Arc::new(BrowserFixture::default());
+        browser
+            .fail_close
+            .store(true, std::sync::atomic::Ordering::Release);
+        let mut service = Service::new(Some(Arc::new(oauth.client(MemoryStore::default()))))
+            .browser(browser.clone());
+        service.test_api = Some(music.api.clone());
+        service.connect().await.unwrap();
+        wait_for_prompt(&service).await;
+        service.authorize().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while service.snapshot().await.account == "connecting" {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(service.connection_gate.lock().await.is_some());
+        assert_eq!(service.snapshot().await.account, "disconnected");
+        service.connect().await.unwrap();
+        wait_for_prompt(&service).await;
+        service.authorize().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while !browser
+                .calls
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(action, _)| action == "home")
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let calls = browser.calls.lock().unwrap().clone();
+        assert_eq!(
+            calls.iter().map(|(a, _)| a.as_str()).collect::<Vec<_>>(),
+            vec!["open", "close", "close", "open", "close", "home"]
+        );
+        assert_eq!(calls[0].1, calls[2].1);
+        assert_ne!(calls[0].1, calls[3].1);
+        assert!(service.connection_gate.lock().await.is_none());
+        assert_eq!(oauth.finish().len(), 4);
+        assert_eq!(music.finish().len(), 2);
     }
 }

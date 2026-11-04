@@ -61,6 +61,7 @@ FocusScope {
     signal settingsRequested()
     function catalogueAction() {
         if(connectButton.visible)return connectButton;
+        if(authorizeButton.visible)return authorizeButton;
         if(cancelAuthButton.visible)return cancelAuthButton;
         if(disconnectButton.visible)return disconnectButton;
         if(rescanButton.visible)return rescanButton;
@@ -70,7 +71,7 @@ FocusScope {
     function belowSearch() {Ui.Focus.take(tracks.count && tracks.visible ? tracks : catalogueAction());}
     function supported(action) { return actions.includes(action); }
     function playerFocus() {return playButton.enabled ? playButton : retryButton.visible && retryButton.enabled ? retryButton : stopButton.enabled ? stopButton : queueButton;}
-    function focusInitial() { if (mode === "player") Ui.Focus.take(playerFocus()); else if (mode === "queue") Ui.Focus.take(queueList); else if (tracks.count) Ui.Focus.take(tracks); else Ui.Focus.take(catalogueAction()); }
+    function focusInitial() { if (mode === "player") Ui.Focus.take(playerFocus()); else if (mode === "queue") Ui.Focus.take(queueList); else if (tracks.visible && tracks.count) Ui.Focus.take(tracks); else Ui.Focus.take(catalogueAction()); }
     function openPlayer() { mode = "player"; Qt.callLater(focusInitial); }
     property string pendingAction:"play"
     property bool pendingActive:false
@@ -123,7 +124,7 @@ FocusScope {
     }
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     Ui.UiText { x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? qsTr("Now playing") : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
-    Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText || ((root.selected.error || root.player.error) ? qsTr("Unavailable") : ""); role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 && !root.selected.catalogue_loading }
+    Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText || (root.selected.account === "restricted" ? qsTr("Music access was denied") : (root.selected.error || root.player.error) ? qsTr("Unavailable") : ""); role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 && !root.selected.catalogue_loading }
     Row {
         x: 120; y: 180; spacing: 20; enabled: !root.pendingPlay; visible: root.mode === "catalogue"
         Ui.ActionButton {
@@ -211,18 +212,19 @@ FocusScope {
         x: 120; y: 420; width: 1300; spacing: 28
         enabled: !root.pendingPlay
         visible: root.mode === "catalogue" && (!root.selected.account || !["local", "connected"].includes(root.selected.account))
-        Ui.UiText { width: parent.width; role: "section"; text: root.selected.account === "connecting" ? qsTr("Confirm sign-in") : root.selected.account === "unconfigured" ? qsTr("Connection is not available yet") : qsTr("Connect your account") }
-        Ui.UiText { width: parent.width; role: "body"; textFormat: Text.PlainText; wrapMode: Text.WordWrap; text: root.selected.prompt ? root.selected.prompt.verification_url : qsTr("Sign in on the provider's page. Your password stays there.") }
-        Ui.UiText { width: parent.width; role: "hero"; textFormat: Text.PlainText; text: root.selected.prompt ? root.selected.prompt.user_code : "" }
+        Ui.UiText { objectName:"musicAccountHeading"; width: parent.width; role: "section"; text: root.selected.account === "restricted" ? qsTr("Music access was denied") : root.selected.account === "unavailable" ? qsTr("Music is temporarily unavailable") : root.selected.account === "connecting" ? qsTr("Confirm sign-in") : root.selected.account === "unconfigured" ? qsTr("Connection is not available yet") : qsTr("Connect your account") }
+        Ui.UiText { objectName:"musicAccountExplanation"; width: parent.width; role: "body"; textFormat: Text.PlainText; wrapMode: Text.WordWrap; text: root.selected.account === "restricted" ? qsTr("Sign-in succeeded, but this application cannot access music.") : root.selected.account === "unavailable" ? qsTr("Sign-in succeeded. Music is temporarily unavailable; try again.") : root.selected.prompt ? root.selected.prompt.verification_url : root.selected.account === "connecting" ? qsTr("Complete sign-in in the browser. Arinn will check music access and return here.") : qsTr("Sign in on the provider's page. Your password stays there.") }
+        Ui.UiText { width: parent.width; role: "hero"; visible:!!root.selected.prompt; textFormat: Text.PlainText; text: root.selected.prompt ? root.selected.prompt.user_code : "" }
         Ui.UiText {width:parent.width;role:"caption";visible:!!root.selected.prompt;text:root.selected.prompt ? qsTr("Waiting for confirmation · %1 seconds remaining").arg(root.selected.prompt.expires_in) : ""}
         Row {
             spacing: 24
+            Ui.ActionButton {id:authorizeButton;objectName:"musicAuthorize";KeyNavigation.up:sourcePicker;KeyNavigation.right:cancelAuthButton;visible:(root.selected.actions || []).includes("authorize");text:qsTr("Open sign-in in browser");onActivated:root.catalog.command("authorize")}
             Ui.ActionButton {id:connectButton;objectName:"musicConnect";KeyNavigation.up:sourcePicker;KeyNavigation.right:settingsButton;visible: (root.selected.actions || []).includes("connect"); text: qsTr("Connect"); onActivated: root.catalog.command("connect") }
-            Ui.ActionButton {id:cancelAuthButton;objectName:"musicCancelAuth";KeyNavigation.up:sourcePicker;KeyNavigation.right:settingsButton;visible: (root.selected.actions || []).includes("cancel"); text: qsTr("Cancel"); onActivated: root.catalog.command("cancel") }
+            Ui.ActionButton {id:cancelAuthButton;objectName:"musicCancelAuth";KeyNavigation.up:sourcePicker;KeyNavigation.left:authorizeButton.visible?authorizeButton:null;KeyNavigation.right:settingsButton;visible: (root.selected.actions || []).includes("cancel"); text: qsTr("Cancel"); onActivated: root.catalog.command("cancel") }
         }
     }
     Ui.UiText {x:120;y:460;width:1400;visible:root.mode==="catalogue" && root.selected.catalogue_loading===true;role:"section";text:qsTr("Loading music…")}
-    Ui.UiText { x: 120; y: 460; width: 1400; visible: root.mode === "catalogue" && tracks.visible && !tracks.count && !root.catalog.busy && !root.selected.catalogue_loading; role: "section"; text: root.selected.account === "connected" && !(root.selected.facets || []).length ? qsTr("Account connected. Playback is not available yet.") : search.text.length ? qsTr("Nothing found") : root.selected.account==="local" ? qsTr("Add music folders in Settings, then rescan.") : qsTr("No music here yet. Try search or another section.") }
+    Ui.UiText { objectName:"musicEmptyCatalogue"; x: 120; y: 460; width: 1400; visible: root.mode === "catalogue" && tracks.visible && !tracks.count && !root.catalog.busy && !root.selected.catalogue_loading && !root.selected.error && !root.catalog.errorText; role: "section"; text: root.selected.account === "connected" && !(root.selected.facets || []).length ? qsTr("Account connected. Playback is not available yet.") : search.text.length ? qsTr("Nothing found") : root.selected.account==="local" ? qsTr("Add music folders in Settings, then rescan.") : qsTr("No music here yet. Try search or another section.") }
     Item {
         enabled: !root.pendingPlay; x: 120; y: 235; width: 1680; height: 680; visible: root.mode === "player"
         MusicArtwork {x:0;y:0;width:500;height:500;radius:Ui.Theme.stillRadius;source:root.current.image || ""}

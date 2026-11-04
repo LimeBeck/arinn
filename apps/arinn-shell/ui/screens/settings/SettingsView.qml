@@ -1016,6 +1016,23 @@ FocusScope {
     }
 
     onRowsChanged: watchRows()
+    // The catalog lists only categories with rows (#764), so a reload can
+    // drop or add one: keep the selected category by id, else the nearest
+    // index (review of #779).
+    property string selectedCategoryId: ""
+
+    onCategoriesChanged: {
+        const list = categories || [];
+        const found = list.findIndex(category => category && category.id === selectedCategoryId);
+        const next = found >= 0 ? found : Math.max(0, Math.min(categoryIndex, list.length - 1));
+        // The focused row's category left: its rows are gone, so focus
+        // moves to the nearest category instead of a row that no longer
+        // exists (review of #779).
+        const orphaned = found < 0 && detailFocused && selectedCategoryId.length > 0;
+        if (next !== categoryIndex) categoryIndex = next;
+        else if (list[next] && list[next].id) selectedCategoryId = list[next].id;
+        if (orphaned) Qt.callLater(() => { if (visible && enabled) focusCategory(categoryIndex); });
+    }
     Keys.onPressed: event => {
         if (homeKey(event)) return;
         if (editingKey.length > 0) return;
@@ -1049,7 +1066,11 @@ FocusScope {
     }
     Component.onCompleted: Qt.callLater(focusInitial)
     onVisibleChanged: if (visible) Qt.callLater(focusInitial)
-    onCategoryIndexChanged: rowFlick.contentY = 0
+    onCategoryIndexChanged: {
+        rowFlick.contentY = 0;
+        const category = categories[categoryIndex];
+        if (category && category.id) selectedCategoryId = category.id;
+    }
 
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     // Veil above the rows and the sheets (z 30). No floor and no pool.
@@ -1382,7 +1403,9 @@ FocusScope {
                                         // A title alone sits on the row's centre, level with
                                         // the value and chevron (handoff 14, ED-1; #641).
                                         y: Math.max(20, Math.round((parent.height - height) / 2))
-                                        width: parent.width - 64 - (rowScope.switchRow ? 88 : simpleEditor.visible ? 520 : 280)
+                                        // A toggle row keeps 24 px between its text and the
+                                        // 88 px toggle, so long text wraps before it (#734).
+                                        width: parent.width - 64 - (rowScope.switchRow ? 88 + 24 : simpleEditor.visible ? 520 : 280)
                                         spacing: 6
                                         Ui.UiText {
                                             objectName: rowScope.simpleRow ? "title-" + rowScope.key : ""

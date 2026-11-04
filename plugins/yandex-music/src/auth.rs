@@ -44,6 +44,8 @@ pub struct Credentials {
     nonce: String,
     access_token: String,
     expires_at: Option<u64>,
+    #[serde(default)]
+    client_id: Option<String>,
 }
 impl Credentials {
     pub(crate) fn nonce(&self) -> &str {
@@ -377,7 +379,8 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
                 Some(_) => return Err(Error::Unavailable),
                 None => {}
             }
-            let credentials = parse_token(&response)?;
+            let mut credentials = parse_token(&response)?;
+            credentials.client_id = Some(self.client_id.clone());
             lease.nonce = Some(credentials.nonce.clone());
             let session = self.session.clone();
             let generation = attempt.generation;
@@ -463,7 +466,10 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
         }
         let saved = self.session.store.load().await?;
         self.current(generation)?;
-        if saved.as_ref().is_some_and(|s| !s.valid()) {
+        if saved
+            .as_ref()
+            .is_some_and(|s| !s.valid() || s.client_id.as_deref() != Some(self.client_id.as_str()))
+        {
             self.session.store.clear().await?;
             *active = None;
             return Ok(false);
@@ -653,6 +659,7 @@ fn parse_token(v: &Value) -> Result<Credentials, Error> {
         nonce: uuid::Uuid::new_v4().to_string(),
         access_token: token.into(),
         expires_at,
+        client_id: None,
     })
 }
 

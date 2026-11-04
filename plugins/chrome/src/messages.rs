@@ -8,7 +8,13 @@ use serde::{Deserialize, Serialize};
 
 pub const MAX_WINDOWS: usize = 1_000;
 pub const MAX_TABS: usize = 10_000;
-pub const ACTIONS: &[&str] = &["activate", "close", "open"];
+pub const ACTIONS: &[&str] = &[
+    "activate",
+    "close",
+    "open",
+    "openTemporary",
+    "closeTemporary",
+];
 
 #[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
@@ -60,12 +66,22 @@ pub enum ToExtension {
         action: String,
         tab_id: i64,
         url: String,
+        #[serde(rename = "requestId", skip_serializing_if = "String::is_empty")]
+        request_id: String,
     },
 }
 
 /// Parse and bound a message from the extension.
 pub fn parse(body: &[u8]) -> Result<FromExtension, &'static str> {
-    let message: FromExtension = serde_json::from_slice(body).map_err(|_| "invalid message")?;
+    let mut message: FromExtension = serde_json::from_slice(body).map_err(|_| "invalid message")?;
+    if let FromExtension::Snapshot { tabs, .. } = &mut message {
+        for tab in tabs {
+            if let Some(safe) = crate::authorization::redact(&tab.url) {
+                tab.url = safe;
+                tab.title = "Sign-in".into();
+            }
+        }
+    }
     if let FromExtension::Snapshot { windows, tabs } = &message
         && (windows.len() > MAX_WINDOWS || tabs.len() > MAX_TABS)
     {
@@ -133,6 +149,7 @@ mod tests {
             action: "activate".into(),
             tab_id: 9,
             url: String::new(),
+            request_id: String::new(),
         };
         assert_eq!(
             serde_json::to_string(&command).unwrap(),

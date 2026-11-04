@@ -38,6 +38,25 @@ impl BrowserHandler for Handler {
         self.0.lock().unwrap().push(format!("Open:{url}"));
         Box::pin(async { Ok(()) })
     }
+    fn open_temporary(
+        &self,
+        request: String,
+        _url: String,
+    ) -> Pin<Box<dyn Future<Output = Result<String, ErrorCode>> + Send + '_>> {
+        self.0.lock().unwrap().push(format!("Temporary:{request}"));
+        Box::pin(async move { Ok(request) })
+    }
+    fn close_temporary(
+        &self,
+        request: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), ErrorCode>> + Send + '_>> {
+        self.0.lock().unwrap().push(format!("Cleanup:{request}"));
+        Box::pin(async { Ok(()) })
+    }
+    fn reset_temporary(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        self.0.lock().unwrap().push("Reset".into());
+        Box::pin(async {})
+    }
 }
 
 #[derive(Clone, Default)]
@@ -225,12 +244,45 @@ async fn scenario() {
         );
     }
     assert_eq!(
-        *handler.0.lock().unwrap(),
+        handler
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.as_str() != "Reset")
+            .cloned()
+            .collect::<Vec<_>>(),
         vec![
             "Activate:c1:2".to_string(),
             "Close:c1:1".to_string(),
             "Open:http://example.org/watch".to_string(),
         ]
+    );
+    let lease = uuid::Uuid::new_v4().to_string();
+    assert_eq!(
+        proxy
+            .open_temporary_url(&generation, &lease, "https://auth.example/")
+            .await
+            .unwrap(),
+        lease
+    );
+    proxy
+        .close_temporary_window(&generation, &lease)
+        .await
+        .unwrap();
+    for url in ["http://auth.example/", "file:///fixture"] {
+        assert_eq!(
+            error_name(proxy.open_temporary_url(&generation, &lease, url).await),
+            "org.arinn.Error1.InvalidArgument"
+        );
+    }
+    assert_eq!(
+        error_name(
+            proxy
+                .open_temporary_url("stale", &lease, "https://auth.example/")
+                .await
+        ),
+        "org.arinn.Error1.Conflict"
     );
     // An invalid snapshot is rejected and changes nothing.
     assert_eq!(
@@ -252,6 +304,38 @@ async fn scenario() {
         "org.arinn.Error1.PermissionDenied"
     );
 
+    assert_eq!(
+        error_name(
+            stranger
+                .open_temporary_url(&generation, &lease, "https://auth.example/")
+                .await
+        ),
+        "org.arinn.Error1.PermissionDenied"
+    );
+    assert_eq!(
+        error_name(stranger.close_temporary_window(&generation, &lease).await),
+        "org.arinn.Error1.PermissionDenied"
+    );
+    assert_eq!(
+        handler
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("Temporary:"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        handler
+            .0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("Cleanup:"))
+            .count(),
+        1
+    );
     // The XML contract matches the live export.
     let introspect = zbus::fdo::IntrospectableProxy::builder(&server)
         .destination(provider.unique_name().unwrap().clone())
@@ -272,6 +356,33 @@ async fn scenario() {
         assert!(live.contains(signature), "{signature}");
         assert!(file.contains(signature), "{signature}");
     }
+    let resets = handler
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.as_str() == "Reset")
+        .count();
+    server.release_name(production::SERVICE).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if registrations.borrow_and_update().is_none()
+                && handler
+                    .0
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|s| s.as_str() == "Reset")
+                    .count()
+                    > resets
+            {
+                break;
+            }
+            registrations.changed().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
     runner.abort();
 }
 

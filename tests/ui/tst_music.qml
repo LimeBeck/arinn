@@ -224,4 +224,25 @@ TestCase {
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"stop");
     }
 
+    function test_oauth_success_with_music_denied_is_not_an_empty_connected_library() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.entries=[];
+        catalog.state={account:"restricted",backend:"unavailable",error:"PermissionDenied",facets:[],actions:["connect","disconnect"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        compare(findChild(view,"musicAccountHeading").text,"Music access was denied");
+        compare(findChild(view,"musicAccountExplanation").text,"Sign-in succeeded, but this application cannot access music.");
+        compare(findChild(view,"musicEmptyCatalogue").visible,false);
+        view.focusInitial();tryCompare(findChild(view,"musicConnect"),"activeFocus",true);
+    }
+
+    function test_browser_confirmation_is_reachable_after_the_short_code_is_shown() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"connecting",facets:[],actions:["authorize","cancel"],prompt:{verification_url:"https://fixture.invalid/device",user_code:"FIXTURE",expires_in:300}};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.focusInitial();
+        tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);
+        keyClick(Qt.Key_Left);tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"authorize");
+    }
+
 }

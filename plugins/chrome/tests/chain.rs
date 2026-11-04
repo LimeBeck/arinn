@@ -73,11 +73,118 @@ struct SelectedHost {
 }
 #[zbus::interface(name = "org.arinn.ChromeHost1")]
 impl SelectedHost {
-    async fn command(&self, _action: &str, _tab: i64, _url: &str) -> (String, i64, bool) {
+    async fn command(
+        &self,
+        _action: &str,
+        _tab: i64,
+        _url: &str,
+        _request_id: &str,
+    ) -> (String, i64, bool) {
         self.started.notify_one();
         self.answer.notified().await;
         (String::new(), 7, false)
     }
+}
+
+#[derive(Clone, Default)]
+struct ResetHost {
+    opens: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    closes: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    released: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+}
+#[zbus::interface(name = "org.arinn.ChromeHost1")]
+impl ResetHost {
+    async fn command(
+        &self,
+        action: &str,
+        _tab: i64,
+        _url: &str,
+        _request_id: &str,
+    ) -> (String, i64, bool) {
+        use std::sync::atomic::Ordering;
+        if action == "openTemporary" {
+            if self.opens.fetch_add(1, Ordering::AcqRel) == 0 {
+                while !self.released.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            return (String::new(), 99, true);
+        }
+        if self.closes.fetch_add(1, Ordering::AcqRel) == 0 {
+            return ("Unavailable".into(), -1, false);
+        }
+        while !self.released.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        (String::new(), -1, false)
+    }
+}
+#[tokio::test]
+async fn failed_generation_reset_keeps_old_mutation_owned_and_blocks_new_admission() {
+    use arinn_plugin_chrome::{HOST_PATH, bridge::BridgeClientProxy};
+    use std::sync::atomic::Ordering;
+    let bus = Bus::start();
+    let provider = bus.connection().await;
+    let host = bus.connection().await;
+    let bridge = Bridge::default();
+    provider
+        .object_server()
+        .at(BRIDGE_PATH, bridge.clone())
+        .await
+        .unwrap();
+    provider.request_name(BRIDGE_NAME).await.unwrap();
+    let handler = ResetHost::default();
+    host.object_server()
+        .at(HOST_PATH, handler.clone())
+        .await
+        .unwrap();
+    let client = BridgeClientProxy::new(&host).await.unwrap();
+    let profile = client.attach().await.unwrap();
+    client
+        .publish(&profile, vec![(7, true)], vec![])
+        .await
+        .unwrap();
+    let first_id = uuid::Uuid::new_v4().to_string();
+    let first = {
+        let (bridge, provider, id) = (bridge.clone(), provider.clone(), first_id.clone());
+        tokio::spawn(async move {
+            bridge
+                .open_temporary(&provider, &id, "https://auth.example/device")
+                .await
+        })
+    };
+    until(|| handler.opens.load(Ordering::Acquire) == 1).await;
+    let reset = {
+        let (bridge, provider) = (bridge.clone(), provider.clone());
+        tokio::spawn(async move { bridge.reset_temporary(&provider).await })
+    };
+    until(|| handler.closes.load(Ordering::Acquire) >= 1).await;
+    assert!(!reset.is_finished());
+    let next = {
+        let (bridge, provider) = (bridge.clone(), provider.clone());
+        tokio::spawn(async move {
+            bridge
+                .open_temporary(
+                    &provider,
+                    &uuid::Uuid::new_v4().to_string(),
+                    "https://auth.example/device",
+                )
+                .await
+        })
+    };
+    until(|| handler.closes.load(Ordering::Acquire) >= 2).await;
+    assert_eq!(handler.opens.load(Ordering::Acquire), 1);
+    assert!(!next.is_finished());
+    handler.released.store(true, Ordering::Release);
+    handler.release.notify_waiters();
+    assert!(first.await.unwrap().is_ok());
+    assert!(next.await.unwrap().is_ok());
+    tokio::time::timeout(Duration::from_secs(3), reset)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(handler.opens.load(Ordering::Acquire), 2);
 }
 
 #[tokio::test]
@@ -541,6 +648,46 @@ async fn host_links_the_extension_and_the_provider_bridge() {
     .await;
     assert_eq!(command.await.unwrap(), Err(ErrorCode::Unavailable));
 
+    // A host timeout does not forget the browser lease. A late create result
+    // cannot complete a different command; Close retains the exact request ID.
+    let lease = uuid::Uuid::new_v4().to_string();
+    let opening = {
+        let (bridge, provider, lease) = (bridge.clone(), provider.clone(), lease.clone());
+        tokio::spawn(async move {
+            bridge
+                .open_temporary(&provider, &lease, "https://auth.example/device")
+                .await
+        })
+    };
+    let late = receive(&mut stdout).await;
+    assert_eq!(late["action"], "openTemporary");
+    assert_eq!(late["requestId"], lease);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(8), opening)
+            .await
+            .unwrap()
+            .unwrap(),
+        Err(ErrorCode::Timeout)
+    );
+    let cleanup = {
+        let (bridge, provider, lease) = (bridge.clone(), provider.clone(), lease.clone());
+        tokio::spawn(async move { bridge.close_temporary(&provider, &lease).await })
+    };
+    let closing = receive(&mut stdout).await;
+    assert_eq!(closing["action"], "closeTemporary");
+    assert_eq!(closing["requestId"], lease);
+    send(&mut stdin, &serde_json::json!({"type":"result","serial":late["serial"],"error":"","windowId":99,"created":true}).to_string()).await;
+    tokio::task::yield_now().await;
+    assert!(!cleanup.is_finished());
+    send(&mut stdin, &serde_json::json!({"type":"result","serial":closing["serial"],"error":"","windowId":-1,"created":false}).to_string()).await;
+    assert_eq!(cleanup.await.unwrap(), Ok(()));
+    assert_eq!(
+        bridge
+            .open_temporary(&provider, &lease, "https://auth.example/device")
+            .await,
+        Err(ErrorCode::Cancelled)
+    );
+
     // Invalid commands never reach the extension.
     for (action, url) in [
         ("eval", ""),
@@ -560,7 +707,7 @@ async fn host_links_the_extension_and_the_provider_bridge() {
         .build()
         .await
         .unwrap();
-    assert!(proxy.command("close", 7, "").await.is_err());
+    assert!(proxy.command("close", 7, "", "").await.is_err());
 
     // A malformed message ends the connection and the bridge forgets it.
     send(&mut stdin, r#"{"type":"eval","code":"x"}"#).await;

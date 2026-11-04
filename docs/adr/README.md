@@ -61,12 +61,12 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0040](0040-kwin-inventory-transport.md) | Trusted KWin inventory transport and SDK registration context | Accepted | 0078 |
 | [0041](0041-independent-session-lifecycle-guard.md) | Daemon-independent session lifecycle guard | Accepted | — |
 | [0042](0042-opt-in-session-autostart.md) | Opt-in session autostart through packaged systemd user units | Accepted | 0077, 0107 |
-| [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075 |
+| [0043](0043-web-shortcuts.md) | Arinn-owned web shortcuts for online-service tiles | Accepted | 0045, 0051, 0075, 0141 |
 | [0044](0044-docs-only-ci-scope.md) | Documentation-only pull requests skip the build jobs | Accepted | 0049 |
 | [0045](0045-local-http-web-shortcuts.md) | Plain HTTP web shortcuts for local-network hosts | Accepted | — |
 | [0046](0046-shell-input-layer-during-playback.md) | The shell is the input layer during managed playback | Accepted | — |
 | [0047](0047-faster-package-builds.md) | Cached package builds and no release-mode check() on pull requests | Accepted | 0092, 0101 |
-| [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050, 0051, 0075 |
+| [0048](0048-browser-wire-contract.md) | Browser wire contract (Browser1 and BrowserProvider1) | Accepted | 0050, 0051, 0075, 0141 |
 | [0049](0049-ci-minutes.md) | Spend fewer CI minutes | Accepted | 0053, 0102, 0104 |
 | [0050](0050-window-per-browser-activity.md) | One fullscreen browser window per browser activity | Accepted | 0051 |
 | [0051](0051-address-and-search-entry.md) | Address and search entry for free browsing | Accepted | 0066, 0103 |
@@ -153,4 +153,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
 | [0138](0138-launched-applications-go-full-screen.md) | Launched applications go full screen | Accepted | — |
 | [0140](0140-tv-review-visual-decisions.md) | Visual decisions from the TV design review | Accepted | — |
+| [0141](0141-temporary-browser-authorization.md) | Temporary browser authorization and verified music access | Proposed | — |
 <!-- register:end -->

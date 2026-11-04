@@ -6,6 +6,7 @@
 #include <QInputDevice>
 #include <QKeyEvent>
 #include <QtDBus>
+#include <QTranslator>
 #include <QtTest>
 namespace {
 // A fake daemon on its own connection, as the real one is, so the catalog's
@@ -40,6 +41,7 @@ struct DaemonProviderWire {
   QDBusObjectPath endpoint;
   QStringList capabilities;
   QString generation;
+  QString plugin;
 };
 struct RootWire {
   QString path;
@@ -47,7 +49,9 @@ struct RootWire {
 };
 QDBusArgument &operator<<(QDBusArgument &argument, const DaemonProviderWire &row) {
   argument.beginStructure();
-  argument << row.id << QStringLiteral("plugin") << QStringLiteral("system")
+  argument << row.id
+           << (row.plugin.isEmpty() ? QStringLiteral("plugin") : row.plugin)
+           << QStringLiteral("system")
            << row.id << QStringLiteral("1") << row.endpoint << row.capabilities
            << QStringLiteral("ready") << QStringLiteral("ready")
            << (row.generation.isEmpty() ? QStringLiteral("g-") + row.id
@@ -118,6 +122,8 @@ public:
   int settingsReads = 0;
   // Library providers on Daemon1.Providers, their Features and roots.
   QList<DaemonProviderWire> libraryProviders;
+  // Daemon1.Providers answers with an error.
+  bool providersFail = false;
   QStringList libraryFeatures;
   QList<RootWire> roots;
   QString rootsError;
@@ -222,6 +228,12 @@ public:
       settings.insert(call.provider, rows);
       bus.send(message.createReply(QVariant::fromValue(
           QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/ops/settings")))));
+      return true;
+    }
+    if (message.member() == QLatin1String("Providers") &&
+        message.interface() == QLatin1String("org.arinn.Daemon1") && providersFail) {
+      bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"),
+                                        QStringLiteral("fixture")));
       return true;
     }
     if (message.member() == QLatin1String("Providers") &&
@@ -335,6 +347,149 @@ private slots:
       bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
     }
   }
+  // Review of #779: a packaged provider's name is translated only for its
+  // own id; a third-party provider with the same name keeps it.
+  void packagedProviderNamesAreMatchedById() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("mpv"), QStringLiteral("Playback")},
+                        {QStringLiteral("thirdparty"), QStringLiteral("Playback")}};
+    for (const auto &id : {QStringLiteral("mpv"), QStringLiteral("thirdparty")})
+      daemon.settings.insert(id, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                          QStringLiteral("boolean"), QStringLiteral("false"),
+                                          QString(), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QCOMPARE(rowAt(catalog, QStringLiteral("mpv"), QStringLiteral("x"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Wiedergabe"));
+    QCOMPARE(rowAt(catalog, QStringLiteral("thirdparty"), QStringLiteral("x"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #779: a packaged plugin configured under another instance id
+  // keeps its translated name; Daemon1.Providers names the plugin.
+  void packagedProviderNamesFollowThePluginId() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("living-room-player"), QStringLiteral("Playback")},
+                        {QStringLiteral("mpv"), QStringLiteral("Playback")}};
+    for (const auto &id : {QStringLiteral("living-room-player"), QStringLiteral("mpv")})
+      daemon.settings.insert(id, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                          QStringLiteral("boolean"), QStringLiteral("false"),
+                                          QString(), true)});
+    // The instance "living-room-player" runs the packaged mpv plugin; the
+    // instance "mpv" runs a third-party plugin.
+    daemon.libraryProviders = {
+        {QStringLiteral("living-room-player"), QDBusObjectPath(QStringLiteral("/p1")),
+         {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")},
+        {QStringLiteral("mpv"), QDBusObjectPath(QStringLiteral("/p2")),
+         {QStringLiteral("playback")}, QString(), QStringLiteral("vendor-player")}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("living-room-player"), QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    QTRY_COMPARE(rowAt(catalog, QStringLiteral("mpv"), QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #779: a new daemon drops the old plugin identities, also when
+  // its own listing fails.
+  void pluginIdsAreForgottenWithTheDaemon() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    const auto instance = QStringLiteral("living-room-player");
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{instance, QStringLiteral("Playback")}};
+    first.settings.insert(instance, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                             QStringLiteral("boolean"), QStringLiteral("false"),
+                                             QString(), true)});
+    first.libraryProviders = {{instance, QDBusObjectPath(QStringLiteral("/p1")),
+                               {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")}};
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    // The next daemon runs a third-party plugin under the same instance id,
+    // and its provider listing fails.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings = first.settings;
+    second.providersFail = true;
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
+  // Review of #779: a reload under the same daemon whose provider listing
+  // fails does not keep the old plugin identity either.
+  void pluginIdsAreForgottenWhenARescanFails() {
+    class Translator : public QTranslator {
+    public:
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (QByteArray(context) == "SettingsCatalog" && QByteArray(source) == "Playback")
+          return QStringLiteral("Wiedergabe");
+        return {};
+      }
+    } translator;
+    QCoreApplication::installTranslator(&translator);
+    const auto instance = QStringLiteral("living-room-player");
+    SettingsDaemon daemon;
+    daemon.providers = {{instance, QStringLiteral("Playback")}};
+    daemon.settings.insert(instance, {setting(QStringLiteral("x"), QStringLiteral("playback"),
+                                              QStringLiteral("boolean"), QStringLiteral("false"),
+                                              QString(), true)});
+    daemon.libraryProviders = {{instance, QDBusObjectPath(QStringLiteral("/p1")),
+                                {QStringLiteral("playback")}, QString(), QStringLiteral("mpv")}};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Wiedergabe"));
+    daemon.providersFail = true;
+    emitProvidersChanged();
+    QTRY_COMPARE(rowAt(catalog, instance, QStringLiteral("x"))
+                     .value(QStringLiteral("providerName")).toString(),
+                 QStringLiteral("Playback"));
+    QCoreApplication::removeTranslator(&translator);
+  }
   void groupsProvidersByCategory() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("beta"), QStringLiteral("Beta")},
@@ -367,11 +522,14 @@ private slots:
     QVERIFY(registerBus(daemon));
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
-    QCOMPARE(catalog.categories().size(), 7);
-    QCOMPARE(catalog.categories().at(0).toMap().value(QStringLiteral("id")).toString(),
-             QStringLiteral("media"));
-    QCOMPARE(catalog.categories().at(6).toMap().value(QStringLiteral("id")).toString(),
-             QStringLiteral("system"));
+    // #756: only categories with rows, in the fixed order; Playback,
+    // Network and Appearance have none here.
+    QStringList shownCategories;
+    for (const auto &category : catalog.categories())
+      shownCategories.append(category.toMap().value(QStringLiteral("id")).toString());
+    QCOMPARE(shownCategories, QStringList({QStringLiteral("media"), QStringLiteral("sound"),
+                                           QStringLiteral("applications"),
+                                           QStringLiteral("system")}));
     QStringList order;
     for (const auto &value : catalog.rows()) {
       const auto row = value.toMap();
@@ -393,6 +551,7 @@ private slots:
              true);
     QCOMPARE(roots.value(QStringLiteral("providerName")).toString(),
              QStringLiteral("Alpha"));
+
     const auto output = rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("output"));
     QCOMPARE(output.value(QStringLiteral("currentValue")).toString(),
              QStringLiteral("stereo"));
@@ -592,6 +751,11 @@ private slots:
                            QStringLiteral("ambient_timeout"));
     QCOMPARE(row.value(QStringLiteral("constraints")).toMap()
                  .value(QStringLiteral("options")).toList().size(), 5);
+    // #756 B16: Arinn's own settings carry no source line; a provider's do.
+    QCOMPARE(row.value(QStringLiteral("providerName")).toString(), QString());
+    QCOMPARE(rowAt(catalog, QStringLiteral("alpha"), QStringLiteral("light_field"))
+                 .value(QStringLiteral("providerName")).toString(),
+             QStringLiteral("Alpha"));
     // A value the daemon does not offer keeps the last one.
     daemon.settings[QStringLiteral("arinn")][1].value = QStringLiteral("\"7\"");
     auto signal = QDBusMessage::createSignal(
@@ -626,7 +790,7 @@ private slots:
                         QStringLiteral("{}"), true);
     core.title = QStringLiteral("Light follows the time of day");
     core.description = QStringLiteral(
-        "Dims the floor light in the evening and at night and lays a warm veil over the screen. Off keeps the daytime light");
+        "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look");
     daemon.settings.insert(QStringLiteral("arinn"), {core});
     SettingsCatalog catalog;
     QCOMPARE(catalog.lightFollowsTime(), true);

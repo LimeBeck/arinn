@@ -348,6 +348,55 @@ TestCase {
         compare(Math.round(described.mapToItem(child("setting-p-light"), 0, 0).y), 20);
     }
 
+    // #734: a long description in a toggle row wraps at least 24 px before
+    // the toggle, never under it.
+    function test_toggle_row_text_keeps_clear_of_the_toggle() {
+        view.rows = [{providerId: "arinn", providerName: "", id: "follows", categoryId: "media",
+                      title: "Light follows the time of day",
+                      description: "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look and a long tail of words to force wrapping",
+                      type: "boolean", currentValue: true, constraints: {}, enabled: true}];
+        keyClick(Qt.Key_Right);
+        focused("setting-arinn-follows");
+        const detail = child("detail-arinn-follows");
+        const toggle = child("toggle-arinn-follows");
+        const textRight = detail.mapToItem(view, detail.width, 0).x;
+        const toggleLeft = toggle.mapToItem(view, 0, 0).x;
+        verify(toggleLeft - textRight >= 24, "gap " + (toggleLeft - textRight));
+        verify(detail.lineCount > 1);
+        // #756 B16: Arinn's own settings have no source line.
+        compare(findChild(view, "provider-arinn-follows"), null);
+    }
+
+    // Review of #779: when a reload drops a category, the selected one is
+    // kept by id, or the nearest stays selected.
+    function test_selected_category_survives_a_shorter_list() {
+        const all = view.categories;
+        verify(all.length >= 3);
+        view.categoryIndex = 2;
+        const kept = all[2].id;
+        view.categories = all.filter((category, index) => index !== 0);
+        compare(view.categories[view.categoryIndex].id, kept);
+        view.categories = [all[0]];
+        compare(view.categoryIndex, 0);
+        verify(view.categories[view.categoryIndex] !== undefined);
+        view.categories = all;
+    }
+
+    // Review of #779: the category of the focused row leaves the list; focus
+    // goes to the nearest category, not to nowhere.
+    function test_focus_survives_its_category_leaving() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        verify(view.detailFocused);
+        const all = view.categories;
+        view.rows = view.rows.filter(row => row.categoryId !== "media");
+        view.categories = all.filter(category => category.id !== "media");
+        tryVerify(() => !view.detailFocused);
+        compare(view.focusedRowKey, "");
+        focused("category-playback");
+        keyClick(Qt.Key_Down);
+        focused("category-sound");
+    }
     function test_boolean_toggle() {
         keyClick(Qt.Key_Right);
         focused("setting-library-scan");

@@ -124,7 +124,19 @@ QString pageTitle(const QString &title, const QString &host) {
   auto labels = host.toLower().split(QLatin1Char('.'), Qt::SkipEmptyParts);
   if (!labels.isEmpty() && labels.last().contains(QLatin1Char(':')))
     labels.last() = labels.last().section(QLatin1Char(':'), 0, 0);
-  const auto label = labels.size() >= 2 ? nameKey(labels.at(labels.size() - 2)) : QString();
+  // The registrable label: the one before the top-level domain, or one
+  // further left under a short second-level suffix of a country domain
+  // (www.example.co.uk is "example", not "co"; review of #768).
+  static const QSet<QString> secondLevel{
+      QStringLiteral("co"),  QStringLiteral("com"), QStringLiteral("org"),
+      QStringLiteral("net"), QStringLiteral("ac"),  QStringLiteral("gov"),
+      QStringLiteral("edu"), QStringLiteral("or"),  QStringLiteral("ne"),
+      QStringLiteral("go"),  QStringLiteral("mil"), QStringLiteral("nic"),
+      QStringLiteral("ltd"), QStringLiteral("plc"), QStringLiteral("gob")};
+  qsizetype at = labels.size() - 2;
+  if (labels.size() >= 3 && labels.last().size() == 2 && secondLevel.contains(labels.at(at)))
+    --at;
+  const auto label = at >= 0 ? nameKey(labels.at(at)) : QString();
   if (tail.isEmpty() || label.size() < 3 || !tail.startsWith(label))
     return text;
   return text.left(cut).trimmed();

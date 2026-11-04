@@ -507,7 +507,8 @@ CONTEXT = {
     # Restart Arinn itself, not the computer (ADR-0098).
     ("HomeView", "Restart"): "Перезапустить",
     ("BrowserView", "Open services"): "Открытые сервисы",
-    ("HomeView", "Open services"): "Все открытые сервисы",
+    # The navigation item reads as the screen title (#756 C32).
+    ("HomeView", "Open services"): "Открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
     # The hero names one item: a series, not the Series tab (#756 C20).
     ("HomeView", "Series"): "Сериал",

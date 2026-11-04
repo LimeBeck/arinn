@@ -610,7 +610,13 @@ Window {
         // power scope open over the sheet it leaves as Home inside that scope
         // does: a request in flight goes on and a late refusal comes back.
         function onHomeRequested() {
-            if (!root.quickMenuOpen && !root.activityBehind) return;
+            if (!root.quickMenuOpen && !root.activityBehind) {
+                // The shell is on screen: the global Home key shows Home from
+                // Open services and the other screens, as the Home key does
+                // (§6.3, #756 A6). Home itself handles its own key.
+                if (root.focusedScreen !== "home") root.goHomeFrom(root.focusedScreen);
+                return;
+            }
             if (powerOverlay.open) powerOverlay.leaveHome();
             else root.quickMenuHome();
         }
@@ -993,7 +999,9 @@ Window {
             visible: root.browserOpen && !root.playerOpen
             enabled: root.browserOpen && !root.playerOpen
             interactive: root.browserOpen && !root.playerOpen && !root.browseOpen
-            tabs: browserCatalog.tabs
+            // An empty new-tab window is not a service: the screen lists and
+            // counts what Home and navigation count (#756 A10).
+            tabs: browserCatalog.serviceTabs
             windows: browserCatalog.windows
             shortcuts: browserCatalog.shortcuts
             browserState: browserCatalog.browserState

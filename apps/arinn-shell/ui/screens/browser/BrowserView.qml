@@ -1168,7 +1168,8 @@ FocusScope {
                     }
                     Ui.UiText {
                         objectName: "browserCloseHint"
-                        text: qsTr("Close")
+                        // → reaches Save first, then Close (#756 C32).
+                        text: qsTr("Save or close")
                         role: "caption"
                         color: Ui.Theme.textHint
                         anchors.verticalCenter: parent.verticalCenter

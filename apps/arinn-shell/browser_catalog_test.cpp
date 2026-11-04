@@ -426,6 +426,8 @@ public:
   QStringList m_busy;
 signals:
   void changed();
+  // The platform's global Home key (ADR-0094).
+  void homeRequested();
 };
 class BrowserCatalogTest : public QObject {
   Q_OBJECT
@@ -539,6 +541,11 @@ private slots:
     auto home = engine.rootObjects().first()->findChild<QQuickItem *>(QStringLiteral("productionHome"));
     QVERIFY(home);
     QTRY_COMPARE(home->property("openServices").toList().size(), 1);
+    // #756 A10: Open services lists and counts the same services, so the
+    // screen's count matches the navigation badge.
+    auto browserView = engine.rootObjects().first()->findChild<QQuickItem *>(QStringLiteral("productionBrowser"));
+    QVERIFY(browserView);
+    QTRY_COMPARE(browserView->property("orderedTabs").toList().size(), 1);
     // The complete browser inventory still supports activating internal tabs.
     const auto internal = catalog.tabs().at(1).toMap().value("id").toString();
     catalog.activateTab(internal);
@@ -908,7 +915,9 @@ private slots:
         TabWire{"idle", "w2", "Episode IV - A New Hope",
                 "https://hd.videos.example/watch", false, false},
         TabWire{"scheme", "w3", "Scheme page — Example site",
-                "http://example.test:8443/c", true, false}};
+                "http://example.test:8443/c", true, false},
+        TabWire{"uk", "w3", "Story — Example News",
+                "https://www.example.co.uk/s", false, false}};
     daemon.scriptedShortcuts = {
         ShortcutWire{"port", "Port", "https://example.test:8443/s",
                      "packaged:mark"},
@@ -944,6 +953,12 @@ private slots:
         scheme = entry.toMap();
     }
     QCOMPARE(scheme.value("serviceTitle").toString(), QString("Scheme page"));
+    // Review of #768: under a country's second-level suffix the site is the
+    // label before it ("example" of www.example.co.uk), not "co".
+    for (const auto &entry : catalog.tabs())
+      if (entry.toMap().value("id").toString().isEmpty() == false &&
+          entry.toMap().value("title").toString() == QStringLiteral("Story — Example News"))
+        QCOMPARE(entry.toMap().value("serviceTitle").toString(), QString("Story"));
     // A last part that is not the site's name stays in the title.
     QCOMPARE(idle.value("serviceTitle").toString(),
              QString("Episode IV - A New Hope"));
@@ -1327,6 +1342,9 @@ private slots:
                              QString("unavailable")}) {
       QTest::newRow(qPrintable(state + "-escape")) << int(Qt::Key_Escape) << state;
       QTest::newRow(qPrintable(state + "-backspace")) << int(Qt::Key_Backspace) << state;
+      // #756 A6: Home, as a key and as the platform's global Home.
+      QTest::newRow(qPrintable(state + "-home")) << int(Qt::Key_Home) << state;
+      QTest::newRow(qPrintable(state + "-global-home")) << 0 << state;
     }
   }
   void openServicesBackSurvivesHomeRefresh() {
@@ -1371,7 +1389,10 @@ private slots:
     QTimer::singleShot(0, &engine, [&] { refreshed = true; });
     QTRY_VERIFY(refreshed);
     QVERIFY(focusInside(browser));
-    QTest::keyClick(window, Qt::Key(key));
+    if (key)
+      QTest::keyClick(window, Qt::Key(key));
+    else
+      emit backend.homeRequested();
     QTRY_VERIFY(!window->property("browserOpen").toBool());
     QTRY_COMPARE(home->property("screen").toString(), QString("home"));
     QTRY_VERIFY(focusInside(home));

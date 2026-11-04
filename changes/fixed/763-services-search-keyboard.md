@@ -1,0 +1,3 @@
+- Home works on Open services, the screen lists and counts the same services as navigation (an empty new-tab window is no longer one), its hint names Save as well as Close, and the navigation item reads as the screen title ([#763](https://github.com/LimeBeck/arinn/issues/763)).
+- Site or search shows its first focus on the field, lists recent entries with a history icon and *Clear* on the *Recent* line, and has no on-screen Back; the on-screen keyboard's context rows no longer repeat `:`, `.`, `-` and `_` from the letter rows ([#763](https://github.com/LimeBeck/arinn/issues/763)).
+- A page title under a country second-level domain such as `example.co.uk` drops its site suffix like other sites ([#763](https://github.com/LimeBeck/arinn/issues/763)).

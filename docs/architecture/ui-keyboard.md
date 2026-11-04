@@ -56,6 +56,12 @@ layer. A reopen resets Shift and the layer.
 | String setting (KB-4) | none | none; the line names the length limit | Save |
 | Path setting in Settings (KB-5) | path | none yet: subfolders need the folder-listing method (DR-27, DR-44), so the row stays empty | Save |
 
+The context rows repeat no character the letter rows already have
+([ADR-0140](../adr/0140-tv-review-visual-decisions.md) §4, #756 C29). The
+`address` row is `https:// www. .ru .com .local /`. The `path` row is
+`/ ~/ /media/ /run/media/ /mnt/ ..`: `:`, `.`, `-` and, for paths, `_` (on the
+English letter rows that paths open on) are typed from the letter rows.
+
 Matching lives in `BrowseCatalog` (C++): word prefixes of titles and hosts,
 case-folded, as on the address and search screen. Open services are active
 browser tabs with an `http` or `https` origin, one per origin; their value is
@@ -84,7 +90,7 @@ path, a path list item and *Add path* ([ui-settings.md](ui-settings.md)). While
 one is open, a pill sits at its right; Right at the end of the text reaches it,
 and Left returns to the text. Without a hardware keyboard the editor opens on
 the pill. The pill opens the same full-screen typing layer as a string setting,
-with the `path` context row (`/ ~/ /media/ /run/media/ /mnt/ .. - _ .`) and
+with the `path` context row (`/ ~/ /media/ /run/media/ /mnt/ ..`) and
 English letters. The text goes to the editor at once. Save proposes the path
 as Enter does: a single path is proposed alone, and a list item or *Add path*
 proposes the whole list. An empty list entry is not proposed, and the layer

@@ -592,6 +592,91 @@ fn browse_recent_migrates_from_schema_three_and_keeps_five() {
     assert!(store.browse_recent().unwrap().is_empty());
 }
 
+// ADR-0139: recents keep an address without its query and fragment and
+// never a loopback address, also for entries stored before the rule.
+#[test]
+fn browse_recents_drop_queries_and_loopback_addresses() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    {
+        let mut store = Store::open(&state).unwrap();
+        assert_eq!(
+            store.push_browse_recent("example.org/watch?v=1#t"),
+            Ok(true)
+        );
+        assert_eq!(
+            store.push_browse_recent("http://127.0.0.1:8080/cb?secret=x"),
+            Ok(false)
+        );
+        assert_eq!(store.push_browse_recent("localhost:3000"), Ok(false));
+        assert_eq!(
+            store.push_browse_recent("https://app.localhost/a#b"),
+            Ok(false)
+        );
+        assert_eq!(store.push_browse_recent("http://[::1]/x"), Ok(false));
+        assert_eq!(store.push_browse_recent("synthetic search?"), Ok(true));
+        assert_eq!(store.push_browse_recent("ftp://x"), Ok(false));
+        assert_eq!(
+            store.browse_recent().unwrap(),
+            ["synthetic search?", "example.org/watch"]
+        );
+    }
+    {
+        // Entries written by an older daemon, before schema 8.
+        let connection = rusqlite::Connection::open(state.join("state.sqlite3")).unwrap();
+        connection
+            .execute_batch(
+                "DELETE FROM browse_recent;
+                 INSERT INTO browse_recent (text, seq) VALUES
+                   ('example.org/watch', 1),
+                   ('http://127.0.0.1:9/cb?secret=x', 2),
+                   ('https://example.org/watch?v=2', 3),
+                   ('news.example.net/#top', 4),
+                   ('a search', 5);
+                 PRAGMA user_version=7;",
+            )
+            .unwrap();
+    }
+    let store = Store::open(&state).unwrap();
+    assert_eq!(
+        store.browse_recent().unwrap(),
+        [
+            "a search",
+            "news.example.net/",
+            "https://example.org/watch",
+            "example.org/watch"
+        ]
+    );
+    drop(store);
+    let version: u32 = rusqlite::Connection::open(state.join("state.sqlite3"))
+        .unwrap()
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 8);
+}
+
+#[test]
+fn browse_recent_entry_rule() {
+    use arinnd::storage::browse_recent_entry;
+    assert_eq!(
+        browse_recent_entry(" example.org "),
+        Some("example.org".into())
+    );
+    assert_eq!(
+        browse_recent_entry("https://example.org/p?q=1"),
+        Some("https://example.org/p".into())
+    );
+    assert_eq!(browse_recent_entry("0.0.0.0:8000"), None);
+    assert_eq!(browse_recent_entry("127.1.2.3"), None);
+    assert_eq!(browse_recent_entry("LOCALHOST"), None);
+    // A LAN host is not loopback.
+    assert_eq!(
+        browse_recent_entry("192.168.1.20:8096/web"),
+        Some("192.168.1.20:8096/web".into())
+    );
+    assert_eq!(browse_recent_entry(""), None);
+}
+
 #[test]
 fn download_checkpoints_migrate_from_four_and_prune_only_the_selected_provider() {
     use arinnd::storage::DownloadImport;

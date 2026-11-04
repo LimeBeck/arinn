@@ -71,10 +71,26 @@ token stays the letter chip. Origin comparison is scheme, host and port, with
 letter is the first character of the host after one `www.`, `m.` or `hd.`
 prefix, computed in the catalog.
 
-Home's open-service summary uses `BrowserCatalog.serviceTabs`, a projection of
-valid HTTP/HTTPS tabs with a host. Browser-internal placeholder pages do not add
-to that summary. The complete `tabs` list and its activate/close commands remain
-available in Open services; QML receives this projection without parsing URLs.
+Home's open-service summary, the navigation badge and the Open services screen
+all use `BrowserCatalog.serviceTabs`, a projection of valid HTTP/HTTPS tabs with
+a host. A browser-internal placeholder, such as an empty new-tab window, is not a
+service: it is not listed, counted or offered for closing, so the screen's count
+matches the navigation badge ([#756](https://github.com/LimeBeck/arinn/issues/756)
+A10). The complete `tabs` list stays in the catalog for activation by id and for
+the address screen's already-open hint; QML receives the projection without
+parsing URLs.
+
+The global Home key (the platform's Home request, ADR-0094) shows Home from Open
+services and the other shell screens while the shell is on screen, as the Home
+key does there (§6.3, #756 A6). The bottom hint reads "→ Save or close": Right
+reaches the Save button first, then Close (#756 C32). The navigation item has the
+screen's own name.
+
+A service's name drops a trailing site name only when that part starts with the
+site's registrable label. That label is the one before the top-level domain, or
+one further left under a short second-level suffix of a two-letter country domain
+(`co`, `com`, `org`, `net`, `ac`, `gov`, `edu`, `or`, `ne`, `go`, `mil`, `nic`,
+`ltd`, `plc`, `gob`): for `www.example.co.uk` it is `example`, not `co`.
 
 ## Creating a tab
 
@@ -269,12 +285,19 @@ the field: an open service's value is its origin, so the already-open hint names
 it. Existing Save controls in Open services continue to use `WebShortcuts1.Add`.
 
 Recent entries come from `GetRecent`, refresh on `RecentChanged` and clear through
-`ClearRecent`. The shell persists no typed text or browser history. Text, resolved
+`ClearRecent`. The daemon records an address without its query and fragment and
+does not record a loopback address ([ADR-0139](../adr/0139-site-or-search-recents-privacy.md)).
+The shell persists no typed text or browser history. Text, resolved
 URLs and recent entries are not logged. Returning with Back clears the current
 text and invalidates outstanding resolution replies. Daemon owner changes clear
 all transient state and reload shortcut/recent data after reconnect.
 
 The field, its keyboard button and the remote controls share one focus scope.
+The field's plate takes the rim whenever focus is in the field or on its keyboard
+button, so the first focus is visible. *Clear* sits at the end of the *Recent*
+label's line and comes first in the focus order; each recent entry is a
+left-aligned row with the `history` icon. There is no on-screen Back: Back and Esc
+leave (#756 C28).
 The [on-screen keyboard](ui-keyboard.md) opens from the button; without a
 hardware keyboard the screen starts there, and a printable key still enables the
 field and inserts that character. Ordinary browser applications remain in the Home/Applications

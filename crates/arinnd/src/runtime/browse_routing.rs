@@ -74,11 +74,12 @@ impl Core {
         if !fresh {
             return Ok(path);
         }
+        // Recorded without its query and fragment, and not at all for a
+        // loopback address (ADR-0139).
         let entry = text.trim().to_owned();
-        if self
+        if let Ok(true) = self
             .recent_store(move |store| store.push_browse_recent(&entry))
             .await
-            .is_ok()
         {
             self.recent_changed().await;
         }

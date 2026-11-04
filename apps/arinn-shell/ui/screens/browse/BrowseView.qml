@@ -86,13 +86,14 @@ FocusScope {
             if (keyboardOpen)
                 return result;
             for (let i = 0; i < suggestionRows.count; ++i) result.push(suggestionRows.itemAt(i))
-            for (let i = 0; i < recentRows.count; ++i) result.push(recentRows.itemAt(i))
+            // Clear sits on the Recent label's line, so it comes first.
             if (clear.visible)
                 result.push(clear);
+            for (let i = 0; i < recentRows.count; ++i) result.push(recentRows.itemAt(i))
 
             for (let i = 0; i < ordinaryRows.count; ++i) result.push(ordinaryRows.itemAt(i))
         }
-        result.push(backButton);
+        // There is no on-screen Back: Back and Esc leave (#756 C28).
         return result;
     }
 
@@ -114,7 +115,7 @@ FocusScope {
         actionColumn.forceLayout();
         choiceColumn.forceLayout();
         const pos = list[index].mapToItem(choiceColumn, 0, 0);
-        if (list[index] !== field && list[index] !== retry && list[index] !== backButton && list[index] !== keyboardButton)
+        if (list[index] !== field && list[index] !== retry && list[index] !== keyboardButton)
             choices.contentY = Math.max(0, Math.min(choices.contentHeight - choices.height, pos.y - 180));
 
     }
@@ -185,9 +186,16 @@ FocusScope {
         width: 1480
         height: 132
         radius: 34
-        color: Qt.rgba(1, 1, 1, 0.12)
-        border.width: field.activeFocus || root.keyboardOpen ? 3 : 0
-        border.color: Qt.rgba(1, 1, 1, 0.45)
+        // The field's plate brightens and takes the rim whenever focus is in
+        // the field or on its keyboard button, so the first focus is visible
+        // (#756 C28).
+        readonly property bool focused: field.activeFocus || keyboardButton.activeFocus || root.keyboardOpen
+        color: Qt.rgba(1, 1, 1, focused ? 0.12 : 0.07)
+        Ui.FocusRing {
+            objectName: "browseFieldRim"
+            shown: fieldPlate.focused
+            radius: fieldPlate.radius
+        }
 
         TextInput {
             id: field
@@ -306,10 +314,28 @@ FocusScope {
 
             }
 
-            Ui.UiText {
+            // The Recent label with Clear at the end of its line, above the
+            // entries it clears (#756 C28).
+            Item {
+                objectName: "browseRecentHeader"
                 visible: recentRows.count > 0
-                text: qsTr("Recent")
-                role: "meta"
+                width: 1040
+                height: clear.height
+                Ui.UiText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Recent")
+                    role: "meta"
+                }
+                Ui.ActionButton {
+                    id: clear
+
+                    objectName: "browseClear"
+                    anchors.right: parent.right
+                    visible: recentRows.count > 0
+                    height: 64
+                    text: qsTr("Clear")
+                    onActivated: root.clearRequested()
+                }
             }
 
             Repeater {
@@ -317,15 +343,41 @@ FocusScope {
 
                 model: root.text.length ? [] : root.recent
 
+                // A recent entry: the history icon and the text, left
+                // aligned, like a list row rather than a centred pill.
                 Ui.ActionButton {
+                    id: recentRow
                     required property string modelData
                     required property int index
 
                     objectName: "browseRecent-" + index
                     width: 1040
-                    height: 64
+                    height: 72
                     text: modelData
                     onActivated: root.chooseSuggestion({value: modelData})
+                    contentItem: Item {
+                        Ui.LineIcon {
+                            objectName: "browseRecentIcon-" + recentRow.index
+                            x: 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 34; height: 34
+                            name: "history"
+                            color: recentRow.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
+                        }
+                        Ui.UiText {
+                            objectName: "browseRecentText-" + recentRow.index
+                            x: 28 + 34 + 18
+                            width: parent.width - x - 28
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: recentRow.text
+                            role: "control"
+                            color: recentRow.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                            horizontalAlignment: Text.AlignLeft
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                            wrapMode: Text.NoWrap
+                        }
+                    }
                 }
 
             }
@@ -334,16 +386,6 @@ FocusScope {
                 id: actionColumn
 
                 spacing: 14
-
-                Ui.ActionButton {
-                    id: clear
-
-                    objectName: "browseClear"
-                    visible: recentRows.count > 0
-                    height: 72
-                    text: qsTr("Clear")
-                    onActivated: root.clearRequested()
-                }
 
                 Repeater {
                     id: ordinaryRows
@@ -405,17 +447,6 @@ FocusScope {
         role: "body"
         color: root.busy || root.operationState === "succeeded" ? Ui.Theme.textSecondary : Ui.Theme.error
         text: root.busy ? qsTr("Opening…") : root.operationState === "succeeded" ? qsTr("Opened") : root.operationState === "Timeout" ? qsTr("Opening timed out. Try again.") : root.operationState.length ? qsTr("Could not open. Try again.") : ""
-    }
-
-    Ui.ActionButton {
-        id: backButton
-
-        objectName: "browseBack"
-        x: 1580
-        y: 922
-        visible: !root.keyboardOpen
-        text: qsTr("Back")
-        onActivated: root.backRequested()
     }
 
     Ui.OnScreenKeyboard {

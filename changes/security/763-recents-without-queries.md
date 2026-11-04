@@ -1,0 +1,1 @@
+- Site or search recent entries keep an address without its query and fragment and never keep a loopback address; entries stored earlier are cleaned when the daemon starts ([ADR-0139](docs/adr/0139-site-or-search-recents-privacy.md), [#763](https://github.com/LimeBeck/arinn/issues/763)).

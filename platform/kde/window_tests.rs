@@ -413,10 +413,9 @@ impl LaunchingProvider {
         Ok(())
     }
 }
-/// A successful launch hides Home through the platform adapter, so the new
-/// application window is not left underneath the shell.
-#[tokio::test]
-async fn successful_launch_dismisses_home() {
+/// A successful launch of an application in `group` returns the platform
+/// command the adapter received; the operation itself succeeds.
+async fn platform_command_after_launch(group: &str) -> String {
     let f = Fixture::new().await;
     f.provider
         .object_server()
@@ -441,7 +440,7 @@ async fn successful_launch_dismisses_home() {
             id: "app".into(),
             title: "App".into(),
             can_launch: true,
-            group: "other".into(),
+            group: group.into(),
             icon: String::new(),
         }];
         p.info.generation.clone()
@@ -479,7 +478,6 @@ async fn successful_launch_dismisses_home() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(command, "dismiss");
     let operation = ProductionOperationProxy::builder(&f.provider)
         .path(path)
         .unwrap()
@@ -496,6 +494,20 @@ async fn successful_launch_dismisses_home() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(state, "succeeded");
+    command
+}
+/// A successful launch hides Home through the platform adapter, so the new
+/// application window is not left underneath the shell, and makes that
+/// window full screen (ADR-0138).
+#[tokio::test]
+async fn successful_launch_dismisses_home_and_goes_full_screen() {
+    assert_eq!(platform_command_after_launch("other").await, "launched");
+}
+/// A browser opened as an application keeps its own window UI (spec §7.1):
+/// Home is only dismissed (ADR-0138).
+#[tokio::test]
+async fn launched_browser_only_dismisses_home() {
+    assert_eq!(platform_command_after_launch("online").await, "dismiss");
 }
 
 /// AC-18: presentation intent is distinct from Home state synchronization.

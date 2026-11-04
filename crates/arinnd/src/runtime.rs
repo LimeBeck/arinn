@@ -1563,8 +1563,11 @@ impl Core {
                 // A launched application replaces Home: ask the platform to
                 // hide Home without returning to the previous Activity, so the
                 // new window is not left underneath the shell. Best effort:
-                // without a platform adapter there is no Home overlay.
-                let _ = core.platform.queue("dismiss").await;
+                // without a platform adapter there is no Home overlay. The
+                // window also goes full screen, except a browser opened as an
+                // ordinary window, which keeps its own UI (ADR-0138).
+                let command = launch_command(&*core.state.lock().await, &id, &local_id);
+                let _ = core.platform.queue(command).await;
                 let state = core.paths.state.clone();
                 let target = crate::storage::Target {
                     provider_id: id.clone(),
@@ -2489,6 +2492,19 @@ impl ApplicationEndpoint {
             )
             .await?)
     }
+}
+
+/// The platform command after a successful launch (ADR-0138): `launched`
+/// hides Home and makes the new window full screen; a browser in the Online
+/// group opens as an ordinary window with its own UI (spec §7.1), so it only
+/// hides Home.
+fn launch_command(state: &State, provider: &str, local_id: &str) -> &'static str {
+    let browser = state.providers.get(provider).is_some_and(|p| {
+        p.applications
+            .iter()
+            .any(|a| a.id == local_id && a.group == "online")
+    });
+    if browser { "dismiss" } else { "launched" }
 }
 
 fn window_scope(state: &State, owner: &str) -> Result<crate::windows::Scope, ErrorCode> {

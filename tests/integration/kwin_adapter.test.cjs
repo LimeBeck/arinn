@@ -162,7 +162,7 @@ function fixture(options = {}) {
         deferHome() { deferHome = true; },
         deferLock() { deferLock = true; },
         daemonHome: () => takeCommand('home'),
-        dismiss: () => takeCommand('dismiss'), report: () => report,
+        dismiss: () => takeCommand('dismiss'), launched: () => takeCommand('launched'), report: () => report,
         remove(w) { windows = windows.filter(x => x !== w); workspace.windowRemoved.emit(w); },
         add(w) { windows.push(w); workspace.windowAdded.emit(w); } };
 }
@@ -326,6 +326,28 @@ test('a launched application dismisses Home without returning to the Activity', 
     assert.equal(f.home.keepAbove, false);
     f.dismiss(); // idempotent when Home is already hidden
     assert.deepEqual(f.report(), [false, '', 'second-screen']);
+});
+
+test('ADR-0138: a launched application window goes full screen as Home hides', () => {
+    const f = fixture();
+    f.show();
+    const launched = f.window('launched-id', 'player');
+    launched.fullScreen = false;
+    f.add(launched);
+    f.launched();
+    assert.deepEqual(f.report(), [false, '', 'second-screen']);
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(launched.fullScreen, true);
+    assert.equal(f.workspace.activeWindow, launched);
+});
+
+test('ADR-0138: without a newly mapped window no existing window is made full screen', () => {
+    const f = fixture();
+    f.activity.fullScreen = false;
+    f.show();
+    f.launched();
+    assert.equal(f.home.keepAbove, false);
+    assert.equal(f.activity.fullScreen, false, 'a window from before the launch is never touched');
 });
 
 test('another window of the same application never replaces a closed target', () => {

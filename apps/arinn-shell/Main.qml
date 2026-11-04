@@ -183,6 +183,10 @@ Window {
     property bool leavingStopPending: false
     property string leaveError: ""
     property bool libraryDetailFromHome: false
+    // Watch on Downloads opened the library: Back from its Detail, or from
+    // the library while that Detail is still pending, returns to Downloads
+    // (handoff 12, #756 A7).
+    property bool libraryDetailFromDownloads: false
     property bool sessionFromLibrary: false
     property bool sessionFromLaunch: false
     // Watch on a download whose library item the library catalog has not
@@ -198,9 +202,15 @@ Window {
         function onScreenChanged() {
             if (home.screen === "library") return;
             root.libraryDetailFromHome = false;
+            root.libraryDetailFromDownloads = false;
             root.pendingWatch = null;
             ++root.watchTicket;
         }
+    }
+    function returnToDownloads() {
+        root.libraryDetailFromDownloads = false;
+        home.screen = "downloads";
+        Qt.callLater(root.restoreFocus);
     }
     function openHomeLibraryEntry(entryId) {
         if (libraryCatalog.libraryState !== "ready") return;
@@ -1135,6 +1145,8 @@ Window {
                     root.libraryDetailFromHome = false;
                     if (home.screen === "library") home.returnFromLibraryDetail();
                 }
+                if (!detailOpen && root.libraryDetailFromDownloads && home.screen === "library")
+                    root.returnToDownloads();
             }
             ambientEnabled: settingsCatalog.lightField
             lightFollowsTime: settingsCatalog.lightFollowsTime
@@ -1142,7 +1154,11 @@ Window {
             onPlayRequested: entryId => libraryCatalog.launch(entryId)
             onEpisodeRequested: (entryId, episodeId) => libraryCatalog.launch(episodeId)
             onRetryRequested: libraryCatalog.refresh()
-            onBackRequested: home.back()
+            onBackRequested: {
+                if (root.libraryDetailFromDownloads) root.returnToDownloads();
+                else home.back();
+            }
+            onNavigationRequested: home.openNavigation()
             onHomeRequested: {
                 root.sessionFromLibrary = false;
                 home.showHome();
@@ -1161,6 +1177,7 @@ Window {
             clockText: home.clockText
             viewState: downloadCatalog.downloadsState
             jobs: root.downloadJobs(downloadCatalog.jobs, libraryCatalog.entries)
+            transferRate: downloadCatalog.rateText
             onPauseRequested: id => downloadCatalog.request(id, "pause")
             onResumeRequested: id => downloadCatalog.request(id, "resume")
             onStartNowRequested: id => downloadCatalog.request(id, "start_now")
@@ -1170,6 +1187,7 @@ Window {
             onWatchRequested: id => {
                 const target = downloadCatalog.watchTarget(id);
                 home.screen = "library";
+                root.libraryDetailFromDownloads = true;
                 ++root.watchTicket;
                 root.pendingWatch = target.local ? target : null;
                 if (!root.pendingWatch) return;
@@ -1179,6 +1197,7 @@ Window {
             }
             onRefreshRequested: downloadCatalog.refresh()
             onBackRequested: home.back()
+            onNavigationRequested: home.openNavigation()
         }
         Player.PlayerView {
             id: playerView

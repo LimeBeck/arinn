@@ -217,6 +217,49 @@ dbus-run-session -- ./build/apps/arinn-shell/arinn-library-catalog-test
 Operator tests, television readability and the 22-screen design gate are not
 part of this increment.
 
+## TV design review (#761)
+
+Fixes from the TV design review [#756](https://github.com/LimeBeck/arinn/issues/756)
+(A8, C22, C23) and [#728](https://github.com/LimeBeck/arinn/issues/728):
+
+- **Tabs.** Catalogue tabs are the local `LibraryTab`: no plate and no rim at
+  rest, a white pill with ink text in focus, and an 8 px Ember dot under the
+  label of the selected tab while it is not focused
+  ([ADR-0140](../adr/0140-tv-review-visual-decisions.md) §3). View-mode and
+  season pills keep the container treatment.
+- **Series badge.** The badge is 24 px on a 40 px pill. `seriesBadgeShown`
+  hides it in a tab whose `kind` is `series`, or whose posters are all series,
+  so the Series tab does not repeat it on every poster. Badge and detail
+  eyebrow use the `LibraryView` translation context, which is singular
+  («Сериал»); the plural tab name stays in `LibraryCatalog`.
+- **Progress.** `LibraryCatalog` adds `resumePositionUs` and
+  `resumeDurationUs` to an entry with progress (the item Play opens: the film,
+  or the series' resume episode), and `resumeSeason`/`resumeEpisode` for a
+  series. Detail shows the time left next to the bar ("1 h 32 min left"),
+  never a percentage, and the primary action reads "Continue from 1:13:42"
+  for a film or "Continue · S1 E4" for a series (handoff 06, 07). Without a
+  known duration the bar has no text. "Start over" is not part of this
+  change.
+- **Left.** Left on the first poster of a row, or on the first tab, emits
+  `navigationRequested()`; Main opens Home's navigation (handoff 04, "Left when
+  nothing is further left"). Inside a row Left still moves to the previous
+  poster.
+- **Episode stills.** The library provider takes an episode's artwork only from
+  images named after its file (`<file>-thumb`, `<file>-poster`,
+  `<file>-fanart`, `.jpg` or `.png`). A folder-wide `poster.jpg`, `folder.jpg`
+  or `fanart.jpg` belongs to the series or season and is no longer every
+  episode's still (`plugins/library/src/parse.rs` `artwork`). Episodes without
+  their own image get the numbered title card described above. Films and
+  series folders keep the folder-wide names.
+
+Verification: `tst_library.qml` (`test_series_badge_only_among_other_kinds`,
+`test_tabs_are_a_white_pill_with_an_ember_dot`,
+`test_left_at_the_start_of_a_row_asks_for_navigation`,
+`test_detail_progress_is_the_time_left`), `translations_test.cpp` (singular
+eyebrow), and the library plugin's
+`episodes_take_only_artwork_named_after_their_file`. Each fails without the
+change. The TV re-check was not done.
+
 ## Persisted Home Continue (#643)
 
 LibraryCatalog projects up to four available, unfinished film/series cards from

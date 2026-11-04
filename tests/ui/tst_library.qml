@@ -28,6 +28,7 @@ TestCase {
     SignalSpy { id: retries; signalName: "retryRequested" }
     SignalSpy { id: backs; signalName: "backRequested" }
     SignalSpy { id: homes; signalName: "homeRequested" }
+    Component { id: spyFactory; SignalSpy {} }
 
     function test_selected_description_is_plain_text_and_scoped_to_its_entry() {
         createLibrary(catalogue());
@@ -46,6 +47,11 @@ TestCase {
         compare(child("detailDescription").text, "Second local description");
     }
 
+    function sameColor(a, b) {
+        const x = Qt.color(a), y = Qt.color(b);
+        return Math.abs(x.r - y.r) < 0.01 && Math.abs(x.g - y.g) < 0.01
+                && Math.abs(x.b - y.b) < 0.01 && Math.abs(x.a - y.a) < 0.01;
+    }
     function child(name) {
         const item = findChild(library, name);
         verify(item !== null, name);
@@ -364,6 +370,105 @@ TestCase {
         focused("poster-a");
     }
 
+    // #756 C23, #728: the badge marks a series among films, is 24 px and
+    // does not appear inside a tab of series.
+    function test_series_badge_only_among_other_kinds() {
+        createLibrary({
+            tabs: [{id: "all", title: "All"}, {id: "series", title: "Series", kind: "series"}],
+            entries: [{id: "f", tabId: "all", title: "Film", kind: "film"},
+                      {id: "s", tabId: "all", title: "Serial", kind: "series"},
+                      {id: "t", tabId: "series", title: "Other", kind: "series"}]
+        });
+        focused("tab-all");
+        compare(child("posterKind-s").visible, true);
+        compare(child("posterKind-f").visible, false);
+        compare(child("posterKindLabel-s").text, "Series");
+        verify(child("posterKindLabel-s").font.pixelSize >= 24);
+        keyClick(Qt.Key_Right);
+        focused("tab-series");
+        compare(child("posterKind-t").visible, false);
+    }
+
+    // ADR-0140 §3: a focused tab is a white pill with ink; the selected tab
+    // carries an Ember dot under its label and no plate.
+    function test_tabs_are_a_white_pill_with_an_ember_dot() {
+        createLibrary(catalogue());
+        focused("tab-films");
+        const films = child("tab-films");
+        tryVerify(() => sameColor(films.background.color, Ui.Theme.textPrimary));
+        verify(sameColor(child("tabLabel-films").color, Ui.Theme.ink));
+        compare(child("tabDot-films").visible, false);
+        compare(findChild(films, "focusRing"), null);
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        tryVerify(() => films.background.color.a < 0.01);
+        verify(sameColor(child("tabLabel-films").color, Ui.Theme.textPrimary));
+        compare(child("tabDot-films").visible, true);
+        ember(child("tabDot-films").color);
+        compare(child("tabDot-series").visible, false);
+        verify(sameColor(child("tabLabel-series").color, Ui.Theme.textSecondary));
+    }
+
+    // #756 A8: Left where nothing lies further left asks for navigation.
+    function test_left_at_the_start_of_a_row_asks_for_navigation() {
+        createLibrary(catalogue());
+        const navigation = createTemporaryObject(spyFactory, suite,
+                {target: library, signalName: "navigationRequested"});
+        focused("tab-films");
+        keyClick(Qt.Key_Left);
+        compare(navigation.count, 1);
+        focused("tab-films");
+        keyClick(Qt.Key_Right);
+        focused("tab-series");
+        keyClick(Qt.Key_Left);
+        focused("tab-films");
+        compare(navigation.count, 1);
+        keyClick(Qt.Key_Down);
+        focused("poster-a");
+        keyClick(Qt.Key_Right);
+        focused("poster-b");
+        keyClick(Qt.Key_Left);
+        focused("poster-a");
+        compare(navigation.count, 1);
+        keyClick(Qt.Key_Left);
+        compare(navigation.count, 2);
+        // The first poster of the second row, too.
+        keyClick(Qt.Key_Down);
+        focused("poster-e");
+        keyClick(Qt.Key_Left);
+        compare(navigation.count, 3);
+    }
+
+    // #728: the detail says how much is left and where Continue starts,
+    // never a percentage.
+    function test_detail_progress_is_the_time_left() {
+        createLibrary({
+            tabs: [{id: "films", title: "Films", kind: "film"}, {id: "series", title: "Series", kind: "series"}],
+            entries: [
+                {id: "film", tabId: "films", title: "North", kind: "film", progress: 0.5,
+                 resumePositionUs: 4422000000, resumeDurationUs: 9960000000},
+                {id: "show", tabId: "series", title: "Serial", kind: "series", progress: 0.4,
+                 resumePositionUs: 900000000, resumeDurationUs: 3120000000, resumeSeason: 1, resumeEpisode: 4},
+                {id: "fresh", tabId: "films", title: "Fresh", kind: "film"}
+            ]
+        });
+        library.openEntry("film");
+        focused("detailPlay");
+        compare(child("detailPlay").text, "Continue from 1:13:42");
+        compare(child("detailProgressText").text, "1 h 32 min left");
+        verify(!/%/.test(child("detailProgressText").text));
+        library.closeDetail();
+        library.openEntry("show");
+        focused("detailPlay");
+        compare(child("detailEyebrow").text, "Series");
+        compare(child("detailPlay").text, "Continue · S1 E4");
+        compare(child("detailProgressText").text, "37 min left");
+        library.closeDetail();
+        library.openEntry("fresh");
+        focused("detailPlay");
+        compare(child("detailPlay").text, "Play");
+    }
+
     function ember(color) {
         verify(Math.abs(color.r - 1) < 0.02);
         verify(Math.abs(color.g - 138 / 255) < 0.02);
@@ -408,9 +513,9 @@ TestCase {
         compare(tabAt.x, 120);
         compare(tabAt.y, 190);
         compare(child("tabLabel-films").font.pixelSize, 28);
-        compare(child("tabUnderline-films").visible, true);
-        compare(child("tabUnderline-series").visible, false);
-        ember(child("tabUnderline-films").color);
+        compare(child("tabDot-films").visible, true);
+        compare(child("tabDot-series").visible, false);
+        ember(child("tabDot-films").color);
         compare(child("libraryStage").y, 282);
         const poster = child("poster-a");
         compare(poster.width, 210);
@@ -449,10 +554,10 @@ TestCase {
         focused("tab-films");
         keyClick(Qt.Key_Right);
         focused("tab-series");
-        compare(child("tabUnderline-series").visible, false);
-        compare(child("tabUnderline-films").visible, false);
-        compare(child("posterKind-s").visible, true);
-        compare(child("posterKindLabel-s").text, "Series");
+        compare(child("tabDot-series").visible, false);
+        compare(child("tabDot-films").visible, false);
+        // #756 C23: the Series tab does not repeat the badge on every poster.
+        compare(child("posterKind-s").visible, false);
     }
 
     function test_no_art_poster_keeps_the_title() {

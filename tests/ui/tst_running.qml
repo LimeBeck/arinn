@@ -272,7 +272,7 @@ TestCase {
         flow.confirm();
         verify(flow.ask("w2"));
         focused(flow, "closeFlowCancel");
-        flow.operationFinished("w1", "failed");
+        flow.operationFinished("w1", "Terminate", "failed");
         compare(flow.phase, "confirm");
         compare(flow.target.id, "w2");
         // A queued failure whose window goes is dropped.
@@ -284,7 +284,7 @@ TestCase {
         flow.ask("w1");
         flow.confirm();
         verify(flow.ask("w2"));
-        flow.operationFinished("w1", "failed");
+        flow.operationFinished("w1", "Terminate", "failed");
         focused(flow, "closeFlowCancel");
         keyClick(Qt.Key_Escape);
         tryCompare(flow, "phase", "failed");
@@ -310,10 +310,14 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(switches.count, 1); compare(switches.signalArguments[0][0], "w1");
         compare(flow.phase, "");
-        // A failed request says so at once.
+        // A failed request says so at once. Review of #777: an Activate
+        // that ends meanwhile is not the close's result.
         flow.ask("w1");
         flow.confirm();
-        flow.operationFinished("w1", "failed");
+        flow.operationFinished("w1", "Activate", "failed");
+        compare(flow.phase, "");
+        compare(flow.closingIds, ["w1"]);
+        flow.operationFinished("w1", "Terminate", "failed");
         compare(flow.phase, "failed");
         focused(flow, "closeFlowSwitch");
         keyClick(Qt.Key_Right);

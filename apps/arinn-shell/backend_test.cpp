@@ -122,6 +122,13 @@ private slots:
     QTRY_VERIFY(first->hasActiveFocus());
     // #759: the close flow learns how an application operation ended.
     QSignalSpy finished(&backend, &Backend::operationFinished);
+    // The queued Terminate below replaces the message as it starts, so read
+    // the Activate's message when it ends.
+    QString firstMessage;
+    connect(&backend, &Backend::operationFinished, &backend, [&] {
+      if (firstMessage.isEmpty())
+        firstMessage = backend.message();
+    });
     const auto activityId = backend.items().at(0).toMap().value("id").toString();
     backend.activate(backend.items()
                        .at(0)
@@ -129,16 +136,22 @@ private slots:
                        .value("id")
                        .toString()); // fixture deliberately takes 7 s
     QVERIFY(!backend.busyEntryIds().isEmpty());
+    // Review of #777: a close asked for meanwhile waits for the Activate
+    // instead of being dropped.
+    backend.terminate(activityId);
     QTest::keyClick(window, Qt::Key_Down);
     QTRY_VERIFY_WITH_TIMEOUT(second->hasActiveFocus(), 500);
     QTest::keyClick(window, Qt::Key_Up);
     QTRY_VERIFY_WITH_TIMEOUT(first->hasActiveFocus(), 500);
-    QTRY_COMPARE_WITH_TIMEOUT(backend.message(),
-                              QString("Arinn did not reply. Try again."), 7000);
-    QVERIFY(backend.busyEntryIds().isEmpty());
-    QTRY_COMPARE(finished.count(), 1);
+    QTRY_VERIFY_WITH_TIMEOUT(finished.count() >= 1, 7000);
+    QCOMPARE(firstMessage, QString("Arinn did not reply. Try again."));
     QCOMPARE(finished.at(0).at(0).toString(), activityId);
-    QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("failed"));
+    QCOMPARE(finished.at(0).at(1).toString(), QStringLiteral("Activate"));
+    QCOMPARE(finished.at(0).at(2).toString(), QStringLiteral("failed"));
+    // Then the queued Terminate starts: pending again, or already ended.
+    QTRY_VERIFY(backend.busyEntryIds().contains(activityId) ||
+                (finished.count() >= 2 &&
+                 finished.at(1).at(1).toString() == QLatin1String("Terminate")));
   }
 };
 QTEST_MAIN(BackendTest)

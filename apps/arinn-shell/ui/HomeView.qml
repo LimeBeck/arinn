@@ -159,17 +159,23 @@ FocusScope {
     signal favoriteRequested(string entryId, bool pinned)
     // Close a running window: the shell's close flow asks first (CL-8).
     signal closeRequested(string windowId)
-    // The running window of the application on screen, when Arinn can close
-    // it: Continue's Close button (CL-3a) and the Running item's subline.
+    // The running window of the application on screen: Continue's Close
+    // button (CL-3a) when Arinn can close it, the Running item's subline,
+    // and the window the "no longer available" notice is about.
     property string activityWindowId: ""
+    // True when Arinn can close that window. Kept apart from the id, so a
+    // window Arinn cannot close is still the one on screen (review of #777).
+    property bool activityTerminable: false
     property string activityWindowTitle: ""
     // Windows whose close request is in flight (CL-9).
     property var closingIds: []
     readonly property int runningCount: runningEntries.length
     function restoreActionFocus() {
+        // The first enabled option in the sheet's order: Favourite, Close,
+        // Refresh list (review of #777).
         if (actionsEnabled) Focus.take(favoriteAction);
-        else if (favoriteRefresh.visible && favoriteRefresh.enabled) Focus.take(favoriteRefresh);
         else if (closeAppAction.visible) Focus.take(closeAppAction);
+        else if (favoriteRefresh.visible && favoriteRefresh.enabled) Focus.take(favoriteRefresh);
         else Focus.take(favoriteAction);
     }
     function settleActionFocus() {
@@ -358,7 +364,7 @@ FocusScope {
         // CL-3a: an application's activity card gets a Close button beside
         // it; a web-service card does not.
         const closer = !shown && lead && lead.id === returnActivityId && !returnIsWebService
-                && activityWindowId.length ? [{
+                && activityWindowId.length && activityTerminable ? [{
             id: "close:" + activityWindowId,
             windowId: activityWindowId,
             title: activityWindowTitle || lead.title || "",

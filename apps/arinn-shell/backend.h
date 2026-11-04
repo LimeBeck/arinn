@@ -173,11 +173,13 @@ signals:
   void quickMenuRequested(const QString &target);
   // The remote's power key, for the current daemon epoch (ADR-0111).
   void powerMenuRequested();
-  // An application operation (launch, activate, terminate) ended: state
-  // is the Operation1 state (succeeded, failed, cancelled), or "failed"
-  // when the call or the operation could not be read. The close flow
-  // shows "did not close" on a failed terminate (#759, CL-11).
-  void operationFinished(const QString &id, const QString &state);
+  // An application operation ended: method is the Application1 method
+  // (Launch, Activate, Terminate) and state the Operation1 state
+  // (succeeded, failed, cancelled), or "failed" when the call or the
+  // operation could not be read. The close flow shows "did not close" on a
+  // failed Terminate only (#759, CL-11).
+  void operationFinished(const QString &id, const QString &method,
+                         const QString &state);
 
 private:
   const NativeShellFocusIdentity m_focusIdentity;
@@ -203,6 +205,8 @@ private:
   bool m_shortcutSaving = false;
   quint64 m_shortcutRevision = 0, m_editorRevision = 0, m_editorTicket = 0;
   QSet<QString> m_pendingIds;
+  // Terminate requests that wait for another operation on the same entry.
+  QSet<QString> m_queuedTerminates;
   // One record per application ID with a launch in flight or a failure not
   // dismissed yet; m_shownLaunch is the one the overlay shows (§6.5).
   struct Launch {
@@ -257,8 +261,10 @@ private:
   void beginOperation(const QString &id, const QDBusMessage &msg);
   void setResultMessage(const QString &text);
   void setConnectionBanner(const QString &text);
+  void operationEnded(const QString &id, const QString &method,
+                      const QString &state);
   void watchOperation(const QString &id, const QString &operationPath,
-                      quint64 epoch);
+                      quint64 epoch, const QString &method);
   void clearShortcuts();
   void publishState();
   // Home load and Return timing for diagnostics (ADR-0093).

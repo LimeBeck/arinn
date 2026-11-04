@@ -45,7 +45,9 @@ All three lead to the same close flow.
 ## Running screen
 
 The screen follows the Open services geometry. The title is followed by the count
-(40/600, `text-3`). One row per running window of an ordinary application, from
+(40/600, `text-3`). As on the other section screens, the shared status area
+(clock, network, mute, downloads) sits top right, and the screen blurs under the
+navigation where the renderer supports it (#756 C17, C26). One row per running window of an ordinary application, from
 `Backend.items`; browser windows are not in that list. The window on screen
 comes first.
 

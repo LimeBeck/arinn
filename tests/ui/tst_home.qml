@@ -148,6 +148,7 @@ TestCase {
     function test_continue_close_button_beside_the_application_card() {
         home.returnActivityId = "a";
         home.activityWindowId = "window-a";
+        home.activityTerminable = true;
         home.activityWindowTitle = "Activity";
         closes2.target = home; closes2.clear();
         focused("entry-a");
@@ -1382,6 +1383,14 @@ TestCase {
         focused("closeAppAction");
         verify(!child("favoriteAction").enabled);
         keyClick(Qt.Key_Escape);
+        // Review of #777: with favourites unavailable too, Close comes
+        // before Refresh list, in the sheet's order.
+        home.favoriteError = "Favorites unavailable. Refresh the list before editing.";
+        home.openTileActions("f");
+        verify(child("favoriteRefresh").visible);
+        focused("closeAppAction");
+        keyClick(Qt.Key_Escape);
+        home.favoriteError = "";
         // Nothing to offer: no sheet.
         home.favoriteEntries = [{id: "g", title: "Plain", providerId: "fixture"}];
         home.openTileActions("g");
@@ -1401,6 +1410,14 @@ TestCase {
         home.closedWindowIds = ["w-a"];
         home.returnActivityId = "";
         verify(!child("activityNotice").visible);
+        // A window Arinn cannot close comes on screen after the closed one:
+        // it has no Close, and its own disappearance still gets the notice.
+        home.returnActivityId = "a";
+        home.activityTerminable = false;
+        home.activityWindowId = "w-b";
+        verify(findChild(home, "entry-close:w-b") === null);
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
     }
 
     // #756 C17: the page under the navigation is darkened, not made

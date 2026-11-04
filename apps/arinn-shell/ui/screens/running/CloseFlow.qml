@@ -132,8 +132,11 @@ FocusScope {
         }
         showFailure(id);
     }
-    // The shell's operation result for a close request.
-    function operationFinished(id, state) {
+    // The shell's operation result: only a Terminate answers a close
+    // request; an Activate that ends meanwhile is not its result (review of
+    // #777).
+    function operationFinished(id, method, state) {
+        if (method !== "Terminate" || closingIds.indexOf(id) < 0) return;
         if (state !== "succeeded" && state !== "cancelled") didNotClose(id);
     }
     function restoreFocus() {

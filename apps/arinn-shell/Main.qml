@@ -912,7 +912,7 @@ Window {
             anchors.right: parent.right; anchors.rightMargin: Ui.Theme.safeRight
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
-                || downloadsView.visible || browserView.visible)
+                || downloadsView.visible || browserView.visible || runningView.visible)
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress
@@ -948,7 +948,8 @@ Window {
             closedWindowIds: closeFlow.closingIds.concat(closeFlow.closedIds)
             // The application on screen, when Arinn can close its window
             // (CL-3a) and for the Running item's subline (CL-7).
-            activityWindowId: root.activityWindow && root.activityWindow.terminable ? root.activityWindow.id : ""
+            activityWindowId: root.activityWindow ? root.activityWindow.id : ""
+            activityTerminable: !!root.activityWindow && root.activityWindow.terminable === true
             activityWindowTitle: root.activityWindow ? (root.activityWindow.title || "") : ""
             shortcutManagement: true
             keyboardAvailable: keyboardMonitor.available
@@ -1239,6 +1240,10 @@ Window {
         Running.RunningView {
             id: runningView
             objectName: "productionRunning"
+            // A section screen: blurred under the navigation, with the
+            // shared status area (#756 C17, C26; review of #777).
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             focus: root.focusedScreen === "running"
             ownsFocus: root.focusedScreen === "running"
             visible: home.screen === "running" && !root.playerOpen
@@ -1545,7 +1550,7 @@ Window {
             target: backend
             // Test stand-ins of the backend may not have the signal.
             ignoreUnknownSignals: true
-            function onOperationFinished(id, state) { closeFlow.operationFinished(id, state); }
+            function onOperationFinished(id, method, state) { closeFlow.operationFinished(id, method, state); }
         }
     }
     Power.PowerOverlay {

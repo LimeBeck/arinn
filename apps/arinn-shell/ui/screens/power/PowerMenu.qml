@@ -416,10 +416,8 @@ FocusScope {
     Ui.LogicalCanvas {
         id: canvas
         anchors.fill: parent
-        Rectangle {
-            anchors.fill: parent
-            color: Ui.Theme.background
-        }
+        // No opaque layer under the scrim: the screen behind stays visible
+        // through 0.55 black, as the handoff draws it (#756 C30).
         Rectangle {
             objectName: "powerScrim"
             anchors.fill: parent
@@ -550,10 +548,13 @@ FocusScope {
                             // Focusable, but it reads and acts as unavailable.
                             readonly property bool held: root.heldBack(modelData.id)
                             opacity: enabled && !held ? 1 : 0.4
-                            cornerRadius: 30
-                            focusScale: 1.02
-                            restingColor: Qt.rgba(1, 1, 1, 0.05)
-                            focusedColor: Ui.Theme.textPrimary
+                            // Rows are containers (ADR-0136): no plate at rest,
+                            // an 8 % plate and the rim in focus (#756 C21, C30).
+                            shapeRole: "container"
+                            cornerRadius: Ui.Theme.containerRadius
+                            focusScale: 1
+                            focusLift: 0
+                            liftFromBottom: false
                             pointerMode: root.pointerMode
                             hoverFocusEnabled: root.hoverFocusEnabled
                             onDpadRequested: root.noteDpad()
@@ -585,13 +586,13 @@ FocusScope {
                                         width: 64
                                         height: 64
                                         radius: 32
-                                        color: row.activeFocus ? Qt.rgba(0, 0, 0, 0.08) : Qt.rgba(1, 1, 1, 0.08)
+                                        color: Qt.rgba(1, 1, 1, 0.08)
                                         Canvas {
                                             id: glyph
                                             anchors.centerIn: parent
                                             width: 38
                                             height: 38
-                                            property color ink: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                            property color ink: row.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
                                             onInkChanged: requestPaint()
                                             onPaint: {
                                                 const ctx = getContext("2d");
@@ -665,7 +666,7 @@ FocusScope {
                                             role: "control"
                                             font.pixelSize: 32
                                             font.weight: 600
-                                            color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                                            color: Ui.Theme.textPrimary
                                             elide: Text.ElideRight
                                             maximumLineCount: 1
                                         }
@@ -675,7 +676,7 @@ FocusScope {
                                             text: root.rowDescription(row.modelData)
                                             role: "meta"
                                             font.pixelSize: 26
-                                            color: row.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
+                                            color: Ui.Theme.textSecondary
                                             elide: Text.ElideRight
                                             maximumLineCount: 1
                                         }

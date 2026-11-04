@@ -292,6 +292,54 @@ failed without pointer reset and passed with it (Qt 6.11.2, 2026-09-28,
 isolation only; production input behaviour and acceptance gates are unchanged.
 The complete offscreen Qt Quick suite passed 20 consecutive runs after the fix.
 
+## Navigation, Applications and screen chrome (#762)
+
+Fixes from the TV design review [#756](https://github.com/LimeBeck/arinn/issues/756)
+(C17, A9, C25, C26, C27, C30) and [#740](https://github.com/LimeBeck/arinn/issues/740):
+
+- **Under the navigation** (C17). Home's stage (`homeStage`) is no longer drawn
+  at opacity 0.45, which let the page read through the panel. It keeps full
+  opacity; `navigationDim`, a black veil at 0.55, sets everything under the
+  panel to brightness 0.45, and a `MultiEffect` layer blurs the stage by about
+  6 px (`blurMax` 12, `blur` 0.5; Hearth light brief, *Global navigation*).
+  A covering section screen gets the same veil from the navigation, and
+  `Main.qml` blurs it with the same effect (`navBlurEffect`). The software
+  renderer has no shader effects: `navBlurAvailable` is false there and the
+  veil alone remains.
+- **Applications column** (A9, C25). The title, the description, the group
+  rows and the pills fade out as their on-screen top nears the header band,
+  with the same `headerClearance` (120) and `headerFade` (60) as Home's rows;
+  a faded row takes no pointer input. Rows are revealed as before; the edit,
+  *Add application* and *Back to Home* pills call `revealItem()`, which scrolls
+  only as far as needed to show the pill whole between y 180 and y 880. The
+  *Add application* pill's `contentItem` is an Item that centres its icon and
+  label; the Row was itself the content item before and drifted down and left.
+- **Right edge** (C27). `HomeRow.fadeRight` lets an Applications row paint to
+  x 1896 and fade out from x 1808 to x 1896 (`rowRightFade`), the mirror of the
+  left fade. Focus, `reveal()` and the focused card's glow still use the safe
+  right edge at x 1824. Home rows keep the handoff's hard safe edge.
+- **Status area** (C26). `StatusArea.qml` is the top bar's right side: the
+  browser-unavailable chip, the download chip, mute, Wi-Fi or cable or no
+  network, and the clock. Home uses it next to its lockup; `Main.qml` draws one
+  more (`screenStatusArea`) at the same place over Library, Settings,
+  Downloads and Open services, bound to Home's state. Open services drops its
+  own clock there (`BrowserView.ownClock: false`); a view shown alone keeps
+  it. Those screens' page titles hold the lockup's place at y 96, as in the
+  Hearth light prototype (`#topbar .lockup.gone` off Home), so the lockup is
+  drawn on Home and Applications only.
+- **Power and Quick menu** (C30). See [ui-power.md](ui-power.md) and
+  [ui-quick-menu.md](ui-quick-menu.md): no opaque layer under the Power scrim,
+  and container rows in both.
+
+Verification: `tst_home.qml` (`test_navigation_dims_the_page_instead_of_fading_it`,
+`test_applications_reveal_every_focusable_below_the_header`,
+`test_add_application_pill_content_is_centred`,
+`test_application_rows_fade_at_the_screen_edge`), `tst_power.qml`
+(`test_scrim_lets_the_screen_through`, container rows) and
+`library_catalog_test.cpp` (`sectionScreensShareTheStatusArea`). The blur
+itself is not covered: the tests run on the software renderer. The TV re-check
+was not done.
+
 ## Production Home and Applications
 
 [Issue #42](https://github.com/LimeBeck/arinn/issues/42) binds the shared logical

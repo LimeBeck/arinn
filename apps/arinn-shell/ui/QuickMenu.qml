@@ -190,10 +190,13 @@ FocusScope {
         property string glyph: ""
         property string description: ""
         width: 624; height: 96
-        cornerRadius: 30
-        focusScale: 1.02
-        restingColor: Qt.rgba(1, 1, 1, 0.05)
-        focusedColor: Theme.textPrimary
+        // Rows are containers (ADR-0136): no plate at rest, an 8 % plate
+        // and the rim in focus (#756 C21, C30).
+        shapeRole: "container"
+        cornerRadius: Theme.containerRadius
+        focusScale: 1
+        focusLift: 0
+        liftFromBottom: false
         pointerMode: root.pointerMode
         onActiveFocusChanged: if (activeFocus) root.lastFocused = row
         onEnabledChanged: Qt.callLater(() => root.settle(row))
@@ -202,11 +205,11 @@ FocusScope {
                 id: plate
                 x: 28; anchors.verticalCenter: parent.verticalCenter
                 width: 64; height: 64; radius: 32
-                color: row.activeFocus ? Qt.rgba(0, 0, 0, 0.08) : Qt.rgba(1, 1, 1, 0.08)
+                color: Qt.rgba(1, 1, 1, 0.08)
                 Glyph {
                     anchors.centerIn: parent
                     kind: row.glyph
-                    ink: row.activeFocus ? Theme.ink : Theme.textPrimary
+                    ink: row.activeFocus ? Theme.textPrimary : Theme.textSecondary
                 }
             }
             Column {
@@ -219,7 +222,7 @@ FocusScope {
                     width: parent.width
                     text: row.text
                     role: "control"; font.pixelSize: 32
-                    color: row.activeFocus ? Theme.ink : Theme.textPrimary
+                    color: Theme.textPrimary
                     elide: Text.ElideRight; maximumLineCount: 1; wrapMode: Text.NoWrap
                 }
                 UiText {
@@ -228,7 +231,7 @@ FocusScope {
                     visible: text.length > 0
                     text: row.description
                     role: "meta"
-                    color: row.activeFocus ? Qt.rgba(0.07, 0.08, 0.09, 0.72) : Theme.textSecondary
+                    color: Theme.textSecondary
                     elide: Text.ElideRight; maximumLineCount: 1; wrapMode: Text.NoWrap
                 }
             }

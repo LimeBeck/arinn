@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Window
 import Arinn.Shell 1.0
 import "ui" as Ui
@@ -42,6 +43,7 @@ Window {
     title: "Arinn"
     flags: Qt.Window | Qt.FramelessWindowHint
     readonly property bool navOpen: home.navOpen
+    readonly property bool navBlur: home.navOpen && home.navBlurAvailable
     // The quick menu (spec §5.7, ADR-0106). Over an Activity the shell shows
     // no screen: `activityBehind` stays set while Back hands the screen back
     // to that Activity, so Home never flashes in between.
@@ -884,6 +886,41 @@ Window {
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
         MusicCatalog { id: musicCatalog }
+        // A section screen under the navigation is blurred by 6 px, as
+        // Home's own stage is; the navigation's veil sets brightness 0.45
+        // (Hearth light brief, *Global navigation*; #756 C17). Not on the
+        // software renderer, which has no shader effects.
+        Component {
+            id: navBlurEffect
+            MultiEffect {
+                blurEnabled: true
+                blurMax: 12
+                blur: 0.5
+            }
+        }
+        // One status area for the section screens (#756 C26): the clock,
+        // network, mute and download state of Home's top bar, at the same
+        // place. Their page titles hold the lockup's place, as in the Hearth
+        // light prototype, so the lockup stays on Home and Applications.
+        Ui.StatusArea {
+            objectName: "screenStatusArea"
+            z: 4.5
+            // Blurred with the screen it sits on (review of #775).
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
+            anchors.right: parent.right; anchors.rightMargin: Ui.Theme.safeRight
+            y: 44
+            visible: !root.playerOpen && (libraryView.visible || settingsView.visible
+                || downloadsView.visible || browserView.visible)
+            browserUnavailable: home.browserUnavailable
+            downloadActive: home.downloadActive
+            downloadProgress: home.downloadProgress
+            muted: home.muted
+            wifi: home.wifi
+            wifiLevel: home.wifiLevel
+            network: home.network
+            clockText: home.clockText
+        }
         Ui.HomeView {
             id: home
             musicTitle: musicCatalog.sources.length ? musicCatalog.sectionTitle : ""
@@ -1009,6 +1046,9 @@ Window {
             id: browserView
             focus: root.focusedScreen === "browser"
             objectName: "productionBrowser"
+            ownClock: false
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: root.browserOpen && !root.playerOpen
             enabled: root.browserOpen && !root.playerOpen
             interactive: root.browserOpen && !root.playerOpen && !root.browseOpen
@@ -1032,6 +1072,8 @@ Window {
         Browse.BrowseView {
             id: browseView
             objectName: "productionBrowse"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: root.browseOpen && !root.playerOpen
             enabled: visible
             focus: root.focusedScreen === "browse"
@@ -1067,6 +1109,8 @@ Window {
             id: sessionView
             focus: root.focusedScreen === "session"
             objectName: "productionSession"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: root.sessionOpen && !root.playerOpen
             enabled: root.sessionOpen && !root.playerOpen
             z: 5
@@ -1105,6 +1149,8 @@ Window {
             id: settingsView
             focus: root.focusedScreen === "settings"
             objectName: "productionSettings"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: home.screen === "settings" && !root.playerOpen
             enabled: visible
             z: 4
@@ -1126,6 +1172,8 @@ Window {
             id: musicView
             catalog: musicCatalog
             objectName: "productionMusic"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: home.screen === "music" && !root.playerOpen
             enabled: visible
             focus: root.focusedScreen === "music"
@@ -1138,6 +1186,8 @@ Window {
             focus: root.focusedScreen === "library"
             ownsFocus: root.focusedScreen === "library"
             objectName: "productionLibrary"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: home.screen === "library" && !root.playerOpen
             enabled: visible
             z: 4
@@ -1180,6 +1230,8 @@ Window {
             focus: root.focusedScreen === "downloads"
             ownsFocus: root.focusedScreen === "downloads"
             objectName: "productionDownloads"
+            layer.enabled: root.navBlur && visible
+            layer.effect: navBlurEffect
             visible: home.screen === "downloads" && !root.playerOpen
             enabled: visible
             z: 4

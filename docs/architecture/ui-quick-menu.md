@@ -117,8 +117,10 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
 - a right-hand sheet 720 wide on the 1920×1080 canvas, `#1d1e21`, over a scrim
   (`rgba(0, 0, 0, 0.55)` over the shell, `0.35` over a live Activity);
 - the clock and the title "Quick menu" (52 px, weight 700) at the top;
-- rows 624 × 96, radius 30, a 64 px round icon plate, a 32 px label and a
-  26 px description; the focused row is a light plate with ink text;
+- rows 624 × 96, a 64 px round icon plate, a 32 px label and a 26 px
+  description. Rows use the container role (ADR-0136): no plate at rest, an
+  8 % plate and the rim in focus, `Theme.containerRadius`; the label stays
+  light ([#756](https://github.com/LimeBeck/arinn/issues/756) C21, C30);
 - a result line and the OK / Back hints at the bottom.
 
 ## Rows

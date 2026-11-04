@@ -151,5 +151,6 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
 | [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | 0137, 0140 |
 | [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
+| [0138](0138-launched-applications-go-full-screen.md) | Launched applications go full screen | Accepted | — |
 | [0140](0140-tv-review-visual-decisions.md) | Visual decisions from the TV design review | Accepted | — |
 <!-- register:end -->

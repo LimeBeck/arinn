@@ -234,6 +234,33 @@ function dismissHome() {
     detachedTarget = "";
     reportHome(false);
 }
+// The newest ordinary application window and when it mapped. A launch is
+// answered once its window appears, so it is the launched one (ADR-0138).
+// Windows mapped since the adapter started are remembered, so an older
+// window is never chosen.
+let newestApplication = null;
+const mappedSinceStart = new Set();
+const launchedWindowMs = 120000;
+function launchedWindow() {
+    const recent = newestApplication;
+    if (recent && Date.now() - recent.at < launchedWindowMs && workspace.windowList().includes(recent.window))
+        return recent.window;
+    // A launch handed to a running instance maps no new window; its own
+    // window comes forward instead, but only one mapped since start counts.
+    const active = workspace.activeWindow;
+    if (active && mappedSinceStart.has(active) && applicationWindow(active) && !launchId(active)) return active;
+    return null;
+}
+// A launched application goes full screen; a browser in an ordinary window is
+// only dismissed by the daemon, so it never reaches here (ADR-0138).
+function presentLaunched() {
+    dismissHome();
+    const w = launchedWindow();
+    if (!w) return;
+    w.minimized = false;
+    w.fullScreen = true;
+    workspace.activeWindow = w;
+}
 function poll() {
     // Pinned to the owner that answered discovery: a poll sent while the
     // daemon restarts never reaches a successor the script has not seen.
@@ -246,6 +273,7 @@ function poll() {
         pollStarted = 0;
         if (command === "home") showHome();
         else if (command === "dismiss") dismissHome();
+        else if (command === "launched") presentLaunched();
         else if (command === "return") returnToActivity();
         poll();
     });
@@ -353,12 +381,22 @@ function watchWindow(w) {
     if (isShell(w)) raiseShell();
 }
 workspace.windowList().forEach(watchWindow);
-workspace.windowAdded.connect(watchWindow);
+workspace.windowAdded.connect(w => {
+    // Only a window that maps now can be a launch's window, never one that
+    // already existed when the script started (ADR-0138).
+    if (applicationWindow(w) && !launchId(w)) {
+        newestApplication = { window: w, at: Date.now() };
+        mappedSinceStart.add(w);
+    }
+    watchWindow(w);
+});
 workspace.windowActivated.connect(w => {
     report(w);
     if (playback && w && !isShell(w)) releasePlayback(false);
 });
 workspace.windowRemoved.connect(w => {
+    mappedSinceStart.delete(w);
+    if (newestApplication && newestApplication.window === w) newestApplication = null;
     // The managed player's own window closing (leaving playback, Stop, a
     // crash) returns to Arinn, which owns the screen during managed playback;
     // the shell itself disappearing does not (#372).

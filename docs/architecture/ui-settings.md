@@ -324,7 +324,8 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
   (`folder_browser.{h,cpp}`):
   - `Places()` gives the start points: the home folder, each mount and the whole
     computer, with an Ember dot on the current one, and a note when there are no
-    mounts (PK-9).
+    mounts (PK-9). The start points scroll when there are more than fit, keeping
+    the focused one on screen.
   - `List(path, after, limit)` is read page by page, 256 names at a time, up to
     2048 names. Names are sorted case-insensitively with numbers in numeric
     order, folders only.
@@ -338,8 +339,9 @@ editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
     - Back goes up one level, or at a start point first to the start points
       and then out.
   - Empty (PK-5) moves focus to Choose. No access (PK-6) dims Choose to 40 %.
-    A share that has gone (PK-7) offers Retry and *To the home folder*. Arinn
-    never mounts anything.
+    A share that has gone (PK-7) offers Retry and *To the home folder*, side by
+    side: Right and Left move between them, Left from Retry goes to the start
+    points and Up to Choose. Arinn never mounts anything.
   - When `Places()` fails or returns nothing before a folder opens, the picker
     shows "Folders cannot be read right now" with Retry, which asks for the
     places again.

@@ -342,6 +342,49 @@ TestCase {
         keyClick(Qt.Key_Escape);
         tryCompare(findChild(picker, "pickerPlace-0"), "activeFocus", true);
     }
+    // Review of #780: "To the home folder" is reached with the D-pad from
+    // Retry, and Left goes back to Retry, then to the start points.
+    function test_recovery_actions_are_reachable_by_dpad() {
+        make([]);
+        focused("foldersEmptyAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        browser.open("/media/user/Gone");
+        tryCompare(findChild(picker, "pickerRetry"), "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        tryCompare(findChild(picker, "pickerHome"), "activeFocus", true);
+        keyClick(Qt.Key_Left);
+        tryCompare(findChild(picker, "pickerRetry"), "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);
+        tryCompare(browser, "path", "/home/user");
+        tryCompare(findChild(picker, "pickerFolder-0"), "activeFocus", true);
+    }
+    // Review of #780: many start points scroll, and the focused one stays
+    // on screen.
+    function test_many_start_points_scroll() {
+        make([]);
+        const list = [{kind: "home", path: "/home/user", title: "user"}];
+        for (let i = 0; i < 9; ++i) list.push({kind: "mount", path: "/media/user/Disk" + i, title: "Disk" + i});
+        list.push({kind: "root", path: "/", title: "/"});
+        browser.places = list;
+        focused("foldersEmptyAdd");
+        keyClick(Qt.Key_Return);
+        const picker = child("folderPicker");
+        tryCompare(browser, "path", "/home/user");
+        keyClick(Qt.Key_Left);
+        tryCompare(findChild(picker, "pickerPlace-0"), "activeFocus", true);
+        for (let i = 1; i < list.length; ++i) keyClick(Qt.Key_Down);
+        const last = findChild(picker, "pickerPlace-" + (list.length - 1));
+        tryCompare(last, "activeFocus", true);
+        const view = findChild(picker, "pickerPlacesView");
+        tryVerify(() => {
+            const y = last.mapToItem(view, 0, 0).y;
+            return y >= 0 && y + last.height <= view.height;
+        }, 2000);
+        verify(view.contentY > 0);
+    }
     // PK-5, PK-6, PK-7.
     function test_picker_states() {
         make([]);

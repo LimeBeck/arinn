@@ -20,7 +20,7 @@ FocusScope {
     property string errorText: ""
     property int placeIndex: 0
     property int folderIndex: 0
-    property string side: "folders" // "places", "folders" or "choose"
+    property string side: "folders" // "places", "folders", "choose" or "status"
     readonly property var places: browser ? (browser.places || []) : []
     readonly property var folders: browser ? (browser.folders || []) : []
     readonly property string path: browser ? (browser.path || "") : ""
@@ -87,9 +87,11 @@ FocusScope {
     onPlacesChanged: if (visible && !path.length && places.length && browser) browser.open(places[0].path)
     function settle() {
         if (!visible) return;
+        if (side === "status" && !statusActions) side = "folders";
         if (side === "places" && focusPlace(placeIndex)) return;
         if (side === "folders" && focusFolder(folderIndex)) return;
-        if (listingState === "gone" || listingState === "unavailable") { Ui.Focus.take(retryButton); return; }
+        if (side === "status" && (retryButton.activeFocus || homeButton.activeFocus)) return;
+        if (focusStatus(false)) return;
         Ui.Focus.take(chooseButton);
     }
     onFoldersChanged: { folderIndex = 0; if (visible && side === "folders") Qt.callLater(settle); }
@@ -110,7 +112,21 @@ FocusScope {
         const item = placeRepeater.itemAt(clamped);
         placeIndex = clamped;
         side = "places";
-        return !!item && Ui.Focus.take(item);
+        if (!item || !Ui.Focus.take(item)) return false;
+        // Many mounts scroll: the focused start point stays on screen
+        // (review of #780).
+        const top = item.y, bottom = item.y + item.height;
+        if (top < placeFlick.contentY) placeFlick.contentY = top;
+        else if (bottom > placeFlick.contentY + placeFlick.height)
+            placeFlick.contentY = bottom - placeFlick.height;
+        return true;
+    }
+    // The recovery actions of a gone or unavailable listing.
+    readonly property bool statusActions: listingState === "gone" || listingState === "unavailable"
+    function focusStatus(home) {
+        if (!statusActions) return false;
+        side = "status";
+        return Ui.Focus.take(home && homeButton.visible ? homeButton : retryButton);
     }
     function openChild(name) {
         if (!browser) return;
@@ -134,18 +150,26 @@ FocusScope {
         if ([Qt.Key_Up, Qt.Key_Down, Qt.Key_Left, Qt.Key_Right].includes(event.key)) Ui.InputMode.keyPressed();
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back) {
             if (!event.isAutoRepeat) back();
+        } else if (side === "status" && (event.key === Qt.Key_Left || event.key === Qt.Key_Right
+                                          || event.key === Qt.Key_Up || event.key === Qt.Key_Down)) {
+            // Retry and "To the home folder" sit in a row (review of #780).
+            if (event.key === Qt.Key_Right) focusStatus(true);
+            else if (event.key === Qt.Key_Left) {
+                if (homeButton.activeFocus) focusStatus(false);
+                else focusPlace(Math.max(0, currentPlace));
+            } else if (event.key === Qt.Key_Up) { side = "choose"; Ui.Focus.take(chooseButton); }
         } else if (event.key === Qt.Key_Up) {
             if (side === "folders" && folderIndex > 0) focusFolder(folderIndex - 1);
             else if (side === "places" && placeIndex > 0) focusPlace(placeIndex - 1);
             else if (side === "folders" || side === "choose") { side = "choose"; Ui.Focus.take(chooseButton); }
         } else if (event.key === Qt.Key_Down) {
-            if (side === "choose") { if (!focusFolder(0)) Ui.Focus.take(chooseButton); }
+            if (side === "choose") { if (!focusFolder(0) && !focusStatus(false)) Ui.Focus.take(chooseButton); }
             else if (side === "folders") focusFolder(folderIndex + 1);
             else focusPlace(placeIndex + 1);
         } else if (event.key === Qt.Key_Left) {
             if (side !== "places") focusPlace(Math.max(0, currentPlace));
         } else if (event.key === Qt.Key_Right) {
-            if (side === "places") { if (!focusFolder(folderIndex)) Ui.Focus.take(chooseButton); }
+            if (side === "places") { if (!focusFolder(folderIndex) && !focusStatus(false)) Ui.Focus.take(chooseButton); }
             else if (side === "folders" && folders[folderIndex] !== undefined) openChild(folders[folderIndex]);
         } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
         } else return;
@@ -218,10 +242,20 @@ FocusScope {
                     elide: Text.ElideRight
                 }
             }
-            // Start points (PK-2, PK-9).
-            Column {
-                objectName: "pickerPlaces"
+            // Start points (PK-2, PK-9). They scroll when there are more than
+            // fit (review of #780).
+            Flickable {
+                id: placeFlick
+                objectName: "pickerPlacesView"
                 x: 120; y: 340
+                width: 540; height: 1080 - 340 - 104
+                clip: true
+                contentHeight: placeColumn.height
+                interactive: root.pointerMode
+                boundsBehavior: Flickable.StopAtBounds
+            Column {
+                id: placeColumn
+                objectName: "pickerPlaces"
                 width: 540
                 spacing: 8
                 Repeater {
@@ -274,6 +308,7 @@ FocusScope {
                     color: Ui.Theme.textHint
                     wrapMode: Text.WordWrap
                 }
+            }
             }
             Ui.UiText {
                 objectName: "pickerCount"
@@ -382,6 +417,7 @@ FocusScope {
                         onActivated: root.path.length ? root.browser.open(root.path) : root.browser.refreshPlaces()
                     }
                     Ui.ActionButton {
+                        id: homeButton
                         objectName: "pickerHome"
                         text: qsTr("To the home folder")
                         visible: root.places.some(place => place.kind === "home")

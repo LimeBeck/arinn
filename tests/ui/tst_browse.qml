@@ -169,12 +169,20 @@ TestCase {
         compare(edited.count, 1);
         compare(edited.signalArguments[0][0], "g");
         compare(child("browseInput").text, "g");
-        // Context row: https:// at the top left.
+        // Context row: Up twice reaches the key above "g" (ADR-0140 §4: the
+        // row has no ":", "." or "-", so its keys are wider).
         keyClick(Qt.Key_Up);
         keyClick(Qt.Key_Up);
-        tryCompare(keyAt(0, 2), "focused", true);
+        let above = -1;
+        tryVerify(() => {
+            for (let i = 0; i < 6; ++i)
+                if (keyAt(0, i).focused) { above = i; return true; }
+            return false;
+        });
+        const label = keyAt(0, above).modelData.label;
+        verify(label.length > 1, label);
         keyClick(Qt.Key_Return);
-        compare(child("browseInput").text, "g.ru");
+        compare(child("browseInput").text, "g" + label);
         // Back hides the panel and focuses the button; the screen stays.
         keyClick(Qt.Key_Escape);
         tryCompare(view, "keyboardOpen", false);

@@ -232,10 +232,6 @@
         <translation>Не удалось открыть. Попробуйте снова.</translation>
     </message>
     <message>
-        <source>Back</source>
-        <translation>Назад</translation>
-    </message>
-    <message>
         <source>No suggestions</source>
         <translation>Подсказок нет</translation>
     </message>
@@ -346,16 +342,16 @@
         <translation>Перейти</translation>
     </message>
     <message>
-        <source>Close</source>
-        <translation>Закрыть</translation>
-    </message>
-    <message>
         <source>Back</source>
         <translation>Назад</translation>
     </message>
     <message>
         <source>Exit</source>
         <translation>Выход</translation>
+    </message>
+    <message>
+        <source>Save or close</source>
+        <translation>Сохранить или закрыть</translation>
     </message>
 </context>
 <context>
@@ -566,7 +562,7 @@
     </message>
     <message>
         <source>Open services</source>
-        <translation>Все открытые сервисы</translation>
+        <translation>Открытые сервисы</translation>
     </message>
     <message>
         <source>Add application</source>

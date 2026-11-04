@@ -499,6 +499,9 @@ RU = {
     "Continue · S%1 E%2": "Продолжить · С%1 Э%2",
 }
 
+# Open services hint: → reaches Save, then Close (#756 C32).
+RU["Save or close"] = "Сохранить или закрыть"
+
 # Context-specific overrides: the same English word reads differently.
 CONTEXT = {
     ("SessionView", "Play"): "Воспроизвести",

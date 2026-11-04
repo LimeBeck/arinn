@@ -37,7 +37,7 @@ TestCase {
                   currentValue: false, constraints: {}, enabled: true },
                 { providerId: "library", providerName: "Library", id: "roots", categoryId: "media",
                   title: "Folders", description: "Places to read", type: "path",
-                  currentValue: ["/videos"], constraints: { directory: true, multiple: true, maxItems: 3 },
+                  currentValue: ["/videos"], constraints: { directory: false, multiple: true, maxItems: 3 },
                   enabled: true },
                 { providerId: "library", providerName: "Library", id: "locked", categoryId: "media",
                   title: "Locked choice", description: "Cannot be changed now", type: "enum",

@@ -107,9 +107,11 @@ that button; Save and Cancel stay available. `KeyboardMonitor` reports a
 keyboard only when an input device of that type is present. Arrow keys and other
 remote navigation do not mark one. The first character key enables the field.
 
-A single path, and a path with `multiple`, stay inline text fields with Add and
-Remove. The owner kept this inline list for the MVP instead of the handoff's
-Library folders screen and folder picker (LF, PK; #566, 2026-11-01). While a path editor is open, its keyboard pill opens the
+A single path, and a path list that is not a list of folders, stay inline text
+fields with Add and Remove. A list of folders (`multiple` and `directory`) opens
+the Library folders screen and the folder picker instead
+([Library folders](#library-folders-lf-pk), owner decision on #756 C24,
+2026-11-04, replacing the inline-list decision of #566). While a path editor is open, its keyboard pill opens the
 [on-screen keyboard](ui-keyboard.md) in the same full-screen typing layer, with
 the `path` context row (KB-5); its main key saves as Enter does. Without a
 keyboard the editor opens on that pill.
@@ -137,9 +139,8 @@ absolute:
   When it is unset or not an absolute path, `~` stays relative and is
   rejected, as by the contract.
 
-Subfolder suggestions, the folder list and the folder picker in
-specification §5.6 wait on the folder-listing contract
-([DR-27](../design/integration-review.md)).
+Subfolder suggestions in the typing layer (KB-5, DR-44) are not built yet; the
+folder picker below lists folders through `Folders1`.
 
 ### Unavailable library folders
 
@@ -293,3 +294,106 @@ python scripts/check-docs.py
   `settings_tests.rs`. The Library folders screen and the folder picker
   (LF-1…8, PK-1…10, C24) are the second part of #764. The TV re-check was not
   done.
+
+## Library folders (LF, PK)
+
+[#764](https://github.com/LimeBeck/arinn/issues/764), the handoff's *Settings
+editors* LF-1…8 and PK-1…10, on `org.arinn.Folders1`
+([ADR-0071](../adr/0071-settings-editor-contract.md)).
+
+- **Row.** A folder list (`path`, `multiple`, `directory`) is a plain row with
+  "N folders", plus "· N unavailable" when the provider reports any, and a
+  chevron. OK emits `SettingsView.foldersRequested(row)`. `Main.qml` then opens
+  `LibraryFoldersView` over Settings (`focusedScreen` `libraryFolders`) and binds
+  it to the live row, so pending, errors and unavailable folders show at once.
+  If the setting disappears (a reload, a disconnect, a schema change), the
+  screen closes instead of editing an empty list. Each opening starts afresh:
+  no picker, confirmation or pending add or removal carries over, and an add or
+  removal settles only on the row of the setting it was made on. The screen
+  takes pointer input itself, so nothing reaches Settings underneath.
+- **Wording.** `SettingsCatalog` marks a folder list `libraryFolders` when its
+  provider has the `library` capability in `Daemon1.Providers`. Such a list
+  uses the handoff's library wording ("Library folders", films and series,
+  "from the library"). Any other provider's folder list uses its row title,
+  its description for the empty state, and plain folder wording ("from the
+  list", "Unavailable", "Adding…").
+- **Screen (LF-1).**
+  - The title is followed by the count, and *Add folder* sits right of the title
+    (Up from the first row).
+  - Rows follow Open services: min-h128 r26, a chip 76 with `folder`, the last
+    path segment at 30/600, and the full path in monospace at 24. A 128-wide
+    Remove square is reached with Right.
+  - The order is the order added.
+  - Edits go out as `valuesRequested(paths)`, which Main sends to
+    `SettingsCatalog.setValue`. The daemon validates and stores them.
+- **States.**
+  - Empty (LF-2): the 160 plate, "No folders yet" and *Add folder* in focus.
+  - Unavailable (LF-4): `folder_off` on a 6 % chip and the error-coloured
+    status; the folder can still be removed.
+  - At `maxItems`, 64 by default (LF-5): *Add folder* at 40 % stays focusable,
+    and OK explains in a toast.
+  - Remove (LF-6, LF-7): the power-confirm dialog, "Remove “{name}” from the
+    library?". Cancel has the default focus and Remove is destructive. The verb
+    is always *Remove*, and nothing is deleted. Then focus goes to the neighbour.
+    The toast "Folder removed" waits until the row no longer lists the folder;
+    if the save fails, the toast shows the error instead.
+  - Added (LF-8): the new row is appended and focused, with "Adding to the
+    library…" while the setting is pending. The catalog keeps the old value
+    until the save settles, so the screen shows the new folder itself
+    meanwhile; a refused add leaves the list, and the error shows in a toast.
+    Once saved, the add is done, so a later save does not read "Adding…". The
+    catalog clears `pending` before its refresh brings the new value, so the
+    folder stays until the row lists it or reports an error, and the screen
+    takes no second change meanwhile.
+  - A daemon refusal shows under the title in words, with the same mapping as
+    `SettingsView.daemonErrorText`, never as the error code.
+  - One change at a time: while the setting is pending or disabled, *Add
+    folder* and *Remove* explain in a toast, and a folder chosen in the picker
+    is refused there with the same text. `SettingsCatalog.setValue` would drop
+    a second save while one is pending.
+- **Picker (PK).** `FolderPicker` reads `FolderBrowser`
+  (`folder_browser.{h,cpp}`):
+  - `Places()` gives the start points: the home folder, each mount and the whole
+    computer, with an Ember dot on the current one, and a note when there are no
+    mounts (PK-9). The start points scroll when there are more than fit, keeping
+    the focused one on screen.
+  - `List(path, after, limit)` is read page by page, 256 names at a time, up to
+    2048 names. Names are sorted case-insensitively with numbers in numeric
+    order, folders only.
+  - The path line shows the parent in `text-2` and the last segment in `text-1`.
+    A long parent collapses its middle to `/…/`.
+  - *Choose this folder* chooses the path shown (Up from the first row). While
+    a listing loads, Choose holds focus for the folders, and the first folder
+    takes it once `Folders1` answers. Each time the picker opens, it reads the
+    folder it shows again.
+  - Keys:
+    - Up and Down move;
+    - OK or Right enters a folder;
+    - Left goes to the start points;
+    - Back goes up one level, or at a start point first to the start points
+      and then out.
+  - Empty (PK-5) moves focus to Choose. No access (PK-6) dims Choose to 40 %.
+    A share that has gone (PK-7) offers Retry and *To the home folder*, side by
+    side: Right and Left move between them, Left from Retry goes to the start
+    points and Up to Choose. Arinn never mounts anything.
+  - When `Places()` fails or returns nothing before a folder opens, the picker
+    shows "Folders cannot be read right now" with Retry, which asks for the
+    places again.
+  - A folder already in the list is refused in the picker with an error plate
+    (PK-10). Paths are compared without trailing slashes, so `/srv/films/` and
+    `/srv/films` are one folder. A start point that ends in `/` joins its children with one
+    slash and still counts as that start point.
+- **Not built.**
+  - Typing a path in the picker (PK-8);
+  - paging with Ch± and the letter jump;
+  - opening the library filtered to a folder from its row (OK on a row does
+    nothing yet);
+  - the empty library's link to this screen.
+- **Verification.**
+  - `tests/ui/tst_library_folders.qml` covers the rows, unavailable, remove,
+    empty, the limit, picking through the start points and the list, the
+    refusal, PK-5…7, a failed removal, a pending change and a failed
+    `Places()`.
+  - `folder_browser_test.cpp` covers Places, a failed Places read, sorting,
+    paging, the error states and a newer open winning.
+  - A real disk, share and TV were not tested.

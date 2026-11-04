@@ -500,6 +500,85 @@
     </message>
 </context>
 <context>
+    <name>FolderPicker</name>
+    <message>
+        <source>Home folder</source>
+        <translation>Домашняя папка</translation>
+    </message>
+    <message>
+        <source>Whole computer</source>
+        <translation>Весь компьютер</translation>
+    </message>
+    <message>
+        <source>Choose a folder</source>
+        <translation>Выбор папки</translation>
+    </message>
+    <message>
+        <source>Choose this folder</source>
+        <translation>Выбрать эту папку</translation>
+    </message>
+    <message>
+        <source>Drives and network folders appear here when the system connects them</source>
+        <translation>Диски и сетевые папки появятся здесь, когда система их подключит</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n folder(s)</source>
+        <translation>
+            <numerusform>Папок: %n</numerusform>
+            <numerusform>Папок: %n</numerusform>
+            <numerusform>Папок: %n</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>No subfolders</source>
+        <translation>Вложенных папок нет</translation>
+    </message>
+    <message>
+        <source>No access to this folder</source>
+        <translation>Нет доступа к папке</translation>
+    </message>
+    <message>
+        <source>The network folder disconnected</source>
+        <translation>Сетевая папка отключилась</translation>
+    </message>
+    <message>
+        <source>Folders cannot be read right now</source>
+        <translation>Папки сейчас не читаются</translation>
+    </message>
+    <message>
+        <source>Files are not shown here. Choose this folder, or go back.</source>
+        <translation>Файлы здесь не показываются. Выберите эту папку или вернитесь назад.</translation>
+    </message>
+    <message>
+        <source>Arinn may not read this folder. Choose another one.</source>
+        <translation>Arinn не может читать эту папку. Выберите другую.</translation>
+    </message>
+    <message>
+        <source>Arinn never mounts anything itself. Connect the share and try again.</source>
+        <translation>Arinn ничего не подключает сам. Подключите папку и попробуйте снова.</translation>
+    </message>
+    <message>
+        <source>Try again in a moment.</source>
+        <translation>Попробуйте чуть позже.</translation>
+    </message>
+    <message>
+        <source>Retry</source>
+        <translation>Повторить</translation>
+    </message>
+    <message>
+        <source>To the home folder</source>
+        <translation>К домашней папке</translation>
+    </message>
+    <message>
+        <source>OK Open · Back Up one level · ↑ Choose</source>
+        <translation>OK Открыть · Назад На уровень выше · ↑ Выбрать</translation>
+    </message>
+</context>
+<context>
     <name>HomeRow</name>
     <message>
         <source>Unavailable</source>
@@ -926,6 +1005,137 @@
     <message>
         <source>%1 min</source>
         <translation>%1 мин</translation>
+    </message>
+</context>
+<context>
+    <name>LibraryFoldersView</name>
+    <message numerus="yes">
+        <source>This is the limit: %n folders. Remove one to add another.</source>
+        <translation>
+            <numerusform>Это предел: папок — %n. Уберите одну, чтобы добавить другую.</numerusform>
+            <numerusform>Это предел: папок — %n. Уберите одну, чтобы добавить другую.</numerusform>
+            <numerusform>Это предел: папок — %n. Уберите одну, чтобы добавить другую.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>This folder is already in the library</source>
+        <translation>Эта папка уже в медиатеке</translation>
+    </message>
+    <message>
+        <source>Folder removed</source>
+        <translation>Папка убрана</translation>
+    </message>
+    <message>
+        <source>Library folders</source>
+        <translation>Папки медиатеки</translation>
+    </message>
+    <message>
+        <source>Add folder</source>
+        <translation>Добавить папку</translation>
+    </message>
+    <message numerus="yes">
+        <source>This is the limit: %n folders.</source>
+        <translation>
+            <numerusform>Это предел: папок — %n.</numerusform>
+            <numerusform>Это предел: папок — %n.</numerusform>
+            <numerusform>Это предел: папок — %n.</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Unavailable. Its films stay in the library as unavailable</source>
+        <translation>Недоступна. Фильмы из неё остаются в медиатеке как недоступные</translation>
+    </message>
+    <message>
+        <source>Adding to the library…</source>
+        <translation>Добавляется в медиатеку…</translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation>Убрать</translation>
+    </message>
+    <message>
+        <source>No folders yet</source>
+        <translation>Папок пока нет</translation>
+    </message>
+    <message>
+        <source>Add a folder with films and series. Arinn finds them and keeps the library up to date.</source>
+        <translation>Добавьте папку с фильмами и сериалами. Arinn найдёт их и будет обновлять медиатеку.</translation>
+    </message>
+    <message>
+        <source>Remove “%1” from the library?</source>
+        <translation>Убрать «%1» из медиатеки?</translation>
+    </message>
+    <message>
+        <source>Its films and series leave the library. Nothing is deleted from the disk.</source>
+        <translation>Её фильмы и сериалы уйдут из медиатеки. С диска ничего не удаляется.</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмена</translation>
+    </message>
+    <message>
+        <source>Wait until the last change is saved</source>
+        <translation>Дождитесь, пока сохранится прошлое изменение</translation>
+    </message>
+    <message>
+        <source>Arinn did not reply. Try again.</source>
+        <translation>Arinn не ответил. Попробуйте снова.</translation>
+    </message>
+    <message>
+        <source>This value is not accepted.</source>
+        <translation>Это значение не принимается.</translation>
+    </message>
+    <message>
+        <source>The service is not available. Try again later.</source>
+        <translation>Сервис недоступен. Повторите попытку позже.</translation>
+    </message>
+    <message>
+        <source>The settings changed. Try again.</source>
+        <translation>Настройки изменились. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>This setting is no longer available.</source>
+        <translation>Эта настройка больше не доступна.</translation>
+    </message>
+    <message>
+        <source>This setting cannot be changed.</source>
+        <translation>Эту настройку нельзя изменить.</translation>
+    </message>
+    <message>
+        <source>Saving was cancelled.</source>
+        <translation>Сохранение отменено.</translation>
+    </message>
+    <message>
+        <source>Something went wrong. Try again.</source>
+        <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
+    <message>
+        <source>These folders cannot be changed now</source>
+        <translation>Эти папки сейчас нельзя изменить</translation>
+    </message>
+    <message>
+        <source>This folder is already in the list</source>
+        <translation>Эта папка уже в списке</translation>
+    </message>
+    <message>
+        <source>Folders</source>
+        <translation>Папки</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>Adding…</source>
+        <translation>Добавление…</translation>
+    </message>
+    <message>
+        <source>Remove “%1” from the list?</source>
+        <translation>Убрать «%1» из списка?</translation>
+    </message>
+    <message>
+        <source>Nothing is deleted from the disk.</source>
+        <translation>С диска ничего не удаляется.</translation>
     </message>
 </context>
 <context>
@@ -2298,6 +2508,22 @@
     <message>
         <source>Something went wrong. Try again.</source>
         <translation>Что-то пошло не так. Повторите попытку.</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n folder(s)</source>
+        <translation>
+            <numerusform>Папок: %n</numerusform>
+            <numerusform>Папок: %n</numerusform>
+            <numerusform>Папок: %n</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n unavailable</source>
+        <translation>
+            <numerusform>недоступно: %n</numerusform>
+            <numerusform>недоступно: %n</numerusform>
+            <numerusform>недоступно: %n</numerusform>
+        </translation>
     </message>
 </context>
 <context>

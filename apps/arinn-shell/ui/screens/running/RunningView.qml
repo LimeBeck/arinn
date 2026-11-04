@@ -106,6 +106,14 @@ FocusScope {
     }
     function restoreOwned() { if (ownsFocus && visible) restore(); }
     onOrderedWindowsChanged: Qt.callLater(restoreOwned)
+    // CL-9: when the focused window starts closing, focus moves on to the
+    // next row at once (the previous one at the end).
+    onClosingIdsChanged: {
+        if (!ownsFocus || !visible || closingIds.indexOf(selectedId) < 0 || count < 2) return;
+        const index = orderedWindows.findIndex(entry => entry.id === selectedId);
+        const next = index + 1 < count ? index + 1 : index - 1;
+        Qt.callLater(() => focusRow(next, "row"));
+    }
     onOwnsFocusChanged: if (ownsFocus) Qt.callLater(restoreOwned)
     onVisibleChanged: if (visible) Qt.callLater(restoreOwned)
     Component.onCompleted: Qt.callLater(restoreOwned)

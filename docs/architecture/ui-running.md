@@ -84,7 +84,7 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   without closing the application. Focus returns to the opener.
 - **Closing** (CL-9). Close sends `Backend.terminate(id)`. The window is in
   `closingIds` until it leaves `Backend.items`. Rows and the Continue Close
-  button show it, and focus stays where it was.
+  button show it. On the Running screen focus moves on to the next row at once.
 - **Closed** (CL-10, CL-16). When the window leaves the list, the toast
   "{name} closed" shows for 2.6 s. Home's "Activity is no longer available"
   notice is not shown for a window the flow is closing.

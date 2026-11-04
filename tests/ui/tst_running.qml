@@ -113,6 +113,14 @@ TestCase {
         verify(!child(view, "runningCloseIcon-w1").visible);
         compare(child(view, "runningStatus-w3").text, "One of 2 windows · Did not close");
     }
+    // CL-9: closing the focused window moves focus to the next row.
+    function test_closing_moves_focus_on() {
+        makeView();
+        focused(view, "runningRow-w2");
+        keyClick(Qt.Key_Right); focused(view, "runningClose-w2");
+        view.closingIds = ["w2"];
+        focused(view, "runningRow-w1");
+    }
     function test_nothing_running() {
         makeView({windows: []});
         verify(child(view, "runningEmpty").visible);

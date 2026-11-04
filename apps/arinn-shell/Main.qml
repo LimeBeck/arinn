@@ -1460,6 +1460,8 @@ Window {
         onSwitchRequested: windowId => backend.activate(windowId)
         Connections {
             target: backend
+            // Test stand-ins of the backend may not have the signal.
+            ignoreUnknownSignals: true
             function onOperationFinished(id, state) { closeFlow.operationFinished(id, state); }
         }
     }

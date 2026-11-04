@@ -505,6 +505,9 @@ CONTEXT = {
     ("BrowserView", "Open services"): "Открытые сервисы",
     ("HomeView", "Open services"): "Все открытые сервисы",
     ("HomeView", "Close"): "Закрыть",
+    # The hero names one item: a series, not the Series tab (#756 C20).
+    ("HomeView", "Series"): "Сериал",
+    ("HomeView", "S%1 E%2"): "С%1 Э%2",
     ("PowerMenu", "Power"): "Питание",
     # Stops a starting application (spec §6.5).
     ("LaunchOverlay", "Stop"): "Прервать",

@@ -45,7 +45,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0024](0024-local-library-mpv.md) | Local library and external mpv with a rich media API | Accepted | 0046, 0054, 0057 |
 | [0025](0025-downloads-mvp.md) | DownloadProvider and Transmission in the MVP | Accepted | 0067 |
 | [0026](0026-multiple-monitors.md) | Home on the screen of the active Activity | Accepted | 0031 |
-| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | 0087 |
+| [0027](0027-activity-background-snapshot.md) | Compositor snapshot of the Activity for a separate Qt shell | Accepted | 0087, 0140 |
 | [0028](0028-documentation-governance.md) | Documentation governance, living specification and English docs | Accepted | 0036 |
 | [0029](0029-licensing.md) | GPL-3.0-or-later core, permissive protocol, contributor license agreement | Accepted | — |
 | [0030](0030-phase0-machine-and-standard-input.md) | Phase 0 on the development machine and the remote as standard keyboard input | Accepted | — |
@@ -149,7 +149,8 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 | [0133](0133-sentry-noise-and-stable-grouping.md) | Less Sentry noise and grouping that survives edits | Accepted | — |
 | [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
-| [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | 0137 |
+| [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | 0137, 0140 |
 | [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
 | [0138](0138-launched-applications-go-full-screen.md) | Launched applications go full screen | Accepted | — |
+| [0140](0140-tv-review-visual-decisions.md) | Visual decisions from the TV design review | Accepted | — |
 <!-- register:end -->

@@ -35,4 +35,29 @@ Item {
         color: "black"
         opacity: root.near ? 0.3 : 0.6
     }
+    // Near, the application's own controls in its top bar and along its
+    // bottom edge would read through Home's header and lowest row. Dark
+    // bands keep them under the shell (owner decision on #756, ADR-0140).
+    Rectangle {
+        objectName: "activityTopBand"
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: parent.height * 180 / 1080
+        visible: root.near
+        gradient: Gradient {
+            GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0.85) }
+            GradientStop { position: 0.7; color: Qt.rgba(0, 0, 0, 0.6) }
+            GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0) }
+        }
+    }
+    Rectangle {
+        objectName: "activityBottomBand"
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: parent.height * 140 / 1080
+        visible: root.near
+        gradient: Gradient {
+            GradientStop { position: 0; color: Qt.rgba(0, 0, 0, 0) }
+            GradientStop { position: 0.3; color: Qt.rgba(0, 0, 0, 0.6) }
+            GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.85) }
+        }
+    }
 }

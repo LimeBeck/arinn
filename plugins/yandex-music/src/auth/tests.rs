@@ -323,6 +323,58 @@ async fn redirect_and_oversized_responses_never_produce_a_prompt() {
     }
 }
 
+#[tokio::test]
+async fn short_device_verification_address_uses_the_canonical_prompt() {
+    for address in ["https://oauth.yandex.ru/device", "https://ya.ru/device"] {
+        let mut response = code();
+        response["verification_url"] = json!(address);
+        let mock = Mock::new(vec![reply(200, response)]);
+        let store = MemoryStore::default();
+        let auth = mock.client(store.clone());
+        let attempt = auth.start().await.unwrap();
+        assert_eq!(
+            attempt.prompt.verification_url,
+            "https://oauth.yandex.ru/device"
+        );
+        assert_eq!(attempt.prompt.user_code, "ABCD-EFGH");
+        assert_eq!(attempt.prompt.expires_in, 300);
+        assert!(store.bytes.lock().unwrap().is_none());
+        auth.cancel();
+        assert_eq!(auth.complete(attempt).await, Err(Error::Cancelled));
+        let requests = mock.finish();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].0, "POST /device/code HTTP/1.1");
+    }
+}
+
+#[test]
+fn only_the_exact_short_device_address_is_normalized() {
+    for address in [
+        "http://ya.ru/device",
+        "https://ya.ru/",
+        "https://ya.ru/other",
+        "https://ya.ru/device/",
+        "https://ya.ru/%64evice",
+        "https://ya.ru/device?code=synthetic",
+        "https://ya.ru/device?",
+        "https://ya.ru/device#synthetic",
+        "https://ya.ru/device#",
+        "https://ya.ru:443/device",
+        "https://ya.ru:444/device",
+        "https://synthetic:secret@ya.ru/device",
+        "https://ya.ru@evil.invalid/device",
+        "https://ya.ru.evil.invalid/device",
+        "https://sub.ya.ru/device",
+    ] {
+        let mut response = code();
+        response["verification_url"] = json!(address);
+        assert!(matches!(
+            parse_code(response, 0),
+            Err(Error::InvalidResponse)
+        ));
+    }
+}
+
 #[test]
 fn prompt_validation_excludes_secrets_and_untrusted_verification_hosts() {
     let mut boundary = code();

@@ -35,16 +35,26 @@ video. Resume, watched state and the real track list stay with the providers.
 | `osdVisible` | Local chrome. Hiding the OSD does not change the picture stand-in |
 | `osdIdleMs` | Defaults to 4000. Local hide delay, not a provider timeout |
 
-Signals, and only these, leave the screen: `play`, `pause`,
-`seek(targetSeconds)`, `selectAudio(trackId)`, `selectSubtitle(trackId)`,
-`stop`, `leave`, `homeRequested`. Emitting one does not change the fixture.
+Signals, and only these, leave the screen: `play`, `pause`, `previous`,
+`next`, `seek(targetSeconds)`, `selectAudio(trackId)`,
+`selectSubtitle(trackId)`, `stop`, `leave`, `homeRequested`. The production
+binding sends `previous` and `next` to the session only when its actions
+offer them (`canPrevious`, `canNext`). The title and episode line come from
+the library entry of the session when there is one, else from the session
+([#760](https://github.com/LimeBeck/arinn/issues/760)). Emitting one does not change the fixture.
 The caller applies a provider result by writing the properties. Home closes
 local chrome and emits `homeRequested`; it does not pause or stop playback.
 
 The ready surface is the handoff OSD: a full-bleed picture stand-in when
 `pictureStandIn` is true, top and bottom scrims, the timeline along the bottom,
-and a row of Subtitles, Audio and More pills. Pill and sheet fills use
-`Theme.plate` and `Theme.plateFocus`. A focused timeline shows a seek plate.
+and the Hearth light OSD row: a round play/pause button, round previous and
+next buttons when `canPrevious` and `canNext` are true, then the Subtitles and
+Audio chips. There is no More pill
+([#760](https://github.com/LimeBeck/arinn/issues/760)). Buttons, chips and sheet
+rows rest on `Theme.plate`; in focus they take the white fill with ink text.
+The timeline has no ring: its knob shows only in focus. The current sheet
+option carries a check, Ember at rest and ink in focus. A focused timeline
+shows a seek plate.
 `thumbnail` is an Assets1 image URL from the shell image cache. The plate,
 labelled thumbnail, stays until that image is ready. An empty URL, `NotFound`,
 `Unsupported` or any other error leaves the plate. Requesting the thumbnail
@@ -61,8 +71,9 @@ seek does not depend on `MediaTimeline1`.
 keys. An empty audio or subtitle list labels that pill
 unavailable. OK on it does not open a sheet and does not emit a select signal.
 OK on a pill that has tracks opens a sheet; OK on a row emits the select
-signal and closes the sheet, returning focus to that pill. More does not emit
-a transport signal.
+signal and closes the sheet, returning focus to that pill. OK on play/pause
+emits `pause` or `play`; OK on previous or next emits `previous` or `next`.
+A previous or next button that goes away hands its focus to play/pause.
 
 ## Keys
 
@@ -79,7 +90,9 @@ shell, Plasma does (OQ-04).
 | Visible | OK on the timeline | `pause` when `playing` is true, otherwise `play` |
 | Visible | Up/Down | Move between the timeline and the pill row. No seek and no toggle |
 | Visible | Left/Right on the timeline | Same seek rule. The OSD stays open |
-| Visible | Left/Right on the pills | Move among the visible pills. With tracks supported, those are Subtitles, Audio and More. No seek |
+| Visible | Down from the timeline | Focus play/pause |
+| Visible | Left/Right on the row | Move among play/pause, previous, next (when offered), Subtitles and Audio (with tracks supported). No seek |
+| Visible | OK on play/pause, previous or next | `pause`/`play`, `previous` or `next` |
 | Visible | OK on Subtitles or Audio | Open that sheet when the list is non-empty. No select signal yet |
 | Sheet | Up/Down or Left/Right | Move the highlight. No select signal |
 | Sheet | OK | `selectAudio` or `selectSubtitle`, then close the sheet onto its pill |

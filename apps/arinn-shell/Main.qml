@@ -1238,8 +1238,15 @@ Window {
                                         || (root.leavingWaitForSession && root.leaveError !== ""))
             z: 6
             pictureStandIn: false
-            title: mediaCatalog.sessionTitle
-            episodeLine: mediaCatalog.sessionSubtitle
+            // The library's name for the item, not the file's (#756 B11);
+            // a session outside the library keeps its own title.
+            readonly property var libraryNames: {
+                libraryCatalog.entries;
+                const content = mediaCatalog.libraryContent(mediaCatalog.selectedId);
+                return content.local ? libraryCatalog.titleFor(content.provider, content.local) : ({});
+            }
+            title: libraryNames.title || mediaCatalog.sessionTitle
+            episodeLine: libraryNames.title ? (libraryNames.episodeLine || "") : mediaCatalog.sessionSubtitle
             position: mediaCatalog.positionUs / 1000000
             duration: mediaCatalog.durationUs < 0 ? 0 : mediaCatalog.durationUs / 1000000
             buffered: mediaCatalog.bufferedSeconds
@@ -1276,6 +1283,12 @@ Window {
                     return "loading";
                 return "unavailable";
             }
+            // Previous and next show only when the session offers them
+            // (Hearth light brief, *Player OSD*; #756 C21).
+            canPrevious: (mediaCatalog.sessionActions || []).indexOf("previous") >= 0
+            canNext: (mediaCatalog.sessionActions || []).indexOf("next") >= 0
+            onPrevious: mediaCatalog.previous()
+            onNext: mediaCatalog.next()
             onPlay: mediaCatalog.play()
             onPause: mediaCatalog.pause()
             onSeek: targetSeconds => mediaCatalog.seek(targetSeconds * 1000000)

@@ -932,6 +932,10 @@
         <translation>Папки</translation>
     </message>
     <message>
+        <source>S%1 E%2</source>
+        <translation>С%1 Э%2</translation>
+    </message>
+    <message>
         <source>%1 s</source>
         <translation>%1 с</translation>
     </message>
@@ -1276,6 +1280,22 @@
         <source>Korean</source>
         <translation>Корейский</translation>
     </message>
+    <message>
+        <source>Mono</source>
+        <translation>Моно</translation>
+    </message>
+    <message>
+        <source>Stereo</source>
+        <translation>Стерео</translation>
+    </message>
+    <message numerus="yes">
+        <source>%n channels</source>
+        <translation>
+            <numerusform>Каналов: %n</numerusform>
+            <numerusform>Каналов: %n</numerusform>
+            <numerusform>Каналов: %n</numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>OnScreenKeyboard</name>
@@ -1357,10 +1377,6 @@
     <message>
         <source>thumbnail</source>
         <translation>миниатюра</translation>
-    </message>
-    <message>
-        <source>More</source>
-        <translation>Ещё</translation>
     </message>
     <message>
         <source>Left/Right — 10 seconds · OK — pause</source>

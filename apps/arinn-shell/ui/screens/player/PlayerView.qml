@@ -42,7 +42,11 @@ FocusScope {
     property url thumbnail: ""
     // Local hide delay from specification §6.4. Not a provider result.
     property int osdIdleMs: 4000
-    property string osdFocus: "timeline" // timeline, subtitles, audio, more
+    property string osdFocus: "timeline" // timeline, playpause, previous, next, subtitles, audio
+    // Previous and next items of the session (Hearth light brief, *Player
+    // OSD*); off hides their buttons.
+    property bool canPrevious: false
+    property bool canNext: false
     property string sheetKind: "" // "", audio, subtitles
     property int audioIndex: 0
     property int subtitleIndex: 0
@@ -80,8 +84,27 @@ FocusScope {
         return qsTr("Playback is not available.")
     }
 
+    // A round transport button of the OSD row: plate at rest, the white fill
+    // with ink in focus (Hearth light brief, *Player OSD*; #756 C21).
+    component TransportButton: Rectangle {
+        required property string key
+        property string icon: ""
+        readonly property bool focusedButton: root.osdFocus === key && root.sheetKind === ""
+        objectName: key + "Button"
+        width: 76; height: 76; radius: 38
+        color: focusedButton ? Ui.Theme.textPrimary : Ui.Theme.plate
+        Ui.LineIcon {
+            anchors.centerIn: parent
+            width: 36; height: 36
+            name: parent.icon
+            color: parent.focusedButton ? Ui.Theme.ink : Ui.Theme.textPrimary
+        }
+    }
+
     signal play()
     signal pause()
+    signal previous()
+    signal next()
     signal seek(real targetSeconds)
     signal selectAudio(string trackId)
     signal selectSubtitle(string trackId)
@@ -178,13 +201,19 @@ FocusScope {
         armIdle()
     }
 
+    // One play/pause control, previous and next as round buttons, then the
+    // subtitle and audio chips. The capability-dump row and its More pill
+    // are gone (Hearth light brief, *Player OSD*; #756 A5, C21).
     function visiblePills() {
-        const order = []
+        const order = ["playpause"]
+        if (canPrevious)
+            order.push("previous")
+        if (canNext)
+            order.push("next")
         if (tracksSupported) {
             order.push("subtitles")
             order.push("audio")
         }
-        order.push("more")
         return order
     }
 
@@ -254,11 +283,15 @@ FocusScope {
             armIdle()
             return
         }
-        if (osdFocus === "timeline") {
+        if (osdFocus === "timeline" || osdFocus === "playpause") {
             if (playing)
                 pause()
             else
                 play()
+        } else if (osdFocus === "previous" && canPrevious) {
+            previous()
+        } else if (osdFocus === "next" && canNext) {
+            next()
         } else if (tracksSupported && osdFocus === "audio" && audioListAvailable) {
             audioIndex = selectedIndex(audioTracks, audioCount, audioTrackId)
             sheetKind = "audio"
@@ -388,13 +421,16 @@ FocusScope {
     onTransportReadyChanged: armIdle()
     onOsdIdleMsChanged: armIdle()
     onSheetKindChanged: armIdle()
+    // A button that goes away hands its focus to play/pause.
+    onCanPreviousChanged: if (!canPrevious && osdFocus === "previous") osdFocus = "playpause"
+    onCanNextChanged: if (!canNext && osdFocus === "next") osdFocus = "playpause"
     onTracksSupportedChanged: {
         if (tracksSupported)
             return
         if (sheetKind === "audio" || sheetKind === "subtitles")
             sheetKind = ""
         if (osdFocus === "audio" || osdFocus === "subtitles")
-            osdFocus = "more"
+            osdFocus = "playpause"
     }
     Component.onCompleted: armIdle()
 
@@ -638,14 +674,6 @@ FocusScope {
                             }
                         }
                         Rectangle {
-                            anchors.fill: trackBody
-                            anchors.margins: -6
-                            radius: 12
-                            color: "transparent"
-                            border.width: track.focused ? 3 : 0
-                            border.color: Ui.Theme.ring
-                        }
-                        Rectangle {
                             objectName: "timelineKnob"
                             visible: track.focused
                             width: 40
@@ -742,13 +770,20 @@ FocusScope {
                     Row {
                         height: parent.height
                         spacing: 16
+                        // Round transport buttons, then the track chips. Focus is
+                        // the white fill with ink (Hearth light brief, *Player
+                        // OSD*; #756 C21).
+                        TransportButton { key: "playpause"; icon: root.playing ? "pause" : "play" }
+                        TransportButton { key: "previous"; icon: "skip_previous"; visible: root.canPrevious }
+                        TransportButton { key: "next"; icon: "skip_next"; visible: root.canNext }
                         Rectangle {
                             objectName: "subtitlePill"
                             visible: root.tracksSupported
+                            readonly property bool focusedPill: root.osdFocus === "subtitles" && root.sheetKind === ""
                             height: 76
                             radius: 38
                             width: subtitlePillLabel.implicitWidth + 64
-                            color: root.osdFocus === "subtitles" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
+                            color: focusedPill ? Ui.Theme.textPrimary : Ui.Theme.plate
                             Ui.UiText {
                                 id: subtitlePillLabel
                                 objectName: "subtitlePillLabel"
@@ -756,16 +791,18 @@ FocusScope {
                                 text: root.subtitlePillText
                                 font.pixelSize: 28
                                 font.weight: 600
-                                color: root.subtitleListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error
+                                color: !root.subtitleListAvailable ? Ui.Theme.error
+                                        : parent.focusedPill ? Ui.Theme.ink : Ui.Theme.textPrimary
                             }
                         }
                         Rectangle {
                             objectName: "audioPill"
                             visible: root.tracksSupported
+                            readonly property bool focusedPill: root.osdFocus === "audio" && root.sheetKind === ""
                             height: 76
                             radius: 38
                             width: audioPillLabel.implicitWidth + 64
-                            color: root.osdFocus === "audio" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
+                            color: focusedPill ? Ui.Theme.textPrimary : Ui.Theme.plate
                             Ui.UiText {
                                 id: audioPillLabel
                                 objectName: "audioPillLabel"
@@ -773,23 +810,8 @@ FocusScope {
                                 text: root.audioPillText
                                 font.pixelSize: 28
                                 font.weight: 600
-                                color: root.audioListAvailable ? Ui.Theme.textPrimary : Ui.Theme.error
-                            }
-                        }
-                        Rectangle {
-                            objectName: "morePill"
-                            height: 76
-                            radius: 38
-                            width: morePillLabel.implicitWidth + 64
-                            color: root.osdFocus === "more" && root.sheetKind === "" ? Ui.Theme.plateFocus : Ui.Theme.plate
-                            Ui.UiText {
-                                id: morePillLabel
-                                objectName: "morePillLabel"
-                                anchors.centerIn: parent
-                                text: qsTr("More")
-                                font.pixelSize: 28
-                                font.weight: 600
-                                color: Ui.Theme.textPrimary
+                                color: !root.audioListAvailable ? Ui.Theme.error
+                                        : parent.focusedPill ? Ui.Theme.ink : Ui.Theme.textPrimary
                             }
                         }
                     }
@@ -852,22 +874,25 @@ FocusScope {
                                 width: 608
                                 height: Math.max(104, sheetLabel.implicitHeight + (sheetDetail.visible ? sheetDetail.implicitHeight + 4 : 0) + 36)
                                 radius: 28
-                                color: sheetRowFocused ? Ui.Theme.plateFocus : Ui.Theme.plate
+                                color: sheetRowFocused ? Ui.Theme.textPrimary : Ui.Theme.plate
                                 readonly property var entry: root.sheetTrack(index)
                                 readonly property bool sheetRowFocused: (root.sheetKind === "audio" && root.audioIndex === index)
                                         || (root.sheetKind === "subtitles" && root.subtitleIndex === index)
                                 readonly property bool current: entry && (
                                     (root.sheetKind === "audio" && String(entry.id) === root.audioTrackId)
                                     || (root.sheetKind === "subtitles" && String(entry.id) === root.subtitleTrackId))
-                                Rectangle {
-                                    width: 18
-                                    height: 18
-                                    radius: 9
+                                // The current option carries a check: Ember at
+                                // rest, ink on the white focus fill (handoff 10/11).
+                                Ui.LineIcon {
+                                    objectName: "sheetCheck"
+                                    width: 32
+                                    height: 32
                                     anchors.left: parent.left
-                                    anchors.leftMargin: 28
+                                    anchors.leftMargin: 22
                                     anchors.verticalCenter: parent.verticalCenter
                                     visible: sheetRow.current
-                                    color: Ui.Theme.ember
+                                    name: "check"
+                                    color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.ember
                                 }
                                 Column {
                                     anchors.left: parent.left
@@ -882,7 +907,7 @@ FocusScope {
                                         text: sheetRow.entry && sheetRow.entry.label !== undefined ? String(sheetRow.entry.label) : ""
                                         font.pixelSize: 32
                                         font.weight: 600
-                                        color: Ui.Theme.textPrimary
+                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textPrimary
                                     }
                                     Ui.UiText {
                                         id: sheetDetail
@@ -891,7 +916,7 @@ FocusScope {
                                         text: visible ? String(sheetRow.entry.detail) : ""
                                         font.pixelSize: 26
                                         font.weight: 500
-                                        color: Ui.Theme.textSecondary
+                                        color: sheetRow.sheetRowFocused ? Ui.Theme.ink : Ui.Theme.textSecondary
                                     }
                                 }
                             }

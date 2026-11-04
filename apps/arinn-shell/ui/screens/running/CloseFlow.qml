@@ -73,6 +73,24 @@ FocusScope {
         if (!open) return;
         phase = "";
         Qt.callLater(restoreOpener);
+        Qt.callLater(showQueued);
+    }
+    // A failure that arrives while another dialog is open waits for it
+    // (review of #777).
+    property var queuedFailures: []
+    function showQueued() {
+        if (open || !queuedFailures.length) return;
+        const id = queuedFailures[0];
+        queuedFailures = queuedFailures.slice(1);
+        showFailure(id);
+    }
+    function showFailure(id) {
+        const entry = windowById(id);
+        const title = entry ? (entry.title || "") : (titles[id] || "");
+        remember();
+        target = {id: id, title: title};
+        phase = "failed";
+        Qt.callLater(() => { if (phase === "failed") Ui.Focus.take(switchButton); });
     }
     function confirm() {
         if (phase !== "confirm") return;
@@ -86,6 +104,7 @@ FocusScope {
         waitTimer.start();
         terminateRequested(id);
         Qt.callLater(restoreOpener);
+        Qt.callLater(showQueued);
     }
     function forget(id) {
         closingIds = closingIds.filter(other => other !== id);
@@ -96,14 +115,13 @@ FocusScope {
     // CL-11: the request failed or the window stayed.
     function didNotClose(id) {
         if (closingIds.indexOf(id) < 0) return;
-        const entry = windowById(id);
         forget(id);
         failedIds = failedIds.concat([id]);
-        if (!entry) return;
-        remember();
-        target = {id: id, title: entry.title || ""};
-        phase = "failed";
-        Qt.callLater(() => { if (phase === "failed") Ui.Focus.take(switchButton); });
+        if (open) {
+            if (queuedFailures.indexOf(id) < 0) queuedFailures = queuedFailures.concat([id]);
+            return;
+        }
+        showFailure(id);
     }
     // The shell's operation result for a close request.
     function operationFinished(id, state) {
@@ -115,13 +133,10 @@ FocusScope {
     }
     function check() {
         const listed = (windows || []).map(entry => entry.id);
-        if (!windowsKnown) {
-            // No evidence either way: only the wait can end a request.
-            for (const id of closingIds.slice())
-                if (Date.now() - (startedAt[id] || 0) >= closeWaitMs) didNotClose(id);
-            if (!closingIds.length) waitTimer.stop();
-            return;
-        }
+        // No evidence either way while the list is not the daemon's own:
+        // a request stays pending until a trusted snapshot settles it
+        // (review of #777).
+        if (!windowsKnown) return;
         for (const id of closingIds.slice()) {
             if (listed.indexOf(id) < 0) {
                 const title = (target.id === id && target.title) || titles[id] || "";
@@ -261,6 +276,7 @@ FocusScope {
                                 root.phase = "";
                                 root.opener = null;
                                 root.switchRequested(id);
+                                Qt.callLater(root.showQueued);
                             }
                         }
                         Ui.ActionButton {

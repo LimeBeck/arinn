@@ -1387,4 +1387,19 @@ TestCase {
         home.openTileActions("g");
         verify(!home.tileActionsOpen);
     }
+    // Review of #777: the "no longer available" notice is skipped only for
+    // the window the close flow closed, not for any other activity.
+    function test_activity_notice_skipped_only_for_the_closed_window() {
+        home.returnActivityId = "a";
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-other"];
+        home.returnActivityId = "";
+        verify(child("activityNotice").visible);
+        child("activityNotice").visible = false;
+        home.returnActivityId = "a";
+        home.activityWindowId = "w-a";
+        home.closedWindowIds = ["w-a"];
+        home.returnActivityId = "";
+        verify(!child("activityNotice").visible);
+    }
 }

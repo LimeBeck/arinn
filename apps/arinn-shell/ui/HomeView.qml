@@ -672,9 +672,15 @@ FocusScope {
         else entryRequested(entryId);
     }
     onHomeStateChanged: Qt.callLater(() => { if (!navOpen && !shortcutEditorOpen && screen === "home") restoreHome(); })
+    // Windows the close flow was asked to close; the last application
+    // window on screen. A notice is skipped only for that window, so another
+    // activity that disappears still gets one (review of #777).
+    property var closedWindowIds: []
+    property string lastActivityWindowId: ""
+    onActivityWindowIdChanged: if (activityWindowId.length) lastActivityWindowId = activityWindowId
     onReturnActivityIdChanged: {
         // A window the close flow is closing gets its own "closed" toast.
-        if (!returnActivityId && !closingIds.length) {
+        if (!returnActivityId && closedWindowIds.indexOf(lastActivityWindowId) < 0) {
             activityNotice.visible = true;
             noticeTimer.restart();
         }
@@ -1263,6 +1269,7 @@ FocusScope {
     }
     Rectangle {
         id: activityNotice
+        objectName: "activityNotice"
         visible: false; x: 560; y: 960; width: 800; height: 80; radius: 40; color: "#33363b"
         UiText { anchors.centerIn: parent; text: qsTr("Activity is no longer available"); role: "meta" }
     }

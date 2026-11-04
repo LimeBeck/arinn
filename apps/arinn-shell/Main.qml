@@ -906,6 +906,7 @@ Window {
             onFavoriteRequested: (entryId, pinned) => backend.setFavorite(entryId, pinned)
             onCloseRequested: windowId => closeFlow.ask(windowId)
             closingIds: closeFlow.closingIds
+            closedWindowIds: Object.keys(closeFlow.titles)
             // The application on screen, when Arinn can close its window
             // (CL-3a) and for the Running item's subline (CL-7).
             activityWindowId: root.activityWindow && root.activityWindow.terminable ? root.activityWindow.id : ""

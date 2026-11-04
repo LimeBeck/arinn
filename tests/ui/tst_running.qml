@@ -213,7 +213,12 @@ TestCase {
         compare(flow.closingIds, ["w1"]);
         compare(closed.count, 0);
         verify(!child(flow, "closeFlowToast").visible);
+        // The wait (300 ms here) does not end it while the list is unknown.
+        wait(500);
+        compare(flow.closingIds, ["w1"]);
+        compare(flow.phase, "");
         flow.windows = [{id: "w1", title: "Northwind", terminable: true}];
+        flow.startedAt = ({"w1": Date.now()});
         flow.windowsKnown = true;
         compare(flow.closingIds, ["w1"]);
         flow.windows = [];
@@ -233,6 +238,24 @@ TestCase {
         compare(activates.count, 0);
         keyClick(Qt.Key_Right);
         focused(view, "runningClose-b");
+    }
+    // Review of #777: a failure while another confirmation is open waits
+    // for it instead of replacing it.
+    function test_close_flow_queues_a_failure_behind_a_confirmation() {
+        flow = createTemporaryObject(flowFactory, suite, {windows: [
+            {id: "w1", title: "Northwind", terminable: true},
+            {id: "w2", title: "Harbor", terminable: true}]});
+        flow.ask("w1");
+        flow.confirm();
+        verify(flow.ask("w2"));
+        focused(flow, "closeFlowCancel");
+        flow.operationFinished("w1", "failed");
+        compare(flow.phase, "confirm");
+        compare(flow.target.id, "w2");
+        keyClick(Qt.Key_Escape);
+        tryCompare(flow, "phase", "failed");
+        compare(flow.target.id, "w1");
+        compare(child(flow, "closeFlowTitle").text, "Northwind did not close");
     }
     function test_close_flow_did_not_close() {
         flow = createTemporaryObject(flowFactory, suite);

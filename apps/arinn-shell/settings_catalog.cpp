@@ -348,6 +348,9 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             m_tickets.clear();
             m_providers.clear();
             m_libraryPaths.clear();
+            // Plugin identities belong to the old daemon: until the new
+            // listing answers, the instance id stands in (review of #779).
+            m_pluginIds.clear();
             m_rootsReading.clear();
             m_rootsAgain.clear();
             m_roots.clear();

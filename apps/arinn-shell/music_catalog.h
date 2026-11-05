@@ -58,5 +58,7 @@ private:
   bool m_commandBusy=false,m_pageBusy=false,m_registryBusy=false,m_stateBusy=false;
   bool m_activeBusy=false,m_commandWaitingRefresh=false,m_stateError=false;
   QSet<QString> m_pageTokens;
+  bool m_uncertainStart=false;
+  QString m_startProvider,m_startGeneration,m_startSession;
   QTimer m_timer;
 };

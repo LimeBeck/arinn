@@ -73,6 +73,10 @@ FocusScope {
     }
     function detailAction() {return saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : catalogueAction();}
     function belowSearch() {Ui.Focus.take(tracks.count && tracks.visible ? tracks : catalogueAction());}
+    function timeLabel(microseconds) {
+        const seconds=Math.max(0,Math.floor((microseconds || 0)/1000000));
+        return Math.floor(seconds/60)+":"+String(seconds%60).padStart(2,"0");
+    }
     function supported(action) { return actions.includes(action); }
     function playerFocus() {return playButton.enabled ? playButton : retryButton.visible && retryButton.enabled ? retryButton : stopButton.enabled ? stopButton : queueButton;}
     function focusInitial() { if (mode === "player") Ui.Focus.take(playerFocus()); else if (mode === "queue") Ui.Focus.take(queueList); else if (tracks.visible && tracks.count) Ui.Focus.take(tracks); else Ui.Focus.take(catalogueAction()); }
@@ -212,6 +216,10 @@ FocusScope {
         }
         footer: Ui.ActionButton {id:loadMoreButton;objectName:"musicLoadMore";Keys.onUpPressed:Ui.Focus.take(tracks.currentItem || tracks);Keys.onDownPressed:Ui.Focus.take(root.detailAction()); visible: root.catalog.more; text: qsTr("Load more"); enabled: !root.catalog.busy; onActivated: root.catalog.loadMore() }
     }
+    Ui.UiText { objectName:"musicListPosition"; x:120;y:850;role:"caption";color:Ui.Theme.textSecondary
+        visible:root.mode==="catalogue" && tracks.visible && tracks.count>0
+        text:qsTr("%1 of %2").arg(tracks.currentIndex+1).arg(tracks.count)
+    }
     Column {
         x: 120; y: 420; width: 1300; spacing: 28
         enabled: !root.pendingPlay
@@ -233,9 +241,9 @@ FocusScope {
         enabled: !root.pendingPlay; x: 120; y: 235; width: 1680; height: 680; visible: root.mode === "player"
         MusicArtwork {x:0;y:0;width:500;height:500;radius:Ui.Theme.stillRadius;source:root.current.image || ""}
         Column {
-            x: 580; width: 1100; spacing: 24
+            objectName:"musicInfoColumn"; x: 580; width: 1100; spacing: 16
             Ui.UiText { width: parent.width; role: "eyebrow"; text: root.catalog.activeSourceName + (root.player.station ? " · " + root.player.station.title : ""); maximumLineCount:1;elide:Text.ElideRight;textFormat: Text.PlainText; color: Ui.Theme.textSecondary }
-            Ui.UiText { width: parent.width; role: "hero"; text: root.current.title || qsTr("Nothing is playing"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
+            Ui.UiText { objectName:"musicTrackTitle"; width: parent.width; height:176; role: "hero"; text: root.current.title || qsTr("Nothing is playing"); textFormat: Text.PlainText; fitSteps:[[96,1],[80,1],[64,2]]; elide: Text.ElideRight; verticalAlignment:Text.AlignVCenter }
             Ui.UiText { width: parent.width; role: "section"; text: root.current.artist || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
             Ui.UiText { width: parent.width; role: "body"; text: root.current.album || ""; textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
             T.Slider { id: seek; objectName:"musicSeek"; height:32; stepSize:10000000;
@@ -245,10 +253,10 @@ FocusScope {
                     Rectangle {width:seek.visualPosition*parent.width;height:parent.height;radius:2;color:Ui.Theme.textPrimary}}
                 handle: Rectangle {x:seek.leftPadding+seek.visualPosition*(seek.availableWidth-width);y:seek.topPadding+(seek.availableHeight-height)/2;width:seek.activeFocus ? 24 : 16;height:width;radius:width/2;color:Ui.Theme.textPrimary}
             }
-            Ui.UiText { role: "caption"; text: Math.floor((root.player.position_us || 0) / 60000000) + ":" + String(Math.floor((root.player.position_us || 0) / 1000000) % 60).padStart(2, "0"); color: Ui.Theme.textSecondary }
+            Ui.UiText { role: "caption"; objectName:"musicElapsed"; text: root.timeLabel(root.player.position_us) + (root.current.duration_us ? " / " + root.timeLabel(root.current.duration_us) : ""); color: Ui.Theme.textSecondary }
         }
         Item {
-            objectName: "musicControlsB"; x: 580; y: 405; width: 1100; height: 112
+            objectName: "musicControlsB"; x: 580; y: 460; width: 1100; height: 112
             Row {
                 x: 0; spacing: 16
                 MusicButton {selected:root.player.feedback==="liked"; id: likeButton; KeyNavigation.right: dislikeButton; KeyNavigation.down: playButton; iconName: "like"; text: qsTr("Like"); visible: root.supported("like"); onActivated: root.catalog.transport("like") }
@@ -272,7 +280,7 @@ FocusScope {
         }
     }
     Ui.ActionButton {id:saveQueue;objectName:"musicSaveQueue";x:1460;y:80;width:340;height:76;visible:root.mode==="queue" && root.supported("save_playlist");text:qsTr("Save queue");enabled:!root.transportBusy;onActivated:root.namePlaylist("",true);KeyNavigation.down:queueList}
-    Ui.UiText {x:700;y:810;width:1100;visible:root.mode==="player" && root.player.continuous===true;role:"caption";color:Ui.Theme.textSecondary;maximumLineCount:1;elide:Text.ElideRight;text:root.player.refill==="loading" ? qsTr("Loading upcoming tracks…") : root.player.refill==="failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.") : root.player.refill==="exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.") : qsTr("Upcoming tracks continue automatically")}
+    Ui.UiText {x:700;y:900;width:1100;visible:root.mode==="player" && root.player.continuous===true;role:"caption";color:Ui.Theme.textSecondary;maximumLineCount:1;elide:Text.ElideRight;text:root.player.refill==="loading" ? qsTr("Loading upcoming tracks…") : root.player.refill==="failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.") : root.player.refill==="exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.") : qsTr("Upcoming tracks continue automatically")}
     ListView {
         id: queueList; objectName:"musicQueueEntries"; enabled: !root.pendingPlay; x: 120; y: 230; width: 1680; height: 680; clip: true; spacing: 12; visible: root.mode === "queue"; keyNavigationEnabled: true
         Keys.onUpPressed: event => {if(currentIndex<=0 && saveQueue.visible)Ui.Focus.take(saveQueue);else event.accepted=false;}

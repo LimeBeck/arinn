@@ -46,6 +46,7 @@ public:
   QHash<QString, QString> stateErrors;
   QHash<QString, int> pageReads;
   QStringList commands;
+  QString commandError;
   QSet<QString> registryMethods;
   QString active = QStringLiteral("null");
   QString introspect(const QString &) const override { return {}; }
@@ -76,6 +77,7 @@ public:
     if(member == QLatin1String("Command")) {
       const auto command=QJsonDocument::fromJson(message.arguments().at(1).toString().toUtf8()).object();
       commands.append(command.value("action").toString());
+      if(!commandError.isEmpty()) {bus.send(message.createErrorReply("org.arinn.Error1."+commandError,commandError));return true;}
       bus.send(message.createReply(QString::fromUtf8(QJsonDocument(states.value(id)).toJson(QJsonDocument::Compact))));return true;
     }
     if (member == QLatin1String("GetState")) {
@@ -144,11 +146,25 @@ private slots:
                                       QDBusConnection::SubPath));
   }
   void init() {
+    daemon.commandError.clear();
     daemon.providers.clear();
     daemon.states.clear();
     daemon.stateErrors.clear();
     daemon.pageReads.clear();
     daemon.active = QStringLiteral("null");
+  }
+  void timedOutStartClearsErrorOnlyAfterItsNewSessionIsConfirmed() {
+    daemon.providers={{"account","Fixture account","g1"}};
+    auto initial=state({"tracks"},"connected");initial["session"]="old";initial["actions"]=QJsonArray{"radio"};
+    daemon.states["account"]=initial;
+    MusicCatalog catalog;QTRY_COMPARE(catalog.sources().size(),1);QTRY_COMPARE(catalog.state().value("session").toString(),QString("old"));
+    daemon.commandError="Timeout";catalog.command("radio","station:fixture");
+    QTRY_VERIFY(!catalog.errorText().isEmpty());QTRY_VERIFY(!catalog.busy());
+    auto confirmed=initial;confirmed["playback"]="playing";
+    auto active=[&](const QString &generation) {return QString::fromUtf8(QJsonDocument(QJsonObject{{"provider_id","account"},{"generation",generation},{"state",confirmed}}).toJson(QJsonDocument::Compact));};
+    daemon.active=active("g1");catalog.refresh();QTest::qWait(50);QVERIFY(!catalog.errorText().isEmpty());
+    confirmed["session"]="new";daemon.active=active("wrong-generation");catalog.refresh();QTest::qWait(50);QVERIFY(!catalog.errorText().isEmpty());
+    daemon.active=active("g1");catalog.refresh();QTRY_VERIFY(catalog.errorText().isEmpty());
   }
   void registeredSourcesExposeMusicNavigationAndRecover() {
     MusicCatalog catalog;

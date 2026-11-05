@@ -7,11 +7,29 @@ Item {
     id: root
     property url source: ""
     property real radius: 24
+    readonly property bool loaded: picture.status === Image.Ready
+    property int retryInterval: 1000
+    property int attempts: 0
+    property bool retryBlank: false
+    function retryAfterFailure() {
+        if (visible && source.toString().length && attempts < 6 && !retry.running) retry.start();
+    }
+    onSourceChanged: { retry.stop(); attempts=0; retryBlank=false; }
+    onVisibleChanged: { if (!visible) retry.stop(); else if (picture.status===Image.Error) retryAfterFailure(); }
+    Timer {
+        id: retry; objectName:"musicArtworkRetry"; interval: Math.min(30000,root.retryInterval*Math.pow(2,root.attempts))
+        onTriggered: {
+            if (!root.visible || root.attempts>=6) return;
+            root.attempts++;
+            root.retryBlank=true;
+            Qt.callLater(()=>root.retryBlank=false);
+        }
+    }
     Rectangle {anchors.fill:parent;radius:root.radius;color:Ui.Theme.plateObject}
     Image {
-        id:picture;anchors.fill:parent;source:root.source;asynchronous:true;visible:false
+        id:picture;anchors.fill:parent;source:root.retryBlank ? "" : root.source;asynchronous:true;cache:false;visible:false
         fillMode:Image.PreserveAspectCrop;sourceSize:Artwork.sourceSize(source,width,height)
-        onStatusChanged:frame.syncSource()
+        onStatusChanged:{frame.syncSource();if(status===Image.Error)root.retryAfterFailure();}
         onSourceChanged:Qt.callLater(frame.syncSource)
     }
     MusicIcon {anchors.centerIn:parent;width:Math.min(root.width,root.height)*0.36;height:width;name:"music";color:Ui.Theme.textHint;visible:picture.status!==Image.Ready}

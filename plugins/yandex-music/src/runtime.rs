@@ -33,8 +33,14 @@ impl std::ops::Deref for Authorized {
         &self.api
     }
 }
-struct SourceResolver(Arc<RwLock<Option<Authorized>>>);
+struct SourceResolver(
+    Arc<RwLock<Option<Authorized>>>,
+    Arc<std::sync::atomic::AtomicUsize>,
+);
 impl Resolver for SourceResolver {
+    fn prefetch_capacity(&self) -> usize {
+        self.1.load(std::sync::atomic::Ordering::Relaxed).min(5)
+    }
     fn resolve(
         &self,
         id: String,
@@ -42,6 +48,15 @@ impl Resolver for SourceResolver {
         Box::pin(async move {
             let api = self.0.read().await.clone().ok_or(ErrorCode::Unavailable)?;
             api.audio(&id).await.map_err(error)
+        })
+    }
+    fn prefetch(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+        Box::pin(async move {
+            let api = self.0.read().await.clone().ok_or(ErrorCode::Unavailable)?;
+            api.prebuffer(&id).await.map_err(error)
         })
     }
 }
@@ -77,7 +92,10 @@ pub struct Runtime {
     pub playback: Arc<Playback>,
     catalogue_slots: Arc<Semaphore>,
     pins: Arc<std::sync::Mutex<Storage>>,
+    #[cfg(test)]
     assets: Arc<Semaphore>,
+    artwork_cache: Arc<crate::artwork::Artwork>,
+    prefetch_tracks: Arc<std::sync::atomic::AtomicUsize>,
     epochs: tokio::sync::watch::Sender<u64>,
 }
 fn error(error: crate::Error) -> ErrorCode {
@@ -91,6 +109,21 @@ fn track_entity(track: &Track) -> Entity {
     let mut value = arinn_music_common::playback::entity(track);
     value.artwork = format!("cover:{}", track.id);
     value
+}
+fn station_title(seed: &str, locale: &str) -> &'static str {
+    let russian = locale.split(['_', '-', '.']).next() == Some("ru");
+    match (seed == "user:onyourwave", russian) {
+        (true, true) => "Моя волна",
+        (false, true) => "Радио по треку",
+        (true, false) => "My Wave",
+        (false, false) => "Track radio",
+    }
+}
+fn message_locale() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .into_iter()
+        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
+        .unwrap_or_default()
 }
 fn station(id: &str, title: &str) -> Entity {
     Entity {
@@ -145,7 +178,12 @@ impl Runtime {
             return Err(ErrorCode::InvalidArgument);
         }
         let source = Arc::new(RwLock::new(None));
-        let playback = Playback::new(player, Arc::new(SourceResolver(source.clone())));
+        let prefetch_tracks = Arc::new(std::sync::atomic::AtomicUsize::new(5));
+        let playback = Playback::new(
+            player,
+            Arc::new(SourceResolver(source.clone(), prefetch_tracks.clone())),
+        );
+        let assets = Arc::new(Semaphore::new(4));
         let this = Arc::new(Self {
             source,
             data: Mutex::new(Data {
@@ -162,7 +200,10 @@ impl Runtime {
             playback,
             catalogue_slots: Arc::new(Semaphore::new(2)),
             pins: Arc::new(std::sync::Mutex::new(pins)),
-            assets: Arc::new(Semaphore::new(4)),
+            artwork_cache: crate::artwork::Artwork::new(assets.clone()),
+            prefetch_tracks,
+            #[cfg(test)]
+            assets,
             epochs: tokio::sync::watch::channel(0).0,
         });
         let weak = Arc::downgrade(&this);
@@ -232,6 +273,15 @@ impl Runtime {
         });
         Ok(this)
     }
+    pub async fn set_prefetch_tracks(&self, count: usize) -> Result<(), ErrorCode> {
+        if count > 5 {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        self.prefetch_tracks
+            .store(count, std::sync::atomic::Ordering::Relaxed);
+        self.playback.refresh_prefetch().await;
+        Ok(())
+    }
     pub async fn connected(&self, api: Api) {
         let mut d = self.data.lock().await;
         d.epoch += 1;
@@ -247,6 +297,10 @@ impl Runtime {
         d.ratings.clear();
         d.feedback_error = None;
         d.expired_stopped = false;
+        {
+            let epoch = *self.epochs.borrow();
+            self.artwork_cache.clear(epoch).await;
+        }
     }
     pub async fn disconnected(&self) {
         {
@@ -261,6 +315,10 @@ impl Runtime {
             d.ratings.clear();
             d.feedback_error = None;
             d.expired_stopped = false;
+        }
+        {
+            let epoch = *self.epochs.borrow();
+            self.artwork_cache.clear(epoch).await;
         }
         let _ = self.playback.stop().await;
     }
@@ -309,23 +367,33 @@ impl Runtime {
         drop(d);
         let _ = self.playback.stop().await;
     }
-    pub async fn artwork(&self, id: &str) -> Result<arinn_protocol::assets::Asset, ErrorCode> {
-        let _permit = self
-            .assets
-            .clone()
-            .try_acquire_owned()
-            .map_err(|_| ErrorCode::Unavailable)?;
-        let id = id.strip_prefix("cover:").ok_or(ErrorCode::NotFound)?;
+    pub async fn artwork(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<arinn_protocol::assets::Asset, ErrorCode> {
+        let id = id
+            .strip_prefix("cover:")
+            .filter(|id| crate::parse::track_id(id))
+            .ok_or(ErrorCode::NotFound)?
+            .to_owned();
         let api = self
             .source
             .read()
             .await
             .clone()
             .ok_or(ErrorCode::Unavailable)?;
-        tokio::time::timeout(Duration::from_secs(4), api.artwork(id))
-            .await
-            .map_err(|_| ErrorCode::Timeout)?
-            .map_err(error)
+        let epoch = api.epoch;
+        let owner = self.clone();
+        let request = id.clone();
+        self.guard(
+            epoch,
+            self.artwork_cache.get(epoch, id, async move {
+                owner
+                    .guard(epoch, async { api.artwork(&request).await.map_err(error) })
+                    .await
+            }),
+        )
+        .await
     }
     pub async fn expired(&self) -> bool {
         self.source
@@ -338,6 +406,11 @@ impl Runtime {
         let mut state = self.playback.state().await;
         let expired = self.expired().await;
         let d = self.data.lock().await;
+        if let Some(station) = &mut state.station
+            && station.id == "station:wave"
+        {
+            station.title = station_title("user:onyourwave", &message_locale()).into();
+        }
         state.account = if expired { "expired" } else { "connected" }.into();
         state.revision = state.revision.saturating_add(d.revision);
         state.catalogue_revision = d.revision;
@@ -492,10 +565,17 @@ impl Runtime {
             }
             tracks
         } else if query.facet == "selections" {
-            let mut entries = vec![station("station:wave", "My Wave")];
+            let mut entries = vec![station(
+                "station:wave",
+                station_title("user:onyourwave", &message_locale()),
+            )];
             for pin in &self.data.lock().await.pins {
                 if !entries.iter().any(|e| e.id == pin.id) {
-                    entries.push(pin.clone());
+                    let mut pin = pin.clone();
+                    if pin.id == "station:wave" {
+                        pin.title = station_title("user:onyourwave", &message_locale()).into();
+                    }
+                    entries.push(pin);
                 }
             }
             entries.extend(
@@ -678,11 +758,7 @@ impl Runtime {
         let session = self
             .prepare_radio(epoch, async { api.start_radio(&seed).await.map_err(error) })
             .await?;
-        let title = if seed == "user:onyourwave" {
-            "My Wave"
-        } else {
-            "Track radio"
-        };
+        let title = station_title(&seed, &message_locale());
         let station_id = if seed == "user:onyourwave" {
             "station:wave".into()
         } else {
@@ -1090,6 +1166,13 @@ mod tests {
         assert!(state.current.is_none());
         assert!(state.actions.contains(&"connect".into()));
         assert!(mock.finish().is_empty());
+    }
+    #[test]
+    fn built_in_station_titles_follow_message_locale_without_changing_identity() {
+        assert_eq!(station_title("user:onyourwave", "ru_RU.UTF-8"), "Моя волна");
+        assert_eq!(station_title("track:123", "ru-RU"), "Радио по треку");
+        assert_eq!(station_title("user:onyourwave", "en_US.UTF-8"), "My Wave");
+        assert_eq!(station_title("user:onyourwave", "C"), "My Wave");
     }
     #[tokio::test]
     async fn artwork_admission_is_checked_before_sending_any_http_request() {

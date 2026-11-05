@@ -32,8 +32,34 @@ TestCase {
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
+    Component {id:artworkFactory;Music.MusicArtwork {width:128;height:128;retryInterval:10}}
     Component {id:homeFactory;Ui.HomeView {}}
     Component {id:rowFactory;Ui.HomeRow {width:1600;entries:[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause"}]}}
+    function test_artwork_retries_are_bounded_and_reset_for_a_new_source() {
+        const art=createTemporaryObject(artworkFactory,suite,{source:Qt.resolvedUrl("missing-synthetic-music-artwork.png")});verify(art);
+        tryCompare(art,"attempts",6);compare(art.loaded,false);wait(50);compare(art.attempts,6);
+        compare(findChild(art,"musicArtworkRetry").interval,640);
+        art.source=Qt.resolvedUrl("fixture-glow.svg");tryCompare(art,"loaded",true);compare(art.attempts,0);
+        tryVerify(()=>{const pixels=grabImage(art);return pixels.red(64,64)>150 && pixels.blue(64,64)<100;});
+        art.retryInterval=1000;art.attempts=4;compare(findChild(art,"musicArtworkRetry").interval,16000);
+        art.attempts=5;compare(findChild(art,"musicArtworkRetry").interval,30000);
+        art.visible=false;art.source=Qt.resolvedUrl("missing-synthetic-music-artwork.png");wait(100);compare(art.attempts,0);
+    }
+    function test_elapsed_duration_and_catalogue_position_are_readable() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        compare(findChild(view,"musicListPosition").text,"1 of 1");
+        catalog.activeState={playback:"playing",position_us:65000000,current:{track:{duration_us:185000000}},actions:[]};
+        view.openPlayer();tryCompare(findChild(view,"musicElapsed"),"text","1:05 / 3:05");
+    }
+    function test_long_title_fits_two_lines_without_colliding_with_controls() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={playback:"playing",current:{track:{id:"fixture",title:"An extended synthetic title from the fixture album",artist:"Synthetic artist",album:"Synthetic album",duration_us:185000000}},actions:["pause","seek"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"player"});verify(view);wait(0);
+        const title=findChild(view,"musicTrackTitle"),info=findChild(view,"musicInfoColumn"),controls=findChild(view,"musicControlsB");
+        tryVerify(()=>!title.truncated);verify(title.font.pixelSize>=64);
+        verify(info.mapToItem(view,0,info.height).y+24<=controls.mapToItem(view,0,0).y);
+    }
     function test_connected_actions_have_distinct_geometry_and_remote_navigation() {
         const catalog=createTemporaryObject(catalogFactory,suite);
         catalog.state={account:"connected",facets:["selections"],actions:["scan","disconnect"]};

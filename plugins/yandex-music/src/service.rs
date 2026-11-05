@@ -7,7 +7,9 @@ use crate::{
     secrets::SecretService,
 };
 use arinn_music_common::{paths, storage::Storage};
-use arinn_plugin_sdk::runtime::{MusicCatalogue, MusicHandler, MusicService, run_music_on};
+use arinn_plugin_sdk::runtime::{
+    MusicCatalogue, MusicHandler, MusicService, run_music_on, serve_settings, startup_settings,
+};
 use arinn_protocol::{
     music::{Command, Prompt, Query, State},
     validation::ErrorCode,
@@ -582,9 +584,13 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         std::path::PathBuf::from("mpv"),
     )?;
     let runtime = crate::runtime::Runtime::new(player, pins)?;
+    let values = startup_settings(&crate::settings::schema());
+    runtime
+        .set_prefetch_tracks(crate::settings::count(&values)?)
+        .await?;
     let browser = Arc::new(crate::browser::Browser::new(connection.clone()).await?);
     let handler = Service::from_initialization(auth)
-        .runtime(runtime)
+        .runtime(runtime.clone())
         .browser(browser);
     let restore_start = handler.auth.as_ref().map(|auth| auth.prepare());
     let restore = handler.clone();
@@ -592,6 +598,13 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         restore.restore(restore_start).await;
     });
     let service = MusicService::new(handler.clone());
+    serve_settings(
+        &connection,
+        crate::settings::Settings(runtime),
+        service.registrations(),
+    )
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
         .map_err(|_| ErrorCode::Unavailable)?;
     let result = tokio::select! {result=run_music_on(connection,service)=>result.map_err(|_|ErrorCode::Unavailable),_=terminate.recv()=>Ok(()),_=tokio::signal::ctrl_c()=>Ok(())};

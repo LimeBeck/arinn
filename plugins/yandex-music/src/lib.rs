@@ -4,6 +4,7 @@
 //! Provider-private catalogue/radio and device-code connection backends.
 //! Native D-Bus account lifecycle is available; playback and live client
 //! provisioning qualification remain separate integration work.
+mod artwork;
 pub mod auth;
 mod browser;
 pub mod catalogue;
@@ -12,6 +13,7 @@ mod parse;
 pub mod runtime;
 pub mod secrets;
 pub mod service;
+mod settings;
 pub mod stream;
 #[cfg(test)]
 mod tests;

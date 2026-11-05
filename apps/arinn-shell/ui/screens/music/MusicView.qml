@@ -57,14 +57,18 @@ FocusScope {
     readonly property var actions: player.actions || []
     readonly property bool transportBusy: catalog.transportBusy===true
     readonly property bool playing: player.playback === "playing"
+    readonly property string playerHeading: playing ? qsTr("Now playing")
+        : player.playback === "loading" ? qsTr("Loading music…")
+        : player.playback === "paused" ? qsTr("Paused")
+        : player.error ? qsTr("Playback failed") : qsTr("Stopped")
     signal backRequested()
     signal settingsRequested()
     function catalogueAction() {
         if(connectButton.visible)return connectButton;
         if(authorizeButton.visible)return authorizeButton;
         if(cancelAuthButton.visible)return cancelAuthButton;
-        if(disconnectButton.visible)return disconnectButton;
         if(rescanButton.visible)return rescanButton;
+        if(disconnectButton.visible)return disconnectButton;
         return settingsButton;
     }
     function detailAction() {return saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : catalogueAction();}
@@ -123,7 +127,7 @@ FocusScope {
         else if (event.key === Qt.Key_MediaTogglePlayPause || event.key === Qt.Key_MediaPlay || event.key === Qt.Key_MediaPause) { catalog.transport(playing ? "pause" : "resume"); event.accepted = true; }
     }
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
-    Ui.UiText { x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? qsTr("Now playing") : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
+    Ui.UiText { objectName:"musicHeading"; x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
     Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText || (root.selected.account === "restricted" ? qsTr("Music access was denied") : (root.selected.error || root.player.error) ? qsTr("Unavailable") : ""); role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 && !root.selected.catalogue_loading }
     Row {
         x: 120; y: 180; spacing: 20; enabled: !root.pendingPlay; visible: root.mode === "catalogue"
@@ -170,8 +174,8 @@ FocusScope {
     Ui.ActionButton { id:openPlayerButton; objectName:"musicOpenPlayer"; KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:root.catalogueAction(); x: 1320; y: 278; width: 240; height: 76; visible: root.mode === "catalogue" && (!!root.player.current || root.player.continuous===true) && !root.parentId; text: qsTr("Open player"); onActivated: root.openPlayer() }
     Ui.ActionButton {id:detailPlay;objectName:"musicPlayGroup";x:1320;y:278;width:240;height:76;visible:root.mode==="catalogue" && root.parentId.length>0;enabled:!root.catalog.busy && (root.selected.actions || []).includes("play");text:qsTr("Play");onActivated:root.requestPlay(root.parentId);KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:tracks}
     Ui.ActionButton { id:settingsButton;objectName:"musicSettings";KeyNavigation.left:detailPlay.visible ? detailPlay : openPlayerButton.visible ? openPlayerButton : searchKeyboardButton;KeyNavigation.down:root.catalogueAction()===settingsButton ? sourcePicker : root.catalogueAction(); x: 1580; y: 278; width: 220; height: 76; visible: root.mode === "catalogue"; text: qsTr("Settings"); onActivated: root.settingsRequested() }
-    Ui.ActionButton { id:disconnectButton;objectName:"musicDisconnect";KeyNavigation.up:sourcePicker;KeyNavigation.right:settingsButton;x: 1320; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("disconnect"); text: qsTr("Disconnect"); onActivated: root.catalog.command("disconnect") }
-    Ui.ActionButton { id:rescanButton;objectName:"musicRescan";KeyNavigation.up:tracks.count ? tracks : search;KeyNavigation.right:settingsButton;x: 1320; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("scan"); text: root.selected.account==="local" ? qsTr("Rescan") : qsTr("Refresh"); onActivated: root.catalog.command("scan") }
+    Ui.ActionButton { id:disconnectButton;objectName:"musicDisconnect";KeyNavigation.up:tracks.count ? tracks : search;KeyNavigation.left:rescanButton.visible ? rescanButton : null;KeyNavigation.right:settingsButton;x: 1500; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("disconnect"); text: qsTr("Disconnect"); onActivated: root.catalog.command("disconnect") }
+    Ui.ActionButton { id:rescanButton;objectName:"musicRescan";KeyNavigation.up:tracks.count ? tracks : search;KeyNavigation.right:disconnectButton.visible ? disconnectButton : settingsButton;x: disconnectButton.visible ? 1176 : 1500; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("scan"); text: root.selected.account==="local" ? qsTr("Rescan") : qsTr("Refresh"); onActivated: root.catalog.command("scan") }
     Row {x:120;y:880;spacing:24;visible:root.mode==="catalogue" && root.parentId.length>0
         Ui.ActionButton {id:saveGroup;objectName:"musicSavePlaylist";visible:(root.selected.actions || []).includes("save_playlist");text:qsTr("Save playlist");enabled:!root.catalog.busy;onActivated:root.namePlaylist(root.parentId,false);KeyNavigation.up:tracks;KeyNavigation.right:removeGroup.visible ? removeGroup : root.catalogueAction();KeyNavigation.down:root.catalogueAction()}
         Ui.ActionButton {id:removeGroup;objectName:"musicDeletePlaylist";visible:(root.selected.actions || []).includes("delete_playlist") && root.parentKind==="playlist";text:qsTr("Delete playlist");destructive:true;onActivated:{root.deletingPlaylist=true;Qt.callLater(()=>Ui.Focus.take(keepPlaylist));}KeyNavigation.up:tracks;KeyNavigation.left:saveGroup.visible ? saveGroup : tracks;KeyNavigation.down:root.catalogueAction()}

@@ -303,3 +303,13 @@ stream resolution and continuous-session feedback are implemented; their presenc
 does not establish live-service qualification.
 Live service and real-remote/HTPC qualification remain separate from synthetic
 tests and require the applicable account setup/operator authorization.
+
+### TV playback compatibility corrections (#787, #788)
+
+Signed download-info timestamps accept bounded ASCII hexadecimal text and are
+preserved verbatim in the CDN URL; they are not converted to decimal. Host,
+path, duplicate-field and response bounds remain enforced. The music catalogue
+places Refresh and Disconnect in separate remote-accessible positions. The
+player heading follows loading, paused, stopped and failed states rather than
+claiming playback solely because a track has been selected. These corrections
+do not establish end-to-end live playback qualification.

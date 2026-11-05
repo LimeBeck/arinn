@@ -1,3 +1,1 @@
 - Fix Yandex audio links with hexadecimal timestamps, separate the music Refresh and Disconnect actions, and show the actual player loading, paused, stopped or error state.
-- Keep slow Yandex artwork fetches alive behind a bounded account-scoped cache and retry transient image errors; localize built-in radio labels and show catalogue position and full track time.
-- Prepare up to five upcoming tracks as soon as the current track loads, configured through the provider’s prefetch_tracks setting, with ordered cancellable RAM buffering and no audio writes to SSD. A confirmed late music start clears its obsolete transport-timeout message.

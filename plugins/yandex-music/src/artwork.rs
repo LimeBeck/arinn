@@ -59,7 +59,11 @@ impl Artwork {
                 self.epoch.store(epoch, Ordering::Relaxed);
                 entries.clear();
             }
-            entries.retain(|e| e.epoch == epoch && e.created.elapsed() < Duration::from_secs(60));
+            entries.retain(|e| {
+                e.epoch == epoch
+                    && e.created.elapsed() < Duration::from_secs(60)
+                    && !e.result.borrow().as_ref().is_some_and(Result::is_err)
+            });
             if let Some(index) = entries.iter().position(|e| e.id == id) {
                 let entry = entries.remove(index).unwrap();
                 let receiver = entry.result.subscribe();
@@ -144,6 +148,30 @@ mod tests {
         Asset {
             mime: "image/jpeg".into(),
             data: vec![255, 216, 255, 0],
+        }
+    }
+    #[tokio::test(start_paused = true)]
+    async fn failed_fetch_is_retried_without_waiting_for_success_cache_expiry() {
+        for error in [ErrorCode::Unavailable, ErrorCode::Timeout] {
+            let cache = Artwork::new(Arc::new(Semaphore::new(1)));
+            assert_eq!(
+                cache
+                    .get(1, "cover:1".into(), async move { Err(error) })
+                    .await,
+                Err(error)
+            );
+            assert_eq!(
+                cache.get(1, "cover:1".into(), async { Ok(asset()) }).await,
+                Ok(asset())
+            );
+            assert_eq!(
+                cache
+                    .get(1, "cover:1".into(), async {
+                        panic!("successful image must stay cached")
+                    })
+                    .await,
+                Ok(asset())
+            );
         }
     }
     #[tokio::test(start_paused = true)]

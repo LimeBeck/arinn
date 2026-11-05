@@ -1,2 +1,2 @@
-- Keep slow Yandex artwork fetches alive in a bounded account-scoped cache, retry transient image errors, localize built-in radio labels and improve long-title, time and list-position presentation.
+- Keep slow Yandex artwork fetches alive in a bounded account-scoped cache, evict failed fetches for prompt retries, localize built-in radio labels and improve long-title, time and list-position presentation.
 - Preload up to five upcoming tracks in explicit queue order as soon as the current track loads. Configure prefetch_tracks from 0 to 5 in provider settings; audio buffers stay in anonymous RAM. Clear obsolete start timeouts when a new session is confirmed.

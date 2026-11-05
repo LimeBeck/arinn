@@ -317,7 +317,9 @@ do not establish end-to-end live playback qualification.
 Artwork requests have a four-second reply budget but no longer own network fetch
 lifetimes. The provider keeps at most four bounded background fetches, a 16 MiB /
 16-entry memory cache and a 30-second fetch deadline. The account epoch fences
-both cached and in-flight results; reconnect clears the cache. The music artwork
+both cached and in-flight results; reconnect clears the cache. Completed failed
+fetches are evicted so the next visible retry starts fresh work; successful images
+keep their cache lifetime. The music artwork
 slot retries a transient image failure up to six times while visible. It never
 fetches a provider URL directly or loops indefinitely on a missing cover.
 

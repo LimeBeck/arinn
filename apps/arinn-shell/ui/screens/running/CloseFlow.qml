@@ -55,6 +55,10 @@ FocusScope {
     // Home while a dialog is open: the dialog closes without closing the
     // application, and the shell shows Home (§6.3; review of #777).
     signal homeRequested()
+    // The opener is gone by the time a dialog closes (a system scope it was
+    // in has closed): the shell restores the screen's own focus (§6.1;
+    // review of #759).
+    signal focusFallbackRequested()
 
     function windowById(id) {
         return (windows || []).find(entry => entry && entry.id === id) || null;
@@ -66,7 +70,8 @@ FocusScope {
     function restoreOpener() {
         const item = opener;
         opener = null;
-        if (item && item.visible && item.enabled) Ui.Focus.take(item);
+        if (item && item.visible && item.enabled && Ui.Focus.take(item)) return;
+        focusFallbackRequested();
     }
     // CL-8: ask before closing. A window Arinn cannot close is not asked.
     function ask(windowId) {
@@ -88,7 +93,7 @@ FocusScope {
     // (review of #777).
     property var queuedFailures: []
     function showQueued() {
-        if (open || !queuedFailures.length) return;
+        if (open || suppressed || !queuedFailures.length) return;
         const id = queuedFailures[0];
         queuedFailures = queuedFailures.slice(1);
         showFailure(id);
@@ -97,9 +102,10 @@ FocusScope {
         const entry = windowById(id);
         const title = entry ? (entry.title || "") : (titles[id] || "");
         remember();
-        target = {id: id, title: title};
+        // "Go to" only for a window Arinn can switch to (review of #759).
+        target = {id: id, title: title, switchable: !!entry && entry.enabled !== false};
         phase = "failed";
-        Qt.callLater(() => { if (phase === "failed") Ui.Focus.take(switchButton); });
+        Qt.callLater(() => { if (phase === "failed") Ui.Focus.take(target.switchable ? switchButton : stayButton); });
     }
     function confirm() {
         if (phase !== "confirm") return;
@@ -130,7 +136,10 @@ FocusScope {
         forget(id);
         gaveUp(id);
         failedIds = failedIds.concat([id]);
-        if (open) {
+        // Behind another dialog or a system scope (the quick menu, the power
+        // scope, ambient) it waits, so its opener is what is on screen when
+        // it shows (review of #759).
+        if (open || suppressed) {
             if (queuedFailures.indexOf(id) < 0) queuedFailures = queuedFailures.concat([id]);
             return;
         }
@@ -154,14 +163,22 @@ FocusScope {
     }
     function restoreFocus() {
         if (phase === "confirm") Ui.Focus.take(cancelButton);
-        else if (phase === "failed") Ui.Focus.take(switchButton);
+        // "Go to" is hidden for a window Arinn cannot activate (review of
+        // #789).
+        else if (phase === "failed") Ui.Focus.take(switchButton.visible ? switchButton : stayButton);
     }
     function check() {
         const listed = (windows || []).map(entry => entry.id);
         // No evidence either way while the list is not the daemon's own:
         // a request stays pending until a trusted snapshot settles it
         // (review of #777).
-        if (!windowsKnown) return;
+        // A confirmation whose request could not be admitted now (the list
+        // is not the daemon's own, or the window has gone) closes; closes
+        // already asked for stay pending (review of #759).
+        if (!windowsKnown) {
+            if (phase === "confirm") cancel();
+            return;
+        }
         // An id the provider lists again is a new window: its own
         // disappearance is not the one asked for (review of #777).
         if (closedIds.some(id => listed.indexOf(id) >= 0))
@@ -220,7 +237,10 @@ FocusScope {
     }
     onSuppressedChanged: {
         if (suppressed) toastTimer.stop();
-        else if (toastMessage.length > 0) toastTimer.restart();
+        else {
+            if (toastMessage.length > 0) toastTimer.restart();
+            Qt.callLater(showQueued);
+        }
     }
     Timer { id: waitTimer; interval: 500; repeat: true; onTriggered: root.check() }
     Timer { id: toastTimer; interval: root.toastDurationMs; onTriggered: root.nextToast() }
@@ -237,7 +257,8 @@ FocusScope {
             if (!event.isAutoRepeat) cancel();
         } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right
                    || event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-            const pair = phase === "confirm" ? [cancelButton, confirmButton] : [switchButton, stayButton];
+            const pair = phase === "confirm" ? [cancelButton, confirmButton]
+                       : switchButton.visible ? [switchButton, stayButton] : [stayButton, stayButton];
             Ui.InputMode.keyPressed();
             const next = pair[0].activeFocus ? pair[1] : pair[0];
             // After this key's delivery: a button still handling it would
@@ -328,6 +349,7 @@ FocusScope {
                             id: switchButton
                             objectName: "closeFlowSwitch"
                             height: 96
+                            visible: root.target.switchable !== false
                             text: qsTr("Go to %1").arg(root.target.title || "")
                             pointerMode: root.pointerMode
                             onActivated: {

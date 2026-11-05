@@ -50,8 +50,12 @@ The screen follows the Open services geometry. The title is followed by the coun
 (40/600, `text-3`). As on the other section screens, the shared status area
 (clock, network, mute, downloads) sits top right, and the screen blurs under the
 navigation where the renderer supports it (#756 C17, C26). One row per running window of an ordinary application, from
-`Backend.items`; browser windows are not in that list. The window on screen
-comes first.
+`Main.applicationWindows`: `Backend.items` without the windows whose token a
+browser provider reports in `BrowserCatalog.windows`, so a browser that is also
+found as a desktop application stays on Open services. Home's open windows and
+the close flow use the same list. The window on screen comes first. When the
+selected row goes on its own, focus moves to the row before it (§6.1); a
+requested close has already moved focus to the next row (CL-9).
 
 Each row is min-h128 r26, a container: no plate at rest, an 8 % plate and the rim
 in focus. It has a chip 76 (the application's icon or its letter on the neutral
@@ -113,8 +117,14 @@ While a dialog is open, `Main.focusedScreen` is `closeFlow`.
   window is still listed `closeWaitMs` (10 s) after the request. An
   informational dialog then says "{name} did not close" and explains that the
   application may be waiting for an answer on its own screen. Its buttons are
-  "Go to {name}" (default; it activates the window) and "Stay". The row then
-  reads "Did not close".
+  "Go to {name}" (default; it activates the window) and "Stay"; a window Arinn
+  cannot activate gets only "Stay". The row then reads "Did not close". A
+  failure that arrives while the quick menu, the power scope or the ambient
+  screen is open waits until it closes, and when the dialog's opener has gone,
+  `CloseFlow.focusFallbackRequested` has Main restore the screen's own focus.
+- **Unknown registry.** A confirmation closes without sending anything when the
+  list stops being the daemon's own registry; closes already asked for stay
+  pending.
 
 The 10 s wait answers the handoff's open question on how long Arinn waits. It is
 a delegated technical choice and a named property, not a theme token.

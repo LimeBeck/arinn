@@ -31,7 +31,7 @@ Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 }
 MusicCatalog::MusicCatalog(QObject *parent):QObject(parent){
   auto *watch=new QDBusServiceWatcher(service,QDBusConnection::sessionBus(),QDBusServiceWatcher::WatchForOwnerChange,this);
-  connect(watch,&QDBusServiceWatcher::serviceOwnerChanged,this,[this]{++m_commandTicket;++m_epoch;++m_pageTicket;++m_stateTicket;++m_registryTicket;m_registryBusy=m_pageBusy=m_stateBusy=m_commandBusy=m_activeBusy=m_commandWaitingRefresh=false;m_path.clear();m_generation.clear();m_sources.clear();m_entries.clear();m_state.clear();m_active.clear();m_activeId.clear();m_activeGeneration.clear();m_next.clear();emit activeChanged();emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();refresh();});
+  connect(watch,&QDBusServiceWatcher::serviceOwnerChanged,this,[this]{++m_commandTicket;++m_epoch;++m_pageTicket;++m_stateTicket;++m_registryTicket;m_registryBusy=m_pageBusy=m_stateBusy=m_commandBusy=m_activeBusy=m_commandWaitingRefresh=false;m_uncertainStart=false;m_path.clear();m_generation.clear();m_sources.clear();m_entries.clear();m_state.clear();m_active.clear();m_activeId.clear();m_activeGeneration.clear();m_next.clear();emit activeChanged();emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();refresh();});
   m_timer.setInterval(1000);connect(&m_timer,&QTimer::timeout,this,&MusicCatalog::refresh);m_timer.start();QTimer::singleShot(0,this,&MusicCatalog::refresh);
 }
 QString MusicCatalog::sectionTitle()const{return tr("Music");}
@@ -78,6 +78,7 @@ void MusicCatalog::choose(const QString &id){
   QVariantMap selected;for(const auto &row:m_sources)if(row.toMap().value("id")==id){selected=row.toMap();break;}
   const auto path=selected.value("path").toString(),generation=selected.value("generation").toString();
   if(m_sourceId==id&&m_path==path&&m_generation==generation)return;
+  m_uncertainStart=false;
   ++m_epoch;++m_pageTicket;++m_stateTicket;m_pageBusy=m_stateBusy=m_activeBusy=false;m_sourceId=id;m_path=path;m_generation=generation;m_facet.clear();m_catalogueRevision=0;m_entries.clear();m_state.clear();m_next.clear();m_error.clear();m_stateError=false;m_parent.clear();
   emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();emit browseReset();readState();
 }
@@ -133,7 +134,13 @@ void MusicCatalog::readActive(){
     const auto json=object(reply);if(json.isEmpty())return;
     m_active=json.value("state").toObject().toVariantMap();m_activeId=json.value("provider_id").toString();m_activeGeneration=json.value("generation").toString();
     QString path;for(const auto &row:m_sources){const auto source=row.toMap();if(source.value("id").toString()==m_activeId && source.value("generation").toString()==m_activeGeneration){path=source.value("path").toString();break;}}
-    m_active=imageState(m_active,m_activeId,path,m_activeGeneration);emit activeChanged();
+    m_active=imageState(m_active,m_activeId,path,m_activeGeneration);
+    if(m_uncertainStart && m_activeId==m_startProvider && m_activeGeneration==m_startGeneration
+       && !m_active.value("session").toString().isEmpty() && m_active.value("session").toString()!=m_startSession
+       && m_active.value("error").isNull() && QStringList{"loading","playing","paused"}.contains(m_active.value("playback").toString())) {
+      m_uncertainStart=false;m_error.clear();emit statusChanged();
+    }
+    emit activeChanged();
   });
 }
 void MusicCatalog::command(const QString &action,const QString &entity,const QString &occurrence,qint64 positionUs,const QString &text){send(action,entity,occurrence,positionUs,false,text);}
@@ -147,12 +154,19 @@ void MusicCatalog::send(const QString &action,const QString &entity,const QStrin
     if(!found)return;
   }
   if(endpoint.isEmpty()||generation.isEmpty()||!state.value("actions").toStringList().contains(action))return;
+  m_uncertainStart=false;
   m_commandBusy=true;m_commandWaitingRefresh=false;m_error.clear();++m_stateTicket;m_stateBusy=false;emit statusChanged();const auto epoch=m_epoch,commandTicket=++m_commandTicket;
   const QJsonObject payload{{"request_id",QUuid::createUuid().toString(QUuid::WithoutBraces)},{"action",action},{"session",state.value("session").toString()},{"entity",entity},{"occurrence",occurrence},{"position_us",positionUs},{"replaces_provider",m_activeId},{"replaces_session",m_active.value("session").toString()},{"text",text}};
   auto message=call(endpoint,"org.arinn.Music1","Command");message<<generation<<QString::fromUtf8(QJsonDocument(payload).toJson(QJsonDocument::Compact));
+  const auto provider=active?m_activeId:m_sourceId,oldSession=state.value("session").toString();
   auto *pending=new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(message,5500),this);
-  connect(pending,&QDBusPendingCallWatcher::finished,this,[this,epoch,active,commandTicket](auto *watch){const auto reply=watch->reply();watch->deleteLater();if(commandTicket!=m_commandTicket)return;if(epoch!=m_epoch){m_commandBusy=false;emit statusChanged();readActive();return;}
-    const auto json=object(reply);if(json.isEmpty()){fail(code(reply));m_commandWaitingRefresh=true;m_stateBusy=false;++m_stateTicket;readState();readActive();return;}
+  connect(pending,&QDBusPendingCallWatcher::finished,this,[this,epoch,active,commandTicket,action,provider,generation,oldSession](auto *watch){const auto reply=watch->reply();watch->deleteLater();if(commandTicket!=m_commandTicket)return;if(epoch!=m_epoch){m_commandBusy=false;emit statusChanged();readActive();return;}
+    const auto json=object(reply);if(json.isEmpty()){
+      const auto failure=code(reply);
+      if((action=="play" || action=="radio") && (failure=="Timeout" || failure=="NoReply")) {
+        m_uncertainStart=true;m_startProvider=provider;m_startGeneration=generation;m_startSession=oldSession;
+      }
+      fail(failure);m_commandWaitingRefresh=true;m_stateBusy=false;++m_stateTicket;readState();readActive();return;}
     m_commandBusy=false;if(!active){m_state=imageState(json.toVariantMap(),m_sourceId,m_path,m_generation);emit stateChanged();}emit statusChanged();readActive();
   });
 }

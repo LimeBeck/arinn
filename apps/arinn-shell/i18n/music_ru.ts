@@ -332,5 +332,9 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>Sign-in succeeded. Music is temporarily unavailable; try again.</source>
       <translation>Вход выполнен. Музыка временно недоступна; попробуйте ещё раз.</translation>
     </message>
+    <message>
+      <source>%1 of %2</source>
+      <translation>%1 из %2</translation>
+    </message>
   </context>
 </TS>

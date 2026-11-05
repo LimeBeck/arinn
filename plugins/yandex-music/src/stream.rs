@@ -79,6 +79,28 @@ fn signed(xml: &str) -> Result<String, Error> {
     cdn_url(&url)?;
     Ok(url)
 }
+async fn buffer_audio(mut response: reqwest::Response) -> Result<Source, Error> {
+    use std::io::{Seek, SeekFrom, Write};
+    const LIMIT: usize = 32 * 1024 * 1024;
+    if response.content_length().is_some_and(|n| n > LIMIT as u64) {
+        return Err(Error::TooLarge);
+    }
+    let mut file = arinn_music_common::player::audio_buffer().map_err(|_| Error::Unavailable)?;
+    let mut size = 0;
+    while let Some(chunk) = response.chunk().await.map_err(|_| Error::Transport)? {
+        size += chunk.len();
+        if size > LIMIT {
+            return Err(Error::TooLarge);
+        }
+        file.write_all(&chunk).map_err(|_| Error::Unavailable)?;
+    }
+    if size == 0 {
+        return Err(Error::Unavailable);
+    }
+    file.seek(SeekFrom::Start(0))
+        .map_err(|_| Error::Unavailable)?;
+    Ok(Source::File(file))
+}
 impl Api {
     pub async fn artwork(&self, id: &str) -> Result<arinn_protocol::assets::Asset, Error> {
         self.guard(self.artwork_inner(id)).await
@@ -126,6 +148,28 @@ impl Api {
             .into();
         Ok(arinn_protocol::assets::Asset { mime, data })
     }
+    /// Prepare a single next track in RAM, without forwarding OAuth to its CDN.
+    pub async fn prebuffer(&self, id: &str) -> Result<Source, Error> {
+        self.guard(async {
+            let Source::Stream { url, headers } = self.audio(id).await? else {
+                return Err(Error::InvalidResponse);
+            };
+            if !headers.is_empty() {
+                return Err(Error::InvalidResponse);
+            }
+            let response = self
+                .downloads
+                .get(cdn_url(&url)?)
+                .send()
+                .await
+                .map_err(|_| Error::Transport)?;
+            if !response.status().is_success() {
+                return Err(Error::Unavailable);
+            }
+            buffer_audio(response).await
+        })
+        .await
+    }
     pub async fn audio(&self, id: &str) -> Result<Source, Error> {
         self.guard(self.audio_inner(id)).await
     }
@@ -169,6 +213,61 @@ impl Api {
 #[cfg(test)]
 mod tests {
     use super::*;
+    async fn buffer_response(size: usize, body: &'static [u8]) -> Result<Source, Error> {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/fixture", listener.local_addr().unwrap());
+        let worker = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut b = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                socket.read_exact(&mut b).unwrap();
+                request.push(b[0]);
+            }
+            assert!(
+                !String::from_utf8_lossy(&request)
+                    .to_lowercase()
+                    .contains("authorization:")
+            );
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Length: {size}\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+            let _ = socket.write_all(body);
+        });
+        let response = reqwest::Client::new().get(url).send().await.unwrap();
+        let result = buffer_audio(response).await;
+        worker.join().unwrap();
+        result
+    }
+    #[tokio::test]
+    async fn preload_is_anonymous_ram_file_and_rejects_empty_oversize_or_truncated_audio() {
+        use std::io::Read;
+        let Source::File(mut file) = buffer_response(7, b"ID3test").await.unwrap() else {
+            panic!("expected RAM buffer");
+        };
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"ID3test");
+        use std::os::fd::AsRawFd;
+        assert!(
+            std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+                .unwrap()
+                .to_string_lossy()
+                .contains("memfd:arinn-audio")
+        );
+        assert!(matches!(
+            buffer_response(33 * 1024 * 1024, b"").await,
+            Err(Error::TooLarge)
+        ));
+        assert!(buffer_response(0, b"").await.is_err());
+        assert!(buffer_response(100, b"short").await.is_err());
+    }
     #[test]
     fn hexadecimal_timestamp_is_preserved_and_delimiters_are_rejected() {
         let xml = "<download-info><host>storage.mds.yandex.net</host><path>/fixture.mp3</path><ts>6aBc123F</ts><s>fixture</s></download-info>";

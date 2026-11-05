@@ -8,7 +8,7 @@ use std::{
     fs::{self, DirBuilder, File},
     io::{BufRead, BufReader, Write},
     os::{
-        fd::AsRawFd,
+        fd::{AsRawFd, FromRawFd},
         unix::{fs::DirBuilderExt, net::UnixStream, process::CommandExt},
     },
     path::{Path, PathBuf},
@@ -17,6 +17,16 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// One anonymous RAM buffer; preloading never writes audio to the SSD.
+pub fn audio_buffer() -> Result<File, ErrorCode> {
+    // SAFETY: fixed NUL-terminated name; returned descriptor has one owner.
+    let fd = unsafe { libc::memfd_create(c"arinn-audio".as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        return Err(ErrorCode::Unavailable);
+    }
+    // SAFETY: memfd_create returned a new owned descriptor.
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
 pub enum Source {
     File(File),
     Stream { url: String, headers: Vec<String> },

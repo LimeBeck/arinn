@@ -23,6 +23,29 @@ pub trait Resolver: Send + Sync + 'static {
         &self,
         id: String,
     ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>>;
+    fn prefetch_capacity(&self) -> usize {
+        1
+    }
+    fn prefetch(
+        &self,
+        id: String,
+    ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+        self.resolve(id)
+    }
+}
+struct Prepared {
+    session: String,
+    occurrence: u64,
+    created: tokio::time::Instant,
+    work: Option<tokio::task::JoinHandle<Result<Source, ErrorCode>>>,
+    finished: tokio::sync::watch::Receiver<bool>,
+}
+impl Drop for Prepared {
+    fn drop(&mut self) {
+        if let Some(work) = self.work.take() {
+            work.abort();
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EventKind {
@@ -45,6 +68,7 @@ pub struct RadioRefill {
     replace: bool,
 }
 struct Data {
+    prepared: Vec<Prepared>,
     queue: Queue,
     tracks: BTreeMap<String, Track>,
     tail: VecDeque<String>,
@@ -71,12 +95,15 @@ pub struct Playback {
     io: Mutex<()>,
     player: Player,
     resolver: Arc<dyn Resolver>,
+    load_changes: tokio::sync::watch::Sender<u64>,
+    prefetch_limit: Arc<tokio::sync::Semaphore>,
     events: tokio::sync::broadcast::Sender<PlaybackEvent>,
 }
 impl Playback {
     pub fn new(player: Player, resolver: Arc<dyn Resolver>) -> Arc<Self> {
         let this = Arc::new(Self {
             data: Mutex::new(Data {
+                prepared: Vec::new(),
                 queue: Queue::default(),
                 tracks: BTreeMap::new(),
                 tail: VecDeque::new(),
@@ -101,6 +128,8 @@ impl Playback {
             io: Mutex::new(()),
             player,
             resolver,
+            load_changes: tokio::sync::watch::channel(0).0,
+            prefetch_limit: Arc::new(tokio::sync::Semaphore::new(1)),
             events: tokio::sync::broadcast::channel(128).0,
         });
         let weak = Arc::downgrade(&this);
@@ -217,6 +246,8 @@ impl Playback {
         let token = {
             let mut d = self.data.lock().await;
             d.token = d.token.checked_add(1).ok_or(ErrorCode::Internal)?;
+            self.load_changes.send_replace(d.token);
+            d.prepared.clear();
             d.session = uuid::Uuid::new_v4().to_string();
             d.tail = if station.is_none() {
                 tracks.iter().skip(65).map(|t| t.id.clone()).collect()
@@ -362,6 +393,7 @@ impl Playback {
                 d.queue.advance().map_err(|_| ErrorCode::Conflict)?;
             }
             d.token += 1;
+            self.load_changes.send_replace(d.token);
             d.loaded = false;
             d.started = None;
             d.played_us = 0;
@@ -384,16 +416,96 @@ impl Playback {
         }
         Ok(())
     }
+    pub async fn refresh_prefetch(&self) {
+        self.prepare_next().await;
+    }
+    async fn prepare_next(&self) {
+        let mut d = self.data.lock().await;
+        if !d.loaded && d.status != "playing" && d.status != "paused" {
+            d.prepared.clear();
+            return;
+        }
+        let capacity = self.resolver.prefetch_capacity().min(5);
+        let next: Vec<_> = d
+            .queue
+            .current()
+            .map(|current| {
+                d.queue
+                    .entries()
+                    .iter()
+                    .skip_while(|e| e.occurrence != current.occurrence)
+                    .skip(1)
+                    .take(capacity)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let session = d.session.clone();
+        d.prepared
+            .retain(|p| p.session == session && next.iter().any(|e| e.occurrence == p.occurrence));
+        if d.prepared.first().is_some_and(|p| {
+            next.first()
+                .is_some_and(|first| first.occurrence != p.occurrence)
+        }) {
+            // Going back inserts a new immediate successor before older queued work.
+            d.prepared.clear();
+        }
+        for next in next {
+            if d.prepared.iter().any(|p| p.occurrence == next.occurrence) {
+                continue;
+            }
+            let resolver = self.resolver.clone();
+            let limit = self.prefetch_limit.clone();
+            let predecessor = d.prepared.last().map(|p| p.finished.clone());
+            let (done, finished) = tokio::sync::watch::channel(false);
+            d.prepared.push(Prepared {
+                session: session.clone(),
+                occurrence: next.occurrence,
+                created: tokio::time::Instant::now(),
+                finished,
+                work: Some(tokio::spawn(async move {
+                    // Explicit predecessor order, independent of Tokio task scheduling.
+                    // A cancelled predecessor closes its channel and unblocks the survivor.
+                    if let Some(mut previous) = predecessor {
+                        let _ = previous.wait_for(|ready| *ready).await;
+                    }
+                    // At most five queued preparations and one network download.
+                    let _permit = limit
+                        .acquire_owned()
+                        .await
+                        .map_err(|_| ErrorCode::Unavailable)?;
+                    let result = tokio::time::timeout(
+                        std::time::Duration::from_secs(30),
+                        resolver.prefetch(next.track),
+                    )
+                    .await
+                    .unwrap_or(Err(ErrorCode::Timeout));
+                    done.send_replace(true);
+                    result
+                })),
+            });
+        }
+    }
     async fn load_current(self: &Arc<Self>, token: u64) {
-        let id = {
-            let d = self.data.lock().await;
+        let mut changes = self.load_changes.subscribe();
+        let (id, prepared) = {
+            let mut d = self.data.lock().await;
             if d.token != token {
                 return;
             }
             let Some(entry) = d.queue.current() else {
                 return;
             };
-            entry.track.clone()
+            let id = entry.track.clone();
+            let occurrence = entry.occurrence;
+            let prepared = d
+                .prepared
+                .iter()
+                .position(|p| p.occurrence == occurrence)
+                .map(|i| d.prepared.remove(i))
+                .filter(|p| p.session == d.session);
+            changes.borrow_and_update();
+            (id, prepared)
         };
         {
             let _io = self.io.lock().await;
@@ -410,7 +522,22 @@ impl Playback {
                 return;
             }
         }
-        let source = self.resolver.resolve(id).await;
+        let resolving = async {
+            match prepared {
+                Some(mut prepared) => match prepared.work.as_mut().unwrap().await {
+                    Ok(Ok(Source::Stream { .. }))
+                        if prepared.created.elapsed() > std::time::Duration::from_secs(45) =>
+                    {
+                        self.resolver.resolve(id).await
+                    }
+                    Ok(Ok(source)) => Ok(source),
+                    _ => self.resolver.resolve(id).await,
+                },
+                None => self.resolver.resolve(id).await,
+            }
+        };
+        let source = tokio::select! {biased;_=changes.changed()=>return,result=resolving=>result};
+
         let _io = self.io.lock().await;
         if self.data.lock().await.token != token {
             return;
@@ -437,11 +564,14 @@ impl Playback {
             }
         }
         d.revision += 1;
+        drop(d);
+        self.prepare_next().await;
     }
     pub async fn stop(&self) -> Result<State, ErrorCode> {
         let token = {
             let mut d = self.data.lock().await;
             d.token += 1;
+            self.load_changes.send_replace(d.token);
             d.status = "loading".into();
             d.loaded = false;
             d.token
@@ -450,6 +580,7 @@ impl Playback {
         let stopped = self.player.stop().await;
         let mut d = self.data.lock().await;
         if d.token == token {
+            d.prepared.clear();
             d.queue.stop();
             d.station = None;
             d.origins.clear();
@@ -501,6 +632,7 @@ impl Playback {
                         let _ = self.events.send(event);
                     }
                     d.token += 1;
+                    self.load_changes.send_replace(d.token);
                     d.started = None;
                     d.played_us = 0;
                     d.clock = tokio::time::Instant::now();
@@ -666,6 +798,7 @@ impl Playback {
                                 && d.queue.confirmed_end(occurrence).is_ok()
                             {
                                 d.token += 1;
+                                this.load_changes.send_replace(d.token);
                                 d.started = None;
                                 d.played_us = 0;
                                 d.clock = tokio::time::Instant::now();
@@ -702,6 +835,9 @@ impl Playback {
                 let _ = this.player.acknowledge_eof(id).await;
             }
             drop(io);
+            if !advance {
+                this.prepare_next().await;
+            }
             if advance {
                 this.load_current(next).await;
             }
@@ -823,6 +959,290 @@ mod tests {
             state,
         };
         music::encode(&Some(envelope)).unwrap();
+    }
+    struct PrefetchDrop(Arc<std::sync::atomic::AtomicBool>);
+    impl Drop for PrefetchDrop {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    struct BlockResolver {
+        started: Arc<std::sync::atomic::AtomicBool>,
+        dropped: Arc<std::sync::atomic::AtomicBool>,
+    }
+    impl Resolver for BlockResolver {
+        fn resolve(
+            &self,
+            _id: String,
+        ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+            Box::pin(async { Err(ErrorCode::Unavailable) })
+        }
+        fn prefetch(
+            &self,
+            _id: String,
+        ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+            Box::pin(async move {
+                let _drop = PrefetchDrop(self.dropped.clone());
+                self.started
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                std::future::pending().await
+            })
+        }
+    }
+    #[tokio::test]
+    async fn stop_or_replacement_cancels_even_a_preload_consumed_by_load_current() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        for replace in [false, true] {
+            let started = Arc::new(AtomicBool::new(false));
+            let dropped = Arc::new(AtomicBool::new(false));
+            let resolver = Arc::new(BlockResolver {
+                started: started.clone(),
+                dropped: dropped.clone(),
+            });
+            let playback = Playback::new(
+                Player::new(
+                    std::path::Path::new("/tmp"),
+                    "/nonexistent-arinn-prefetch-player".into(),
+                )
+                .unwrap(),
+                resolver,
+            );
+            {
+                let mut d = playback.data.lock().await;
+                d.queue
+                    .start(vec!["one".into(), "two".into()], None)
+                    .unwrap();
+                d.session = "fixture".into();
+                d.status = "playing".into();
+                d.duration = 60_000_000;
+                d.position = 45_000_000;
+            }
+            playback.prepare_next().await;
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !started.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            {
+                playback.data.lock().await.queue.advance().unwrap();
+            }
+            let owner = playback.clone();
+            let loading = tokio::spawn(async move {
+                owner.load_current(0).await;
+            });
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !playback.data.lock().await.prepared.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            if replace {
+                playback
+                    .play(vec![Track {
+                        id: "new".into(),
+                        available: true,
+                        ..Track::default()
+                    }])
+                    .await
+                    .unwrap();
+            } else {
+                playback.stop().await.unwrap();
+            }
+            tokio::time::timeout(std::time::Duration::from_secs(1), loading)
+                .await
+                .unwrap()
+                .unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !dropped.load(Ordering::SeqCst) {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(playback.prefetch_limit.available_permits(), 1);
+        }
+    }
+    struct CountResolver {
+        resolves: std::sync::atomic::AtomicUsize,
+        preparations: std::sync::atomic::AtomicUsize,
+        capacity: std::sync::atomic::AtomicUsize,
+        order: std::sync::Mutex<Vec<String>>,
+    }
+    impl Resolver for CountResolver {
+        fn prefetch_capacity(&self) -> usize {
+            self.capacity.load(std::sync::atomic::Ordering::Relaxed)
+        }
+        fn resolve(
+            &self,
+            _id: String,
+        ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+            self.resolves
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async { Ok(Source::File(std::fs::File::open("/dev/null").unwrap())) })
+        }
+        fn prefetch(
+            &self,
+            _id: String,
+        ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+            self.order.lock().unwrap().push(_id);
+            self.preparations
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async { Ok(Source::File(std::fs::File::open("/dev/null").unwrap())) })
+        }
+    }
+    async fn prepared_fixture() -> (Arc<Playback>, Arc<CountResolver>) {
+        let resolver = Arc::new(CountResolver {
+            resolves: 0.into(),
+            preparations: 0.into(),
+            capacity: 1.into(),
+            order: std::sync::Mutex::new(Vec::new()),
+        });
+        let player = Player::new(
+            std::path::Path::new("/tmp"),
+            "/nonexistent-arinn-prefetch-player".into(),
+        )
+        .unwrap();
+        let playback = Playback::new(player, resolver.clone());
+        {
+            let mut d = playback.data.lock().await;
+            d.queue
+                .start(vec!["one".into(), "two".into(), "three".into()], None)
+                .unwrap();
+            d.session = "fixture-session".into();
+            d.status = "playing".into();
+            d.duration = 60_000_000;
+            d.position = 45_000_000;
+        }
+        (playback, resolver)
+    }
+    #[tokio::test]
+    async fn configured_queue_starts_immediately_and_is_bounded_to_five() {
+        let (playback, resolver) = prepared_fixture().await;
+        {
+            let mut d = playback.data.lock().await;
+            d.queue
+                .start((0..9).map(|i| format!("fixture-{i}")).collect(), None)
+                .unwrap();
+            d.position = 0;
+            d.duration = 300_000_000;
+        }
+        resolver
+            .capacity
+            .store(5, std::sync::atomic::Ordering::Relaxed);
+        playback.prepare_next().await;
+        assert_eq!(playback.data.lock().await.prepared.len(), 5);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while resolver.order.lock().unwrap().len() < 5 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            *resolver.order.lock().unwrap(),
+            vec![
+                "fixture-1",
+                "fixture-2",
+                "fixture-3",
+                "fixture-4",
+                "fixture-5"
+            ]
+        );
+        resolver
+            .capacity
+            .store(2, std::sync::atomic::Ordering::Relaxed);
+        playback.refresh_prefetch().await;
+        assert_eq!(playback.data.lock().await.prepared.len(), 2);
+        resolver
+            .capacity
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        playback.refresh_prefetch().await;
+        assert!(playback.data.lock().await.prepared.is_empty());
+    }
+    #[tokio::test]
+    async fn next_track_is_prepared_once_without_replacing_current_and_reused_at_boundary() {
+        let (playback, resolver) = prepared_fixture().await;
+        playback.prepare_next().await;
+        tokio::task::yield_now().await;
+        playback.prepare_next().await;
+        tokio::task::yield_now().await;
+        assert_eq!(
+            resolver
+                .preparations
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        {
+            let mut d = playback.data.lock().await;
+            assert_eq!(d.queue.current().unwrap().track, "one");
+            assert_eq!(d.status, "playing");
+            assert_eq!(d.position, 45_000_000);
+            d.queue.advance().unwrap();
+        }
+        playback.load_current(0).await;
+        // Fake player cannot start, but no second resolver call is needed.
+        assert_eq!(
+            resolver.resolves.load(std::sync::atomic::Ordering::SeqCst),
+            0
+        );
+    }
+    #[tokio::test]
+    async fn expired_changed_and_removed_next_occurrences_never_reuse_prepared_audio() {
+        let (playback, resolver) = prepared_fixture().await;
+        playback.prepare_next().await;
+        tokio::task::yield_now().await;
+        {
+            let mut d = playback.data.lock().await;
+            d.prepared.first_mut().unwrap().created -= std::time::Duration::from_secs(46);
+            d.prepared.first_mut().unwrap().work = Some(tokio::spawn(async {
+                Ok(Source::Stream {
+                    url: "https://fixture.invalid/audio".into(),
+                    headers: vec![],
+                })
+            }));
+            d.queue.advance().unwrap();
+        }
+        playback.load_current(0).await;
+        assert_eq!(
+            resolver.resolves.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        let (playback, resolver) = prepared_fixture().await;
+        playback.prepare_next().await;
+        tokio::task::yield_now().await;
+        {
+            let mut d = playback.data.lock().await;
+            let next = d.prepared.first().unwrap().occurrence;
+            d.queue.remove(next).unwrap();
+            d.queue.advance().unwrap();
+        }
+        playback.load_current(0).await;
+        assert_eq!(
+            resolver.resolves.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+    #[tokio::test]
+    async fn preload_starts_as_soon_as_current_is_loaded_and_stop_discards_it() {
+        let (playback, _) = prepared_fixture().await;
+        playback.prepare_next().await;
+        {
+            playback.data.lock().await.position = 1_000_000;
+        }
+        playback.prepare_next().await;
+        assert_eq!(playback.data.lock().await.prepared.len(), 1);
+        {
+            playback.data.lock().await.position = 45_000_000;
+        }
+        playback.prepare_next().await;
+        playback.stop().await.unwrap();
+        let d = playback.data.lock().await;
+        assert!(d.prepared.is_empty());
+        assert!(d.queue.current().is_none());
+        assert_eq!(d.status, "stopped");
     }
     struct FixtureResolver;
     impl Resolver for FixtureResolver {

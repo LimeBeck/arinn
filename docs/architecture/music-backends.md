@@ -313,3 +313,35 @@ places Refresh and Disconnect in separate remote-accessible positions. The
 player heading follows loading, paused, stopped and failed states rather than
 claiming playback solely because a track has been selected. These corrections
 do not establish end-to-end live playback qualification.
+
+Artwork requests have a four-second reply budget but no longer own network fetch
+lifetimes. The provider keeps at most four bounded background fetches, a 16 MiB /
+16-entry memory cache and a 30-second fetch deadline. The account epoch fences
+both cached and in-flight results; reconnect clears the cache. The music artwork
+slot retries a transient image failure up to six times while visible. It never
+fetches a provider URL directly or loops indefinitely on a missing cover.
+
+The music player begins preparing upcoming queue occurrences immediately after
+the current file loads. The Yandex provider exposes `prefetch_tracks` through the
+existing Settings1 API: an integer from 0 to 5, default 5, applied to upcoming
+preparations without interrupting the current track. The value is persisted in
+`config.toml` and supplied at provider startup, with no rebuild required:
+
+```toml
+[providers.yandex-music.settings]
+prefetch_tracks = 5
+```
+
+0 disables preparation. At most five tasks/buffers are retained and downloads
+are admitted in explicit queue order, one at a time. Each admitted fetch has a
+30-second deadline. Stop, replacement and incompatible queue changes cancel
+both queued work and a consumed preparation waiting to play. Yandex keeps up to
+32 MiB per prepared track in a memfd, without writing audio to disk. Including
+the current RAM-backed track, at most 192 MiB of audio is retained. Completed RAM
+files do not expire while in this queue; generic signed stream sources older
+than 45 seconds are resolved again rather than reused. Oversized or failed
+preparation falls back to ordinary resolution when that occurrence is selected.
+Preparation never advances the queue, starts sound or sends played feedback.
+Natural EOF remains the only automatic advancement trigger. This removes network
+resolution/download waits at prepared transitions; it does not claim sample-
+accurate gapless decoding across two player processes.

@@ -224,7 +224,11 @@ Surface {
                     }
                 }
                 Rectangle {
-                    // The cast shadow under the cover.
+                    // The cast shadow under the cover; none under the source
+                    // chip that stands in for a missing one (Codex review of
+                    // #827).
+                    objectName: "musicCardShadow"
+                    visible: root.artworkReady
                     x: musicCover.x + 4; y: musicCover.y + 10
                     width: musicCover.width; height: musicCover.height
                     radius: 8

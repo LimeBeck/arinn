@@ -177,6 +177,11 @@ QVariantList MusicCatalog::homeEntries() const {
                     {"secondaryText", playing ? tr("Pause") : tr("Play")},
                     {"secondaryEnabled", playing || paused},
                     {"live", playing || paused},
+                    // Play/Pause has something to do: the session offers the
+                    // action its state needs (Codex review of #827).
+                    {"playPause",
+                     m_active.value("actions").toStringList().contains(
+                         playing ? QStringLiteral("pause") : QStringLiteral("resume"))},
                     {"busy", m_commandBusy}};
   if ((playing || paused) && duration > 0)
     entry.insert("progress", std::clamp(position / duration, 0.0, 1.0));

@@ -821,6 +821,10 @@
         <translation>OK — открыть плеер · ⏯ — продолжить</translation>
     </message>
     <message>
+        <source>OK — open player</source>
+        <translation>OK — открыть плеер</translation>
+    </message>
+    <message>
         <source>Online</source>
         <translation>Онлайн</translation>
     </message>

@@ -994,6 +994,7 @@ TestCase {
         return Object.assign({id: "arinn-music-session", kind: "music", live: state === "playing" || state === "paused",
                               musicState: state, title: "Fixture song", subtitle: "Fixture artist · Fixture wave",
                               station: "Fixture wave", artwork: Qt.resolvedUrl("fixture-glow.svg"), progress: 0.25,
+                              playPause: state === "playing" || state === "paused",
                               secondaryIcon: state === "playing" ? "pause" : "play", secondaryText: "Pause"}, extra || {});
     }
     function test_music_card_is_variant_one() {
@@ -1059,6 +1060,12 @@ TestCase {
         verify(home.mediaKey(Qt.Key_MediaPause));
         compare(musicKeys.count, 2); compare(musicKeys.signalArguments[1][0], "pause");
         focused("entry-a");
+        // A session that offers no pause: the key passes on and the hero names
+        // only OK (Codex review of #827).
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing", {playPause: false})];
+        verify(!home.mediaKey(Qt.Key_MediaTogglePlayPause)); compare(musicKeys.count, 2);
+        card.forceActiveFocus(); focused("entry-arinn-music-session");
+        compare(child("heroMeta").text, "OK — open player");
         // Paused: the bars stand still in text-3.
         home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("paused")];
         tryCompare(bar, "moving", false); verify(Qt.colorEqual(bar.color, Ui.Theme.textHint));
@@ -1068,6 +1075,8 @@ TestCase {
         // A missing cover: the music note in a neutral chip.
         home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing", {artwork: "", sourceIcon: "public"})];
         tryVerify(() => findChild(card, "musicCardFallback").visible);
+        // No phantom cover shadow behind the chip (Codex review of #827).
+        compare(findChild(card, "musicCardShadow").visible, false);
         // The source's mark, not a generic note (Codex review of #827).
         compare(findChild(card, "musicCardSourceIcon").name, "public");
         compare(findChild(card, "musicCardHairline").visible, false);

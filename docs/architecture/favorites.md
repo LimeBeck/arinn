@@ -157,10 +157,13 @@ the station and the provider's own `pin` action are the shell's (#804).
   (`MusicCatalog.syncProviderPin`). It mirrors only a stored change:
   `Backend.musicStationPinChanged` reports the stations a favorites list read
   pins or unpins compared with the previous read of the same daemon
-  connection, never a request that may still fail. The Home shelf still comes
-  from Arinn's store.
+  connection, never a request that may still fail. A mirror that meets another
+  music command in flight waits for it; one whose station stopped playing is
+  dropped. The Home shelf still comes from Arinn's store.
 - **Pinning from the player.** For a station the provider marks `pinnable`,
-  *Now playing*'s *More* sheet offers *Pin to Home* or *Unpin from Home*
+  and whose title is not empty once control characters are removed (Home
+  stores the title), *Now playing*'s *More* sheet offers *Pin to Home* or
+  *Unpin from Home*
   (`MusicView.stationPinRequested`, then `Backend.pinMusicStation` or
   `unpinMusicStation`). The row waits while a favorites write is in flight.
   Any other station keeps the provider's own *Pin station* row.

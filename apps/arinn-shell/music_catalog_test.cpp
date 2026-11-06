@@ -1182,9 +1182,17 @@ private slots:
     catalog.syncProviderPin("local", "station:wave", false);
     QTest::qWait(100);
     QCOMPARE(daemon.commands.size(), before);
+    // Codex review of #836: a mirror that meets another command in flight
+    // waits for it instead of being dropped. The fake answers on the next
+    // turn of the event loop, so the pin is asked while Pause is in flight.
+    catalog.transport("pause");
+    QVERIFY(catalog.transportBusy());
     catalog.syncProviderPin("local", "station:wave", true);
-    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    QCOMPARE(daemon.commands.size(), before + 1);
+    QTRY_COMPARE(daemon.commands.size(), before + 2);
     QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 2);
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

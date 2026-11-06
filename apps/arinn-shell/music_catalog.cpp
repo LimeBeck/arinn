@@ -97,6 +97,9 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   });
   m_timer.setInterval(1000);
   connect(&m_timer, &QTimer::timeout, this, &MusicCatalog::refresh);
+  // A pin mirror waits while another command is in flight (#804).
+  connect(this, &MusicCatalog::statusChanged, this, &MusicCatalog::mirrorPin);
+  connect(this, &MusicCatalog::activeChanged, this, &MusicCatalog::mirrorPin);
   m_timer.start();
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
@@ -674,15 +677,29 @@ QString MusicCatalog::artworkUrl(const QString &providerId,
 }
 void MusicCatalog::syncProviderPin(const QString &providerId,
                                    const QString &stationId, bool pinned) {
-  // The provider's own pin covers only the station that plays (`pinned` in
-  // its state); Arinn mirrors its pin there where the provider offers it.
-  const auto station = m_active.value(QStringLiteral("station")).toMap();
-  if (m_activeId != providerId ||
-      station.value(QStringLiteral("id")).toString() != stationId ||
-      m_active.value(QStringLiteral("pinned")).toBool() == pinned ||
-      !m_active.value(QStringLiteral("actions")).toStringList().contains(
-          QStringLiteral("pin")))
+  m_pinMirror = PinMirror{providerId, stationId, pinned};
+  mirrorPin();
+}
+// The provider's own pin covers only the station that plays (`pinned` in its
+// state); Arinn mirrors its pin there where the provider offers it. While
+// another command is in flight the mirror waits for it (Codex review of
+// #836); a station that stopped playing drops it.
+void MusicCatalog::mirrorPin() {
+  if (!m_pinMirror)
     return;
+  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  if (m_activeId != m_pinMirror->provider ||
+      station.value(QStringLiteral("id")).toString() != m_pinMirror->station ||
+      m_active.value(QStringLiteral("pinned")).toBool() == m_pinMirror->pinned ||
+      !m_active.value(QStringLiteral("actions")).toStringList().contains(
+          QStringLiteral("pin"))) {
+    m_pinMirror.reset();
+    return;
+  }
+  if (m_commandBusy)
+    return;
+  const auto stationId = m_pinMirror->station;
+  m_pinMirror.reset();
   transport(QStringLiteral("pin"), stationId);
 }
 

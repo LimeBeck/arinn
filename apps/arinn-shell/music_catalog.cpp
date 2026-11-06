@@ -248,6 +248,12 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
 }
 // A provider that restarted or left may know its stations again: its
 // unresolved stations are asked again on the next start (#804).
+QVariantList MusicCatalog::unresolvedStations() const {
+  QVariantList rows;
+  for (auto it = m_unresolved.cbegin(); it != m_unresolved.cend(); ++it)
+    rows.append(QVariant(QStringList{it.key().first, it.key().second}));
+  return rows;
+}
 void MusicCatalog::forgetStaleUnresolved() {
   QHash<QString, QString> generations;
   for (const auto &row : std::as_const(m_sources)) {
@@ -257,8 +263,7 @@ void MusicCatalog::forgetStaleUnresolved() {
   }
   bool changed = false;
   for (auto it = m_unresolved.begin(); it != m_unresolved.end();) {
-    const auto provider = it.key().section(QLatin1Char('\n'), 0, 0);
-    if (generations.value(provider) != it.value()) {
+    if (generations.value(it.key().first) != it.value()) {
       it = m_unresolved.erase(it);
       changed = true;
     } else {
@@ -609,7 +614,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             const auto json = object(reply);
-            const auto station = provider + QLatin1Char('\n') + entity;
+            const QPair<QString, QString> station{provider, entity};
             if (json.isEmpty()) {
               const auto failure = code(reply);
               // The provider no longer knows a stored station, or cannot
@@ -653,7 +658,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
 
 bool MusicCatalog::stationResolved(const QString &providerId,
                                    const QString &stationId) const {
-  return !m_unresolved.contains(providerId + QLatin1Char('\n') + stationId);
+  return !m_unresolved.contains({providerId, stationId});
 }
 
 QString MusicCatalog::artworkUrl(const QString &providerId,

@@ -782,7 +782,7 @@ Window {
             const connected = source && source.ready && account
                 && (account.status === "connected" || account.status === "scanning");
             const reason = !connected ? qsTr("Music source not connected")
-                : unresolved.includes(entry.providerId + "\n" + entry.stationId)
+                : unresolved.some(pair => pair[0] === entry.providerId && pair[1] === entry.stationId)
                     ? qsTr("This station is no longer available") : "";
             return reason.length ? Object.assign({}, entry, {unavailable: true, launchable: false, subtitle: reason})
                                  : Object.assign({}, entry, {subtitle: source.name,

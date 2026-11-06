@@ -11,6 +11,7 @@
 #include <QDBusMessage>
 #include <QHash>
 #include <QObject>
+#include <QPair>
 #include <QSet>
 #include <QTimer>
 #include <QVariantList>
@@ -210,7 +211,9 @@ private:
   bool isFavorite(const QVariantMap &target) const;
   QVariantList m_favoriteTargets;
   // MusicPins1.List: "provider\nstation" → {title, artwork}.
-  QHash<QString, QVariantMap> m_musicPins;
+  // (provider ID, station ID) -> {title, artwork}. A pair, not a joined
+  // string: protocol IDs may hold any character but NUL.
+  QHash<QPair<QString, QString>, QVariantMap> m_musicPins;
   quint64 m_musicPinTicket = 0;
   // A transient MusicPins1.List failure is read again on a later status
   // poll, at most kMusicPinRetries times per favorites read.

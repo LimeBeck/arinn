@@ -533,6 +533,29 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  // #804: provider and station IDs may hold a newline, so two pins whose
+  // IDs join to the same text keep their own titles.
+  void musicPinsWithNewlinesInTheirIdsKeepTheirTitles() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"a\nb", "c", "First", ""}, {"a", "b\nc", "Second", ""}};
+    daemon.favorites = {{"a\nb", "music-station", "c"}, {"a", "music-station", "b\nc"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.favorites().size(), 2);
+      QTRY_COMPARE(backend.favorites().at(0).toMap().value("title").toString(),
+                   QString("First"));
+      QTRY_COMPARE(backend.favorites().at(1).toMap().value("title").toString(),
+                   QString("Second"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void pinnedMusicStationsAreFavorites() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;

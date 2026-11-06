@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include <QMap>
+#include <QPair>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -28,10 +29,10 @@ class MusicCatalog : public QObject {
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
-  // "provider\nstation" keys of stored stations the provider answered
+  // [provider ID, station ID] pairs of stored stations the provider answered
   // `radio` with NotFound or Unavailable for (music.md). Changes when one is
   // found missing, starts again, or its provider restarts or leaves.
-  Q_PROPERTY(QStringList unresolvedStations READ unresolvedStations NOTIFY
+  Q_PROPERTY(QVariantList unresolvedStations READ unresolvedStations NOTIFY
                  unresolvedChanged)
   // The active session plays or is loading its next track: interface sounds
   // stay quiet (spec §5.6, #756 M26).
@@ -62,7 +63,7 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
-  QStringList unresolvedStations() const { return m_unresolved.keys(); }
+  QVariantList unresolvedStations() const;
   bool audible() const;
   QString playbackProblem() const;
   QString notice() const;
@@ -118,8 +119,9 @@ private:
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
   void forgetStaleUnresolved();
-  // Unresolved station key -> the provider generation that answered.
-  QMap<QString, QString> m_unresolved;
+  // (provider ID, station ID) -> the provider generation that answered. A
+  // pair, not a joined string: protocol IDs may hold any character but NUL.
+  QMap<QPair<QString, QString>, QString> m_unresolved;
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;

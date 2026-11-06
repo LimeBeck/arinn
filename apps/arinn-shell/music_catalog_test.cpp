@@ -1019,7 +1019,8 @@ private slots:
     daemon.commandError = "NotFound";
     catalog.command("radio", "station:gone");
     QTRY_VERIFY(!catalog.stationResolved("local", "station:gone"));
-    QCOMPARE(catalog.unresolvedStations(), QStringList{"local\nstation:gone"});
+    QCOMPARE(catalog.unresolvedStations(),
+             QVariantList{QVariant(QStringList{"local", "station:gone"})});
     QCOMPARE(changed.count(), 1);
     QVERIFY(catalog.stationResolved("local", "station:other"));
     // Another failure is not "no longer known".
@@ -1085,9 +1086,11 @@ private slots:
     const QVariantList favorites{QVariantMap{{"id", "app"}, {"title", "App"}},
                                  withArtwork,
                                  goneWithArtwork, pin("local", "station:gone"),
-                                 pin("cloud", "station:wave"), pin("down", "station:wave")};
+                                 pin("cloud", "station:wave"), pin("down", "station:wave"),
+                                 pin("local", "station:a\nb")};
     const QVariantList sources{
         QVariantMap{{"id", "local"}, {"name", "Local music"}, {"ready", true}},
+        QVariantMap{{"id", "local\nstation:a"}, {"name", "Other"}, {"ready", true}},
         QVariantMap{{"id", "cloud"}, {"name", "Cloud"}, {"ready", true}},
         QVariantMap{{"id", "down"}, {"name", "Down"}, {"ready", true}}};
     // The music room's rows: the cloud account expired, the other service
@@ -1095,13 +1098,18 @@ private slots:
     const QVariantList accounts{QVariantMap{{"id", "local"}, {"status", "connected"}},
                                 QVariantMap{{"id", "cloud"}, {"status", "signin"}},
                                 QVariantMap{{"id", "down"}, {"status", "unavailable"}}};
+    // IDs may hold a newline: an unresolved station of another provider
+    // never matches a pin by a joined key.
+    const QVariantList unresolved{QVariant(QStringList{"local", "station:gone"}),
+                                  QVariant(QStringList{"local\nstation:a", "b"})};
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, result),
                                       Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
-                                      Q_ARG(QVariant, QStringList{"local\nstation:gone"}),
+                                      Q_ARG(QVariant, unresolved),
                                       Q_ARG(QVariant, accounts)));
     const auto rows = qvariant_cast<QJSValue>(result).toVariant().toList();
-    QCOMPARE(rows.size(), 6);
+    QCOMPARE(rows.size(), 7);
+    QVERIFY(!rows[6].toMap().value("unavailable").toBool());
     QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
     QVERIFY(!rows[1].toMap().value("unavailable").toBool());
     QCOMPARE(rows[1].toMap().value("subtitle").toString(), QStringLiteral("Local music"));

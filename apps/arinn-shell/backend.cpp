@@ -407,9 +407,8 @@ QVariantList Backend::favorites() const {
     // MusicPins1 record. Whether its source can start it now is Home's
     // business (#804); the row only carries the identity.
     if (target.value("capability") == QLatin1String("music-station")) {
-      const auto pin = m_musicPins.value(target.value("providerId").toString() +
-                                         QLatin1Char('\n') +
-                                         target.value("localId").toString());
+      const auto pin = m_musicPins.value({target.value("providerId").toString(),
+                                          target.value("localId").toString()});
       if (!pin.isEmpty()) {
         row = target;
         row["id"] = QUuid::createUuidV5(
@@ -1668,7 +1667,7 @@ void Backend::readMusicPins() {
             m_musicPinRetries = 0;
             const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             qulonglong revision = 0;
-            QHash<QString, QVariantMap> pins;
+            QHash<QPair<QString, QString>, QVariantMap> pins;
             arg.beginStructure();
             arg >> revision;
             arg.beginArray();
@@ -1678,7 +1677,7 @@ void Backend::readMusicPins() {
               if (pin.provider.isEmpty() || pin.station.isEmpty() ||
                   pin.title.trimmed().isEmpty())
                 continue;
-              pins.insert(pin.provider + QLatin1Char('\n') + pin.station,
+              pins.insert({pin.provider, pin.station},
                           {{"title", pin.title}, {"artwork", pin.artwork}});
             }
             arg.endArray();

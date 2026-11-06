@@ -13,7 +13,73 @@ FocusScope {
     width: Ui.Theme.canvasWidth
     height: Ui.Theme.canvasHeight
     required property var catalog
+    // The Music root over every source (#800, ADR-0142 MH-1). Without it the
+    // view opens on the catalogue of the browsed source, as before.
+    property var room: null
     property string mode: "catalogue"
+    // The room entry a detail, the All list or the player was opened from:
+    // Back returns to the room with focus on it (brief, M16).
+    property string roomKey: ""
+    // The shelf whose All tile opened the All list.
+    property string roomShelf: ""
+    // The All list a detail was opened from.
+    property bool fromAll: false
+    // A track or station chosen in the room waits for its source's state
+    // before it starts (the play capability lives there).
+    property var roomPlay: null
+    Component.onCompleted: if (room)
+        mode = "root"
+    function openRoom() {
+        mode = "root";
+        fromAll = false;
+        const key = roomKey, shelf = roomShelf;
+        Qt.callLater(() => {
+            if (!(key.length && roomView.focusEntry(key)) && !roomView.focusShelf(shelf))
+                roomView.focusInitial();
+        });
+    }
+    function openFromRoom(entry, fromList) {
+        if (!entry || !entry.provider)
+            return;
+        roomKey = entry.key || "";
+        fromAll = fromList === true;
+        if (!fromAll)
+            roomShelf = "";
+        if (catalog.sourceId !== entry.provider)
+            catalog.choose(entry.provider);
+        if (["album", "artist", "playlist"].includes(entry.kind)) {
+            facet = entry.kind + "s";
+            parentId = entry.id;
+            parentTitle = entry.title || "";
+            parentKind = entry.kind;
+            mode = "catalogue";
+            browse(facet, entry.id, "");
+            Qt.callLater(focusInitial);
+        } else {
+            roomPlay = entry;
+            Qt.callLater(startRoomPlay);
+        }
+    }
+    function startRoomPlay() {
+        const entry = roomPlay;
+        // The card's own source must offer play; supported() reads the
+        // session that plays, which may be another source.
+        if (!entry || catalog.sourceId !== entry.provider
+                || !((selected.actions || []).includes("play")))
+            return;
+        roomPlay = null;
+        pendingAction = "play";
+        pendingActive = false;
+        requestStart(entry.id);
+    }
+    Connections {
+        target: root.catalog
+        ignoreUnknownSignals: true
+        function onStateChanged() {
+            if (root.roomPlay)
+                root.startRoomPlay();
+        }
+    }
     property string facet: ""
     property bool pickingSource: false
     property string parentId: ""
@@ -112,6 +178,7 @@ FocusScope {
         pickingSource = false;
         queueOccurrence = "";
         deletingPlaylist = false;
+        roomPlay = null;
     }
     readonly property var selected: catalog.state || ({})
     readonly property var player: catalog.activeState || ({})
@@ -394,11 +461,28 @@ FocusScope {
             });
         } else if (mode === "player" && playerFromHome) {
             playerFromHome = false;
-            mode = "catalogue";
+            mode = room ? "root" : "catalogue";
             backRequested();
+        } else if (mode === "player" && room) {
+            openRoom();
         } else if (mode === "player") {
             mode = "catalogue";
             Qt.callLater(focusInitial);
+        } else if (mode === "all") {
+            openRoom();
+        } else if (room && mode === "catalogue" && fromAll) {
+            parentId = "";
+            parentTitle = "";
+            parentKind = "";
+            fromAll = false;
+            mode = "all";
+            const key = roomKey;
+            Qt.callLater(() => { if (!allView.focusKey(key)) allView.focusInitial(); });
+        } else if (room && mode === "catalogue") {
+            parentId = "";
+            parentTitle = "";
+            parentKind = "";
+            openRoom();
         } else if (parentId) {
             restoreEntity = parentId;
             restorePages = 0;
@@ -462,6 +546,8 @@ FocusScope {
         font.family: contentTitle ? Ui.Theme.contentFontFamily : Ui.Theme.fontFamily
         // Lining figures, as UiText gives the content roles (ADR-0137).
         font.features: contentTitle ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
+        // The room and its All lists carry their own titles.
+        visible: root.mode !== "root" && root.mode !== "all"
         text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music")
         textFormat: Text.PlainText
         maximumLineCount: 1
@@ -493,6 +579,9 @@ FocusScope {
         Ui.ActionButton {
             id: sourcePicker
             objectName: "musicSourcePicker"
+            // The room has no source switch (MH-5): its Sources sheet holds
+            // the sources.
+            visible: !root.room
             width: 360
             height: 76
             text: {
@@ -668,7 +757,7 @@ FocusScope {
         y: 880
         width: 300
         enabled: !root.pendingPlay && !root.catalog.busy
-        visible: root.mode === "catalogue" && (root.selected.actions || []).includes("disconnect")
+        visible: root.mode === "catalogue" && !root.room && (root.selected.actions || []).includes("disconnect")
         text: qsTr("Disconnect")
         onActivated: root.catalog.command("disconnect")
     }
@@ -681,7 +770,7 @@ FocusScope {
         y: 880
         width: 300
         enabled: !root.pendingPlay && !root.catalog.busy
-        visible: root.mode === "catalogue" && (root.selected.actions || []).includes("scan")
+        visible: root.mode === "catalogue" && !root.room && (root.selected.actions || []).includes("scan")
         text: root.selected.account === "local" ? qsTr("Rescan") : qsTr("Refresh")
         onActivated: root.catalog.command("scan")
     }
@@ -839,7 +928,7 @@ FocusScope {
         width: 1300
         spacing: 28
         enabled: !root.pendingPlay
-        visible: root.mode === "catalogue"
+        visible: root.mode === "catalogue" && !root.room
             && (!root.selected.account || !["local", "connected"].includes(root.selected.account))
         Ui.UiText {
             objectName: "musicAccountHeading"
@@ -1544,5 +1633,39 @@ FocusScope {
                 root.openPlayer();
             }
         }
+    }
+    // The Music root and its All lists (#800).
+    MusicRoomView {
+        id: roomView
+        objectName: "musicRoom"
+        z: 20
+        visible: root.mode === "root" && !!root.room
+        focus: visible
+        room: root.room
+        catalog: root.catalog
+        onEntryActivated: entry => root.openFromRoom(entry, false)
+        onAllRequested: shelfId => {
+            const shelf = (root.room.shelves || []).find(item => item.id === shelfId);
+            root.roomKey = "";
+            root.roomShelf = shelfId;
+            root.mode = "all";
+            allView.open(shelfId, shelf ? shelf.title : "");
+        }
+        onFindRequested: {
+            // Until the search over every source (#801), Find opens the
+            // browsed source's search.
+            root.mode = "catalogue";
+            Qt.callLater(() => Ui.Focus.take(search));
+        }
+    }
+    MusicAllView {
+        id: allView
+        objectName: "musicAll"
+        z: 20
+        visible: root.mode === "all" && !!root.room
+        focus: visible
+        room: root.room
+        playingKey: roomView.playingKey
+        onEntryActivated: entry => root.openFromRoom(entry, true)
     }
 }

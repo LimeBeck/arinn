@@ -1,0 +1,215 @@
+// SPDX-FileCopyrightText: 2026 Arinn contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+import QtQuick
+import "../.." as Ui
+
+// The Sources sheet (brief mh-01, MH-5): every music source with its mark,
+// its state and its housekeeping as pills, by capability. It never filters
+// the room. Disconnect asks first, with Cancel as the initial focus.
+FocusScope {
+    id: root
+    property var room: null
+    readonly property var sources: room ? room.sources : []
+    // The source whose Disconnect waits for confirmation.
+    property string disconnecting: ""
+    signal closed()
+    anchors.fill: parent
+    visible: false
+    function open() {
+        disconnecting = "";
+        visible = true;
+        Qt.callLater(focusFirst);
+    }
+    function close() {
+        disconnecting = "";
+        visible = false;
+        closed();
+    }
+    function focusFirst() {
+        for (let i = 0; i < rows.count; ++i) {
+            const row = rows.itemAt(i);
+            if (row && row.firstAction()) {
+                Ui.Focus.take(row.firstAction());
+                return;
+            }
+        }
+        root.forceActiveFocus();
+    }
+    function label(action) {
+        return action === "connect" ? qsTr("Connect")
+            : action === "authorize" ? qsTr("Sign in")
+            : action === "cancel" ? qsTr("Cancel sign-in")
+            : action === "scan" ? qsTr("Refresh")
+            : qsTr("Disconnect");
+    }
+    function statusText(source) {
+        const status = source.status;
+        return status === "connected" ? qsTr("Connected")
+            : status === "scanning" ? qsTr("Scanning the library…")
+            : status === "signin" ? qsTr("Needs sign-in")
+            : status === "connecting" ? qsTr("Connecting…")
+            : source.reason ? qsTr("Unavailable · %1").arg(source.reason)
+            : qsTr("Unavailable");
+    }
+    function act(source, action) {
+        if (action === "disconnect") {
+            disconnecting = source.id;
+            Qt.callLater(() => Ui.Focus.take(keepSource));
+        } else if (room) {
+            room.sourceCommand(source.id, action);
+        }
+    }
+    Keys.onPressed: event => {
+        if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key)) {
+            event.accepted = true;
+            if (disconnecting.length) {
+                disconnecting = "";
+                focusFirst();
+            } else {
+                close();
+            }
+        }
+    }
+    Rectangle {
+        anchors.fill: parent
+        color: Ui.Theme.scrim
+        MouseArea {
+            anchors.fill: parent
+            onClicked: root.close()
+        }
+    }
+    Rectangle {
+        objectName: "musicSourcesSheet"
+        x: parent.width - width
+        width: 720
+        height: parent.height
+        color: Ui.Theme.dialogSurface
+        border.color: Ui.Theme.dialogLine
+        MouseArea { anchors.fill: parent }
+        Ui.UiText {
+            x: 64
+            y: 72
+            role: "title"
+            text: qsTr("Sources")
+        }
+        Column {
+            x: 64
+            y: 180
+            width: parent.width - 128
+            spacing: 40
+            Repeater {
+                id: rows
+                model: root.sources
+                Column {
+                    id: sourceRow
+                    required property var modelData
+                    required property int index
+                    objectName: "musicSourceRow"
+                    width: parent.width
+                    spacing: 16
+                    function firstAction() {
+                        return pills.count ? pills.itemAt(0) : null;
+                    }
+                    Row {
+                        spacing: 20
+                        MusicSourceMark {
+                            anchors.verticalCenter: parent.verticalCenter
+                            size: 56
+                            local: sourceRow.modelData.local === true
+                            name: sourceRow.modelData.name || ""
+                        }
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            Ui.UiText {
+                                objectName: "musicSourceName"
+                                role: "control"
+                                text: sourceRow.modelData.local ? qsTr("This computer") : (sourceRow.modelData.name || "")
+                                textFormat: Text.PlainText
+                            }
+                            Ui.UiText {
+                                objectName: "musicSourceStatus"
+                                width: 520
+                                role: "meta"
+                                color: Ui.Theme.textSecondary
+                                text: root.statusText(sourceRow.modelData)
+                                textFormat: Text.PlainText
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
+                    // A pending sign-in shows where to confirm and its code.
+                    Ui.UiText {
+                        objectName: "musicSourcePrompt"
+                        width: parent.width
+                        visible: !!sourceRow.modelData.prompt && !!sourceRow.modelData.prompt.verification_url
+                        role: "meta"
+                        color: Ui.Theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        text: visible ? qsTr("Open %1 on your phone and enter %2")
+                            .arg(sourceRow.modelData.prompt.verification_url)
+                            .arg(sourceRow.modelData.prompt.user_code || "") : ""
+                    }
+                    Row {
+                        spacing: 16
+                        Repeater {
+                            id: pills
+                            model: sourceRow.modelData.actions || []
+                            Ui.ActionButton {
+                                required property var modelData
+                                required property int index
+                                objectName: "musicSourceAction-" + modelData
+                                text: root.label(modelData)
+                                busy: sourceRow.modelData.busy === true
+                                KeyNavigation.left: index > 0 ? pills.itemAt(index - 1) : null
+                                KeyNavigation.right: index + 1 < pills.count ? pills.itemAt(index + 1) : null
+                                Keys.onUpPressed: event => {
+                                    const previous = rows.itemAt(sourceRow.index - 1);
+                                    if (previous && previous.firstAction())
+                                        Ui.Focus.take(previous.firstAction());
+                                }
+                                Keys.onDownPressed: event => {
+                                    for (let i = sourceRow.index + 1; i < rows.count; ++i)
+                                        if (rows.itemAt(i).firstAction()) {
+                                            Ui.Focus.take(rows.itemAt(i).firstAction());
+                                            return;
+                                        }
+                                }
+                                onActivated: root.act(sourceRow.modelData, modelData)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    MusicDialog {
+        objectName: "musicDisconnectDialog"
+        visible: root.disconnecting.length > 0
+        z: 2
+        title: qsTr("Disconnect this source?")
+        body: qsTr("Its music leaves the shelves until you connect it again.")
+        onDismissed: { root.disconnecting = ""; root.focusFirst(); }
+        Ui.ActionButton {
+            id: keepSource
+            objectName: "musicKeepSource"
+            text: qsTr("Cancel")
+            KeyNavigation.right: dropSource
+            onActivated: { root.disconnecting = ""; root.focusFirst(); }
+        }
+        Ui.ActionButton {
+            id: dropSource
+            objectName: "musicDisconnectSource"
+            text: qsTr("Disconnect")
+            destructive: true
+            KeyNavigation.left: keepSource
+            onActivated: {
+                const id = root.disconnecting;
+                root.disconnecting = "";
+                if (root.room)
+                    root.room.sourceCommand(id, "disconnect");
+                root.focusFirst();
+            }
+        }
+    }
+}

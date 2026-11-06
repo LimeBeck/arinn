@@ -397,3 +397,41 @@ Preparation never advances the queue, starts sound or sends played feedback.
 Natural EOF remains the only automatic advancement trigger. This removes network
 resolution/download waits at prepared transitions; it does not claim sample-
 accurate gapless decoding across two player processes.
+
+The Music root (#800, [ADR-0142](../adr/0142-music-in-hearth-light.md) MH-1,
+MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-light/README.md)):
+
+- `MusicRoom` follows `MusicCatalog.sources` and reads every source on its own:
+  its `GetState`, then the first page of `selections`, `playlists`, `albums`,
+  `artists` and `tracks` one after another, again when the catalogue
+  revision changes. Browsing never calls `MusicCatalog.choose`; only opening a
+  card does, for that card's source. A detail, the player and the queue stay
+  `MusicCatalog`'s.
+- Shelves, in the brief's order: *Stations* (`station` entries of
+  `selections`), *For you* (playlists), *Albums*, *Artists*, *Recent tracks*.
+  On each, the source's personal entries from `selections` come first, sources
+  in their registry order; then the ordinary entries, those with `added_at`
+  newest first, then the undated ones one source after another in turn
+  (`MusicRoom::order`). A personal entry the source also lists as ordinary
+  shows once. A shelf no source supplies is absent. Shelves show at most 24
+  entries (*Recent tracks* 12) of the pages read so far, so a date order covers
+  each source's first page; the *All* list pages further.
+- Entries carry `provider`, `providerName`, `local` and a `key` of provider and
+  entity id, so the same id from two sources stays two cards (no merging).
+  The source mark draws `screen` for a source whose account is `local` and
+  `public` otherwise; no provider has its own icon yet.
+- Late entries never move focus: a shelf holding focus keeps the cards it
+  shows in place and appends new ones (`MusicRoom.stable`), and shelves are
+  keyed by id, so a shelf is not recreated when another changes. A card or
+  shelf that leaves hands focus to its neighbour.
+- A source whose state cannot be read leaves the shelves, and the *Sources*
+  sheet says why. The sheet shows each source's state and its `connect`,
+  `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by
+  capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
+  with Cancel focused. The catalogue screen no longer shows the source switch,
+  *Refresh*, *Disconnect* or the account panel while a room is present.
+- The *All* list filters by source with tabs that start at *All* and orders by
+  the shelf order (labelled *By date* only once entries carry dates) or *A–Z*.
+- Until the search over every source (#801), *Find* opens the browsed source's
+  search. Back from a detail, the player or the *All* list returns to the room
+  with focus on the card it was opened from.

@@ -788,7 +788,7 @@ FocusScope {
         else if (navOpen) closeNavigation(); else openNavigation();
     }
     function navIcon(index) {
-        const icons = {home: "home", library: "library", music: "volume_up", downloads: "download", applications: "apps", settings: "settings"};
+        const icons = {home: "home", library: "library", music: "music_note", downloads: "download", applications: "apps", settings: "settings"};
         return index < root.routes.length ? icons[root.routes[index]] || ""
             : ["public", "screen", "power", "close"][index - root.routes.length] || "";
     }

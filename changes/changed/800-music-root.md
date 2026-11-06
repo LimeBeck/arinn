@@ -1,0 +1,6 @@
+- The Music section opens on one room over every connected source ([ADR-0142](docs/adr/0142-music-in-hearth-light.md), [#800](https://github.com/LimeBeck/arinn/issues/800)):
+  - a hero describes the focused entry;
+  - shelves of stations, playlists, albums, artists and recent tracks follow, each card marked with its source and each shelf ending in *All*;
+  - personal selections come first, then entries by date where the source knows it.
+  - A *Sources* sheet holds Connect, Refresh and Disconnect. Without a connected source, the room offers to connect one.
+  - The Music menu item shows a music note.

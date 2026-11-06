@@ -1,0 +1,1 @@
+- Yandex Music reports when an entry joined the library: liked tracks carry their like time, your playlists their creation date, and albums and artists their newest track's date, so they take part in the date order of the shared music shelves. An entry with no reported date stays undated; a release date is never used ([#813](https://github.com/LimeBeck/arinn/issues/813)).

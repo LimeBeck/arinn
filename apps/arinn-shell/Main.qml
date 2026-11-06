@@ -948,6 +948,8 @@ Window {
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
         MusicCatalog { id: musicCatalog; objectName: "musicCatalog" }
+        // The Music root over every source (#800).
+        MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog; active: musicView.visible }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45
         // (Hearth light brief, *Global navigation*; #756 C17). Not on the
@@ -973,7 +975,8 @@ Window {
             anchors.right: parent.right; anchors.rightMargin: Ui.Theme.safeRight
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
-                || downloadsView.visible || browserView.visible || runningView.visible)
+                || downloadsView.visible || browserView.visible || runningView.visible
+                || (musicView.visible && ["root", "all"].includes(musicView.mode) && !musicView.overlayOpen))
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress
@@ -1275,6 +1278,7 @@ Window {
         Music.MusicView {
             id: musicView
             catalog: musicCatalog
+            room: musicRoom
             objectName: "productionMusic"
             layer.enabled: root.navBlur && visible
             layer.effect: navBlurEffect

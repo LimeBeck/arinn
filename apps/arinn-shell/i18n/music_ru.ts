@@ -389,4 +389,241 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Следующий трек</translation>
     </message>
   </context>
+  <context>
+    <name>MusicAllView</name>
+    <message>
+      <source>All</source>
+      <translation>Все</translation>
+    </message>
+    <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+    <message>
+      <source>By date</source>
+      <translation>По дате</translation>
+    </message>
+    <message>
+      <source>Suggested</source>
+      <translation>Рекомендуемые</translation>
+    </message>
+    <message>
+      <source>A–Z</source>
+      <translation>А–Я</translation>
+    </message>
+    <message>
+      <source>Nothing here from this source.</source>
+      <translation>В этом источнике здесь ничего нет.</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicCard</name>
+    <message>
+      <source>Unavailable in this source</source>
+      <translation>Недоступно в этом источнике</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicRoom</name>
+    <message>
+      <source>The source did not respond. Try again.</source>
+      <translation>Источник не ответил. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+      <source>The source could not do that. Try again.</source>
+      <translation>Источник не смог выполнить действие. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+      <source>Stations</source>
+      <translation>Станции</translation>
+    </message>
+    <message>
+      <source>For you</source>
+      <translation>Для вас</translation>
+    </message>
+    <message>
+      <source>Albums</source>
+      <translation>Альбомы</translation>
+    </message>
+    <message>
+      <source>Artists</source>
+      <translation>Исполнители</translation>
+    </message>
+    <message>
+      <source>Recent tracks</source>
+      <translation>Недавние треки</translation>
+    </message>
+    <message>
+      <source>The source did not respond.</source>
+      <translation>Источник не ответил.</translation>
+    </message>
+    <message>
+      <source>The source is not running.</source>
+      <translation>Источник не запущен.</translation>
+    </message>
+    <message>
+      <source>The service denied access to this account.</source>
+      <translation>Сервис запретил доступ к этой учётной записи.</translation>
+    </message>
+    <message>
+      <source>The service is not responding.</source>
+      <translation>Сервис не отвечает.</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicRoomView</name>
+    <message>
+      <source>Scanning the library…</source>
+      <translation>Сканирование медиатеки…</translation>
+    </message>
+    <message>
+      <source>Add folders with music in Settings.</source>
+      <translation>Добавьте папки с музыкой в настройках.</translation>
+    </message>
+    <message>
+      <source>No music yet</source>
+      <translation>Музыки пока нет</translation>
+    </message>
+    <message>
+      <source>Your sources have no music to show yet.</source>
+      <translation>В ваших источниках пока нет музыки.</translation>
+    </message>
+    <message>
+      <source>Music is unavailable</source>
+      <translation>Музыка недоступна</translation>
+    </message>
+    <message>
+      <source>Station</source>
+      <translation>Станция</translation>
+    </message>
+    <message>
+      <source>Album</source>
+      <translation>Альбом</translation>
+    </message>
+    <message>
+      <source>Playlist</source>
+      <translation>Плейлист</translation>
+    </message>
+    <message>
+      <source>Artist</source>
+      <translation>Исполнитель</translation>
+    </message>
+    <message>
+      <source>Track</source>
+      <translation>Трек</translation>
+    </message>
+    <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+    <message>
+      <source>Music</source>
+      <translation>Музыка</translation>
+    </message>
+    <message>
+      <source>%1 · playing</source>
+      <translation>%1 · играет</translation>
+    </message>
+    <message>
+      <source>Connect a source</source>
+      <translation>Подключите источник</translation>
+    </message>
+    <message>
+      <source>Connect a music service or add folders with music in Settings.</source>
+      <translation>Подключите музыкальный сервис или добавьте папки с музыкой в настройках.</translation>
+    </message>
+    <message>
+      <source>Sources</source>
+      <translation>Источники</translation>
+    </message>
+    <message>
+      <source>Find</source>
+      <translation>Найти</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicShelf</name>
+    <message>
+      <source>All</source>
+      <translation>Все</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicSourceMark</name>
+    <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicSourcesSheet</name>
+    <message>
+      <source>Connect</source>
+      <translation>Подключить</translation>
+    </message>
+    <message>
+      <source>Sign in</source>
+      <translation>Войти</translation>
+    </message>
+    <message>
+      <source>Cancel sign-in</source>
+      <translation>Отменить вход</translation>
+    </message>
+    <message>
+      <source>Refresh</source>
+      <translation>Обновить</translation>
+    </message>
+    <message>
+      <source>Disconnect</source>
+      <translation>Отключить</translation>
+    </message>
+    <message>
+      <source>Connected</source>
+      <translation>Подключено</translation>
+    </message>
+    <message>
+      <source>Scanning the library…</source>
+      <translation>Сканирование медиатеки…</translation>
+    </message>
+    <message>
+      <source>Needs sign-in</source>
+      <translation>Нужен вход</translation>
+    </message>
+    <message>
+      <source>Connecting…</source>
+      <translation>Подключение…</translation>
+    </message>
+    <message>
+      <source>Unavailable · %1</source>
+      <translation>Недоступно · %1</translation>
+    </message>
+    <message>
+      <source>Unavailable</source>
+      <translation>Недоступно</translation>
+    </message>
+    <message>
+      <source>Sources</source>
+      <translation>Источники</translation>
+    </message>
+    <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+    <message>
+      <source>Open %1 on your phone and enter %2</source>
+      <translation>Откройте %1 на телефоне и введите %2</translation>
+    </message>
+    <message>
+      <source>Disconnect this source?</source>
+      <translation>Отключить этот источник?</translation>
+    </message>
+    <message>
+      <source>Its music leaves the shelves until you connect it again.</source>
+      <translation>Его музыка исчезнет с полок, пока вы не подключите его снова.</translation>
+    </message>
+    <message>
+      <source>Cancel</source>
+      <translation>Отмена</translation>
+    </message>
+  </context>
 </TS>

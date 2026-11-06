@@ -397,3 +397,62 @@ Preparation never advances the queue, starts sound or sends played feedback.
 Natural EOF remains the only automatic advancement trigger. This removes network
 resolution/download waits at prepared transitions; it does not claim sample-
 accurate gapless decoding across two player processes.
+
+The Music root (#800, [ADR-0142](../adr/0142-music-in-hearth-light.md) MH-1,
+MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-light/README.md)):
+
+- `MusicRoom` follows `MusicCatalog.sources` and reads every source on its own:
+  its `GetState`, then the first page of `selections`, `playlists`, `albums`,
+  `artists` and `tracks` one after another, again when the catalogue
+  revision changes. A new revision keeps each facet's entries until its new
+  first page replaces them, so no card leaves and returns. Only first pages
+  chain; further pages are the *All* list's (`loading` covers first pages and
+  sources whose state has not answered yet), from `selections` and the
+  shelf's own facet. A continuation older than its 30 s lease, or one that
+  fails, reads again from the first page and pages forward to where the list
+  was, keeping the shown entries until it has caught up. A first page that
+  fails is read again on a later state poll, at most every 3 s. The room polls every 2 s while
+  the Music section is shown (`active`) and announces `sources` only when a
+  row changes. Browsing never calls `MusicCatalog.choose`; only opening a card
+  does, for that card's source: a station starts with `radio`, anything else
+  with `play`, by that source's own capabilities. A detail, the player and the
+  queue stay `MusicCatalog`'s.
+- Shelves, in the brief's order: *Stations* (`station` entries of
+  `selections`), *For you* (playlists), *Albums*, *Artists*, *Recent tracks*.
+  On each, the source's personal entries from `selections` come first, sources
+  in their registry order; then the ordinary entries, those with `added_at`
+  newest first, then the undated ones one source after another in turn
+  (`MusicRoom::order`). A personal entry the source also lists as ordinary
+  shows once. A shelf no source supplies is absent. Shelves show at most 24
+  entries (*Recent tracks* 12) of the pages read so far, so a date order covers
+  each source's first page; the *All* list pages further.
+- Entries carry `provider`, `providerName`, `local` and a `key` of provider and
+  entity id, so the same id from two sources stays two cards (no merging).
+  The source mark draws `screen` for a source whose account is `local` and
+  `public` otherwise; no provider has its own icon yet, so a service's card
+  also names the service after the mark.
+- Late entries never move focus: a shelf holding focus keeps the cards it
+  shows in place and appends new ones (`MusicRoom.stable`), and shelves are
+  keyed by id, so a shelf is not recreated when another changes. A card or
+  shelf that leaves hands focus to its neighbour.
+- A source whose state cannot be read leaves the shelves, and the *Sources*
+  sheet says why. The sheet shows each source's state and its `connect`,
+  `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by
+  capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
+  with Cancel focused. A command the source refuses shows a note under that
+  source until the next command, the account state changes or the source
+  restarts. The catalogue screen no longer shows the source switch,
+  *Refresh*, *Disconnect* or the account panel while a room is present.
+- The room is never shown empty. Once every source has answered and nothing
+  loads, a room without shelves says why, from the source rows: every source
+  unreachable gives the reason and *Sources*; a source that needs sign-in
+  gives *Connect a source*; otherwise *No music yet* (for this computer, add
+  folders with music in Settings) and *Sources*. The shell's status area hides while the
+  *Sources* sheet or a confirm dialog covers the screen.
+- The *All* list filters by source with tabs, for sources that can browse,
+  that start at *All*; it pages on while focus is near the end, also when a
+  page adds no card of its kind and orders by
+  the shelf order (labelled *By date* only once entries carry dates) or *A–Z*.
+- Until the search over every source (#801), *Find* opens the browsed source's
+  search. Back from a detail, the player or the *All* list returns to the room
+  with focus on the card it was opened from.

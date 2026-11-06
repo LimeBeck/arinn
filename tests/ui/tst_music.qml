@@ -37,6 +37,34 @@ TestCase {
             function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);}
         }
     }
+    // The Music root over every source (#800), as MusicRoom presents it.
+    Component {
+        id: roomFactory
+        QtObject {
+            function card(provider,id,kind,title) {return {key:provider+"\n"+id,id:id,kind:kind,title:title,provider:provider,providerName:provider==="local"?"Fixture music":"Fixture service",local:provider==="local",available:true};}
+            property var sources: [{id:"local",name:"Fixture music",local:true,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
+                                   {id:"account",name:"Fixture service",local:false,status:"connected",reason:"",actions:["scan","disconnect"],busy:false,browsable:true}]
+            property var shelves: [{id:"stations",title:"Stations",kind:"station",entries:[card("account","station:mix","station","Fixture mix")]},
+                                   {id:"albums",title:"Albums",kind:"album",entries:[card("local","album:1","album","First"),card("account","album:1","album","Same id"),card("local","album:2","album","Second")]}]
+            property bool connected: true
+            property bool loading: false
+            property bool dated: false
+            property var commands: []
+            signal listChanged()
+            function list(shelf,source,alphabetical) {const found=shelves.find(item=>item.id===shelf);const entries=found?found.entries:[];return entries.filter(entry=>!source||entry.provider===source);}
+            // Pages the All list still has to read; each loadMore delivers one.
+            property var pending: []
+            property int loads: 0
+            function more(shelf,source) {return pending.length>0;}
+            function loadMore(shelf,source) {loads++;const next=pending[0];pending=pending.slice(1);
+                if(next.length)shelves=shelves.map(item=>item.id===shelf?Object.assign({},item,{entries:item.entries.concat(next)}):item);
+                listChanged();}
+            // As MusicRoom: a command in flight republishes the rows.
+            function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
+            function stable(shown,desired) {const keys=desired.map(entry=>entry.key);const kept=shown.filter(entry=>keys.includes(entry.key)).map(entry=>desired[keys.indexOf(entry.key)]);return kept.concat(desired.filter(entry=>!kept.some(item=>item.key===entry.key)));}
+        }
+    }
+    Component {id:roomViewFactory;Music.MusicView {width:1920;height:1080}}
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
     // A scope above the view, such as the Quick menu, holding focus.
     Component {id:scopeFactory;FocusScope {width:10;height:10;Item {objectName:"scopeItem";width:10;height:10;focus:true}}}
@@ -188,7 +216,7 @@ TestCase {
         compare(findChild(home,"nav-7").text,"Running");compare(findChild(home,"nav-7").visible,true);
         home.returnActivityId="activity";compare(findChild(home,"nav-7").visible,true);
         home.currentServiceTitle="Fixture service";
-        compare(home.navIcon(2),"volume_up");compare(home.navIcon(3),"download");
+        compare(home.navIcon(2),"music_note");compare(home.navIcon(3),"download");
         compare(home.navIcon(6),"public");compare(home.navIcon(8),"power");
         const items=[];
         for (let i=0;i<10;i++) items.push(findChild(home,"nav-"+i));
@@ -627,5 +655,308 @@ TestCase {
         catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
         const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
         compare(held.activeFocus,true);compare(view.activeFocus,false);
+    }
+    // #800: with a room the section opens on it. The hero describes the
+    // focused entry, shelves keep the room's order with a source mark per
+    // card, and the light follows the focused artwork.
+    function test_room_opens_on_shelves_with_a_hero() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        compare(view.mode,"root");view.forceActiveFocus();
+        const roomView=findChild(view,"musicRoom");verify(roomView.visible);roomView.focusInitial();
+        const stations=findChild(view,"musicShelf-stations");tryCompare(stations,"activeFocus",true);
+        compare(findChild(view,"musicHeroTitle").text,"Fixture mix");
+        compare(findChild(view,"musicHeroEyebrow").text,"Station");
+        compare(findChild(view,"musicHeroMeta").text,"Fixture service");
+        // The catalogue's own source switch and housekeeping are gone (MH-5).
+        compare(findChild(view,"musicSourcePicker").visible,false);
+        compare(findChild(view,"musicDisconnect").visible,false);compare(findChild(view,"musicRescan").visible,false);
+        keyClick(Qt.Key_Down);const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        compare(findChild(view,"musicHeroTitle").text,"First");compare(findChild(view,"musicHeroMeta").text,"This computer");
+        compare(albums.shown.map(entry=>entry.key),["local\nalbum:1","account\nalbum:1","local\nalbum:2"]);
+        // Up from the first shelf reaches the header pills.
+        keyClick(Qt.Key_Up);keyClick(Qt.Key_Up);tryCompare(findChild(view,"musicSources"),"activeFocus",true);
+    }
+    // #800: a late source adds its entries without moving focus; an entry
+    // that leaves hands focus to its neighbour.
+    function test_late_entries_keep_focus_and_a_dropped_source_moves_it() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();keyClick(Qt.Key_Down);
+        const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        keyClick(Qt.Key_Right);compare(albums.focusedEntry.key,"account\nalbum:1");
+        // A late page puts a dated entry first in the room's order.
+        const late=room.card("account","album:7","album","Late");
+        room.shelves=[room.shelves[0],Object.assign({},room.shelves[1],{entries:[late].concat(room.shelves[1].entries)})];
+        tryCompare(albums,"count",4);compare(albums.focusedEntry.key,"account\nalbum:1");
+        compare(albums.shown[3].key,"account\nalbum:7");
+        // The service drops out: its entries leave and focus moves on.
+        room.shelves=[{id:"albums",title:"Albums",kind:"album",entries:[room.card("local","album:1","album","First"),room.card("local","album:2","album","Second")]}];
+        const left=findChild(view,"musicShelf-albums");tryVerify(()=>left && left.count===2);
+        tryVerify(()=>left.activeFocus);verify(left.focusedEntry!==null);
+    }
+    // #800: Refresh and Disconnect live only in the Sources sheet; Disconnect
+    // asks first with Cancel as the initial focus.
+    function test_sources_sheet_holds_the_housekeeping() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();const sources=findChild(view,"musicSources");Ui.Focus.take(sources);keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const names=findChild(sheet,"musicSourceName");verify(names);
+        const scan=findChild(sheet,"musicSourceAction-scan");tryCompare(scan,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(room.commands,["local:scan"]);
+        // Review of #812: the republished rows keep the focused pill.
+        wait(20);compare(scan.activeFocus,true);
+        // Down reaches the service's row; its Disconnect is right of Refresh.
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Right);
+        tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);keyClick(Qt.Key_Return);
+        tryCompare(findChild(sheet,"musicKeepSource"),"activeFocus",true);compare(room.commands,["local:scan"]);
+        keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(room.commands,["local:scan","account:disconnect"]);
+        keyClick(Qt.Key_Escape);tryCompare(sheet,"visible",false);tryCompare(sources,"activeFocus",true);
+    }
+    // #800 first use: no connected source, so the hero offers Connect, which
+    // opens the Sources sheet, and no shelf shows.
+    function test_first_use_offers_connect() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];room.sources=[{id:"account",name:"Fixture service",local:false,status:"signin",reason:"",actions:["connect"],busy:false}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const connect=findChild(view,"musicConnectFirst");tryCompare(connect,"activeFocus",true);
+        compare(findChild(view,"musicHeroTitle").text,"Connect a source");compare(findChild(view,"musicShelves").visible,false);
+        keyClick(Qt.Key_Return);tryCompare(findChild(view,"musicSourcesOverlay"),"visible",true);
+        tryCompare(findChild(view,"musicSourceAction-connect"),"activeFocus",true);
+    }
+    // #800: All opens the full list with the source tabs starting at All;
+    // a detail opened from the room browses the card's own source, and
+    // Back returns to the room with focus on that card (M16).
+    function test_all_list_and_detail_return_to_the_room() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();keyClick(Qt.Key_Down);
+        const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");tryCompare(findChild(all,"musicAllGrid"),"activeFocus",true);
+        compare(all.entries.length,3);compare(findChild(all,"musicAllTab-0").text,"● All");
+        Ui.Focus.take(findChild(all,"musicAllTab-2"));keyClick(Qt.Key_Return);compare(all.entries.length,1);
+        // Back returns to the shelf's All tile.
+        keyClick(Qt.Key_Escape);compare(view.mode,"root");
+        tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);compare(findChild(view,"musicShelf-albums").focusedEntry,null);
+        // Open the service's copy of album:1 from the room.
+        keyClick(Qt.Key_Left);keyClick(Qt.Key_Left);
+        compare(findChild(view,"musicShelf-albums").focusedEntry.key,"account\nalbum:1");
+        keyClick(Qt.Key_Return);compare(view.mode,"catalogue");compare(catalog.sourceId,"account");
+        compare(view.parentId,"album:1");compare(catalog.browsed[catalog.browsed.length-1],"album:1");
+        keyClick(Qt.Key_Escape);compare(view.mode,"root");
+        tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+        compare(findChild(view,"musicShelf-albums").focusedEntry.key,"account\nalbum:1");
+    }
+    // #800: a station or track in the room plays from its own source; over
+    // a live session that asks to replace it first.
+    function test_room_station_plays_from_its_source() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.state={account:"connected",facets:["selections"],actions:["play","radio"]};
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        tryCompare(findChild(view,"musicShelf-stations"),"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.sourceId,"account");tryCompare(view,"pendingPlay","station:mix");
+        // Review of #812: the confirm dialog sits above the room, Cancel
+        // returns focus to the station, and a confirmed station starts as radio.
+        const dialog=findChild(view,"musicReplaceDialog");verify(dialog.z>findChild(view,"musicRoom").z);
+        keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
+        const stations=findChild(view,"musicShelf-stations");tryVerify(()=>stations.activeFocus);
+        compare(stations.focusedEntry.key,"account\nstation:mix");
+        catalog.commands=[];keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","station:mix");
+        findChild(view,"musicReplaceQueue").activated();compare(catalog.commands,["radio"]);compare(catalog.played,["station:mix"]);
+    }
+    // Review of #812: the shell focuses the section through the view; the
+    // room then holds focus on a card and the D-pad moves it.
+    function test_view_focus_reaches_the_room() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+        // Review of #812: Back from a player opened from a detail returns to
+        // the room, and the next Back leaves Music.
+        let backs=0;view.backRequested.connect(()=>backs++);
+        view.parentId="album:1";view.parentTitle="First";view.mode="player";
+        keyClick(Qt.Key_Escape);compare(view.mode,"root");compare(view.parentId,"");
+        // Not opened from a card: focus starts on the first shelf.
+        tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Escape);compare(backs,1);
+    }
+    // Review of #812: with focus on a shelf's All tile, a late card does not
+    // take it.
+    function test_all_tile_keeps_focus_when_cards_join() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Right);
+        const stations=findChild(view,"musicShelf-stations");compare(stations.focusedEntry,null);
+        room.shelves=[Object.assign({},room.shelves[0],{entries:room.shelves[0].entries.concat([room.card("local","station:late","station","Late")])}),room.shelves[1]];
+        tryCompare(stations,"count",2);compare(stations.focusedEntry,null);
+    }
+    // Review of #812: the shell opens Music by giving the view focus through
+    // its scope, without calling focusInitial(); a card still takes it.
+    function test_focus_routed_by_scope_reaches_a_card() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room,visible:false});verify(view);
+        view.visible=true;view.forceActiveFocus();
+        tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+        // A source that leaves while its pill has focus hands focus on.
+        Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        // Down moves to the service's row, which then leaves.
+        keyClick(Qt.Key_Down);tryVerify(()=>!findChild(sheet,"musicSourceAction-scan").activeFocus);
+        room.sources=[room.sources[0]];
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+    }
+    // Codex review of #812: a page without a card of this shelf's kind
+    // (selections mix kinds) does not stop paging; tabs show only sources
+    // that can browse; a connected source without music is not first use.
+    function test_all_list_pages_past_empty_pages_and_tabs_browsable_sources() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=room.sources.concat([{id:"expired",name:"Fixture expired",local:false,status:"signin",reason:"",actions:["connect"],busy:false,browsable:false}]);
+        room.pending=[[],[room.card("account","album:late","album","Late")]];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        const albums=findChild(view,"musicShelf-albums");tryVerify(()=>albums.activeFocus);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");
+        tryCompare(room,"loads",2);tryCompare(all.entries,"length",4);
+        compare(findChild(all,"musicAllTab-3"),null);compare(findChild(all,"musicAllTab-2").text,"Fixture service");
+    }
+    function test_connected_source_without_music_is_not_first_use() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];room.sources=[{id:"account",name:"Fixture service",local:false,status:"connected",reason:"",actions:["disconnect"],busy:false,browsable:false}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        compare(findChild(view,"musicHeroTitle").text,"No music yet");compare(findChild(view,"musicConnectFirst").text,"Sources");
+    }
+    // Review of #812: an empty room is never shown bare. A local library
+    // without music, or a lone expired service, still lists facets, so the
+    // state comes from the shelves and the source rows.
+    function test_empty_room_explains_itself() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.shelves=[];room.sources=[{id:"local",name:"Fixture music",local:true,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        compare(findChild(view,"musicHeroTitle").text,"No music yet");compare(findChild(view,"musicHeroMeta").text,"Add folders with music in Settings.");
+        const action=findChild(view,"musicConnectFirst");tryCompare(action,"activeFocus",true);compare(action.text,"Sources");
+        room.sources=[{id:"account",name:"Fixture service",local:false,status:"signin",reason:"",actions:["authorize"],busy:false,browsable:true}];
+        compare(findChild(view,"musicHeroTitle").text,"Connect a source");compare(action.text,"Connect a source");
+    }
+    // Codex review of #812: the Sources rows scroll with focus, so a lower
+    // source's pills are on screen when they hold focus.
+    function test_sources_sheet_scrolls_with_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const rows=[];for(let i=0;i<8;i++)rows.push({id:"s"+i,name:"Fixture "+i,local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true});
+        room.sources=rows;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        for(let i=0;i<7;i++)keyClick(Qt.Key_Down);
+        const area=findChild(sheet,"musicSourceRows");tryVerify(()=>area.contentY>0);
+        // Delta review of #812: a pill keeps room for its focus scale.
+        tryVerify(()=>{const pill=view.Window.window.activeFocusItem;const at=pill.mapToItem(area,0,0);return at.x>=8;});
+        const focused=view.Window.window.activeFocusItem;verify(focused.objectName==="musicSourceAction-scan");
+        tryVerify(()=>{const at=focused.mapToItem(area,0,0);return at.y>=0 && at.y+focused.height<=area.height;});
+    }
+    // Review of #812: when an empty room fills, focus leaves the hidden
+    // first-use action for a card, and the D-pad works.
+    function test_room_that_fills_moves_focus_off_the_empty_state() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const shelves=room.shelves;room.shelves=[];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        const action=findChild(view,"musicConnectFirst");tryCompare(action,"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(findChild(view,"musicSources"),"activeFocus",true);
+        Ui.Focus.take(action);tryCompare(action,"activeFocus",true);
+        room.shelves=shelves;
+        tryVerify(()=>findChild(view,"musicShelf-stations") && findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+    }
+    // Codex review of #812: the All list's tabs scroll with focus, so the
+    // ordering controls past many sources stay reachable on screen.
+    function test_all_tabs_scroll_with_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const rows=[];for(let i=0;i<10;i++)rows.push({id:"s"+i,name:"Fixture service with a long name "+i,local:false,status:"connected",reason:"",actions:[],busy:false,browsable:true});
+        room.sources=rows;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");Ui.Focus.take(findChild(all,"musicAllTab-0"));
+        for(let i=0;i<12;i++)keyClick(Qt.Key_Right);
+        const az=findChild(all,"musicAllAlphabetical");tryCompare(az,"activeFocus",true);
+        const area=findChild(all,"musicAllTabArea");
+        tryVerify(()=>{const at=az.mapToItem(area,0,0);return at.x>=0 && at.x+az.width<=area.width;});
+        // Delta review of #812: the focused pill, scaled up, is not clipped.
+        Ui.Focus.take(findChild(all,"musicAllTab-0"));const first=findChild(all,"musicAllTab-0");
+        tryVerify(()=>{const at=first.mapToItem(area,0,0);return at.x>=8 && at.y>=8 && at.y+first.height<=area.height-8;});
+    }
+    // Codex review of #812: before any source is known, the room is not the
+    // first use.
+    function test_no_sources_yet_is_not_first_use() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];room.sources=[];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        compare(findChild(view,"musicRoom").firstUse,false);compare(findChild(view,"musicConnectFirst").visible,false);
+    }
+    // Codex review of #812: Up in the Sources sheet skips a source without
+    // housekeeping actions, as Down does.
+    function test_sources_sheet_up_skips_actionless_rows() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=[{id:"a",name:"Fixture A",local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
+                      {id:"b",name:"Fixture B",local:false,status:"connected",reason:"",actions:[],busy:false,browsable:true},
+                      {id:"c",name:"Fixture C",local:false,status:"connected",reason:"",actions:["disconnect"],busy:false,browsable:true}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const scan=findChild(sheet,"musicSourceAction-scan");tryCompare(scan,"activeFocus",true);
+        keyClick(Qt.Key_Down);tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(scan,"activeFocus",true);
+    }
+    // Codex review of #812: shelves that arrive above the focused one keep
+    // the focused shelf in view.
+    function test_focused_shelf_stays_in_view_when_shelves_arrive_above() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const albums=room.shelves[1];room.shelves=[albums];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        const shelf=findChild(view,"musicShelf-albums");tryVerify(()=>shelf.activeFocus);
+        room.shelves=[{id:"stations",title:"Stations",kind:"station",entries:[room.card("account","station:mix","station","Fixture mix")]},
+                      {id:"forYou",title:"For you",kind:"playlist",entries:[room.card("account","playlist:1","playlist","Mix")]},albums];
+        const area=findChild(view,"musicShelves");
+        // Once the column has laid the new shelves out above it.
+        tryVerify(()=>shelf.y>0);
+        tryVerify(()=>shelf.activeFocus && shelf.y>=area.contentY && shelf.y+shelf.height<=area.contentY+area.height);
+    }
+    // Codex review of #812: a source that answers with no actions ends a
+    // pending room play; a later state with play does not start it.
+    function test_room_play_ends_when_the_source_offers_nothing() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.state={};
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Return);compare(catalog.sourceId,"account");
+        catalog.state={revision:1,account:"connected",facets:["selections"],actions:[]};
+        wait(20);verify(view.roomPlay===null);
+        catalog.state={revision:2,account:"connected",facets:["selections"],actions:["play","radio"]};
+        wait(20);compare(view.pendingPlay,"");compare(catalog.commands,[]);
+    }
+    // Codex review of #812: a source row that changes keeps the focused tab;
+    // a tab that leaves hands focus to All.
+    function test_all_tabs_keep_focus_when_sources_change() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");const service=findChild(all,"musicAllTab-2");
+        Ui.Focus.take(service);tryCompare(service,"activeFocus",true);
+        room.sources=room.sources.map(row=>Object.assign({},row,{busy:true}));
+        wait(20);compare(service.activeFocus,true);
+        room.sources=[room.sources[0]];
+        tryCompare(findChild(all,"musicAllTab-0"),"activeFocus",true);
     }
 }

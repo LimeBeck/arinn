@@ -907,6 +907,16 @@ TestCase {
         const probe = createTemporaryObject(navProbe, suite);
         for (const label of labels)
             verify(probe.implicitWidth <= label.width, "label " + label.width + " < " + probe.implicitWidth);
+        // A count wide enough to grow the badge keeps the 12 px gap.
+        const many = [];
+        for (let i = 0; i < 1200; ++i) many.push({id: "s" + i, title: "S" + i, letter: "S"});
+        home.openServices = many;
+        const badge = child("openServicesBadge");
+        tryVerify(() => badge.visible && badge.width > 36);
+        const row = findChild(badge.parent, "navLabelRow");
+        const rowRight = row.mapToItem(home, row.width, 0).x;
+        const badgeLeft = badge.mapToItem(home, 0, 0).x;
+        verify(rowRight + 12 <= badgeLeft + 0.5, "label row ends at " + rowRight + ", badge starts at " + badgeLeft);
         keyClick(Qt.Key_Escape);
     }
     function test_hero_describes_the_focused_item() {

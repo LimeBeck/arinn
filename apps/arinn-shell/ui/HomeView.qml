@@ -1381,14 +1381,15 @@ FocusScope {
                             width: 10; height: 10; radius: 5; color: Theme.ember
                             visible: navButton.sectionDot || navButton.activityDot
                         }
-                        // The label runs up to the count badge (36 wide, 20 from
-                        // the edge) with a 12 px gap, so the Russian "Open services"
-                        // fits on one line (#837).
+                        // The label runs up to the count badge (at least 36 wide,
+                        // 20 from the edge) with a 12 px gap, so the Russian "Open
+                        // services" fits on one line; a wider count takes its own
+                        // width (#837).
                         Row {
                             objectName: "navLabelRow"
                             x: 24
                             anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 24 - 20 - 36 - 12
+                            width: parent.width - 24 - 20 - Math.max(36, navBadge.width) - 12
                             spacing: 22
                             LineIcon {
                                 width: 36; height: 36
@@ -1424,6 +1425,7 @@ FocusScope {
                             }
                         }
                         Rectangle {
+                            id: navBadge
                             objectName: index === root.sections.length ? "openServicesBadge"
                                       : index === root.sections.length + 1 ? "runningBadge" : ""
                             visible: (index === root.sections.length && root.openServiceCount > 0)

@@ -24,7 +24,7 @@ Item {
     Rectangle {
         objectName: "musicDialogScrim"
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.58)
+        color: Ui.Theme.scrim
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons
@@ -36,10 +36,10 @@ Item {
         anchors.centerIn: parent
         width: 900
         height: content.implicitHeight + 112
-        radius: 48
-        color: Qt.rgba(0.161, 0.165, 0.188, 0.94)
+        radius: Ui.Theme.dialogRadius
+        color: Ui.Theme.dialogSurface
         border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.10)
+        border.color: Ui.Theme.dialogLine
         MouseArea {
             anchors.fill: parent
             acceptedButtons: Qt.AllButtons

@@ -47,6 +47,7 @@ public:
   QHash<QString, int> pageReads;
   QStringList commands;
   QString commandError;
+  QString pageError;
   QSet<QString> registryMethods;
   QString active = QStringLiteral("null");
   QString introspect(const QString &) const override { return {}; }
@@ -92,6 +93,10 @@ public:
     }
     if (member == QLatin1String("GetPage")) {
       ++pageReads[id];
+      if (!pageError.isEmpty()) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.") + pageError, pageError));
+        return true;
+      }
       // As a provider without a catalogue answers.
       if (states.value(id).value("facets").toArray().isEmpty()) {
         bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unsupported"),
@@ -147,6 +152,7 @@ private slots:
   }
   void init() {
     daemon.commandError.clear();
+    daemon.pageError.clear();
     daemon.providers.clear();
     daemon.states.clear();
     daemon.stateErrors.clear();
@@ -298,6 +304,10 @@ private slots:
     };
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     publish("paused");QTRY_VERIFY(!policy->property("mediaActive").toBool());
+    // A track loading is about to sound: no interface sound over its first
+    // note (#756 M26).
+    publish("loading");QTRY_VERIFY(policy->property("mediaActive").toBool());
+    publish("paused");QTRY_VERIFY(!policy->property("mediaActive").toBool());
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     daemon.active="null";catalog.refresh();QTRY_VERIFY(!policy->property("mediaActive").toBool());
   }
@@ -322,6 +332,31 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
     QVERIFY(catalog.homeEntries().first().toMap().value("live").toBool());
+  }
+  // A station tells a continuous station from an album on the Home card
+  // (#756 M24).
+  void theHomeCardNamesTheStation() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    daemon.active = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {"provider_id", "local"},
+        {"generation", "g1"},
+        {"state", QJsonObject{{"revision", 1},
+                              {"session", "s"},
+                              {"playback", "paused"},
+                              {"continuous", true},
+                              {"station", QJsonObject{{"id", "station:wave"},
+                                                      {"kind", "station"},
+                                                      {"title", "Synthetic wave"}}},
+                              {"actions", QJsonArray{"resume"}},
+                              {"current", QJsonObject{{"occurrence", "o"},
+                                                      {"track", QJsonObject{{"id", "t1"},
+                                                                            {"kind", "track"},
+                                                                            {"title", "Synthetic"}}}}}}}})
+                                          .toJson(QJsonDocument::Compact));
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("statusText").toString(),
+                 QStringLiteral("Local music · Synthetic wave · Paused"));
   }
   // The stale "Unavailable" under every music screen (#756 M5, M8): a
   // provider keeps its last error after it skipped to the next track. The
@@ -387,6 +422,29 @@ private slots:
     catalog.refresh();
     QTRY_COMPARE(catalog.activeState().value("playback").toString(), QStringLiteral("loading"));
     QVERIFY(catalog.nowPlaying().isEmpty());
+  }
+  // A failed page read is told apart from a failed command: the view ends
+  // its search for a detail's opener only on the former (review of #798).
+  void aFailedPageIsSignalled() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    auto scannable = state({"tracks"});
+    scannable["actions"] = QJsonArray{"scan"};
+    daemon.states.insert("local", scannable);
+    MusicCatalog catalog;
+    QTRY_VERIFY(!catalog.entries().isEmpty());
+    QSignalSpy failed(&catalog, &MusicCatalog::pageFailed);
+    daemon.commandError = "Unsupported";
+    const auto sent = daemon.commands.size();
+    catalog.command(QStringLiteral("scan"));
+    QTRY_COMPARE(daemon.commands.size(), sent + 1);
+    QTRY_VERIFY(!catalog.errorText().isEmpty());
+    QCOMPARE(failed.count(), 0);
+    daemon.commandError.clear();
+    QTRY_VERIFY(!catalog.busy());
+    daemon.pageError = "Timeout";
+    catalog.browse(QStringLiteral("tracks"), QString(), QStringLiteral("other"));
+    QTRY_COMPARE(failed.count(), 1);
+    QVERIFY(!catalog.errorText().isEmpty());
   }
   // A degraded source says that part of it is unavailable, with no code.
   void aDegradedSourceExplainsItself() {

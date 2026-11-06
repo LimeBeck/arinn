@@ -26,7 +26,11 @@ TestCase {
             property var browsed: []
             property var played: []
             function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
-            function loadMore() {}
+            signal pageFailed()
+            property int loads: 0
+            // As the catalogue: a page in flight makes it busy.
+            property bool busyOnLoad: false
+            function loadMore() {if(busy)return;loads++;if(busyOnLoad)busy=true;}
             function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
             property var positions: []
             property var occurrences: []
@@ -34,6 +38,8 @@ TestCase {
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
+    // A scope above the view, such as the Quick menu, holding focus.
+    Component {id:scopeFactory;FocusScope {width:10;height:10;Item {objectName:"scopeItem";width:10;height:10;focus:true}}}
     // As the shell places it: no size given (#756 M6, M7).
     Component {id:shellViewFactory;Music.MusicView {}}
     Component {id:artworkFactory;Music.MusicArtwork {width:128;height:128;retryInterval:10}}
@@ -394,5 +400,232 @@ TestCase {
         // positions (spec §5.1).
         home.continueEntries=home.continueEntries.map(entry=>entry.kind==="music" ? Object.assign({},entry,{live:false}) : entry);
         compare(home.continuePresentation.map(entry=>entry.id).indexOf("arinn-music-session"),-1);
+    }
+
+    function iconOf(button) {
+        for(const child of button.contentItem.children) if(child.name!==undefined) return child;
+        return null;
+    }
+    // One icon set: the music buttons and the artwork placeholder draw
+    // LineIcon glyphs (#756 M23); scrims and radii are theme tokens (M22).
+    function test_music_uses_line_icons_and_theme_tokens() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","like","dislike","next","previous","seek","stop","radio","pin","retry"],upcoming:[],station:{id:"st",title:"Station"}};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause");const glyph=iconOf(play);
+        verify(glyph);compare(glyph.name,"pause");
+        verify(glyph.toString().indexOf("LineIcon")>=0,glyph.toString());
+        compare(iconOf(findChild(view,"musicNext")).name,"skip_next");
+        compare(iconOf(findChild(view,"musicQueue")).name,"queue_music");
+        view.mode="catalogue";wait(0);
+        const plate=findChild(view,"musicSearch").parent;compare(plate.radius,Ui.Theme.containerRadius);
+        view.requestPlay("track-1");
+        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogScrim").color,Ui.Theme.scrim);
+        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogPlate").radius,Ui.Theme.dialogRadius);
+        const art=createTemporaryObject(artworkFactory,suite);compare(art.radius,Ui.Theme.stillRadius);
+    }
+    // An album, artist or playlist title is content: Playfair Display with
+    // lining figures (ADR-0137,
+    // #756 M24). The section title stays Onest.
+    function test_detail_heading_is_a_content_title() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const heading=findChild(view,"musicHeading");
+        compare(heading.font.family,Ui.Theme.fontFamily);
+        view.parentId="album:1";view.parentTitle="Fixture album";
+        compare(heading.text,"Fixture album");compare(heading.font.family,Ui.Theme.contentFontFamily);
+        compare(heading.font.features.lnum,1);
+    }
+    // Hours in long tracks, no raw facet ids, labels that set their widths
+    // (#756 M25).
+    function test_time_facets_and_action_widths() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["tracks","mood","albums"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        compare(view.timeLabel(185000000),"3:05");compare(view.timeLabel(4503000000),"1:15:03");
+        compare(view.timeLabel(3600000000),"1:00:00");
+        const labels=[];for(let i=0;;i++){const button=findChild(view,"musicFacet-"+i);if(!button)break;labels.push(button.text);}
+        compare(labels,["Tracks","Albums"]);
+        const open=findChild(view,"musicOpenPlayer"),settings=findChild(view,"musicSettings");
+        open.text="A much longer translated label for Open player";wait(0);
+        verify(open.width>=open.implicitWidth);
+        const plate=findChild(view,"musicSearch").parent;
+        verify(plate.x+plate.width<=open.mapToItem(view,0,0).x,"the search field leaves room for the actions");
+        verify(settings.mapToItem(view,settings.width,0).x<=1920-Ui.Theme.safeRight,"the actions stay in the safe area");
+    }
+    // Play/Pause is the player's first focus; while it waits for a command
+    // a working control holds focus and hands it back (#756 M13).
+    function test_play_pause_is_the_default_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const playing={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","stop","next","seek"],upcoming:[]};
+        const loading=Object.assign({},playing,{playback:"loading",actions:["stop","next","seek"]});
+        catalog.activeState=playing;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.openPlayer();const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        // Review of #798: a command in flight keeps Play/Pause and its
+        // focus; a press meanwhile sends nothing.
+        catalog.busy=true;wait(0);compare(play.activeFocus,true);compare(play.enabled,true);
+        keyClick(Qt.Key_Return);compare(catalog.commands,[]);
+        catalog.busy=false;
+        // A track loading disables it under focus: Stop holds focus and
+        // hands it back once Play/Pause works again.
+        const stop=findChild(view,"musicStop");
+        catalog.activeState=loading;tryCompare(stop,"activeFocus",true);
+        catalog.activeState=playing;tryCompare(play,"activeFocus",true);
+        // Opened while loading, the same.
+        view.mode="catalogue";catalog.activeState=loading;wait(0);view.openPlayer();
+        tryCompare(stop,"activeFocus",true);
+        catalog.activeState=playing;tryCompare(play,"activeFocus",true);
+        // A control the user chose keeps focus.
+        catalog.activeState=loading;tryCompare(stop,"activeFocus",true);keyClick(Qt.Key_Up);
+        const seek=findChild(view,"musicSeek");tryCompare(seek,"activeFocus",true);
+        catalog.activeState=playing;wait(50);compare(seek.activeFocus,true);
+    }
+    // Down no longer moves sideways inside the one control row, and every
+    // control reaches the seek bar with Up (#756 M15).
+    function test_player_dpad_graph() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","like","dislike","next","previous","seek","stop","radio"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause"),seek=findChild(view,"musicSeek");
+        tryCompare(play,"activeFocus",true);
+        for(const name of ["musicLike","musicDislike","musicPrevious","musicPlayPause","musicNext","musicQueue","musicSeekButton","musicStop","musicRadio"]) {
+            const button=findChild(view,name);verify(button,name);Ui.Focus.take(button);tryCompare(button,"activeFocus",true);
+            keyClick(Qt.Key_Down);compare(button.activeFocus,true,name+": Down stays in place");
+            keyClick(Qt.Key_Up);tryCompare(seek,"activeFocus",true);
+        }
+    }
+    // Back restores focus: the queue to Queue, a detail to the entity it
+    // was opened from, a player opened from Home to Home (#756 M16).
+    function test_back_restores_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        const albums=[{id:"album:1",kind:"album",title:"One",available:true},{id:"album:2",kind:"album",title:"Two",available:true},{id:"album:3",kind:"album",title:"Three",available:true}];
+        catalog.entries=albums;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);view.focusInitial();
+        const list=findChild(view,"musicEntries");tryCompare(list,"activeFocus",true);
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);compare(list.currentIndex,2);
+        keyClick(Qt.Key_Return);compare(view.parentId,"album:3");
+        catalog.entries=[{id:"t1",kind:"track",title:"Inside",available:true}];wait(0);
+        keyClick(Qt.Key_Escape);compare(view.parentId,"");
+        // As the catalogue does: the list clears while the page is in flight.
+        catalog.busy=true;catalog.entries=[];wait(0);catalog.busy=false;catalog.entries=albums;
+        tryCompare(list,"currentIndex",2);tryCompare(list,"activeFocus",true);
+        view.openPlayer();wait(0);const queue=findChild(view,"musicQueue");Ui.Focus.take(queue);keyClick(Qt.Key_Return);
+        compare(view.mode,"queue");keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
+        let backs=0;view.backRequested.connect(()=>backs++);
+        keyClick(Qt.Key_Escape);compare(view.mode,"catalogue");compare(backs,0);
+        view.openPlayerFromHome();wait(0);keyClick(Qt.Key_Escape);compare(backs,1);compare(view.mode,"catalogue");
+    }
+    // Review of #798: an entity from a later page was not found on the
+    // first page after Back, and focus landed on an unrelated row.
+    // Review of #798: status changes while a page loaded each spent one of
+    // the ten loads, so an opener a few pages deep was never reached.
+    function test_a_slow_page_does_not_spend_the_opener_budget() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};catalog.busyOnLoad=true;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:1050",parentKind:"album",parentTitle:"Deep"});
+        verify(view);wait(0);
+        const page=from=>{const rows=[];for(let i=from;i<from+100;i++)rows.push({id:"album:"+i,kind:"album",title:"A"+i,available:true});return rows;};
+        view.back();catalog.more=true;
+        let shown=page(0);catalog.entries=shown;
+        // The opener is on the tenth further page, the last the budget allows.
+        for(let p=1;p<=10;p++) {
+            tryCompare(catalog,"loads",p);compare(catalog.busy,true);
+            // Status polls while the page loads.
+            for(let i=0;i<3;i++)view.restoreOpener();
+            compare(catalog.loads,p);compare(view.restorePages,p);
+            shown=shown.concat(page(p*100));catalog.more=p<10;catalog.entries=shown;catalog.busy=false;
+        }
+        const list=findChild(view,"musicEntries");
+        tryCompare(list,"currentIndex",1050);tryCompare(list,"activeFocus",true);
+        compare(catalog.loads,10);compare(view.restoreEntity,"");
+    }
+    function test_back_finds_an_opener_on_a_later_page() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:150",parentKind:"album",parentTitle:"Late"});
+        verify(view);wait(0);
+        view.back();compare(view.restoreEntity,"album:150");
+        const page=from=>{const rows=[];for(let i=from;i<from+100;i++)rows.push({id:"album:"+i,kind:"album",title:"A"+i,available:true});return rows;};
+        catalog.more=true;catalog.entries=page(0);
+        tryCompare(catalog,"loads",1);compare(view.restoreEntity,"album:150");
+        catalog.more=false;catalog.entries=page(0).concat(page(100));
+        const list=findChild(view,"musicEntries");
+        tryCompare(list,"currentIndex",150);tryCompare(list,"activeFocus",true);compare(view.restoreEntity,"");
+        // Review of #798: an interrupted search left its page count behind
+        // and cut the next search short. Each Back starts a full budget.
+        view.parentId="album:150";view.back();catalog.more=true;catalog.entries=page(0);
+        tryCompare(catalog,"loads",2);view.visible=false;view.visible=true;
+        compare(view.restorePages,0);
+        view.restorePages=view.restorePageLimit;view.parentId="album:150";view.back();
+        compare(view.restorePages,0);
+    }
+    // Review of #798: replacing the queue from a player opened on Home
+    // reopened it as an ordinary player, so Back went to the catalogue.
+    function test_replacement_keeps_the_home_origin() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","radio"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        let backs=0;view.backRequested.connect(()=>backs++);
+        view.openPlayerFromHome();wait(0);
+        view.requestRadio("t",true);wait(0);const confirm=findChild(view,"musicReplaceQueue");
+        Ui.Focus.take(confirm);tryCompare(confirm,"activeFocus",true);keyClick(Qt.Key_Return);
+        compare(catalog.commands,["radio"]);compare(view.mode,"player");
+        wait(0);keyClick(Qt.Key_Escape);compare(backs,1);
+    }
+    // Review of #798: the opener search stayed armed after the user asked
+    // for another list or a page failed, then paged that list and pulled
+    // focus off the control the user had moved to.
+    function test_another_browse_or_a_failed_page_ends_the_opener_search() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums","playlists"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:150",parentKind:"album",parentTitle:"Late"});
+        verify(view);wait(0);
+        view.back();compare(view.restoreEntity,"album:150");
+        const facet=findChild(view,"musicFacet-1");Ui.Focus.take(facet);tryCompare(facet,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.restoreEntity,"");compare(view.restorePages,0);
+        catalog.more=true;catalog.entries=[{id:"playlist:1",kind:"playlist",title:"P",available:true}];wait(50);
+        compare(catalog.loads,0);compare(facet.activeFocus,true);
+        // A failed page ends it too.
+        view.parentId="album:150";view.back();compare(view.restoreEntity,"album:150");
+        // Review of #798: a failed command sets the same error line and
+        // leaves it; only a failed page ends it.
+        catalog.errorText="This action is not available.";wait(0);compare(view.restoreEntity,"album:150");
+        catalog.errorText="";catalog.pageFailed();compare(view.restoreEntity,"");
+        // Focus elsewhere in the view stays there when the opener's page arrives.
+        view.parentId="album:2";view.back();Ui.Focus.take(facet);tryCompare(facet,"activeFocus",true);
+        catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
+        const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
+        compare(facet.activeFocus,true);compare(view.restoreEntity,"");
+        // Review of #798: an empty final page ends it as well.
+        view.parentId="album:9";view.back();compare(view.restoreEntity,"album:9");
+        catalog.more=false;catalog.entries=[];tryCompare(view,"restoreEntity","");
+        // Review of #798: an empty last page that lands while a command is
+        // still busy ends the search once the command ends.
+        catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true}];wait(0);
+        view.parentId="album:9";view.back();catalog.busy=true;catalog.entries=[];wait(50);
+        compare(view.restoreEntity,"album:9");
+        catalog.busy=false;tryCompare(view,"restoreEntity","");
+    }
+    // Review of #798: the loading hand-off and the opener restore pulled
+    // focus from under a scope that held it (the Quick menu, power).
+    function test_focus_hand_offs_leave_another_scope_alone() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const playing={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","stop","next"],upcoming:[]};
+        catalog.activeState=playing;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        const scope=createTemporaryObject(scopeFactory,suite);const held=findChild(scope,"scopeItem");
+        view.openPlayer();const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        scope.forceActiveFocus();tryCompare(held,"activeFocus",true);
+        catalog.activeState=Object.assign({},playing,{playback:"loading",actions:["stop","next"]});wait(50);
+        compare(held.activeFocus,true);compare(view.activeFocus,false);
+        catalog.activeState=playing;view.mode="catalogue";
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        view.parentId="album:2";view.back();compare(view.restoreEntity,"album:2");
+        scope.forceActiveFocus();tryCompare(held,"activeFocus",true);
+        catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
+        const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
+        compare(held.activeFocus,true);compare(view.activeFocus,false);
     }
 }

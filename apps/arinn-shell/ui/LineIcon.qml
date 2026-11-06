@@ -11,6 +11,9 @@ import QtQuick
 // home, library, download, apps, settings, screen and power. Download
 // states (handoff 12): downloading, schedule, pause_circle, check_circle
 // and error. `public` is the Open services globe; `close` is Close Arinn.
+// Music (#756 M23): stop, queue_music, thumb_up, thumb_down, radio,
+// push_pin, refresh and music_note, with play, pause, skip_previous,
+// skip_next and schedule (seek).
 Canvas {
     id: root
     property string name: ""
@@ -207,6 +210,52 @@ Canvas {
             ctx.stroke();
             ctx.beginPath();
             ctx.arc(12, 16.3, 1.2, 0, Math.PI * 2);
+            ctx.fill();
+            break;
+        case "stop":
+            ctx.rect(5, 5, 14, 14);
+            ctx.fill();
+            break;
+        case "queue_music":
+            for (const y of [5, 11, 17]) { ctx.moveTo(3, y); ctx.lineTo(16, y); }
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(19, 14); ctx.lineTo(23, 17); ctx.lineTo(19, 20); ctx.closePath();
+            ctx.fill();
+            break;
+        case "thumb_up":
+        case "thumb_down":
+            if (root.name === "thumb_down") { ctx.translate(24, 24); ctx.rotate(Math.PI); }
+            ctx.moveTo(8, 10); ctx.lineTo(13, 3); ctx.lineTo(15, 4); ctx.lineTo(14, 9);
+            ctx.lineTo(21, 9); ctx.lineTo(18, 21); ctx.lineTo(8, 21); ctx.closePath();
+            ctx.rect(3, 10, 3, 11);
+            ctx.stroke();
+            break;
+        case "radio":
+            ctx.arc(12, 12, 2, 0, Math.PI * 2);
+            ctx.fill();
+            for (const r of [6, 10]) {
+                ctx.beginPath(); ctx.arc(12, 12, r, -0.8, 0.8); ctx.stroke();
+                ctx.beginPath(); ctx.arc(12, 12, r, 2.35, 3.95); ctx.stroke();
+            }
+            break;
+        case "push_pin":
+            ctx.moveTo(8, 3); ctx.lineTo(16, 3); ctx.lineTo(15, 10); ctx.lineTo(19, 14);
+            ctx.lineTo(5, 14); ctx.lineTo(9, 10); ctx.closePath();
+            ctx.moveTo(12, 14); ctx.lineTo(12, 22);
+            ctx.stroke();
+            break;
+        case "refresh":
+            ctx.arc(12, 12, 8, 0.6, Math.PI * 2);
+            ctx.moveTo(20, 4); ctx.lineTo(20, 11); ctx.lineTo(13, 11);
+            ctx.stroke();
+            break;
+        case "music_note":
+            ctx.moveTo(10, 18); ctx.lineTo(10, 4); ctx.lineTo(21, 2); ctx.lineTo(21, 16);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.ellipse(3, 15, 7, 6);
+            ctx.ellipse(14, 13, 7, 6);
             ctx.fill();
             break;
         case "power":

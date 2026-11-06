@@ -112,20 +112,27 @@ FocusScope {
     Flickable {
         id: tabArea
         objectName: "musicAllTabArea"
-        x: Ui.Theme.safeLeft
-        y: 196
-        width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
-        height: tabRow.height
+        // A focused pill scales up: the margins keep it unclipped.
+        readonly property int pad: 16
+        x: Ui.Theme.safeLeft - pad
+        y: 196 - pad
+        width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight + 2 * pad
+        height: tabRow.height + 2 * pad
+        leftMargin: pad
+        rightMargin: pad
+        topMargin: pad
         contentWidth: tabRow.width
         interactive: false
         clip: true
         Behavior on contentX { NumberAnimation { duration: Ui.Theme.focusDuration; easing.type: Easing.OutCubic } }
         function reveal(item) {
             const left = item.x, right = item.x + item.width;
-            if (left < contentX)
-                contentX = Math.max(0, left - 96);
-            else if (right > contentX + width)
-                contentX = Math.min(Math.max(0, contentWidth - width), right - width + 96);
+            const view = width - leftMargin - rightMargin;
+            if (left < contentX + leftMargin)
+                contentX = Math.max(-leftMargin, left - 96 - leftMargin);
+            else if (right > contentX + leftMargin + view)
+                contentX = Math.min(Math.max(-leftMargin, contentWidth - view - leftMargin),
+                                    right - view + 96 - leftMargin);
         }
     Row {
         id: tabRow

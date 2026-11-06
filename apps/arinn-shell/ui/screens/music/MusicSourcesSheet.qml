@@ -67,12 +67,13 @@ FocusScope {
     }
     // Keep the focused row on screen, with the next one partly visible.
     function reveal(row) {
+        const pad = rowArea.pad, view = rowArea.height - 2 * pad;
         const top = row.y, bottom = row.y + row.height;
-        if (top < rowArea.contentY)
-            rowArea.contentY = Math.max(0, top - 40);
-        else if (bottom > rowArea.contentY + rowArea.height)
-            rowArea.contentY = Math.min(Math.max(0, rowArea.contentHeight - rowArea.height),
-                                        bottom - rowArea.height + 80);
+        if (top < rowArea.contentY + pad)
+            rowArea.contentY = Math.max(-pad, top - 40 - pad);
+        else if (bottom > rowArea.contentY + pad + view)
+            rowArea.contentY = Math.min(Math.max(-pad, rowArea.contentHeight - view - pad),
+                                        bottom - view + 80 - pad);
     }
     function label(action) {
         return action === "connect" ? qsTr("Connect")
@@ -136,10 +137,15 @@ FocusScope {
         Flickable {
             id: rowArea
             objectName: "musicSourceRows"
-            x: 64
-            y: 180
-            width: parent.width - 128
+            // A focused pill scales up: the margins keep it unclipped.
+            readonly property int pad: 16
+            x: 64 - pad
+            y: 180 - pad
+            width: parent.width - 128 + 2 * pad
             height: parent.height - y - 64
+            leftMargin: pad
+            topMargin: pad
+            bottomMargin: pad
             contentHeight: rowColumn.height
             interactive: false
             clip: true

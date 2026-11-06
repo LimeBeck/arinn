@@ -858,6 +858,8 @@ TestCase {
         const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
         for(let i=0;i<7;i++)keyClick(Qt.Key_Down);
         const area=findChild(sheet,"musicSourceRows");tryVerify(()=>area.contentY>0);
+        // Delta review of #812: a pill keeps room for its focus scale.
+        tryVerify(()=>{const pill=view.Window.window.activeFocusItem;const at=pill.mapToItem(area,0,0);return at.x>=8;});
         const focused=view.Window.window.activeFocusItem;verify(focused.objectName==="musicSourceAction-scan");
         tryVerify(()=>{const at=focused.mapToItem(area,0,0);return at.y>=0 && at.y+focused.height<=area.height;});
     }
@@ -889,6 +891,9 @@ TestCase {
         const az=findChild(all,"musicAllAlphabetical");tryCompare(az,"activeFocus",true);
         const area=findChild(all,"musicAllTabArea");
         tryVerify(()=>{const at=az.mapToItem(area,0,0);return at.x>=0 && at.x+az.width<=area.width;});
+        // Delta review of #812: the focused pill, scaled up, is not clipped.
+        Ui.Focus.take(findChild(all,"musicAllTab-0"));const first=findChild(all,"musicAllTab-0");
+        tryVerify(()=>{const at=first.mapToItem(area,0,0);return at.x>=8 && at.y>=8 && at.y+first.height<=area.height-8;});
     }
     // Codex review of #812: before any source is known, the room is not the
     // first use.

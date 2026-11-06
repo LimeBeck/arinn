@@ -27,6 +27,9 @@ class MusicCatalog : public QObject {
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
+  // Changes when a stored station is found missing or starts again.
+  Q_PROPERTY(QStringList unresolvedStations READ unresolvedStations NOTIFY
+                 unresolvedChanged)
   // The active session plays or is loading its next track: interface sounds
   // stay quiet (spec §5.6, #756 M26).
   Q_PROPERTY(bool audible READ audible NOTIFY activeChanged)
@@ -56,6 +59,7 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
+  QStringList unresolvedStations() const { return m_unresolved; }
   bool audible() const;
   QString playbackProblem() const;
   QString notice() const;
@@ -63,6 +67,14 @@ public:
   static QString sessionEntryId();
   // Play/Pause from Home's card and the Quick menu.
   Q_INVOKABLE void togglePlayback();
+  // A pinned station the provider answered `radio` with NotFound for: Home
+  // marks its pin unavailable and never starts another station (#804).
+  Q_INVOKABLE bool stationResolved(const QString &providerId,
+                                   const QString &stationId) const;
+  // Mirrors Arinn's pin to the provider's `pin` action where it covers the
+  // station that plays now (music brief, Favourites).
+  Q_INVOKABLE void syncProviderPin(const QString &providerId,
+                                   const QString &stationId, bool pinned);
   Q_INVOKABLE void choose(const QString &id);
   Q_INVOKABLE void browse(const QString &facet,
                           const QString &parent = QString(),
@@ -89,6 +101,7 @@ signals:
   // source or its generation changed.
   void browseReset();
   void problemsChanged();
+  void unresolvedChanged();
   // A page read failed; the list it was for does not arrive.
   void pageFailed();
 
@@ -96,6 +109,7 @@ private:
   void providers(const QString &token, quint64 ticket, const QString &snapshot,
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
+  QStringList m_unresolved;
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;

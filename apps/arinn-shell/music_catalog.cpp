@@ -574,7 +574,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
       QDBusConnection::sessionBus().asyncCall(message, 5500), this);
   connect(pending, &QDBusPendingCallWatcher::finished, this,
           [this, epoch, active, commandTicket, action, provider, generation,
-           oldSession](auto *watch) {
+           oldSession, entity](auto *watch) {
             const auto reply = watch->reply();
             watch->deleteLater();
             if (commandTicket != m_commandTicket)
@@ -586,8 +586,16 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             const auto json = object(reply);
+            const auto station = provider + QLatin1Char('\n') + entity;
             if (json.isEmpty()) {
               const auto failure = code(reply);
+              // The provider no longer knows a stored station: a pin of it
+              // shows as unavailable instead of being retried (#804).
+              if (action == "radio" && failure == "NotFound" &&
+                  !m_unresolved.contains(station)) {
+                m_unresolved.append(station);
+                emit unresolvedChanged();
+              }
               if ((action == "play" || action == "radio") &&
                   (failure == "Timeout" || failure == "NoReply")) {
                 m_uncertainStart = true;
@@ -604,6 +612,8 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             m_commandBusy = false;
+            if (action == "radio" && m_unresolved.removeAll(station))
+              emit unresolvedChanged();
             if (!active) {
               m_state = imageState(json.toVariantMap(), m_sourceId, m_path,
                                    m_generation);
@@ -612,6 +622,25 @@ void MusicCatalog::send(const QString &action, const QString &entity,
             emit statusChanged();
             readActive();
           });
+}
+
+bool MusicCatalog::stationResolved(const QString &providerId,
+                                   const QString &stationId) const {
+  return !m_unresolved.contains(providerId + QLatin1Char('\n') + stationId);
+}
+
+void MusicCatalog::syncProviderPin(const QString &providerId,
+                                   const QString &stationId, bool pinned) {
+  // The provider's own pin covers only the station that plays (`pinned` in
+  // its state); Arinn mirrors its pin there where the provider offers it.
+  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  if (m_activeId != providerId ||
+      station.value(QStringLiteral("id")).toString() != stationId ||
+      m_active.value(QStringLiteral("pinned")).toBool() == pinned ||
+      !m_active.value(QStringLiteral("actions")).toStringList().contains(
+          QStringLiteral("pin")))
+    return;
+  transport(QStringLiteral("pin"), stationId);
 }
 
 QString MusicCatalog::sessionEntryId() {

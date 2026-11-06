@@ -1003,6 +1003,103 @@ private slots:
     QTRY_COMPARE(catalog.notice(),
                  QStringLiteral("Part of this source is unavailable. Refresh to try again."));
   }
+  // #804: a stored station the provider answers `radio` with NotFound for
+  // is unresolved, so Home marks its pin unavailable; starting it again
+  // clears that.
+  void aStationTheProviderNoLongerKnowsIsUnresolved() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    auto local = state({"selections"});
+    local["actions"] = QJsonArray{"radio"};
+    daemon.states.insert("local", local);
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.state().value("actions").toList().size(), 1);
+    QSignalSpy changed(&catalog, &MusicCatalog::unresolvedChanged);
+    QVERIFY(catalog.stationResolved("local", "station:gone"));
+    daemon.commandError = "NotFound";
+    catalog.command("radio", "station:gone");
+    QTRY_VERIFY(!catalog.stationResolved("local", "station:gone"));
+    QCOMPARE(catalog.unresolvedStations(), QStringList{"local\nstation:gone"});
+    QCOMPARE(changed.count(), 1);
+    QVERIFY(catalog.stationResolved("local", "station:other"));
+    // Another failure is not "no longer known".
+    daemon.commandError = "Timeout";
+    catalog.command("radio", "station:slow");
+    QTRY_VERIFY(!catalog.errorText().isEmpty());
+    QTRY_VERIFY(!catalog.busy());
+    QVERIFY(catalog.stationResolved("local", "station:slow"));
+    daemon.commandError.clear();
+    catalog.command("radio", "station:gone");
+    QTRY_VERIFY(catalog.stationResolved("local", "station:gone"));
+  }
+  // #804: Home marks a pin unavailable, with its reason, while its source
+  // is not connected or no longer knows the station; Main.musicPinRows.
+  void pinsOfAbsentSourcesOrUnknownStationsAreUnavailable() {
+    QFile main(QString::fromUtf8(ARINN_MAIN_QML));
+    QVERIFY(main.open(QIODevice::ReadOnly));
+    const auto text = QString::fromUtf8(main.readAll());
+    const auto start = text.indexOf(QStringLiteral("    function musicPinRows("));
+    QVERIFY(start >= 0);
+    const auto end = text.indexOf(QStringLiteral("\n    }\n"), start);
+    QVERIFY(end > start);
+    QQmlEngine engine;
+    QQmlComponent component(&engine);
+    component.setData(("import QtQml\nQtObject {\n" + text.mid(start, end + 6 - start) +
+                       "\n}").toUtf8(),
+                      QUrl());
+    std::unique_ptr<QObject> root(component.create());
+    QVERIFY2(root != nullptr, qPrintable(component.errorString()));
+    auto pin = [](const QString &provider, const QString &station) {
+      return QVariantMap{{"id", provider + station}, {"musicStation", true},
+                         {"providerId", provider}, {"stationId", station},
+                         {"launchable", true}, {"title", "Fixture"}};
+    };
+    const QVariantList favorites{QVariantMap{{"id", "app"}, {"title", "App"}},
+                                 pin("local", "station:library"),
+                                 pin("away", "station:x"), pin("local", "station:gone")};
+    const QVariantList sources{QVariantMap{{"id", "local"}, {"name", "Local music"}, {"ready", true}}};
+    QVariant result;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "musicPinRows", Q_RETURN_ARG(QVariant, result),
+                                      Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
+                                      Q_ARG(QVariant, QStringList{"local\nstation:gone"})));
+    const auto rows = qvariant_cast<QJSValue>(result).toVariant().toList();
+    QCOMPARE(rows.size(), 4);
+    QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
+    QVERIFY(!rows[1].toMap().value("unavailable").toBool());
+    QCOMPARE(rows[1].toMap().value("subtitle").toString(), QStringLiteral("Local music"));
+    QVERIFY(rows[2].toMap().value("unavailable").toBool());
+    QVERIFY(!rows[2].toMap().value("launchable").toBool());
+    QCOMPARE(rows[2].toMap().value("subtitle").toString(),
+             QStringLiteral("Music source not connected"));
+    QCOMPARE(rows[3].toMap().value("subtitle").toString(),
+             QStringLiteral("This station is no longer available"));
+  }
+  // #804: Arinn's pin is mirrored to the provider's `pin` only for the
+  // station that plays, and only when the provider's state differs.
+  void aPinIsMirroredToTheProviderForThePlayingStation() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    QJsonObject current{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
+                        {"continuous", true}, {"pinned", false},
+                        {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
+                                                {"title", "Wave"}}},
+                        {"actions", QJsonArray{"pause", "pin"}}};
+    daemon.active = QString::fromUtf8(
+        QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
+                                  {"state", current}})
+            .toJson(QJsonDocument::Compact));
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    QTRY_VERIFY(!catalog.sources().isEmpty());
+    const auto before = daemon.commands.size();
+    catalog.syncProviderPin("local", "station:other", true);
+    catalog.syncProviderPin("other", "station:wave", true);
+    catalog.syncProviderPin("local", "station:wave", false);
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before);
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
+  }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)
 #include "music_catalog_test.moc"

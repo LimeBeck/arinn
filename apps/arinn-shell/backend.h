@@ -83,6 +83,16 @@ public:
   bool favoriteSaving() const { return m_favoriteSaving; }
   QString favoriteError() const { return m_favoriteError; }
   Q_INVOKABLE void setFavorite(const QString &id, bool pinned);
+  // Pinned music stations (ADR-0143, #804): MusicPins1 keeps the title and
+  // artwork; the station sits in the favorites order.
+  Q_INVOKABLE bool musicStationPinned(const QString &providerId,
+                                      const QString &stationId) const;
+  Q_INVOKABLE void pinMusicStation(const QString &providerId,
+                                   const QString &stationId,
+                                   const QString &title,
+                                   const QString &artwork);
+  Q_INVOKABLE void unpinMusicStation(const QString &providerId,
+                                     const QString &stationId);
   Q_INVOKABLE void terminate(const QString &id);
   // Drops a terminate still queued behind another operation on the entry.
   Q_INVOKABLE void cancelQueuedTerminate(const QString &id);
@@ -199,6 +209,11 @@ private:
   QVariantMap favoriteTarget(const QString &id) const;
   bool isFavorite(const QVariantMap &target) const;
   QVariantList m_favoriteTargets;
+  // MusicPins1.List: "provider\nstation" → {title, artwork}.
+  QHash<QString, QVariantMap> m_musicPins;
+  quint64 m_musicPinTicket = 0;
+  void readMusicPins();
+  void sendMusicPin(QDBusMessage message);
   quint64 m_favoriteRevision = 0, m_favoriteTicket = 0;
   bool m_favoritesLoaded = false, m_favoritesError = false,
        m_favoritesRequested = false, m_favoriteSaving = false, m_favoriteReconcile = false;

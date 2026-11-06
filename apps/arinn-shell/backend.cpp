@@ -22,6 +22,23 @@ struct FavoriteWire {
 };
 Q_DECLARE_METATYPE(FavoriteWire)
 Q_DECLARE_METATYPE(QList<FavoriteWire>)
+// MusicPins1.Pin's (ssss) pin (ADR-0143).
+struct MusicPinWire {
+  QString provider, station, title, artwork;
+};
+Q_DECLARE_METATYPE(MusicPinWire)
+QDBusArgument &operator<<(QDBusArgument &arg, const MusicPinWire &v) {
+  arg.beginStructure();
+  arg << v.provider << v.station << v.title << v.artwork;
+  arg.endStructure();
+  return arg;
+}
+const QDBusArgument &operator>>(const QDBusArgument &arg, MusicPinWire &v) {
+  arg.beginStructure();
+  arg >> v.provider >> v.station >> v.title >> v.artwork;
+  arg.endStructure();
+  return arg;
+}
 QDBusArgument &operator<<(QDBusArgument &arg, const FavoriteWire &v) {
   arg.beginStructure();
   arg << v.provider << v.capability << v.local;
@@ -145,6 +162,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
   connect(&m_focusExpiry, &QTimer::timeout, this, &Backend::clearNativeFocus);
   qDBusRegisterMetaType<FavoriteWire>();
   qDBusRegisterMetaType<QList<FavoriteWire>>();
+  qDBusRegisterMetaType<MusicPinWire>();
   // An action's result is shown briefly; connection states stay (#258).
   m_resultTimer.setSingleShot(true);
   m_resultTimer.setInterval(resultMessageMs);
@@ -384,7 +402,31 @@ QVariantList Backend::favorites() const {
   for (const auto &value : m_favoriteTargets) {
     const auto target = value.toMap();
     QVariantMap row;
-    for (const auto &candidate : catalog) {
+    // A pinned music station (ADR-0143): its presentation is the daemon's
+    // MusicPins1 record. Whether its source can start it now is Home's
+    // business (#804); the row only carries the identity.
+    if (target.value("capability") == QLatin1String("music-station")) {
+      const auto pin = m_musicPins.value(target.value("providerId").toString() +
+                                         QLatin1Char('\n') +
+                                         target.value("localId").toString());
+      if (!pin.isEmpty()) {
+        row = target;
+        row["id"] = QUuid::createUuidV5(
+                        QUuid(),
+                        QJsonDocument(QJsonArray{target.value("providerId").toString(),
+                                                 target.value("capability").toString(),
+                                                 target.value("localId").toString()})
+                            .toJson(QJsonDocument::Compact))
+                        .toString();
+        row["title"] = pin.value("title");
+        row["musicStation"] = true;
+        row["stationId"] = target.value("localId");
+        row["artworkId"] = pin.value("artwork");
+        row["monogram"] = monogramFor(pin.value("title").toString());
+        row["launchable"] = true;
+      }
+    }
+    for (const auto &candidate : row.isEmpty() ? catalog : QVariantList{}) {
       const auto entry = candidate.toMap();
       if (entry.value("providerId") == target.value("providerId") &&
           entry.value("capability") == target.value("capability") &&
@@ -1544,7 +1586,7 @@ void Backend::readFavorites() {
             bytes += 4 + field.toUtf8().size() + 1;
           }
           if (!validId(local) || !validId(provider) ||
-              !(capability == "application" ||
+              !(capability == "application" || capability == "music-station" ||
                 (provider == "arinn" && capability == "web-shortcut")) ||
               seen.contains(key) || targets.size() >= 1024 ||
               bytes > 256 * 1024) {
@@ -1568,8 +1610,114 @@ void Backend::readFavorites() {
         if (m_favoritesError) m_favoriteError.clear();
         m_favoritesLoaded = true;
         m_favoritesError = false;
+        // Pinned stations take their title and artwork from MusicPins1.
+        if (std::any_of(targets.cbegin(), targets.cend(), [](const QVariant &t) {
+              return t.toMap().value("capability") == QLatin1String("music-station");
+            }))
+          readMusicPins();
+        else
+          m_musicPins.clear();
         publishState();
       });
+}
+void Backend::readMusicPins() {
+  if (!m_connected || !m_daemonOwner.startsWith(':'))
+    return;
+  const auto epoch = m_connectionEpoch, ticket = ++m_musicPinTicket;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "List");
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, ticket](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch || ticket != m_musicPinTicket)
+              return;
+            // An older daemon or a bad answer: pinned stations show as
+            // unavailable favourites, which the user can still remove.
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "(ta(ssss))" ||
+                (!reply.service().isEmpty() && reply.service() != m_daemonOwner)) {
+              m_musicPins.clear();
+              publishState();
+              return;
+            }
+            const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            qulonglong revision = 0;
+            QHash<QString, QVariantMap> pins;
+            arg.beginStructure();
+            arg >> revision;
+            arg.beginArray();
+            while (!arg.atEnd() && pins.size() < 1024) {
+              MusicPinWire pin;
+              arg >> pin;
+              if (pin.provider.isEmpty() || pin.station.isEmpty() ||
+                  pin.title.trimmed().isEmpty())
+                continue;
+              pins.insert(pin.provider + QLatin1Char('\n') + pin.station,
+                          {{"title", pin.title}, {"artwork", pin.artwork}});
+            }
+            arg.endArray();
+            arg.endStructure();
+            m_musicPins = pins;
+            publishState();
+          });
+}
+bool Backend::musicStationPinned(const QString &providerId,
+                                 const QString &stationId) const {
+  return isFavorite({{"providerId", providerId},
+                     {"capability", QStringLiteral("music-station")},
+                     {"localId", stationId}});
+}
+void Backend::pinMusicStation(const QString &providerId, const QString &stationId,
+                              const QString &title, const QString &artwork) {
+  if (!favoritesReady() || m_favoriteSaving || providerId.isEmpty() ||
+      stationId.isEmpty() || title.trimmed().isEmpty())
+    return;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "Pin");
+  msg << QVariant::fromValue<qulonglong>(m_favoriteRevision)
+      << QVariant::fromValue(MusicPinWire{providerId, stationId, title.left(200), artwork});
+  sendMusicPin(msg);
+}
+void Backend::unpinMusicStation(const QString &providerId, const QString &stationId) {
+  if (!favoritesReady() || m_favoriteSaving || !musicStationPinned(providerId, stationId))
+    return;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "Unpin");
+  msg << QVariant::fromValue<qulonglong>(m_favoriteRevision) << providerId
+      << stationId;
+  sendMusicPin(msg);
+}
+// One favorites write at a time, reconciled through List as setFavorite is.
+void Backend::sendMusicPin(QDBusMessage message) {
+  const auto epoch = m_connectionEpoch;
+  m_favoriteSaving = true;
+  m_favoriteError.clear();
+  publishState();
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            m_favoriteReconcile = true;
+            const auto code = reply.errorName().section('.', -1);
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "t") {
+              m_favoriteError =
+                  code == "Conflict"
+                      ? tr("Favorites changed. Refresh before trying again.")
+                      : tr("Favorites could not be saved. Refresh the list "
+                           "before trying again.");
+            } else
+              setResultMessage(tr("Favorites saved"));
+            readFavorites();
+            publishState();
+          });
 }
 void Backend::setFavorite(const QString &id, bool pinned) {
   if (!favoritesReady() || m_favoriteSaving)

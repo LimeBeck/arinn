@@ -36,6 +36,23 @@ Q_DECLARE_METATYPE(RunningWire)
 Q_DECLARE_METATYPE(HomeWire)
 Q_DECLARE_METATYPE(ShortcutWire)
 Q_DECLARE_METATYPE(TargetWire)
+// MusicPins1's (ssss) pin (ADR-0143).
+struct PinWire {
+  QString provider, station, title, artwork;
+};
+Q_DECLARE_METATYPE(PinWire)
+QDBusArgument &operator<<(QDBusArgument &a, const PinWire &p) {
+  a.beginStructure();
+  a << p.provider << p.station << p.title << p.artwork;
+  a.endStructure();
+  return a;
+}
+const QDBusArgument &operator>>(const QDBusArgument &a, PinWire &p) {
+  a.beginStructure();
+  a >> p.provider >> p.station >> p.title >> p.artwork;
+  a.endStructure();
+  return a;
+}
 QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
   a.beginStructure();
   a << p.id << QString("plugin") << QString() << QString("Provider")
@@ -131,6 +148,9 @@ public:
   int lists = 0;
   int providerCalls = 0;
   QList<TargetWire> favorites;
+  // MusicPins1 records of the pinned stations among `favorites`.
+  QList<PinWire> pins;
+  QStringList pinCalls;
   qulonglong favoriteRevision = 1;
   int favoriteWrites = 0;
   QString favoriteFailure;
@@ -287,6 +307,49 @@ public:
       a.beginStructure();
       a << favoriteRevision << favorites;
       a.endStructure();
+    } else if (m.interface() == "org.arinn.MusicPins1") {
+      pinCalls << m.member();
+      auto changed = [&] {
+        ++favoriteRevision;
+        bus.send(m.createReply(QVariant::fromValue(favoriteRevision)));
+        auto signal = QDBusMessage::createSignal(
+            "/org/arinn/Daemon1", "org.arinn.Favorites1", "Changed");
+        signal << favoriteRevision;
+        bus.send(signal);
+      };
+      if (m.member() == "List") {
+        a.beginStructure();
+        a << favoriteRevision;
+        a.beginArray(QMetaType::fromType<PinWire>());
+        for (const auto &target : std::as_const(favorites))
+          for (const auto &pin : std::as_const(pins))
+            if (target.capability == "music-station" &&
+                target.provider == pin.provider && target.id == pin.station)
+              a << pin;
+        a.endArray();
+        a.endStructure();
+      } else if (m.arguments().first().toULongLong() != favoriteRevision) {
+        bus.send(m.createErrorReply("org.arinn.Error.Conflict", "fixture"));
+        return true;
+      } else if (m.member() == "Pin") {
+        const auto pin = qdbus_cast<PinWire>(m.arguments().at(1));
+        pins << pin;
+        favorites << TargetWire{pin.provider, "music-station", pin.station};
+        changed();
+        return true;
+      } else if (m.member() == "Unpin") {
+        const auto provider = m.arguments().at(1).toString(),
+                   station = m.arguments().at(2).toString();
+        favorites.removeIf([&](const TargetWire &t) {
+          return t.capability == "music-station" && t.provider == provider &&
+                 t.id == station;
+        });
+        pins.removeIf([&](const PinWire &p) {
+          return p.provider == provider && p.station == station;
+        });
+        changed();
+        return true;
+      }
     } else if (m.interface() == "org.arinn.Favorites1" && m.member() == "Set") {
       ++favoriteWrites;
       if (!favoriteFailure.isEmpty() ||
@@ -419,6 +482,47 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  // #804, ADR-0143: a pinned music station is a favorite whose title comes
+  // from MusicPins1; it pins and unpins through MusicPins1, and removing it
+  // like any favorite works too.
+  void pinnedMusicStationsAreFavorites() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      QTRY_COMPARE(backend.favorites().first().toMap().value("title").toString(),
+                   QString("Fixture station"));
+      auto row = backend.favorites().first().toMap();
+      QVERIFY(row.value("musicStation").toBool());
+      QCOMPARE(row.value("providerId").toString(), QString("fixture.music"));
+      QCOMPARE(row.value("stationId").toString(), QString("station:library"));
+      QVERIFY(row.value("launchable").toBool());
+      QVERIFY(backend.musicStationPinned("fixture.music", "station:library"));
+      QVERIFY(!backend.musicStationPinned("fixture.music", "station:wave"));
+      backend.pinMusicStation("fixture.music", "station:wave", "Wave", "cover:wave");
+      QTRY_COMPARE(backend.favorites().size(), 2);
+      QTRY_COMPARE(backend.favorites().last().toMap().value("title").toString(),
+                   QString("Wave"));
+      QVERIFY(daemon.pinCalls.contains("Pin"));
+      backend.unpinMusicStation("fixture.music", "station:library");
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      QVERIFY(!backend.musicStationPinned("fixture.music", "station:library"));
+      // A pinned station leaves like any favorite, through Favorites1.Set.
+      backend.setFavorite(backend.favorites().first().toMap().value("id").toString(), false);
+      QTRY_VERIFY(backend.favorites().isEmpty());
+      QVERIFY(daemon.favorites.isEmpty());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void savedFavoritesMutationAndUnavailableRetention() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -502,6 +606,7 @@ private slots:
     qDBusRegisterMetaType<HomeWire>();
     qDBusRegisterMetaType<ShortcutWire>();
     qDBusRegisterMetaType<TargetWire>();
+    qDBusRegisterMetaType<PinWire>();
   }
   void catalog_data() {
     QTest::addColumn<QString>("mode");

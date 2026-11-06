@@ -119,3 +119,27 @@ a station enters the favorites only through `Pin`. SQLite schema 9 adds the
 `music_pins` table. The daemon never calls a music provider for a pin; starting
 the station and the provider's own `pin` action are the shell's (#804).
 
+### Shell binding (#804)
+
+- **Reading.** The shell accepts `music-station` targets in `Favorites1.List`.
+  When the list holds any, it reads `MusicPins1.List` and gives the station's
+  Favourites row the pinned title. Without a record, or against an older
+  daemon, the row is the usual removable "Unavailable favorite".
+- **Writing.** `Backend.pinMusicStation(provider, station, title, artwork)` and
+  `unpinMusicStation(provider, station)` call `Pin` and `Unpin` at the current
+  favorites revision. Like `setFavorite`, they allow one write at a time,
+  never retry, and reconcile through `List`. Removing the row through the
+  shelf's action sheet is an ordinary `Favorites1.Set`.
+- **Availability.** Home marks a pin unavailable, with its reason, while its
+  music source is not connected, or after the source answered `radio` for it
+  with NotFound (`MusicCatalog.stationResolved`). Selecting such a pin opens
+  the action sheet; it never starts another station.
+- **Starting.** Selecting an available pin starts the station the way a station
+  card in the music room does: the replace confirmation, then *Now playing*.
+- **The provider's own `pin`.** Where a provider offers it, Arinn mirrors a pin
+  or an unpin to it for the station that plays now
+  (`MusicCatalog.syncProviderPin`). The Home shelf still comes from Arinn's
+  store.
+- **Pinning from the player.** The *Pin station to Home* action in the *More*
+  sheet arrives with #802.
+

@@ -761,6 +761,20 @@ Window {
     // Continue media cards without session artwork use the backdrop of the
     // library item they play (#365, ADR-0062). `library` only makes the
     // binding follow catalog changes.
+    // A pinned station whose source is not connected, or which the source
+    // no longer knows, stays on the shelf, unavailable with the reason; it
+    // never starts another station (music brief, Favourites; #804).
+    function musicPinRows(favorites, sources, unresolved) {
+        return favorites.map(entry => {
+            if (!entry.musicStation) return entry;
+            const source = sources.find(s => s.id === entry.providerId);
+            const reason = !source || !source.ready ? qsTr("Music source not connected")
+                : unresolved.includes(entry.providerId + "\n" + entry.stationId)
+                    ? qsTr("This station is no longer available") : "";
+            return reason.length ? Object.assign({}, entry, {unavailable: true, launchable: false, subtitle: reason})
+                                 : Object.assign({}, entry, {subtitle: source.name});
+        });
+    }
     function continueMedia(entries, library, saved) {
         const persisted = saved || [];
         const savedTitles = new Set(persisted.map(entry => entry.libraryEntryId));
@@ -1004,7 +1018,13 @@ Window {
             actionsEnabled: backend.favoritesReady === true
             favoriteSaving: backend.favoriteSaving === true
             favoriteError: backend.favoriteError || ""
-            onFavoriteRequested: (entryId, pinned) => backend.setFavorite(entryId, pinned)
+            onFavoriteRequested: (entryId, pinned) => {
+                // Unpinning a station from the shelf also unpins it at its
+                // provider, where the provider keeps its own list (#804).
+                const station = backend.favorites.find(entry => entry.id === entryId && entry.musicStation);
+                if (station && !pinned) musicCatalog.syncProviderPin(station.providerId, station.stationId, false);
+                backend.setFavorite(entryId, pinned);
+            }
             onCloseRequested: windowId => closeFlow.ask(windowId)
             closingIds: closeFlow.closingIds
             // Only windows being closed or closed on request: a window that
@@ -1032,9 +1052,16 @@ Window {
             continueEntries: (returnIsWebService ? [] : backend.continueEntries)
                 .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries, libraryCatalog.continueEntries)).concat(musicCatalog.homeEntries)
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
-                               monogram: "⌕", enabled: true}].concat(backend.favorites)
+                               monogram: "⌕", enabled: true}].concat(root.musicPinRows(backend.favorites, musicCatalog.sources, musicCatalog.unresolvedStations))
             newEntries: libraryCatalog.newEntries
             onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayerFromHome();}
+            // A pinned station starts like a station card in the music room:
+            // the replace confirmation, then Now playing (#804).
+            onMusicStationRequested: (providerId, stationId, title) => {
+                root.closeOverlays();
+                home.screen = "music";
+                musicView.openFromRoom({provider: providerId, kind: "station", id: stationId, title: title});
+            }
             onMusicTransportRequested: musicCatalog.togglePlayback()
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications

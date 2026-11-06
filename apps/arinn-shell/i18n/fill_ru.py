@@ -12,6 +12,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 RU = {
+    # Pinned music stations on Favourites (#804)
+    "Music source not connected": "Источник музыки не подключён",
+    "This station is no longer available": "Эта станция больше недоступна",
     # Offline library navigation (#629)
     'Folder': 'Папка',
     'Up one level': 'На уровень выше',

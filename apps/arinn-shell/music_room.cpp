@@ -66,6 +66,8 @@ qint64 now() {
 // The daemon keeps a continuation for 30 s; past this age a page is read
 // again from the start instead.
 constexpr qint64 leaseMs = 25000;
+// A first page that failed is read again after this long.
+constexpr qint64 retryMs = 3000;
 // The facets a shelf pages: its personal entries in `selections`, and its
 // own facet when it has one.
 QStringList pagedFacets(const char *facet) {
@@ -252,6 +254,19 @@ void MusicRoom::readState(const QString &id) {
                 }
               readNext(id);
               rebuild();
+            } else if (source.pending.isEmpty()) {
+              // The same catalogue: a first page that failed (a timeout, a
+              // busy provider) is read again, not left out until the next
+              // revision.
+              bool busy = false;
+              for (const auto &[name, facet] : source.facets)
+                busy = busy || facet.busy;
+              if (!busy)
+                for (auto &[name, facet] : source.facets)
+                  if (facet.failed && facet.entries.isEmpty() &&
+                      now() - facet.failedAt > retryMs)
+                    source.pending.append(name);
+              readNext(id);
             }
             publishSources();
           });
@@ -324,8 +339,10 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
           }
           facet.resumeTo = 0;
           facet.buffer.clear();
-          // A failed facet is left out; the others still fill their shelves.
+          // A failed facet is left out; the others still fill their shelves,
+          // and a later state poll reads its first page again.
           facet.failed = true;
+          facet.failedAt = now();
           facet.loaded = true;
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.

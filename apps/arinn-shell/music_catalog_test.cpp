@@ -372,6 +372,24 @@ private slots:
     for (int i = 0; i < 5; ++i)
       QVERIFY(list.at(i).toMap().value("id").toString().startsWith("album:mine"));
   }
+  // Codex review of #812: a first page that fails (a timeout) is read again
+  // on a later state poll instead of leaving its shelf out until the next
+  // catalogue revision.
+  void roomRetriesAFailedFirstPage() {
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.pages["local/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:1"}, {"kind", "album"}, {"title", "One"}, {"available", true}}};
+    daemon.pageError = QStringLiteral("Timeout");
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QVERIFY(room.list("albums").isEmpty());
+    daemon.pageError.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 1, 12000);
+  }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.
   void roomWithoutAConnectedSourceIsTheFirstUse() {

@@ -101,6 +101,9 @@ private:
     QVariantList buffer;
     int resumeTo = 0;
     qint64 readAt = 0;
+    // A failed first page is read again on a later state poll, at most every
+    // few seconds (Codex review of #812).
+    qint64 failedAt = 0;
     QSet<QString> tokens;
   };
   struct Source {

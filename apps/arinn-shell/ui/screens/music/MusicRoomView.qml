@@ -219,6 +219,8 @@ FocusScope {
             visible: root.firstUse
             primary: true
             text: root.allUnreachable || root.connectedEmpty ? qsTr("Sources") : qsTr("Connect a source")
+            KeyNavigation.up: sourcesButton
+            onVisibleChanged: if (!visible) Qt.callLater(root.settleFocus)
             onActivated: root.openSources()
         }
     }
@@ -340,13 +342,18 @@ FocusScope {
         }
         Qt.callLater(settleFocus);
     }
-    // A shelf that left while it held focus hands focus on.
+    // A shelf that left while it held focus hands focus on, and so does a
+    // control that hid under focus (an item keeps focus as it hides): the
+    // first-use action once the room fills, Find while nothing browses
+    // (review of #812).
     function settleFocus() {
+        const held = control => control.visible && control.activeFocus;
         if (visible && activeFocus && !sourcesSheet.visible
                 && (!focusedShelf || !focusedShelf.activeFocus)
-                && !sourcesButton.activeFocus && !findButton.activeFocus && !connectFirst.activeFocus)
+                && !held(sourcesButton) && !held(findButton) && !held(connectFirst))
             focusInitial();
     }
+    onFirstUseChanged: Qt.callLater(settleFocus)
     onShelvesChanged: syncShelves()
     Component.onCompleted: syncShelves()
     MusicSourcesSheet {

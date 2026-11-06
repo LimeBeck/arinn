@@ -847,4 +847,32 @@ TestCase {
         room.sources=[{id:"account",name:"Fixture service",local:false,status:"signin",reason:"",actions:["authorize"],busy:false,browsable:true}];
         compare(findChild(view,"musicHeroTitle").text,"Connect a source");compare(action.text,"Connect a source");
     }
+    // Codex review of #812: the Sources rows scroll with focus, so a lower
+    // source's pills are on screen when they hold focus.
+    function test_sources_sheet_scrolls_with_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const rows=[];for(let i=0;i<8;i++)rows.push({id:"s"+i,name:"Fixture "+i,local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true});
+        room.sources=rows;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        for(let i=0;i<7;i++)keyClick(Qt.Key_Down);
+        const area=findChild(sheet,"musicSourceRows");tryVerify(()=>area.contentY>0);
+        const focused=view.Window.window.activeFocusItem;verify(focused.objectName==="musicSourceAction-scan");
+        tryVerify(()=>{const at=focused.mapToItem(area,0,0);return at.y>=0 && at.y+focused.height<=area.height;});
+    }
+    // Review of #812: when an empty room fills, focus leaves the hidden
+    // first-use action for a card, and the D-pad works.
+    function test_room_that_fills_moves_focus_off_the_empty_state() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const shelves=room.shelves;room.shelves=[];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        const action=findChild(view,"musicConnectFirst");tryCompare(action,"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(findChild(view,"musicSources"),"activeFocus",true);
+        Ui.Focus.take(action);tryCompare(action,"activeFocus",true);
+        room.shelves=shelves;
+        tryVerify(()=>findChild(view,"musicShelf-stations") && findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+    }
 }

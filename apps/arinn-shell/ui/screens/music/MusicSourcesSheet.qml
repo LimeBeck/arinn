@@ -65,6 +65,15 @@ FocusScope {
         }
         Ui.Focus.take(root);
     }
+    // Keep the focused row on screen, with the next one partly visible.
+    function reveal(row) {
+        const top = row.y, bottom = row.y + row.height;
+        if (top < rowArea.contentY)
+            rowArea.contentY = Math.max(0, top - 40);
+        else if (bottom > rowArea.contentY + rowArea.height)
+            rowArea.contentY = Math.min(Math.max(0, rowArea.contentHeight - rowArea.height),
+                                        bottom - rowArea.height + 80);
+    }
     function label(action) {
         return action === "connect" ? qsTr("Connect")
             : action === "authorize" ? qsTr("Sign in")
@@ -122,10 +131,22 @@ FocusScope {
             role: "title"
             text: qsTr("Sources")
         }
-        Column {
+        // The rows scroll with focus: many sources, or a sign-in code, make
+        // them taller than the sheet (Codex review of #812).
+        Flickable {
+            id: rowArea
+            objectName: "musicSourceRows"
             x: 64
             y: 180
             width: parent.width - 128
+            height: parent.height - y - 64
+            contentHeight: rowColumn.height
+            interactive: false
+            clip: true
+            Behavior on contentY { NumberAnimation { duration: Ui.Theme.focusDuration; easing.type: Easing.OutCubic } }
+        Column {
+            id: rowColumn
+            width: parent.width
             spacing: 40
             Repeater {
                 id: rows
@@ -231,11 +252,14 @@ FocusScope {
                                         }
                                 }
                                 onActivated: root.act(sourceRow.modelData, modelData)
+                                onActiveFocusChanged: if (activeFocus)
+                                    root.reveal(sourceRow)
                             }
                         }
                     }
                 }
             }
+        }
         }
     }
     MusicDialog {

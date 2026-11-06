@@ -409,7 +409,8 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   chain; further pages are the *All* list's, from `selections` and the
   shelf's own facet. A continuation older than its 30 s lease, or one that
   fails, reads again from the first page and pages forward to where the list
-  was, keeping the shown entries until it has caught up. The room polls every 2 s while
+  was, keeping the shown entries until it has caught up. A first page that
+  fails is read again on a later state poll, at most every 3 s. The room polls every 2 s while
   the Music section is shown (`active`) and announces `sources` only when a
   row changes. Browsing never calls `MusicCatalog.choose`; only opening a card
   does, for that card's source: a station starts with `radio`, anything else

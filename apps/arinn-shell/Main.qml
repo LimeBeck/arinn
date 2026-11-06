@@ -826,7 +826,7 @@ Window {
         // behind ambient (#487).
         powerPending: systemControl.pendingAction.length > 0
         mediaPlaying: root.playerOpen || ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs,
-                                                             mediaCatalog.inputLayerActive)
+                                                             mediaCatalog.inputLayerActive, musicCatalog.activeState)
         onIdle: root.startAmbient()
     }
     // The item that had focus when ambient started; wake gives it back.
@@ -1764,6 +1764,12 @@ Window {
             clockText: home.clockText
             dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
             onActiveChanged: if (!active) root.finishAmbient()
+            // The track line and Play/Pause without waking (ADR-0142 MH-8).
+            music: musicCatalog.activeState
+            onMusicKeyRequested: action => {
+                if (action === "toggle") musicCatalog.togglePlayback();
+                else musicCatalog.transport(action === "play" ? "resume" : "pause");
+            }
         }
     }
 }

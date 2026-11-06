@@ -54,6 +54,7 @@ TestCase {
     }
     SignalSpy { id: wakeSpy; signalName: "wakeRequested" }
     SignalSpy { id: idleSpy; signalName: "idle" }
+    SignalSpy { id: musicSpy; signalName: "musicKeyRequested" }
 
     property var screen
     property var ambient
@@ -69,6 +70,13 @@ TestCase {
     function cleanup() {
         wakeSpy.target = null;
         idleSpy.target = null;
+        musicSpy.target = null;
+    }
+    // The native music session as MusicCatalog.activeState publishes it.
+    function music(playback, image) {
+        return {playback: playback, station: {title: "Night Wave"},
+                current: {track: {title: "Glass Rivers", artist: "Northline", album: "Harbour Lights",
+                                  image: image || ""}}};
     }
     function startAmbient() {
         ambient.start();
@@ -282,6 +290,105 @@ TestCase {
         verify(!idle.counting);
     }
 
+    // #791, ADR-0142 MH-8 (mh-07): while music plays, a track line sits
+    // under the date in the drifting block.
+    function test_music_line_follows_the_session() {
+        ambient.music = music("playing");
+        startAmbient();
+        const line = findChild(ambient, "ambientMusic");
+        verify(line.visible);
+        compare(findChild(ambient, "ambientMusicTitle").text, "Glass Rivers");
+        compare(findChild(ambient, "ambientMusicTitle").font.pixelSize, 30);
+        compare(findChild(ambient, "ambientMusicTitle").font.weight, 600);
+        compare(findChild(ambient, "ambientMusicSubline").text, "Northline · Night Wave");
+        compare(findChild(ambient, "ambientMusicSubline").font.pixelSize, 26);
+        const cover = findChild(ambient, "ambientMusicCover");
+        compare(cover.width, 96);
+        compare(cover.radius, 8);
+        compare(cover.opacity, 0.9);
+        verify(findChild(ambient, "ambientMusicEqualiser").visible);
+        compare(line.opacity, 1);
+        // In the drifting block, under the date.
+        const block = findChild(ambient, "ambientBlock");
+        const date = findChild(ambient, "ambientDate");
+        verify(line.parent === block);
+        verify(line.y > date.y);
+        // Paused: dimmed, "Paused".
+        ambient.music = music("paused");
+        verify(line.visible);
+        compare(line.opacity, 0.6);
+        compare(findChild(ambient, "ambientMusicSubline").text, "Paused · Northline · Night Wave");
+        // Stopped or gone: the line goes.
+        ambient.music = music("stopped");
+        verify(!line.visible);
+        ambient.music = ({});
+        verify(!line.visible);
+        // Without a station, the album.
+        const noStation = music("playing");
+        delete noStation.station;
+        ambient.music = noStation;
+        compare(findChild(ambient, "ambientMusicSubline").text, "Northline · Harbour Lights");
+    }
+    // MH-8: a faint second glow in the artwork's colour while music shows.
+    function test_music_glow_takes_the_artwork_colour() {
+        ambient.music = music("playing", Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg"));
+        startAmbient();
+        const glow = findChild(ambient, "ambientMusicGlow");
+        tryVerify(() => glow.visible, 3000);
+        verify(ambient.musicGlowColor.a > 0);
+        ambient.music = ({});
+        verify(!glow.visible);
+    }
+    // MH-8: Play/Pause acts on the music without waking; entering and
+    // leaving ambient never touch the music. Media keys go through
+    // musicKey(): QTest's keyClick aborts on them in this Qt build (#733).
+    function test_play_pause_acts_on_music_without_waking() {
+        musicSpy.target = ambient;
+        musicSpy.clear();
+        ambient.music = music("playing");
+        startAmbient();
+        compare(musicSpy.count, 0);
+        verify(ambient.musicKey(Qt.Key_MediaTogglePlayPause, false));
+        verify(ambient.musicKey(Qt.Key_MediaPause, false));
+        verify(ambient.musicKey(Qt.Key_MediaPlay, false));
+        // A held key sends nothing more but still never wakes.
+        verify(ambient.musicKey(Qt.Key_MediaTogglePlayPause, true));
+        compare(musicSpy.count, 3);
+        compare(musicSpy.signalArguments[0][0], "toggle");
+        compare(musicSpy.signalArguments[1][0], "pause");
+        compare(musicSpy.signalArguments[2][0], "play");
+        verify(ambient.active);
+        compare(wakeSpy.count, 0);
+        // Another key wakes as before, and sends nothing to the music.
+        keyClick(Qt.Key_Down);
+        compare(wakeSpy.count, 1);
+        compare(musicSpy.count, 3);
+        // Without music the media keys are ordinary wake keys.
+        ambient.music = ({});
+        startAmbient();
+        verify(!ambient.musicKey(Qt.Key_MediaTogglePlayPause, false));
+        compare(musicSpy.count, 3);
+    }
+    // MH-8 (#791): automatic ambient may start while only music plays; a
+    // media session playing video still holds it back.
+    function test_music_alone_does_not_hold_ambient_back() {
+        const idle = createTemporaryObject(idleFactory, suite, {shellShown: true});
+        idleSpy.target = idle;
+        idleSpy.clear();
+        const playingMusic = music("playing");
+        idle.mediaPlaying = Qt.binding(() => idle.playing([], [], false, playingMusic));
+        verify(!idle.mediaPlaying);
+        verify(idle.eligible);
+        idleSpy.wait(2000);
+        compare(idleSpy.count, 1);
+        idle.mediaPlaying = Qt.binding(() => idle.playing([{kind: "video", state: "playing", running: true}],
+                                                          [], false, playingMusic));
+        verify(idle.mediaPlaying);
+        verify(!idle.eligible);
+        verify(!idle.counting);
+        verify(idle.playing([], [], true, playingMusic));
+        verify(idle.playing([], [{audible: true}], false, playingMusic));
+    }
     function test_what_counts_as_playing() {
         const idle = createTemporaryObject(idleFactory, suite);
         verify(!idle.playing([], [], false));

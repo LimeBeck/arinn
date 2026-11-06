@@ -227,8 +227,11 @@ ambient is a screensaver, not sleep.
   Home may run for hours and does not count), while a power request waits
   for its answer (so its refusal never takes focus behind ambient, #487), or
   while media plays: an MPRIS session in `playing`, managed playback or its input
-  layer, or an audible browser tab. Losing any of these conditions stops the
-  count; regaining them starts a full timeout.
+  layer, or an audible browser tab. Native music is not media here: automatic
+  ambient may start while only music plays (ADR-0142 MH-8). `Main.qml` passes
+  `MusicCatalog.activeState` to `AmbientIdle.playing()`, which does not count
+  it. Losing any of these conditions stops the count; regaining them starts a
+  full timeout.
 - **Look.** Handoff 20: `bg-deep` (#050506, the token table's hex), the
   clock at 160/500 with tabular numerals and −3 % tracking in
   `oklch(0.60 0.004 260)` (#7F8083) on a 160 px line, and 10 px below it
@@ -240,14 +243,30 @@ ambient is a screensaver, not sleep.
   prototype markup also uses, converts exactly to #010101; the shell keeps
   the token table's hex, as for the other tokens in `Theme.qml`. The optional paused-media line of the
   handoff is not shown.
+- **Music (#791, ADR-0142 MH-8, frame `mh-07`).** While native music plays or
+  is paused (`MusicCatalog.activeState`), a track line sits under the date in
+  the same drifting block. It shows the cover at 96, r8 and 90 %
+  (`MusicArtwork`, with its neutral fallback), three Ember equaliser bars and
+  the track at 30/600, and below them "artist · station" (the album when there
+  is no station) at 26. On pause the line dims to 60 %, the bars stand still in
+  the date colour and the second line reads "Paused · …". When the music stops,
+  the line goes. A faint second glow in the artwork's colour lies at the lower
+  left: the mean colour of a 24 × 24 decode of the cover, in an ellipse 40 % ×
+  34 % of the screen centred at (30 %, 115 %), at 30 %. The text uses the
+  current ambient colours (#7F8083, #545557); the Hearth light restyle of
+  ambient (#726) will carry them over.
 - **Wake.** Ambient is the topmost route (`focusedScreen` is `ambient`) and
   takes every key and pointer event. The event that opened it is not a wake.
   After that, a key press and its release, a click, the wheel or a pointer
   movement away from where the pointer rested wakes it, and that event is
   consumed. The item that had focus before gets it back, or the screen's
   preferred item when it is gone. The volume keys are not Arinn's while
-  ambient is on, so they wake it too.
-- **Never more.** Ambient never pauses playback, closes applications or
+  ambient is on, so they wake it too. While the music line shows, the
+  Play/Pause keys (`Key_MediaTogglePlayPause`, `Key_Play`, `Key_MediaPlay`,
+  `Key_MediaPause`) act on the music through `musicKeyRequested` and never wake,
+  even when held.
+- **Never more.** Entering or leaving ambient never plays or pauses music.
+  Ambient never pauses playback, closes applications or
   requests suspend; it only draws. A lock or sleep ends it without a wake
   event, and the session lifecycle guard keeps the shell hidden until it is
   safe to show.

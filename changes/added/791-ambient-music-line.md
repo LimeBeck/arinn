@@ -1,0 +1,1 @@
+- Ambient shows the music that plays: a track line with the cover, the track, the artist and the station under the clock and date, a faint glow in the artwork's colour, "Paused" when the music is paused; Play/Pause acts on the music without waking the screen, and automatic Ambient may start while only music plays ([#791](https://github.com/LimeBeck/arinn/issues/791)).

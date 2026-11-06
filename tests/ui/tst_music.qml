@@ -587,8 +587,15 @@ TestCase {
         const labels=[];like.textChanged.connect(()=>labels.push(like.text));
         keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
         catalog.busy=false;wait(50);compare(like.text,"Saving…");
+        // Codex review of #821: a stale state with the old feedback (a poll
+        // already in flight) keeps it pending; the changed one ends it.
+        catalog.activeState=Object.assign({},catalog.activeState,{position_us:1000000});wait(50);compare(like.text,"Saving…");
         catalog.activeState=Object.assign({},catalog.activeState,{feedback:""});
         tryCompare(like,"text","Like");compare(labels,["Saving…","Like"]);
+        // A provider that keeps its feedback ends the wait on the third state.
+        keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");catalog.busy=false;
+        for(let i=0;i<2;i++){catalog.activeState=Object.assign({},catalog.activeState,{position_us:2000000+i});wait(50);compare(like.text,"Saving…");}
+        catalog.activeState=Object.assign({},catalog.activeState,{position_us:3000000});tryCompare(like,"text","Like");
         // Codex review of #821: the track changes while a like is in flight;
         // its late failure does not mark the new track.
         keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");

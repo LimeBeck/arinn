@@ -342,15 +342,22 @@ FocusScope {
         } else if ((player.feedback || "") !== likeFeedbackBefore) {
             likePending = false;
         } else {
+            likeAwaitPolls = 0;
             likeAwaitsState = true;
         }
     }
     // After the state's own bindings, so the label goes from "Saving…"
     // straight to the new state.
+    // A poll already in flight can bring the state from before the like:
+    // only a changed feedback ends the wait, or, should the provider keep
+    // it, the third state after the command (Codex review of #821).
+    property int likeAwaitPolls: 0
     onPlayerChanged: if (likeAwaitsState)
         Qt.callLater(finishLike)
     function finishLike() {
         if (!likeAwaitsState)
+            return;
+        if ((player.feedback || "") === likeFeedbackBefore && ++likeAwaitPolls < 3)
             return;
         likeAwaitsState = false;
         likePending = false;

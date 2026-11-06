@@ -55,6 +55,13 @@ FocusScope {
         if (visible && activeFocus && window && window.activeFocusItem === root)
             focusInitial();
     }
+    function pageIfNeeded() {
+        if (visible && room && shelfId.length && grid.currentIndex > grid.count - 16
+                && room.more(shelfId, source))
+            room.loadMore(shelfId, source);
+    }
+    onSourceChanged: Qt.callLater(pageIfNeeded)
+    onVisibleChanged: if (visible) Qt.callLater(pageIfNeeded)
     function focusKey(key) {
         const at = entries.findIndex(entry => entry.key === key);
         if (at < 0)
@@ -70,6 +77,9 @@ FocusScope {
         function onListChanged() {
             const key = root.focusedEntry ? root.focusedEntry.key : "";
             root.revision++;
+            // A page may add no card of this kind (selections mix kinds):
+            // page on while the end is near (Codex review of #812).
+            Qt.callLater(root.pageIfNeeded);
             // A late page keeps focus on its entry.
             if (key.length) {
                 const at = root.entries.findIndex(entry => entry.key === key);
@@ -101,7 +111,8 @@ FocusScope {
         spacing: 16
         Repeater {
             id: tabs
-            model: [{id: "", name: qsTr("All")}].concat(root.sources.map(source => ({
+            // Only sources that can browse get a tab (MH-10: connected ones).
+            model: [{id: "", name: qsTr("All")}].concat(root.sources.filter(source => source.browsable !== false).map(source => ({
                 id: source.id, name: source.local ? qsTr("This computer") : source.name})))
             Ui.ActionButton {
                 required property var modelData
@@ -157,8 +168,7 @@ FocusScope {
             else
                 event.accepted = false;
         }
-        onCurrentIndexChanged: if (root.room && currentIndex > count - 16 && root.room.more(root.shelfId, root.source))
-            root.room.loadMore(root.shelfId, root.source)
+        onCurrentIndexChanged: root.pageIfNeeded()
         delegate: MusicCard {
             required property int index
             objectName: "musicAllCard"

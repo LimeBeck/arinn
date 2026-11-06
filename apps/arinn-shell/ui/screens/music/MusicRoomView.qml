@@ -21,6 +21,11 @@ FocusScope {
     readonly property var unreachable: room ? room.sources.filter(source => source.status === "unavailable") : []
     readonly property bool allUnreachable: firstUse && unreachable.length > 0
         && unreachable.length === (room ? room.sources.length : 0)
+    // A source is connected but has no catalogue to show yet: it is not the
+    // first use, so the hero says so instead of asking to connect (Codex
+    // review of #812).
+    readonly property bool connectedEmpty: firstUse && !allUnreachable && !!room
+        && room.sources.some(source => ["connected", "scanning"].includes(source.status))
     readonly property bool sheetOpen: sourcesSheet.visible
     // The shelf and entry under focus.
     property Item focusedShelf: null
@@ -165,6 +170,7 @@ FocusScope {
             fitSteps: [[96, 1], [68, 2]]
             textFormat: Text.PlainText
             text: root.allUnreachable ? qsTr("Music is unavailable")
+                : root.connectedEmpty ? qsTr("No music yet")
                 : root.firstUse ? qsTr("Connect a source")
                 : root.focusedEntry ? (root.focusedEntry.title || "") : qsTr("Music")
         }
@@ -181,6 +187,8 @@ FocusScope {
             text: {
                 if (root.allUnreachable)
                     return root.unreachable[0].reason || "";
+                if (root.connectedEmpty)
+                    return qsTr("Your sources have no music to show yet.");
                 if (root.firstUse)
                     return qsTr("Connect a music service or add folders with music in Settings.");
                 const entry = root.focusedEntry;
@@ -202,7 +210,7 @@ FocusScope {
             y: 190
             visible: root.firstUse
             primary: true
-            text: root.allUnreachable ? qsTr("Sources") : qsTr("Connect a source")
+            text: root.allUnreachable || root.connectedEmpty ? qsTr("Sources") : qsTr("Connect a source")
             onActivated: root.openSources()
         }
     }

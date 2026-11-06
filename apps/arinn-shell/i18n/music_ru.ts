@@ -465,6 +465,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoomView</name>
     <message>
+      <source>No music yet</source>
+      <translation>Музыки пока нет</translation>
+    </message>
+    <message>
+      <source>Your sources have no music to show yet.</source>
+      <translation>В ваших источниках пока нет музыки.</translation>
+    </message>
+    <message>
       <source>Music is unavailable</source>
       <translation>Музыка недоступна</translation>
     </message>

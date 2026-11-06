@@ -42,8 +42,8 @@ TestCase {
         id: roomFactory
         QtObject {
             function card(provider,id,kind,title) {return {key:provider+"\n"+id,id:id,kind:kind,title:title,provider:provider,providerName:provider==="local"?"Fixture music":"Fixture service",local:provider==="local",available:true};}
-            property var sources: [{id:"local",name:"Fixture music",local:true,status:"connected",reason:"",actions:["scan"],busy:false},
-                                   {id:"account",name:"Fixture service",local:false,status:"connected",reason:"",actions:["scan","disconnect"],busy:false}]
+            property var sources: [{id:"local",name:"Fixture music",local:true,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
+                                   {id:"account",name:"Fixture service",local:false,status:"connected",reason:"",actions:["scan","disconnect"],busy:false,browsable:true}]
             property var shelves: [{id:"stations",title:"Stations",kind:"station",entries:[card("account","station:mix","station","Fixture mix")]},
                                    {id:"albums",title:"Albums",kind:"album",entries:[card("local","album:1","album","First"),card("account","album:1","album","Same id"),card("local","album:2","album","Second")]}]
             property bool connected: true
@@ -52,8 +52,13 @@ TestCase {
             property var commands: []
             signal listChanged()
             function list(shelf,source,alphabetical) {const found=shelves.find(item=>item.id===shelf);const entries=found?found.entries:[];return entries.filter(entry=>!source||entry.provider===source);}
-            function more(shelf,source) {return false;}
-            function loadMore(shelf,source) {}
+            // Pages the All list still has to read; each loadMore delivers one.
+            property var pending: []
+            property int loads: 0
+            function more(shelf,source) {return pending.length>0;}
+            function loadMore(shelf,source) {loads++;const next=pending[0];pending=pending.slice(1);
+                if(next.length)shelves=shelves.map(item=>item.id===shelf?Object.assign({},item,{entries:item.entries.concat(next)}):item);
+                listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             function stable(shown,desired) {const keys=desired.map(entry=>entry.key);const kept=shown.filter(entry=>keys.includes(entry.key)).map(entry=>desired[keys.indexOf(entry.key)]);return kept.concat(desired.filter(entry=>!kept.some(item=>item.key===entry.key)));}
@@ -806,5 +811,27 @@ TestCase {
         keyClick(Qt.Key_Down);tryVerify(()=>!findChild(sheet,"musicSourceAction-scan").activeFocus);
         room.sources=[room.sources[0]];
         tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+    }
+    // Codex review of #812: a page without a card of this shelf's kind
+    // (selections mix kinds) does not stop paging; tabs show only sources
+    // that can browse; a connected source without music is not first use.
+    function test_all_list_pages_past_empty_pages_and_tabs_browsable_sources() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=room.sources.concat([{id:"expired",name:"Fixture expired",local:false,status:"signin",reason:"",actions:["connect"],busy:false,browsable:false}]);
+        room.pending=[[],[room.card("account","album:late","album","Late")]];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        const albums=findChild(view,"musicShelf-albums");tryVerify(()=>albums.activeFocus);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");
+        tryCompare(room,"loads",2);tryCompare(all.entries,"length",4);
+        compare(findChild(all,"musicAllTab-3"),null);compare(findChild(all,"musicAllTab-2").text,"Fixture service");
+    }
+    function test_connected_source_without_music_is_not_first_use() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];room.sources=[{id:"account",name:"Fixture service",local:false,status:"connected",reason:"",actions:["disconnect"],busy:false,browsable:false}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        compare(findChild(view,"musicHeroTitle").text,"No music yet");compare(findChild(view,"musicConnectFirst").text,"Sources");
     }
 }

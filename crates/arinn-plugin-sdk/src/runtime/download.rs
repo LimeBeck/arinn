@@ -96,6 +96,24 @@ impl DownloadService {
         self.registrations.subscribe()
     }
 
+    /// Current publication for a TextsHandler. Check its generation and
+    /// revision against the request; keep fixed-vs-content provenance under
+    /// a provider-owned lock shared by publishing and resolving.
+    pub async fn text_snapshot(&self) -> Option<super::TextSnapshot<Job>> {
+        let data = self.data.lock().await;
+        if !self.running.load(Ordering::Acquire)
+            || data.daemon_owner.is_empty()
+            || data.snapshots.is_none()
+        {
+            return None;
+        }
+        Some(super::TextSnapshot {
+            generation: data.generation.clone(),
+            revision: data.revision,
+            entries: data.jobs.clone(),
+        })
+    }
+
     /// Publish normalized jobs. A new revision is published only when the
     /// jobs or the backend state changed.
     pub async fn replace(&self, jobs: Vec<Job>, backend: &str) -> Result<(), ErrorCode> {

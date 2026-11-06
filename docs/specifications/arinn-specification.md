@@ -552,6 +552,15 @@ receive concrete XML before their first provider. Plugin API major 1 remains pre
 
 Plugin API v1 is not yet stable; wire XML, SDK and the contract suite are produced per capability before its first provider ([plugin API](../plugin-api/README.md)).
 
+Providers MAY expose fixed interface messages through the additive
+[ProviderTexts1 contract](../plugin-api/provider-texts.md)
+([ADR-0135](../adr/0135-localized-provider-texts.md)). Message keys, revisions and
+typed arguments distinguish fixed labels from content. A client selects the
+language, can overlay local partial translations and retains the original plain
+text when no compatible translation exists. Existing snapshot signatures stay
+unchanged. The SDK export is implemented; daemon routing and shell adoption are
+tracked by #845/#846 and are not yet implemented.
+
 The daemon-owned Favorites wire contract is [ADR-0084](../adr/0084-favorites-contract.md)
 and [Favorites1](../plugin-api/favorites1.xml); it implements the existing stable
 launch-target persistence and pin/unpin requirements (§5.1, §5.5, §11).
@@ -805,7 +814,7 @@ The visual direction is **Quiet Spatial OS** — "Calm OS → Cinematic Content"
 
 - logical canvas 1920×1080, uniform scale `min(vw/1920, vh/1080)`, safe area from the handoff;
 - Onest for system text and Playfair Display 600 for content titles (hero, detail, player title, episode title cards, the title card and plate without artwork, Ambient clock), Latin and Cyrillic; Material Symbols Rounded; text ≥ 24, action-critical text ≥ 26; tabular numerals; room for Russian labels ~30% longer; no uppercase eyebrows. Owner decision on 2026-11-03 ([#751](https://github.com/LimeBeck/arinn/issues/751), [ADR-0137](../adr/0137-playfair-display-for-content-titles.md)), revising the Ysabeau face from the 2026-11-02 decision; Literata is not a content-title face;
-- interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied text (titles, error messages from plugins) is shown as delivered, except setting texts for which the provider ships a translation for the shell's locale (§5.6, [ADR-0129](../adr/0129-provider-setting-translations.md));
+- interface language: Russian through Qt translations, following the system locale; English strings in the code are the source and the fallback for other locales. Owner decision on 2026-10-06 ([#363](https://github.com/LimeBeck/arinn/issues/363)); the handoff copy is the reference wording. Provider-supplied content and free-form service messages are shown as delivered. Setting texts follow §5.6 ([ADR-0129](../adr/0129-provider-setting-translations.md)). Providers may additionally mark fixed interface texts with message keys and typed arguments ([ADR-0135](../adr/0135-localized-provider-texts.md)); these follow the client's language and local translations, without restarting providers or changing content. Owner implementation request on 2026-11-06 ([#846](https://github.com/LimeBeck/arinn/issues/846#issuecomment-6694979705)); daemon/shell adoption and the explicit language selector remain tracked in #845/#846;
 - Ember `#FF8A3D` marks status, progress, the startup ignition and *kindle* (Arinn coming back) and the brand only, never focus. Focus is light: a rim light from below with a dark mat around artwork, the lift from the bottom edge and the lit row;
 - favourites on Home are a shelf of names with provider icons and no letter monograms; Applications tiles hold their application's identity light; the focused Continue card keeps its caption;
 - the light field is a warm floor light with a pool under the focused item, keyed to artwork hue, crossfaded over 900 ms, can be disabled (Settings › Appearance › Light field, on by default; [ADR-0112](../adr/0112-shell-preferences-as-core-settings.md)), absent on system screens; it follows the time of day unless that is turned off (§5.6). Over an Activity background the floor takes the Activity's identity hue, and the near state darkens the Activity behind Home's header and lowest row. Owner decision on 2026-11-04 ([#756](https://github.com/LimeBeck/arinn/issues/756), [ADR-0140](../adr/0140-tv-review-visual-decisions.md));

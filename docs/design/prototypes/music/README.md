@@ -1,5 +1,7 @@
 # Music visual prototype
 
+**Superseded on 2026-11-06:** this prototype no longer defines the target. The [music Hearth light brief](../../briefs/music-hearth-light/README.md) does ([ADR-0142](../../../adr/0142-music-in-hearth-light.md)). It stays as the record of the earlier design.
+
 Proposed visual design for [#677](https://github.com/LimeBeck/arinn/issues/677),
 delivery task [#707](https://github.com/LimeBeck/arinn/issues/707) and unified
 [MR #710](https://github.com/LimeBeck/arinn/pull/710). Design task #698 and

@@ -90,6 +90,10 @@ private:
   void providers(const QString &token, quint64 ticket, const QString &snapshot,
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
+  void updateProblems();
+  // The derived values last announced through problemsChanged.
+  QVariantMap m_nowPlaying;
+  QString m_playbackProblem, m_notice;
   void readState();
   void readActive();
   void readPage(bool append);

@@ -1,5 +1,7 @@
 # Music design brief
 
+**Layout superseded on 2026-11-06:** the screens, the player row (layout B) and the prototype below are replaced by the [music Hearth light brief](briefs/music-hearth-light/README.md) ([ADR-0142](../adr/0142-music-in-hearth-light.md)). The behaviour rules, state sheets and privacy rules of this brief still apply. The one exception: the Music root no longer starts from a source. Its shelves and search cover every connected source (MH-1, MH-5, MH-10), whereas this brief assumed no merged catalogue. A cross-service queue is still not offered.
+
 Status: brief merged in [#695](https://github.com/LimeBeck/arinn/pull/695), 2026-11-01; [visual prototype](prototypes/music/README.md) and local/Yandex backend foundations consolidated in [MR #710](https://github.com/LimeBeck/arinn/pull/710), task [#707](https://github.com/LimeBeck/arinn/issues/707), at the owner's request on 2026-11-02. Layout B is selected; full visual acceptance and service feasibility remain pending. Parent
 [#677](https://github.com/LimeBeck/arinn/issues/677), discovery task
 [#694](https://github.com/LimeBeck/arinn/issues/694).

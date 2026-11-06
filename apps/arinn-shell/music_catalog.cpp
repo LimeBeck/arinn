@@ -61,11 +61,12 @@ void registerMusic() {
 Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 } // namespace
 MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
-  // The derived lines read the status, the browsed state and the session.
+  // The derived lines read the status, the browsed state and the session;
+  // the one-second poll re-emits those, so notify only on a real change.
   for (auto changed :
        {&MusicCatalog::statusChanged, &MusicCatalog::stateChanged,
         &MusicCatalog::activeChanged})
-    connect(this, changed, this, &MusicCatalog::problemsChanged);
+    connect(this, changed, this, &MusicCatalog::updateProblems);
   auto *watch =
       new QDBusServiceWatcher(service, QDBusConnection::sessionBus(),
                               QDBusServiceWatcher::WatchForOwnerChange, this);
@@ -610,6 +611,19 @@ void MusicCatalog::send(const QString &action, const QString &entity,
 
 QString MusicCatalog::sessionEntryId() {
   return QStringLiteral("arinn-music-session");
+}
+
+void MusicCatalog::updateProblems() {
+  auto nowPlaying = this->nowPlaying();
+  auto problem = playbackProblem();
+  auto notice = this->notice();
+  if (nowPlaying == m_nowPlaying && problem == m_playbackProblem &&
+      notice == m_notice)
+    return;
+  m_nowPlaying = std::move(nowPlaying);
+  m_playbackProblem = std::move(problem);
+  m_notice = std::move(notice);
+  emit problemsChanged();
 }
 
 bool MusicCatalog::audible() const {

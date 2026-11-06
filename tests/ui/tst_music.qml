@@ -367,8 +367,13 @@ TestCase {
         // A station asks its provider to retry; recovered playback hides it.
         catalog.activeState={session:"s",playback:"stopped",continuous:true,error:"Unavailable",current:{track:{id:"track-0",title:"Fixture"}},actions:["retry"],upcoming:[]};
         Ui.Focus.take(retry);keyClick(Qt.Key_Return);compare(catalog.commands,["play","retry"]);
+        // Review of #797: the recovered player hid Retry with focus still on
+        // it, and a second OK sent another retry.
+        catalog.activeState={session:"s",playback:"playing",continuous:true,current:{track:{id:"track-0",title:"Fixture"}},actions:["pause","retry"],upcoming:[]};
         catalog.playbackProblem="";
         tryCompare(findChild(view,"musicPlaybackFailure"),"visible",false);
+        tryCompare(play,"activeFocus",true);compare(retry.activeFocus,false);
+        view.retryPlayback();compare(catalog.commands,["play","retry"]);
     }
     // Saved positions pushed the playing music past the four further
     // cards of Continue (#756 M3).

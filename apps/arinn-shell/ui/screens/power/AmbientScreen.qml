@@ -3,6 +3,7 @@
 
 import QtQuick
 import "../.." as Ui
+import "../music" as Music
 
 // Ambient (screensaver) from handoff 20 and spec §5.7: a deep background
 // with a dim clock and date that drift to a new place every 8 s. It starts
@@ -10,6 +11,11 @@ import "../.." as Ui
 // movement wakes it. The first wake event is consumed: it never reaches the
 // screen beneath. Ambient never stops applications, pauses playback or
 // requests OS suspend; it only draws.
+//
+// While native music plays or is paused, a track line sits under the date
+// in the drifting block, and a faint glow in the artwork's colour lies at
+// the lower left (ADR-0142 MH-8, music brief *Presence › Ambient*, frame
+// mh-07, #791). Play/Pause then acts on the music without waking.
 FocusScope {
     id: root
     objectName: "ambientScreen"
@@ -41,6 +47,41 @@ FocusScope {
     Behavior on driftY { NumberAnimation { duration: root.driftDuration; easing.type: Easing.InOutQuad } }
 
     signal wakeRequested()
+    // Play/Pause while the track line shows: "toggle", "play" or "pause".
+    // The screen stays on (MH-8).
+    signal musicKeyRequested(string action)
+
+    // The native music session as MusicCatalog.activeState publishes it, or
+    // an empty map. Only read here: Ambient never plays or pauses it.
+    property var music: ({})
+    readonly property var musicTrack: music && music.current && music.current.track ? music.current.track : ({})
+    readonly property string musicPlayback: music && music.playback ? String(music.playback) : ""
+    // A current track is enough: an empty title is valid, and the line then
+    // reads "Untitled" as the Quick menu does (review of #817).
+    readonly property bool musicShown: (musicPlayback === "playing" || musicPlayback === "paused")
+                                       && !!(music && music.current && music.current.track)
+    readonly property bool musicPaused: musicPlayback === "paused"
+    // "artist · station", the album when there is no station.
+    readonly property string musicSubline: {
+        const station = music && music.station ? String(music.station.title || "") : "";
+        return [String(musicTrack.artist || ""), station || String(musicTrack.album || "")]
+            .filter(part => part.length > 0).join(" · ");
+    }
+    // A Play/Pause key while the line shows: true when it belongs to the
+    // music, so it never wakes, held or not; the action is sent once per
+    // press. Media keys reach here as ordinary keys.
+    function musicKey(key, repeated) {
+        if (!musicShown)
+            return false;
+        const action = key === Qt.Key_MediaTogglePlayPause || key === Qt.Key_Play ? "toggle"
+                     : key === Qt.Key_MediaPlay ? "play"
+                     : key === Qt.Key_MediaPause ? "pause" : "";
+        if (!action.length)
+            return false;
+        if (!repeated)
+            musicKeyRequested(action);
+        return true;
+    }
 
     function start() {
         if (active)
@@ -66,6 +107,7 @@ FocusScope {
         armed = false;
         waking = false;
         anchorKnown = false;
+        heldMusicKey = 0;
     }
     function remember(x, y) {
         anchorX = x;
@@ -103,6 +145,76 @@ FocusScope {
         anchors.fill: parent
         color: root.backgroundColor
     }
+    // The artwork's mean colour, from a 24×24 decode; nothing full-size is
+    // read (spec §6.5). Transparent until it is known.
+    property color musicGlowColor: "transparent"
+    Image {
+        id: glowSample
+        visible: false
+        source: root.musicShown ? (root.musicTrack.image || "") : ""
+        sourceSize.width: 24
+        sourceSize.height: 24
+        asynchronous: true
+        onStatusChanged: {
+            if (status === Image.Ready) glowSampler.requestPaint();
+            else root.musicGlowColor = "transparent";
+        }
+    }
+    Canvas {
+        id: glowSampler
+        width: 24; height: 24
+        opacity: 0
+        renderTarget: Canvas.Image
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            if (glowSample.status !== Image.Ready) return;
+            ctx.drawImage(glowSample, 0, 0, width, height);
+            const data = ctx.getImageData(0, 0, width, height).data;
+            // Weighted by saturation, so the colour is the artwork's hue and
+            // not its grey.
+            let r = 0, g = 0, b = 0, weight = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                const max = Math.max(data[i], data[i + 1], data[i + 2]);
+                const min = Math.min(data[i], data[i + 1], data[i + 2]);
+                const w = (max - min) / 255 * (data[i + 3] / 255) + 0.001;
+                r += data[i] * w; g += data[i + 1] * w; b += data[i + 2] * w;
+                weight += w;
+            }
+            root.musicGlowColor = Qt.rgba(r / weight / 255, g / weight / 255, b / weight / 255, 1);
+        }
+    }
+    // The faint second glow of mh-07: an ellipse 40 % × 34 % of the screen
+    // centred at 30 % across and 115 % down, at 30 %.
+    Canvas {
+        id: musicGlow
+        objectName: "ambientMusicGlow"
+        anchors.fill: parent
+        visible: root.musicShown && root.musicGlowColor.a > 0
+        opacity: root.musicPaused ? 0.6 : 1
+        onVisibleChanged: if (visible) requestPaint()
+        onWidthChanged: requestPaint()
+        Connections {
+            target: root
+            function onMusicGlowColorChanged() { musicGlow.requestPaint(); }
+        }
+        onPaint: {
+            const ctx = getContext("2d");
+            ctx.reset();
+            const c = root.musicGlowColor;
+            if (c.a <= 0) return;
+            const rx = width * 0.40, ry = height * 0.34;
+            ctx.save();
+            ctx.translate(width * 0.30, height * 1.15);
+            ctx.scale(1, ry / rx);
+            const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+            gradient.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.30));
+            gradient.addColorStop(1, Qt.rgba(c.r, c.g, c.b, 0));
+            ctx.fillStyle = gradient;
+            ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+            ctx.restore();
+        }
+    }
     // As in the prototype: the date sits left-aligned under the clock,
     // 6 px in, 10 px below it.
     Column {
@@ -136,6 +248,78 @@ FocusScope {
             color: root.dateColor
             text: root.dateText
         }
+        // The track line (mh-07): the cover 96, r8, at 90 %; the equaliser
+        // and the track in 600/30; "artist · station" in 26 below. On pause
+        // the line dims to 60 %, the bars stand still and the second line
+        // reads "Paused". It goes when the music stops.
+        Item {
+            objectName: "ambientMusic"
+            visible: root.musicShown
+            width: visible ? musicText.x + musicText.width : 0
+            height: visible ? 96 + 14 : 0
+            opacity: root.musicPaused ? 0.6 : 1
+            Music.MusicArtwork {
+                objectName: "ambientMusicCover"
+                x: 4; y: 14
+                width: 96; height: 96
+                radius: 8
+                opacity: 0.9
+                source: root.musicTrack.image || ""
+            }
+            Column {
+                id: musicText
+                x: 128; y: 22
+                spacing: 8
+                Row {
+                    spacing: 14
+                    Row {
+                        id: equaliser
+                        objectName: "ambientMusicEqualiser"
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 4
+                        height: 20
+                        Repeater {
+                            model: [{rest: 12, period: 1100}, {rest: 18, period: 900}, {rest: 9, period: 1300}]
+                            delegate: Rectangle {
+                                required property var modelData
+                                width: 5; radius: 2
+                                anchors.bottom: parent.bottom
+                                color: root.musicPaused ? root.dateColor : Ui.Theme.ember
+                                height: modelData.rest
+                                SequentialAnimation on height {
+                                    running: root.active && root.musicShown && !root.musicPaused
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 20; duration: modelData.period / 2; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { to: 6; duration: modelData.period / 2; easing.type: Easing.InOutQuad }
+                                }
+                            }
+                        }
+                    }
+                    Ui.UiText {
+                        objectName: "ambientMusicTitle"
+                        font.pixelSize: 30
+                        font.weight: 600
+                        wrapMode: Text.NoWrap
+                        elide: Text.ElideRight
+                        width: Math.min(implicitWidth, 900)
+                        color: root.clockColor
+                        text: String(root.musicTrack.title || "") || qsTr("Untitled")
+                    }
+                }
+                Ui.UiText {
+                    objectName: "ambientMusicSubline"
+                    font.pixelSize: 26
+                    font.weight: 500
+                    wrapMode: Text.NoWrap
+                    elide: Text.ElideRight
+                    width: Math.min(implicitWidth, 900 + 19 + 14)
+                    color: root.dateColor
+                    text: root.musicPaused
+                          ? (root.musicSubline.length ? qsTr("Paused · %1").arg(root.musicSubline) : qsTr("Paused"))
+                          : root.musicSubline
+                }
+            }
+        }
     }
     Timer {
         interval: root.driftInterval
@@ -144,19 +328,44 @@ FocusScope {
         onTriggered: root.drift()
     }
 
+    // The media key whose press went to the music: its repeats and its
+    // release stay the music's even when the session turns to "loading"
+    // meanwhile, so the release never wakes (review of #817).
+    property int heldMusicKey: 0
+    // Every key is Ambient's; these two decide what it does. They are
+    // functions so the tests can drive media keys, which QTest cannot send
+    // in this Qt build (#733).
+    function pressKey(key, repeated) {
+        if (repeated && key === heldMusicKey)
+            return;
+        // Play/Pause acts on the music without waking (MH-8).
+        if (musicKey(key, repeated)) {
+            heldMusicKey = key;
+            return;
+        }
+        if (armed)
+            waking = true;
+    }
+    function releaseKey(key, repeated) {
+        if (key === heldMusicKey) {
+            if (!repeated)
+                heldMusicKey = 0;
+            return;
+        }
+        if (waking && armed)
+            wake();
+        else
+            waking = false;
+    }
     Keys.onPressed: event => {
         event.accepted = true;
-        if (root.armed)
-            root.waking = true;
+        root.pressKey(event.key, event.isAutoRepeat);
     }
     // The wake happens on release, so the release never reaches the screen
     // beneath either.
     Keys.onReleased: event => {
         event.accepted = true;
-        if (root.waking && root.armed)
-            root.wake();
-        else
-            root.waking = false;
+        root.releaseKey(event.key, event.isAutoRepeat);
     }
     MouseArea {
         anchors.fill: parent

@@ -168,6 +168,21 @@
     </message>
 </context>
 <context>
+    <name>AmbientScreen</name>
+    <message>
+        <source>Paused · %1</source>
+        <translation>Пауза · %1</translation>
+    </message>
+    <message>
+        <source>Paused</source>
+        <translation>Пауза</translation>
+    </message>
+    <message>
+        <source>Untitled</source>
+        <translation>Без названия</translation>
+    </message>
+</context>
+<context>
     <name>AppTile</name>
     <message>
         <source>Loading…</source>

@@ -6,9 +6,11 @@ import QtQuick
 // The idle timer of spec §5.7 (#307). `idle()` fires after `timeout` without
 // input while automatic ambient is allowed: the shell is on screen and
 // active, the session is not locked, ambient is not already on, nothing is
-// launching, no power request waits for its answer, and no media plays. It
-// only starts ambient; it never requests OS suspend, pauses playback or
-// closes applications.
+// launching, no power request waits for its answer, and no media plays.
+// Native music is the exception (ADR-0142 MH-8): automatic ambient may start
+// while only music plays, and ambient then shows the track. It only starts
+// ambient; it never requests OS suspend, pauses playback or closes
+// applications.
 QtObject {
     id: root
     // Ten minutes by default (spec §5.7).
@@ -33,8 +35,10 @@ QtObject {
             timer.restart();
     }
     // Media plays when a media session is playing, the managed player's input
-    // layer is up, or a browser tab makes sound.
-    function playing(mediaEntries, tabs, inputLayer) {
+    // layer is up, or a browser tab makes sound. The native music session
+    // (`music`, MusicCatalog.activeState) is passed and deliberately not
+    // counted: music alone never holds ambient back (MH-8, #791).
+    function playing(mediaEntries, tabs, inputLayer, music) {
         if (inputLayer)
             return true;
         for (const entry of mediaEntries || [])

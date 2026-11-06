@@ -402,6 +402,23 @@ keep their cache lifetime. The music artwork
 slot retries a transient image failure up to six times while visible. It never
 fetches a provider URL directly or loops indefinitely on a missing cover.
 
+Yandex Music artwork IDs (#825) are opaque, at most 256 bytes and without `/`:
+- `cover:<track id>` for a track, and for an album grouped from the library's
+  tracks (its first track's cover, with no new request);
+- `album-cover:<id>` and `artist-cover:<id>` for search results and the
+  library's artists;
+- `playlist-cover:<uid>:<kind>` for the account's playlists.
+
+Each resolves through its own API object's `coverUri`, `cover.uri` or
+`ogImage`; a playlist's comes from the account's playlist list, which carries
+no tracks. The reference becomes the 600 × 600 image on `avatars.yandex.net`
+or `avatars.mds.yandex.net`, behind the same cache, epoch guard, size limit and
+`sniff` check as track covers.
+
+Search results and playlists carry an ID only when the API names an image.
+A library artist always carries one, and an artist without a picture falls
+back to the shell's neutral artwork.
+
 The music player begins preparing upcoming queue occurrences immediately after
 the current file loads. The Yandex provider exposes `prefetch_tracks` through the
 existing Settings1 API: an integer from 0 to 5, default 5, applied to upcoming

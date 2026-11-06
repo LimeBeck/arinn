@@ -487,7 +487,14 @@ private slots:
     QCOMPARE(keys, (QStringList{"local\nalbum:a", "account\nalbum:a", "local\nalbum:b",
                                 "account\nalbum:z"}));
     // Codex review of #819: a source that leaves during a search takes its
-    // results along; one that joins is searched too.
+    // results along; one that joins is searched too. The results of the
+    // source that stays never leave meanwhile, so focus on them stays.
+    qsizetype least = 4;
+    const auto watch = connect(&room, &MusicRoom::searchChanged, this, [&] {
+      const auto now = room.searchShelves();
+      least = std::min<qsizetype>(
+          least, now.isEmpty() ? 0 : now.first().toMap().value("entries").toList().size());
+    });
     daemon.providers = {{"local", "Fixture music", "g1"}};
     catalog.refresh();
     QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 2);
@@ -495,6 +502,15 @@ private slots:
     catalog.refresh();
     QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 4);
     QTRY_VERIFY(room.searchPending().isEmpty());
+    disconnect(watch);
+    QCOMPARE(least, 2);
+    // A query beyond the protocol's 1024 bytes finds nothing: the results
+    // of the shorter query do not stay (Codex review of #819).
+    const QString tooLong(1025, QLatin1Char('x'));
+    room.search(tooLong);
+    QCOMPARE(room.searchQuery(), tooLong);
+    QVERIFY(room.searchShelves().isEmpty());
+    QVERIFY(room.searchPending().isEmpty());
     room.search(QString());
     QVERIFY(room.searchShelves().isEmpty());
   }

@@ -1025,6 +1025,13 @@ TestCase {
         keyClick(Qt.Key_Return);verify(view.detailView);compare(catalog.sourceId,"account");
         keyClick(Qt.Key_Escape);compare(view.mode,"search");
         tryVerify(()=>results.activeFocus);compare(results.focusedEntry.key,"account\nalbum:1");
+        // Codex review of #819: a focused shelf that leaves hands focus to
+        // the shelf in its place, and the last one to the field.
+        const albums=room.searchShelves[0];
+        room.searchShelves=[albums,{id:"tracks",title:"Tracks",kind:"track",entries:[room.card("local","track:1","track","One")]}];
+        keyClick(Qt.Key_Down);const tracks=findChild(view,"musicSearchShelf-tracks");tryVerify(()=>tracks.activeFocus);
+        room.searchShelves=[albums];tryVerify(()=>findChild(view,"musicSearchShelf-albums").activeFocus);
+        room.searchShelves=[];tryCompare(field,"activeFocus",true);
         keyClick(Qt.Key_Escape);compare(view.mode,"root");compare(room.searchQuery,"");
     }
 }

@@ -65,11 +65,18 @@ FocusScope {
     }
     // Shelves are keyed by id, so a late shelf never recreates the others.
     ListModel { id: shelfModel }
+    // A shelf that leaves with focus hands it to the shelf now in its place,
+    // or to the field when none is left (Codex review of #819).
+    property int lostFocusAt: -1
     function syncShelves() {
         const ids = shelves.map(shelf => shelf.id);
         for (let i = shelfModel.count - 1; i >= 0; --i)
-            if (!ids.includes(shelfModel.get(i).shelfKey))
+            if (!ids.includes(shelfModel.get(i).shelfKey)) {
+                const item = shelfRepeater.itemAt(i);
+                if (item && item.activeFocus)
+                    lostFocusAt = i;
                 shelfModel.remove(i);
+            }
         for (let i = 0; i < ids.length; ++i) {
             let at = -1;
             for (let j = i; j < shelfModel.count && at < 0; ++j)
@@ -80,6 +87,19 @@ FocusScope {
             else if (at !== i)
                 shelfModel.move(at, i, 1);
         }
+        if (lostFocusAt >= 0)
+            Qt.callLater(restoreFocus);
+    }
+    function restoreFocus() {
+        const at = lostFocusAt;
+        lostFocusAt = -1;
+        if (at < 0 || !visible)
+            return;
+        const shelf = shelfRepeater.count ? shelfRepeater.itemAt(Math.min(at, shelfRepeater.count - 1)) : null;
+        if (shelf)
+            Ui.Focus.take(shelf);
+        else
+            upRequested();
     }
     onShelvesChanged: syncShelves()
     Component.onCompleted: syncShelves()

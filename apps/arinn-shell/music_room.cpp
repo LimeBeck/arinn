@@ -14,6 +14,8 @@
 
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
+// The longest search the protocol takes, in UTF-8 bytes (music.md).
+constexpr int maxQuery = 1024;
 QJsonObject object(const QDBusMessage &reply) {
   if (reply.type() == QDBusMessage::ErrorMessage ||
       reply.signature() != QStringLiteral("s") || reply.arguments().size() != 1)
@@ -822,54 +824,74 @@ QStringList MusicRoom::searchPending() const {
   return names;
 }
 
-QString MusicRoom::searchSignature() const {
-  QStringList parts;
+std::map<QString, QString> MusicRoom::searchSources() const {
+  std::map<QString, QString> sources;
   for (const auto &id : m_order) {
     const auto found = m_sources.find(id);
     if (found != m_sources.end() && !found->second.stateFailed &&
         browsable(found->second.state))
-      parts.append(id + QLatin1Char('@') + found->second.generation);
+      sources[id] = found->second.generation;
   }
-  return parts.join(QLatin1Char(','));
+  return sources;
 }
 
-// A source that connects, leaves or restarts during a search: the search
-// runs again over the sources there are now (Codex review of #819).
+// A source that connects, leaves or restarts during a search: only that
+// source searches again, and the results of the others stay where they are,
+// so the focused result does not leave (Codex review of #819).
 void MusicRoom::reconcileSearch() {
-  if (m_searchQuery.isEmpty() || searchSignature() == m_searchSignature)
+  if (m_searchQuery.isEmpty() || m_searchQuery.toUtf8().size() > maxQuery)
     return;
-  const auto query = m_searchQuery;
-  m_searchQuery.clear();
-  search(query);
+  const auto now = searchSources();
+  if (now == m_searchSources)
+    return;
+  for (auto it = m_search.begin(); it != m_search.end();) {
+    const auto source = now.find(it->first);
+    const auto before = m_searchSources.find(it->first);
+    if (source == now.end() || before == m_searchSources.end() ||
+        before->second != source->second)
+      it = m_search.erase(it);
+    else
+      ++it;
+  }
+  m_searchSources = now;
+  for (const auto &[id, generation] : now)
+    if (m_search.find(id) == m_search.end())
+      startSearch(id);
+  rebuildSearch();
 }
 
 void MusicRoom::search(const QString &raw) {
   const auto query = raw.trimmed();
-  if (query == m_searchQuery || query.toUtf8().size() > 1024)
+  if (query == m_searchQuery)
     return;
   m_searchQuery = query;
-  m_searchSignature = searchSignature();
-  const auto ticket = ++m_searchTicket;
+  m_searchSources = searchSources();
   m_search.clear();
-  if (!query.isEmpty())
-    for (const auto &id : m_order) {
-      const auto found = m_sources.find(id);
-      if (found == m_sources.end() || found->second.stateFailed ||
-          !browsable(found->second.state))
-        continue;
-      const auto facets = found->second.state.value("facets").toStringList();
-      auto &search = m_search[id];
-      for (const auto *facet : {"artists", "albums", "tracks"})
-        if (facets.contains(QLatin1String(facet)))
-          search.pending.append(QLatin1String(facet));
-      readSearch(id, ticket);
-    }
+  // A query beyond the protocol's limit finds nothing: the results of the
+  // shorter query it grew from do not stay (Codex review of #819).
+  if (!query.isEmpty() && query.toUtf8().size() <= maxQuery)
+    for (const auto &[id, generation] : m_searchSources)
+      startSearch(id);
   rebuildSearch();
+}
+
+void MusicRoom::startSearch(const QString &id) {
+  const auto found = m_sources.find(id);
+  if (found == m_sources.end())
+    return;
+  const auto facets = found->second.state.value("facets").toStringList();
+  auto &search = m_search[id];
+  search = Search{};
+  search.ticket = ++m_searchTicket;
+  for (const auto *facet : {"artists", "albums", "tracks"})
+    if (facets.contains(QLatin1String(facet)))
+      search.pending.append(QLatin1String(facet));
+  readSearch(id);
 }
 
 // One search page at a time per source, as the first pages: a source's
 // facets share one materialisation slot.
-void MusicRoom::readSearch(const QString &id, quint64 ticket) {
+void MusicRoom::readSearch(const QString &id) {
   auto found = m_search.find(id);
   const auto source = m_sources.find(id);
   if (found == m_search.end() || source == m_sources.end() ||
@@ -877,6 +899,7 @@ void MusicRoom::readSearch(const QString &id, quint64 ticket) {
     return;
   auto &search = found->second;
   const auto facet = search.pending.takeFirst();
+  const auto ticket = search.ticket;
   search.busy = true;
   auto message = QDBusMessage::createMethodCall(
       service, source->second.path, "org.arinn.Music1", "GetPage");
@@ -894,11 +917,10 @@ void MusicRoom::readSearch(const QString &id, quint64 ticket) {
           [this, id, facet, ticket, generation](auto *watch) {
             const auto reply = watch->reply();
             watch->deleteLater();
-            if (ticket != m_searchTicket)
-              return;
             auto found = m_search.find(id);
             const auto source = m_sources.find(id);
-            if (found == m_search.end() || source == m_sources.end() ||
+            if (found == m_search.end() || found->second.ticket != ticket ||
+                source == m_sources.end() ||
                 source->second.generation != generation)
               return;
             found->second.busy = false;
@@ -923,7 +945,7 @@ void MusicRoom::readSearch(const QString &id, quint64 ticket) {
                 entries.append(row);
               }
             found->second.facets[facet] = entries;
-            readSearch(id, ticket);
+            readSearch(id);
             rebuildSearch();
           });
 }

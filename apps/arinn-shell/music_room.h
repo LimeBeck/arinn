@@ -140,17 +140,21 @@ private:
   void readNext(const QString &id);
   void readPage(const QString &id, const QString &facet, bool append);
   void rebuild();
-  void readSearch(const QString &id, quint64 ticket);
+  void startSearch(const QString &id);
+  void readSearch(const QString &id);
   void rebuildSearch();
   struct Search {
     std::map<QString, QVariantList> facets;
     QStringList pending;
     bool busy = false;
+    // Replies to an earlier run of this source's search are dropped.
+    quint64 ticket = 0;
   };
   std::map<QString, Search> m_search;
-  QString m_searchQuery, m_searchSignature;
-  // The browsable sources and their generations the search ran over.
-  QString searchSignature() const;
+  QString m_searchQuery;
+  // The browsable sources, by id, with the generation the search ran over.
+  std::map<QString, QString> m_searchSources;
+  std::map<QString, QString> searchSources() const;
   void reconcileSearch();
   quint64 m_searchTicket = 0;
   QVariantList m_searchShelves;

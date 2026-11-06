@@ -1670,15 +1670,39 @@ bool Backend::musicStationPinned(const QString &providerId,
                      {"capability", QStringLiteral("music-station")},
                      {"localId", stationId}});
 }
+// MusicPins1 takes a title of at most 256 UTF-8 bytes with no control
+// characters (MusicPin::validate): a provider's title is cleaned and cut on
+// a character boundary rather than refused (#804).
+static QString musicPinTitle(const QString &title) {
+  constexpr qsizetype maxBytes = 256;
+  QString clean;
+  clean.reserve(title.size());
+  for (const auto ch : title)
+    clean.append(ch.category() == QChar::Other_Control ? QChar(u' ') : ch);
+  clean = clean.trimmed();
+  qsizetype bytes = 0, end = 0;
+  while (end < clean.size()) {
+    const bool pair = clean.at(end).isHighSurrogate() && end + 1 < clean.size() &&
+                      clean.at(end + 1).isLowSurrogate();
+    const auto length = pair ? 2 : 1;
+    const auto size = clean.mid(end, length).toUtf8().size();
+    if (bytes + size > maxBytes)
+      break;
+    bytes += size;
+    end += length;
+  }
+  return clean.left(end).trimmed();
+}
 void Backend::pinMusicStation(const QString &providerId, const QString &stationId,
-                              const QString &title, const QString &artwork) {
+                              const QString &rawTitle, const QString &artwork) {
+  const auto title = musicPinTitle(rawTitle);
   if (!favoritesReady() || m_favoriteSaving || providerId.isEmpty() ||
-      stationId.isEmpty() || title.trimmed().isEmpty())
+      stationId.isEmpty() || title.isEmpty())
     return;
   auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
                                             "org.arinn.MusicPins1", "Pin");
   msg << QVariant::fromValue<qulonglong>(m_favoriteRevision)
-      << QVariant::fromValue(MusicPinWire{providerId, stationId, title.left(200), artwork});
+      << QVariant::fromValue(MusicPinWire{providerId, stationId, title, artwork});
   sendMusicPin(msg);
 }
 void Backend::unpinMusicStation(const QString &providerId, const QString &stationId) {

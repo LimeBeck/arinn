@@ -128,12 +128,18 @@ the station and the provider's own `pin` action are the shell's (#804).
 - **Writing.** `Backend.pinMusicStation(provider, station, title, artwork)` and
   `unpinMusicStation(provider, station)` call `Pin` and `Unpin` at the current
   favorites revision. Like `setFavorite`, they allow one write at a time,
-  never retry, and reconcile through `List`. Removing the row through the
-  shelf's action sheet is an ordinary `Favorites1.Set`.
+  never retry, and reconcile through `List`. The title is cleaned before
+  `Pin`: control characters become spaces and the text is cut to 256 UTF-8
+  bytes on a character boundary. Removing the row through the shelf's action
+  sheet is an ordinary `Favorites1.Set`.
 - **Availability.** Home marks a pin unavailable, with its reason, while its
-  music source is not connected, or after the source answered `radio` for it
-  with NotFound (`MusicCatalog.stationResolved`). Selecting such a pin opens
-  the action sheet; it never starts another station.
+  music source is not connected: the provider is not running, or the music
+  room reports its account as anything but connected or scanning (signed out,
+  expired, restricted, unavailable, still connecting). It is also unavailable
+  after the source answered `radio` for it with NotFound or Unavailable
+  (`MusicCatalog.stationResolved`; `docs/plugin-api/music.md`) until that
+  provider restarts with a new generation. Selecting such a pin opens the
+  action sheet; it never starts another station.
 - **Starting.** Selecting an available pin starts the station the way a station
   card in the music room does: the replace confirmation, then *Now playing*.
 - **The provider's own `pin`.** Where a provider offers it, Arinn mirrors a pin

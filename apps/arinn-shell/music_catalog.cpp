@@ -230,6 +230,7 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
         m_registryBusy = false;
         if (m_sources != rows) {
           m_sources = rows;
+          forgetStaleUnresolved();
           emit sourcesChanged();
           emit activeChanged();
         }
@@ -244,6 +245,28 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
                          : rows.first().toMap().value("id").toString();
         choose(selected);
       });
+}
+// A provider that restarted or left may know its stations again: its
+// unresolved stations are asked again on the next start (#804).
+void MusicCatalog::forgetStaleUnresolved() {
+  QHash<QString, QString> generations;
+  for (const auto &row : std::as_const(m_sources)) {
+    const auto source = row.toMap();
+    generations.insert(source.value("id").toString(),
+                       source.value("generation").toString());
+  }
+  bool changed = false;
+  for (auto it = m_unresolved.begin(); it != m_unresolved.end();) {
+    const auto provider = it.key().section(QLatin1Char('\n'), 0, 0);
+    if (generations.value(provider) != it.value()) {
+      it = m_unresolved.erase(it);
+      changed = true;
+    } else {
+      ++it;
+    }
+  }
+  if (changed)
+    emit unresolvedChanged();
 }
 void MusicCatalog::choose(const QString &id) {
   QVariantMap selected;
@@ -589,11 +612,15 @@ void MusicCatalog::send(const QString &action, const QString &entity,
             const auto station = provider + QLatin1Char('\n') + entity;
             if (json.isEmpty()) {
               const auto failure = code(reply);
-              // The provider no longer knows a stored station: a pin of it
-              // shows as unavailable instead of being retried (#804).
-              if (action == "radio" && failure == "NotFound" &&
-                  !m_unresolved.contains(station)) {
-                m_unresolved.append(station);
+              // The provider no longer knows a stored station, or cannot
+              // tell (music.md: NotFound where it can, otherwise
+              // Unavailable): a pin of it shows as unavailable instead of
+              // being retried. A new generation of the provider asks again
+              // (#804).
+              if (action == "radio" &&
+                  (failure == "NotFound" || failure == "Unavailable") &&
+                  m_unresolved.value(station) != generation) {
+                m_unresolved.insert(station, generation);
                 emit unresolvedChanged();
               }
               if ((action == "play" || action == "radio") &&
@@ -612,7 +639,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             m_commandBusy = false;
-            if (action == "radio" && m_unresolved.removeAll(station))
+            if (action == "radio" && m_unresolved.remove(station))
               emit unresolvedChanged();
             if (!active) {
               m_state = imageState(json.toVariantMap(), m_sourceId, m_path,

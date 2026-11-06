@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Arinn contributors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
+#include <QMap>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -27,7 +28,9 @@ class MusicCatalog : public QObject {
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
-  // Changes when a stored station is found missing or starts again.
+  // "provider\nstation" keys of stored stations the provider answered
+  // `radio` with NotFound or Unavailable for (music.md). Changes when one is
+  // found missing, starts again, or its provider restarts or leaves.
   Q_PROPERTY(QStringList unresolvedStations READ unresolvedStations NOTIFY
                  unresolvedChanged)
   // The active session plays or is loading its next track: interface sounds
@@ -59,7 +62,7 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
-  QStringList unresolvedStations() const { return m_unresolved; }
+  QStringList unresolvedStations() const { return m_unresolved.keys(); }
   bool audible() const;
   QString playbackProblem() const;
   QString notice() const;
@@ -109,7 +112,9 @@ private:
   void providers(const QString &token, quint64 ticket, const QString &snapshot,
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
-  QStringList m_unresolved;
+  void forgetStaleUnresolved();
+  // Unresolved station key -> the provider generation that answered.
+  QMap<QString, QString> m_unresolved;
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;

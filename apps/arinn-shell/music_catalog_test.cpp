@@ -1003,9 +1003,9 @@ private slots:
     QTRY_COMPARE(catalog.notice(),
                  QStringLiteral("Part of this source is unavailable. Refresh to try again."));
   }
-  // #804: a stored station the provider answers `radio` with NotFound for
-  // is unresolved, so Home marks its pin unavailable; starting it again
-  // clears that.
+  // #804: a stored station the provider answers `radio` with NotFound or
+  // Unavailable for is unresolved, so Home marks its pin unavailable;
+  // starting it again, or a restart of the provider, clears that.
   void aStationTheProviderNoLongerKnowsIsUnresolved() {
     daemon.providers = {{"local", "Local music", "g1"}};
     auto local = state({"selections"});
@@ -1030,9 +1030,25 @@ private slots:
     daemon.commandError.clear();
     catalog.command("radio", "station:gone");
     QTRY_VERIFY(catalog.stationResolved("local", "station:gone"));
+    QTRY_VERIFY(!catalog.busy());
+    // A provider that cannot tell answers Unavailable (music.md).
+    daemon.commandError = "Unavailable";
+    catalog.command("radio", "station:unknown");
+    QTRY_VERIFY(!catalog.stationResolved("local", "station:unknown"));
+    QTRY_VERIFY(!catalog.busy());
+    // The same generation keeps it; a restarted provider is asked again.
+    catalog.refresh();
+    QTest::qWait(50);
+    QVERIFY(!catalog.stationResolved("local", "station:unknown"));
+    daemon.providers[0].generation = QStringLiteral("g2");
+    catalog.refresh();
+    QTRY_VERIFY(catalog.stationResolved("local", "station:unknown"));
+    QVERIFY(catalog.unresolvedStations().isEmpty());
+    daemon.commandError.clear();
   }
   // #804: Home marks a pin unavailable, with its reason, while its source
-  // is not connected or no longer knows the station; Main.musicPinRows.
+  // or its account is not connected, or the source no longer knows the
+  // station; Main.musicPinRows.
   void pinsOfAbsentSourcesOrUnknownStationsAreUnavailable() {
     QFile main(QString::fromUtf8(ARINN_MAIN_QML));
     QVERIFY(main.open(QIODevice::ReadOnly));
@@ -1055,14 +1071,24 @@ private slots:
     };
     const QVariantList favorites{QVariantMap{{"id", "app"}, {"title", "App"}},
                                  pin("local", "station:library"),
-                                 pin("away", "station:x"), pin("local", "station:gone")};
-    const QVariantList sources{QVariantMap{{"id", "local"}, {"name", "Local music"}, {"ready", true}}};
+                                 pin("away", "station:x"), pin("local", "station:gone"),
+                                 pin("cloud", "station:wave"), pin("down", "station:wave")};
+    const QVariantList sources{
+        QVariantMap{{"id", "local"}, {"name", "Local music"}, {"ready", true}},
+        QVariantMap{{"id", "cloud"}, {"name", "Cloud"}, {"ready", true}},
+        QVariantMap{{"id", "down"}, {"name", "Down"}, {"ready", true}}};
+    // The music room's rows: the cloud account expired, the other service
+    // stopped answering, while both provider processes run.
+    const QVariantList accounts{QVariantMap{{"id", "local"}, {"status", "connected"}},
+                                QVariantMap{{"id", "cloud"}, {"status", "signin"}},
+                                QVariantMap{{"id", "down"}, {"status", "unavailable"}}};
     QVariant result;
     QVERIFY(QMetaObject::invokeMethod(root.get(), "musicPinRows", Q_RETURN_ARG(QVariant, result),
                                       Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
-                                      Q_ARG(QVariant, QStringList{"local\nstation:gone"})));
+                                      Q_ARG(QVariant, QStringList{"local\nstation:gone"}),
+                                      Q_ARG(QVariant, accounts)));
     const auto rows = qvariant_cast<QJSValue>(result).toVariant().toList();
-    QCOMPARE(rows.size(), 4);
+    QCOMPARE(rows.size(), 6);
     QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
     QVERIFY(!rows[1].toMap().value("unavailable").toBool());
     QCOMPARE(rows[1].toMap().value("subtitle").toString(), QStringLiteral("Local music"));
@@ -1072,6 +1098,11 @@ private slots:
              QStringLiteral("Music source not connected"));
     QCOMPARE(rows[3].toMap().value("subtitle").toString(),
              QStringLiteral("This station is no longer available"));
+    for (int i : {4, 5}) {
+      QVERIFY(rows[i].toMap().value("unavailable").toBool());
+      QCOMPARE(rows[i].toMap().value("subtitle").toString(),
+               QStringLiteral("Music source not connected"));
+    }
   }
   // #804: Arinn's pin is mirrored to the provider's `pin` only for the
   // station that plays, and only when the provider's state differs.

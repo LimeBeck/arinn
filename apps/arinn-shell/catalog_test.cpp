@@ -519,6 +519,23 @@ private slots:
       backend.setFavorite(backend.favorites().first().toMap().value("id").toString(), false);
       QTRY_VERIFY(backend.favorites().isEmpty());
       QVERIFY(daemon.favorites.isEmpty());
+      // MusicPins1 takes at most 256 UTF-8 bytes and no control characters:
+      // a long Cyrillic title is cut on a character boundary, a control
+      // character becomes a space, and the pin is not refused.
+      const QString word = QString::fromUtf8("Станция\tЁ");
+      QString longTitle;
+      while (longTitle.toUtf8().size() < 400)
+        longTitle += word;
+      backend.pinMusicStation("fixture.music", "station:long", longTitle + "\U0001F3B5",
+                              QString());
+      QTRY_COMPARE(daemon.pins.last().station, QString("station:long"));
+      const auto stored = daemon.pins.last().title;
+      QVERIFY(stored.toUtf8().size() <= 256);
+      QVERIFY(stored.toUtf8().size() >= 250);
+      QCOMPARE(QString::fromUtf8(stored.toUtf8()), stored);
+      QVERIFY(!stored.contains(QChar(u'\t')));
+      QVERIFY(stored.startsWith(QString::fromUtf8("Станция Ё")));
+      QVERIFY(longTitle.replace(QChar(u'\t'), QChar(u' ')).startsWith(stored));
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");

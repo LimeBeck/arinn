@@ -75,14 +75,16 @@ FocusScope {
                 root.stopping = "";
                 return;
             }
-            if ((music.errorText || "").length) {
-                root.failStop();
-                return;
-            }
+            // The catalogue ends a command only after reading the session
+            // again, so its state now tells the command's own result; the
+            // catalogue-wide error may belong to another request (Codex
+            // review of #851).
             if (root.stopAction === "stop" ? !active : !sounding) {
                 stop();
                 root.setEnabled(root.stopping, false);
                 root.stopping = "";
+            } else {
+                root.failStop();
             }
         }
     }

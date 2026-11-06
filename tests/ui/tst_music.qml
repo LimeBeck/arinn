@@ -1159,18 +1159,23 @@ TestCase {
         keyClick(Qt.Key_Return);tryCompare(findChild(sheet,"musicTurnOffDialog"),"visible",false);compare(room.commands.length,2);
         Ui.Focus.take(off()[0]);keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);
         keyClick(Qt.Key_Right);tryCompare(findChild(sheet,"musicTurnOffSource"),"activeFocus",true);
-        catalog.commands=[];keyClick(Qt.Key_Return);
+        // As the catalogue: a command is in flight until it has read the
+        // session again.
+        catalog.busyOnTransport=true;catalog.commands=[];keyClick(Qt.Key_Return);
         // Codex review of #851: the source turns off only once its music
         // has stopped.
         tryCompare(catalog,"commands",["stop"]);wait(300);compare(room.commands.length,2);
-        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
         tryVerify(()=>room.commands.length===3);compare(room.commands[2],"local:off");
         // A stop the source refuses keeps it on, and its row says so.
         room.setSourceEnabled("local",true);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});
         const localOff=()=>off().find(item=>item.parent.parent.modelData.id==="local");tryVerify(()=>!!localOff());
         localOff().activated();tryCompare(keep,"activeFocus",true);
         keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        // A catalogue-wide error from another request does not decide it;
+        // the session still playing once the command has ended does.
         tryCompare(catalog,"commands",["stop"]);catalog.errorText="The source could not do that. Try again.";
+        wait(300);compare(room.commands[room.commands.length-1],"local:on");catalog.busy=false;
         const errors=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceError"&&c.visible)out.push(c.text);walk(c);}};walk(sheet);return out;};
         tryVerify(()=>errors().includes("The music could not be stopped, so the source stays on."));
         compare(room.commands[room.commands.length-1],"local:on");catalog.errorText="";
@@ -1181,7 +1186,7 @@ TestCase {
         keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
         tryCompare(catalog,"commands",["stop"]);wait(300);
         compare(room.commands[room.commands.length-1],"local:on");
-        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
         tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
     }
     // #842: with every source off, the room points to Sources.

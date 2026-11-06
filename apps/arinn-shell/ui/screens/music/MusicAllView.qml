@@ -21,8 +21,40 @@ FocusScope {
     readonly property var sources: room ? room.sources : []
     // A filtered source that can no longer browse loses its tab: the list
     // returns to All.
-    onSourcesChanged: if (source.length && !sources.some(row => row.id === source && row.browsable !== false))
-        source = ""
+    // The tabs change only when the browsable sources or their names do, so
+    // a busy flag or a status line never recreates the focused tab; when the
+    // tabs do change, focus stays on the same source, or moves to All
+    // (Codex review of #812).
+    property var tabList: [{id: "", name: qsTr("All")}]
+    function syncTabs() {
+        const next = [{id: "", name: qsTr("All")}].concat(sources.filter(row => row.browsable !== false)
+            .map(row => ({id: row.id, name: row.local ? qsTr("This computer") : row.name})));
+        if (JSON.stringify(next) === JSON.stringify(tabList))
+            return;
+        let focused = null;
+        for (let i = 0; i < tabs.count; ++i)
+            if (tabs.itemAt(i) && tabs.itemAt(i).activeFocus)
+                focused = tabList[i].id;
+        tabList = next;
+        if (focused !== null) {
+            focusTab = focused;
+            Qt.callLater(restoreTabFocus);
+        }
+    }
+    property var focusTab: null
+    function restoreTabFocus() {
+        if (focusTab === null)
+            return;
+        const at = Math.max(0, tabList.findIndex(tab => tab.id === focusTab));
+        focusTab = null;
+        Ui.Focus.take(tabs.itemAt(at));
+    }
+    onSourcesChanged: {
+        if (source.length && !sources.some(row => row.id === source && row.browsable !== false))
+            source = "";
+        syncTabs();
+    }
+    Component.onCompleted: syncTabs()
     readonly property bool round: shelfId === "artists"
     readonly property bool wide: shelfId === "stations"
     readonly property real cardWidth: wide ? 448 : 240
@@ -141,8 +173,7 @@ FocusScope {
         Repeater {
             id: tabs
             // Only sources that can browse get a tab (MH-10: connected ones).
-            model: [{id: "", name: qsTr("All")}].concat(root.sources.filter(source => source.browsable !== false).map(source => ({
-                id: source.id, name: source.local ? qsTr("This computer") : source.name})))
+            model: root.tabList
             Ui.ActionButton {
                 required property var modelData
                 required property int index

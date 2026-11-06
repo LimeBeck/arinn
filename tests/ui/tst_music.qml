@@ -945,4 +945,18 @@ TestCase {
         catalog.state={revision:2,account:"connected",facets:["selections"],actions:["play","radio"]};
         wait(20);compare(view.pendingPlay,"");compare(catalog.commands,[]);
     }
+    // Codex review of #812: a source row that changes keeps the focused tab;
+    // a tab that leaves hands focus to All.
+    function test_all_tabs_keep_focus_when_sources_change() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");const service=findChild(all,"musicAllTab-2");
+        Ui.Focus.take(service);tryCompare(service,"activeFocus",true);
+        room.sources=room.sources.map(row=>Object.assign({},row,{busy:true}));
+        wait(20);compare(service.activeFocus,true);
+        room.sources=[room.sources[0]];
+        tryCompare(findChild(all,"musicAllTab-0"),"activeFocus",true);
+    }
 }

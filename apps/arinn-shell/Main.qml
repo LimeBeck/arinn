@@ -68,6 +68,9 @@ Window {
     // managed playback the window is already on screen, and Back may come
     // before that refresh.
     property string quickMenuTarget: ""
+    // Open player in the Quick menu: Back from that player returns to the
+    // sheet (#805).
+    property bool playerFromQuickMenu: false
     // Settings › Library folders (handoff LF-1…8, #764) over Settings.
     property bool libraryFoldersOpen: false
     function openQuickMenu() {
@@ -342,6 +345,26 @@ Window {
         presentationFocusBound.stop();
         mediaCatalog.present();
         checkPresentationFocus();
+    }
+    // The player's Home: playback goes on, Home takes the screen.
+    function playerHome() {
+        // A vanished/unreported launch cannot fence navigation forever.
+        // Explicit Home cancels only the waiting exit, never a running Stop.
+        if (leavingWaitForSession && leaveError !== "") {
+            leavingWaitForSession = false;
+            leavingStopPending = false;
+            leaveSessionBound.stop();
+        }
+        if (mediaCatalog.inputLayerActive) {
+            showPlaybackHome();
+            mediaCatalog.requestHome();
+        } else {
+            leaveError = "";
+            playerOpen = false;
+            sessionFromLibrary = false;
+            home.showHome();
+            mediaCatalog.requestHome();
+        }
     }
     function showPlaybackHome() {
         if (leavingStopPending)
@@ -1251,9 +1274,13 @@ Window {
             onNextRequested: mediaCatalog.next()
             onPreviousRequested: mediaCatalog.previous()
             onStopRequested: mediaCatalog.stop()
+            onVisibleChanged: if (!visible) root.playerFromQuickMenu = false
             onBackRequested: {
                 root.sessionOpen = false;
-                if (root.sessionFromLibrary) {
+                if (root.playerFromQuickMenu) {
+                    root.playerFromQuickMenu = false;
+                    Qt.callLater(root.openQuickMenu);
+                } else if (root.sessionFromLibrary) {
                     root.sessionFromLibrary = false;
                     Qt.callLater(() => {
                         if (libraryView.detailOpen)
@@ -1332,7 +1359,13 @@ Window {
             enabled: visible
             focus: root.focusedScreen === "music"
             z: 4
-            onBackRequested: home.back()
+            onBackRequested: {
+                if (root.playerFromQuickMenu) { root.playerFromQuickMenu = false; root.openQuickMenu(); }
+                else home.back();
+            }
+            // Leaving the screen another way, Home among them, ends the way
+            // back to the sheet (Codex review of #826).
+            onVisibleChanged: if (!visible) root.playerFromQuickMenu = false
             onSettingsRequested: { home.screen = "settings"; Qt.callLater(root.restoreFocus); }
         }
         Library.LibraryView {
@@ -1508,26 +1541,20 @@ Window {
             onSelectAudio: trackId => mediaCatalog.selectAudio(trackId)
             onSelectSubtitle: trackId => mediaCatalog.selectSubtitle(trackId)
             onStop: root.leavePlayback()
-            onLeave: root.leavePlayback()
-            onHomeRequested: {
-                // A vanished/unreported launch cannot fence navigation forever.
-                // Explicit Home cancels only the waiting exit, never a running Stop.
-                if (root.leavingWaitForSession && root.leaveError !== "") {
-                    root.leavingWaitForSession = false;
-                    root.leavingStopPending = false;
-                    leaveSessionBound.stop();
-                }
-                if (mediaCatalog.inputLayerActive) {
-                    root.showPlaybackHome();
-                    mediaCatalog.requestHome();
+            // Back from a player the quick menu opened returns to the sheet;
+            // playback goes on behind it, as the player's Home leaves it
+            // (#805, Codex review of #826).
+            onLeave: {
+                if (root.playerFromQuickMenu && !root.leavingStopPending && root.leaveError === "") {
+                    root.playerFromQuickMenu = false;
+                    root.playerHome();
+                    Qt.callLater(root.openQuickMenu);
                 } else {
-                    root.leaveError = "";
-                    root.playerOpen = false;
-                    root.sessionFromLibrary = false;
-                    home.showHome();
-                    mediaCatalog.requestHome();
+                    root.leavePlayback();
                 }
             }
+            onVisibleChanged: if (!visible) root.playerFromQuickMenu = false
+            onHomeRequested: root.playerHome()
         }
         Binding {
             target: mediaCatalog
@@ -1640,14 +1667,27 @@ Window {
             focus: root.focusedScreen === "quickMenu"
             overActivity: root.activityBehind
             connected: backend.connected === true
-            // Managed and MPRIS media, then the native music session, which
-            // publishes no MPRIS (#756 M2). A playing session wins over a
-            // paused one.
-            nowPlaying: {
+            // Managed and MPRIS media, and the native music session, which
+            // publishes no MPRIS (#756 M2). The sheet ranks them (#805,
+            // ADR-0142 MH-7).
+            sessions: {
+                const list = mediaCatalog.continueEntries.map(entry => ({
+                    id: entry.id, kind: "media", title: entry.title || "", subtitle: entry.subtitle || "",
+                    artwork: entry.artwork || "", state: entry.state, playPause: entry.playPause === true,
+                    previous: entry.previous === true, next: entry.next === true, open: true, eyebrow: "",
+                    positionUs: entry.positionUs || 0, durationUs: entry.durationUs || 0}));
                 const music = musicCatalog.nowPlaying;
-                const media = mediaCatalog.continueEntries.filter(entry => entry.state === "playing" || entry.state === "paused")
-                    .concat(music && music.id ? [music] : []);
-                return media.find(entry => entry.state === "playing") || media[0] || null;
+                if (music && music.id) {
+                    const active = musicCatalog.activeState || {};
+                    const track = active.current && active.current.track ? active.current.track : {};
+                    const actions = active.actions || [];
+                    const station = active.station && active.station.title ? active.station.title : "";
+                    list.push(Object.assign({}, music, {kind: "music", artwork: track.image || "",
+                        previous: actions.includes("previous"), next: actions.includes("next"), open: true,
+                        eyebrow: [station, musicCatalog.activeSourceName].filter(part => part.length > 0).join(" · "),
+                        positionUs: active.position_us || 0, durationUs: track.duration_us || 0}));
+                }
+                return list;
             }
             audio: systemStatus.audio
             volumeControl: backend.connected === true
@@ -1660,6 +1700,45 @@ Window {
             onPlayPauseRequested: sessionId => {
                 if (sessionId === musicCatalog.nowPlaying.id) musicCatalog.togglePlayback();
                 else mediaCatalog.sessionAction(sessionId, "playPause");
+            }
+            onPreviousRequested: sessionId => {
+                if (sessionId === musicCatalog.nowPlaying.id) musicCatalog.transport("previous");
+                else mediaCatalog.sessionAction(sessionId, "previous");
+            }
+            onNextRequested: sessionId => {
+                if (sessionId === musicCatalog.nowPlaying.id) musicCatalog.transport("next");
+                else mediaCatalog.sessionAction(sessionId, "next");
+            }
+            // Now playing for music, the session's player for video; Back
+            // from there returns to the sheet (brief *Presence › Quick menu*).
+            onOpenPlayerRequested: sessionId => {
+                const music = sessionId === musicCatalog.nowPlaying.id;
+                // The managed player the sheet is over: return to it as Back
+                // does (Codex review of #826). Under the sheet the player is
+                // the Activity, presented by the platform.
+                if (!music && root.activityBehind && mediaCatalog.selectedId === sessionId
+                        && mediaCatalog.presentationState === "active") {
+                    root.quickMenuBack();
+                    if (returnBound.running) root.playerFromQuickMenu = true;
+                    return;
+                }
+                // The sheet closes as for Open Home, without showing Home.
+                returnBound.stop();
+                root.quickMenuOpen = false;
+                root.activityBehind = false;
+                root.quickMenuOpener = null;
+                root.quickMenuTarget = "";
+                root.closeOverlays();
+                // Another session than the player's: the player gives way as
+                // for its Home key, and playback goes on (Codex review of #826).
+                if (root.playerOpen) root.playerHome();
+                if (music) {
+                    home.screen = "music";
+                    musicView.openPlayerFromHome();
+                } else {
+                    root.openSession(sessionId, false);
+                }
+                root.playerFromQuickMenu = true;
             }
             // The volume keys' semantics: Right turns the sound back on, then
             // raises it (owner decision of 2026-10-21 on #477).

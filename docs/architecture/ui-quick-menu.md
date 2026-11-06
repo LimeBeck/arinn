@@ -145,7 +145,10 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
   3. with none observed (the data arrived while both were already playing or
      paused), the native music session first.
 
-  No product is preferred.
+  For 2 s after the sheet starts and after the daemon reconnects, a session
+  that appears is not a change: the catalogues report their sessions one
+  after another, and that order decides nothing. A disconnect forgets what was
+  observed. No product is preferred.
 - **Card.** The card shows the first session; the second is a compact row
   624 × 88 under it, with its artwork 56, title, state and its own play/pause
   (OK toggles it). The two change places only when the order changes.
@@ -157,15 +160,25 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
   - the Ember progress line;
   - round buttons 64 for previous, play/pause and next, and *Open player*.
 
-  Previous and next need the session's capability; media sessions have none.
+  Previous and next need the session's capability: the music session's
+  `actions`, or a media session's `previous` and `next` actions
+  (`MediaCatalog.continueEntries`, sent with `MediaCatalog.sessionAction`).
   A session that cannot be paused or resumed says so in the eyebrow.
 - **Focus.** It starts on play/pause, or on the card's first working control.
   Left and Right move along the card's row and stop at its ends. Down goes to
   the second-session row, then to *Sound*; Up from the row returns to
   play/pause.
 - **Open player** opens *Now playing* (`MusicView.openPlayerFromHome()`) for
-  music, or the session screen for a media session. `Main.playerFromQuickMenu`
-  makes Back from there reopen the sheet.
+  music, or the session's own screen for a media session: the player for
+  managed playback, otherwise the session screen.
+  - On the managed session the sheet is over, it returns to that player, as
+    Back does.
+  - Any other session first closes an open media player as its Home key does,
+    so playback goes on.
+  - `Main.playerFromQuickMenu` makes Back from there reopen the sheet. From
+    the managed player, playback goes on behind the sheet (the player's Home),
+    and no Stop is sent.
+  - Leaving the screen another way, Home among them, clears the flag.
 - **Scrolling.** The rows from y 200 to 960 form one column that scrolls with
   focus, keeping 48 px from its edges. A 96 px fade over its bottom shows that
   more rows follow, and a 48 px fade under the title appears once it has
@@ -209,10 +222,18 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   platform control and its level text, Now playing without play/pause or a session, the degraded
   form and the focus hand-off, the sheet geometry and the scrim; the media
   card, its row and capabilities, the precedence order and the swap, controls
-  bound to the shown session, the Down order and the scrolling column (#805).
+  bound to the shown session, the Down order and the scrolling column, and
+  arrival order at start and after a reconnect being no change (#805).
 - `quick-menu` `nowPlayingShowsNativeMusic`: the card for the music session in
   `Main.qml`, play/pause, and *Open player* to Now playing with Back to the
-  sheet.
+  sheet. `homeEndsTheWayBackToTheSheet`: Home from that player clears the
+  way back. `openPlayerForMusicLeavesTheMediaPlayer`: an open media player
+  gives way to Now playing.
+- `media-catalog` `openPlayerOverManagedPlaybackAndBackReturnToTheSheet`:
+  *Open player* over managed playback returns to that player, and Back from it
+  reopens the sheet without a Stop. `previousAndNextFollowTheSessionsActions`:
+  a media session's previous and next on its entry, sent to that session only
+  when it offers them.
 - `media-catalog` `quickMenuOverManagedPlaybackReturnsToThePlayer`: over managed
   playback, Back returns to the live player at once and Home never shows.
 - `media-catalog` `quickMenuBackBeforeTheFirstStatusReturnsToThePlayer` (#507):

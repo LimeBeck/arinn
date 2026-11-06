@@ -251,6 +251,34 @@ TestCase {
         verify(!child("quickMenuOtherSession").visible);
         compare(menu.nowPlaying.id, "music");
     }
+    // Codex review of #826: the catalogues report their sessions one after
+    // another at start and after a reconnect. That order is no observed
+    // change: the native music session stays first until a real one.
+    function test_arrival_order_is_no_change() {
+        // Within the priming window after start: music arrives first.
+        menu.sessions = [music("playing")];
+        menu.sessions = [music("playing"), video("playing")];
+        compare(menu.nowPlaying.id, "music");
+        // After it, a session that appears is a change and ranks first.
+        menu.sessions = [music("playing")];
+        tryVerify(() => !menu.priming, 3000);
+        menu.sessions = [music("playing"), video("playing")];
+        compare(menu.nowPlaying.id, "video");
+        // A reconnect forgets what was observed and primes again.
+        menu.connected = false;
+        menu.sessions = [];
+        menu.connected = true;
+        menu.sessions = [music("playing")];
+        menu.sessions = [music("playing"), video("playing")];
+        compare(menu.nowPlaying.id, "music");
+        // A real change after the reconnect still counts.
+        menu.sessions = [music("paused"), video("playing")];
+        menu.sessions = [music("playing"), video("playing")];
+        compare(menu.nowPlaying.id, "music");
+        menu.sessions = [music("playing"), video("paused")];
+        menu.sessions = [music("playing"), video("playing")];
+        compare(menu.nowPlaying.id, "video");
+    }
     // The card's controls act only on its session; OK on the row toggles the
     // row's. Down: card, row, then Sound; Up from the row: play/pause.
     function test_controls_follow_the_shown_session_and_down_order() {

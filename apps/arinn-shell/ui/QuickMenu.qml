@@ -26,10 +26,14 @@ FocusScope {
     // take part (ADR-0142 MH-7, music brief *Presence › Quick menu*, #805).
     property var sessions: []
     // Playback state changes the shell observed: id → {state, at}. `at` is 0
-    // for a session first seen while the sheet's data was being primed.
+    // for a session first seen while the sheet's data is being primed: at
+    // start and after a reconnect, the catalogues report their sessions one
+    // after another, and that order is no change (Codex review of #826).
     property var observed: ({})
     property int observedTick: 0
-    property bool observedPrimed: false
+    property int primeInterval: 2000
+    Timer { id: primingTimer; interval: root.primeInterval }
+    readonly property bool priming: primingTimer.running
     function observe() {
         const next = {};
         let tick = observedTick;
@@ -38,18 +42,31 @@ FocusScope {
             const before = observed[session.id];
             const state = String(session.state || "");
             if (!before)
-                next[session.id] = {state: state, at: observedPrimed ? ++tick : 0};
+                next[session.id] = {state: state, at: primingTimer.running ? 0 : ++tick};
             else if (before.state !== state)
                 next[session.id] = {state: state, at: ++tick};
             else
                 next[session.id] = before;
         }
         observedTick = tick;
-        observedPrimed = true;
         observed = next;
     }
     onSessionsChanged: observe()
-    Component.onCompleted: observe()
+    // A lost daemon forgets what was observed; the sessions it reports again
+    // are primed anew.
+    onConnectedChanged: {
+        if (!connected) {
+            observed = ({});
+            primingTimer.stop();
+        } else {
+            primingTimer.restart();
+            observe();
+        }
+    }
+    Component.onCompleted: {
+        primingTimer.restart();
+        observe();
+    }
     // One precedence order (brief *Two sessions at once*): playing above
     // paused; then the change observed last; with none observed, the native
     // music session; otherwise the order given. No product is preferred.

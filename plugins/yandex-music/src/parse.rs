@@ -14,6 +14,103 @@ pub struct Collection {
     pub id: String,
     pub title: String,
     pub track_count: u32,
+    /// When the playlist joined the user's library (its `created` date), in
+    /// Unix seconds; 0 when the API does not report it (ADR-0142 MH-9).
+    pub added_at: u64,
+}
+
+/// A library date from the API ("2024-05-01T12:00:00+00:00", optionally
+/// with fractional seconds or `Z`) in Unix seconds. Anything else, a date
+/// before 1970 or after `MAX_ADDED_AT`, is 0: unknown, never guessed
+/// (ADR-0142 MH-9, #813).
+pub(crate) fn timestamp(value: Option<&Value>) -> u64 {
+    value.and_then(Value::as_str).and_then(rfc3339).unwrap_or(0)
+}
+fn rfc3339(text: &str) -> Option<u64> {
+    let bytes = text.as_bytes();
+    if !(20..=35).contains(&bytes.len()) {
+        return None;
+    }
+    let number = |range: std::ops::Range<usize>| number_in(text, range);
+    if bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !matches!(bytes[10], b'T' | b't')
+        || bytes[13] != b':'
+        || bytes[16] != b':'
+    {
+        return None;
+    }
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    let mut rest = &text[19..];
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 || digits > 9 {
+            return None;
+        }
+        rest = &fraction[digits..];
+    }
+    let offset = match rest {
+        "Z" | "z" => 0,
+        _ => {
+            let sign = match rest.as_bytes().first()? {
+                b'+' => 1,
+                b'-' => -1,
+                _ => return None,
+            };
+            if rest.len() != 6 || rest.as_bytes()[3] != b':' {
+                return None;
+            }
+            let (h, m) = (number_in(rest, 1..3)?, number_in(rest, 4..6)?);
+            if h > 23 || m > 59 {
+                return None;
+            }
+            sign * (h * 3600 + m * 60)
+        }
+    };
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let days_in_month = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    if !(1..=12).contains(&month)
+        || day < 1
+        || day > days_in_month[(month - 1) as usize]
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second.min(59) - offset;
+    u64::try_from(seconds)
+        .ok()
+        .filter(|s| *s > 0 && *s <= arinn_protocol::music::MAX_ADDED_AT)
+}
+fn number_in(text: &str, range: std::ops::Range<usize>) -> Option<i64> {
+    let part = text.get(range)?;
+    if !part.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    part.parse().ok()
 }
 
 pub(crate) fn digits(value: &str) -> bool {
@@ -172,6 +269,7 @@ pub(crate) fn collections(value: &Value) -> Result<Vec<Collection>, Error> {
                     .and_then(Value::as_u64)
                     .and_then(|v| v.try_into().ok())
                     .ok_or(Error::InvalidResponse)?,
+                added_at: timestamp(v.get("created")),
             })
         })
         .collect()
@@ -263,6 +361,47 @@ mod tests {
             tracks(&json!(vec![json!({"id":123}); 201])).err(),
             Some(Error::TooLarge)
         );
+    }
+    /// #813: library dates map to Unix seconds; anything that is not a full
+    /// date and time is unknown (0), never guessed.
+    #[test]
+    fn library_dates_parse_strictly() {
+        let at = |text: &str| timestamp(Some(&json!(text)));
+        assert_eq!(at("2024-05-01T12:00:00+00:00"), 1_714_564_800);
+        assert_eq!(at("2024-05-01T12:00:00Z"), 1_714_564_800);
+        assert_eq!(at("2024-05-01T15:00:00.123+03:00"), 1_714_564_800);
+        assert_eq!(at("2024-05-01T08:30:00-03:30"), 1_714_564_800);
+        assert_eq!(at("2024-02-29T00:00:00+00:00"), 1_709_164_800);
+        for bad in [
+            "",
+            "2024",
+            "2024-05-01",
+            "2024-13-01T00:00:00Z",
+            "2023-02-29T00:00:00Z",
+            "2024-05-01T24:00:00Z",
+            "2024-05-01 12:00:00Z",
+            "2024-05-01T12:00:00",
+            "2024-05-01T12:00:00+0300",
+            "1969-12-31T23:59:59Z",
+            "1970-01-01T00:00:00Z",
+            "2024-05-01T12:00:00.Z",
+            "+2024-05-01T12:00:00Z",
+        ] {
+            assert_eq!(at(bad), 0, "{bad}");
+        }
+        assert_eq!(timestamp(Some(&json!(1_714_564_800))), 0);
+        assert_eq!(timestamp(None), 0);
+    }
+    /// #813: a playlist's `created` date is when it joined the library.
+    #[test]
+    fn playlists_carry_their_created_date() {
+        let parsed = collections(&json!([
+            {"kind": 3, "title": "Dated", "trackCount": 2, "created": "2024-05-01T12:00:00+00:00"},
+            {"kind": 4, "title": "Undated", "trackCount": 1}
+        ]))
+        .unwrap();
+        assert_eq!(parsed[0].added_at, 1_714_564_800);
+        assert_eq!(parsed[1].added_at, 0);
     }
     /// Review of #710: one entry with a non-numeric ID failed a whole search
     /// page or radio batch.

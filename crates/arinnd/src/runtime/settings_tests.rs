@@ -558,7 +558,13 @@ async fn turned_off_music_sources_are_a_core_setting() {
     );
     // Turning every source on again stores none.
     let path = api
-        .set_value("arinn", &generation, "music_disabled_sources", r#""""#, &rid())
+        .set_value(
+            "arinn",
+            &generation,
+            "music_disabled_sources",
+            r#""""#,
+            &rid(),
+        )
         .await
         .unwrap();
     f.wait(path).await.unwrap();

@@ -213,8 +213,7 @@ pub fn music_disabled_sources(text: &str) -> Result<Vec<String>, ErrorCode> {
     if text.is_empty() {
         return Ok(Vec::new());
     }
-    let ids: Vec<String> =
-        serde_json::from_str(text).map_err(|_| ErrorCode::InvalidArgument)?;
+    let ids: Vec<String> = serde_json::from_str(text).map_err(|_| ErrorCode::InvalidArgument)?;
     check_music_disabled_sources(&ids)?;
     Ok(ids)
 }
@@ -284,8 +283,10 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
     }
     if let Some(value) = table.get("music_disabled_sources") {
         let valid = value.as_array().is_some_and(|ids| {
-            let texts: Option<Vec<String>> =
-                ids.iter().map(|id| id.as_str().map(str::to_owned)).collect();
+            let texts: Option<Vec<String>> = ids
+                .iter()
+                .map(|id| id.as_str().map(str::to_owned))
+                .collect();
             texts.is_some_and(|texts| check_music_disabled_sources(&texts).is_ok())
         });
         if !valid {

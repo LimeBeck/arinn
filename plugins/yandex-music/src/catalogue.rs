@@ -47,6 +47,9 @@ impl Api {
             return Err(Error::TooLarge);
         }
         let mut ids = Vec::new();
+        // The like time of each track, by its bare track ID: when the track
+        // joined the user's library (ADR-0142 MH-9, #813).
+        let mut liked = std::collections::HashMap::new();
         for track in values {
             let id = track["id"]
                 .as_str()
@@ -56,11 +59,21 @@ impl Api {
             if !parse::track_id(&id) {
                 return Err(Error::InvalidResponse);
             }
+            let at = parse::timestamp(track.get("timestamp"));
+            if at > 0 {
+                let bare = id.split(':').next().unwrap_or(&id).to_owned();
+                let known: &mut u64 = liked.entry(bare).or_default();
+                *known = (*known).max(at);
+            }
             ids.push(id);
         }
         let mut tracks = Vec::new();
         for chunk in ids.chunks(100) {
             append_tracks(&mut tracks, self.tracks(chunk).await?)?;
+        }
+        for track in &mut tracks {
+            let bare = track.id.split(':').next().unwrap_or(&track.id);
+            track.added_at = liked.get(bare).copied().unwrap_or(0);
         }
         Ok(tracks)
     }

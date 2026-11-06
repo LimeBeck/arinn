@@ -342,17 +342,39 @@ impl Playback {
         tracks: Vec<Track>,
         batch: String,
     ) -> Result<(), ErrorCode> {
+        self.apply_refill(refill, tracks, batch, true).await
+    }
+    /// A refill whose tracks may repeat those queued or recently played: a
+    /// provider's own station over a small library (see
+    /// `Queue::complete_refill_repeating`).
+    pub async fn apply_radio_refill_repeating(
+        self: &Arc<Self>,
+        refill: RadioRefill,
+        tracks: Vec<Track>,
+        batch: String,
+    ) -> Result<(), ErrorCode> {
+        self.apply_refill(refill, tracks, batch, false).await
+    }
+    async fn apply_refill(
+        self: &Arc<Self>,
+        refill: RadioRefill,
+        tracks: Vec<Track>,
+        batch: String,
+        dedupe: bool,
+    ) -> Result<(), ErrorCode> {
         let mut d = self.data.lock().await;
         if d.session != refill.session {
             return Err(ErrorCode::Conflict);
         }
         let before: std::collections::HashSet<_> =
             d.queue.entries().iter().map(|e| e.occurrence).collect();
-        let result = d.queue.complete_refill(
-            refill.request,
-            tracks.iter().take(64).map(|t| t.id.clone()).collect(),
-            refill.replace,
-        );
+        let ids = tracks.iter().take(64).map(|t| t.id.clone()).collect();
+        let result = if dedupe {
+            d.queue.complete_refill(refill.request, ids, refill.replace)
+        } else {
+            d.queue
+                .complete_refill_repeating(refill.request, ids, refill.replace)
+        };
         if let Err(error) = result {
             if error == crate::queue::Error::Stale {
                 return Err(ErrorCode::Conflict);

@@ -211,6 +211,27 @@ impl Queue {
         tracks: Vec<String>,
         replace: bool,
     ) -> Result<(), Error> {
+        self.complete(request, tracks, replace, true)
+    }
+    /// As `complete_refill`, but a track may come back although it is in
+    /// the queue or the recent window: a station over a library smaller
+    /// than that window must repeat to keep playing (review of #815). The
+    /// caller decides how often a track repeats.
+    pub fn complete_refill_repeating(
+        &mut self,
+        request: Request,
+        tracks: Vec<String>,
+        replace: bool,
+    ) -> Result<(), Error> {
+        self.complete(request, tracks, replace, false)
+    }
+    fn complete(
+        &mut self,
+        request: Request,
+        tracks: Vec<String>,
+        replace: bool,
+        dedupe: bool,
+    ) -> Result<(), Error> {
         self.check(request)?;
         if request.replace != replace {
             return Err(Error::Unsupported);
@@ -232,10 +253,14 @@ impl Queue {
             .map(|e| e.track.clone())
             .collect();
         seen.extend(self.recent.iter().cloned());
-        let mut accepted: Vec<String> = tracks
-            .into_iter()
-            .filter(|id| seen.insert(id.clone()))
-            .collect();
+        let mut accepted: Vec<String> = if dedupe {
+            tracks
+                .into_iter()
+                .filter(|id| seen.insert(id.clone()))
+                .collect()
+        } else {
+            tracks
+        };
         if accepted.is_empty() {
             return Err(Error::Empty);
         }
@@ -435,5 +460,23 @@ mod tests {
             q.complete_refill(request, ids(&["initial"]), false),
             Err(Error::Empty)
         );
+    }
+    /// Review of #815: a provider's station over a small library refills
+    /// with tracks it already played; the service-station refill still
+    /// rejects them.
+    #[test]
+    fn a_repeating_refill_accepts_recent_tracks() {
+        let mut q = Queue::default();
+        q.start(ids(&["a", "b"]), Some("station".into())).unwrap();
+        let request = q.begin_refill().unwrap();
+        assert_eq!(
+            q.complete_refill(request, ids(&["a", "b"]), false),
+            Err(Error::Empty)
+        );
+        let request = q.begin_refill().unwrap();
+        let before = q.upcoming();
+        q.complete_refill_repeating(request, ids(&["a", "b"]), false)
+            .unwrap();
+        assert_eq!(q.upcoming(), before + 2);
     }
 }

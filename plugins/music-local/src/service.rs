@@ -268,6 +268,9 @@ impl Local {
         let room = 64usize
             .saturating_sub(self.playback.state().await.upcoming.len())
             .min(32);
+        if room == 0 {
+            return Ok(());
+        }
         let request = self.playback.begin_radio_refill(false).await?;
         let mut tracks: Vec<Track> = {
             let current: HashSet<String> = self
@@ -287,8 +290,11 @@ impl Local {
         if tracks.len() < room {
             tracks.extend(self.deal(room - tracks.len()).await);
         }
+        // The deck already deals every track once per round; a library
+        // smaller than the queue's recent window must repeat to keep the
+        // station going (review of #815).
         self.playback
-            .apply_radio_refill(request, tracks, uuid::Uuid::new_v4().to_string())
+            .apply_radio_refill_repeating(request, tracks, uuid::Uuid::new_v4().to_string())
             .await
     }
     pub fn rescan(self: &Arc<Self>) {
@@ -1067,6 +1073,39 @@ mod tests {
             .extend(local.view.read().await.tracks.iter().cloned());
         let dealt = local.deal(40).await;
         assert!(dealt.iter().all(|t| left.contains(&t.id)));
+        drop(service);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: a library smaller than the queue's recent window ran
+    /// the station dry, because a refill only had tracks it had just played.
+    #[tokio::test]
+    async fn a_small_library_station_keeps_playing() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-small-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let root = scanned(&directory, &["one.wav", "two.wav", "three.wav"]);
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let service = LocalService(local.clone());
+        let state = service
+            .command(command("radio", "", LIBRARY_STATION))
+            .await
+            .unwrap();
+        assert!(state.continuous);
+        for _ in 0..3 {
+            local.refill_station().await.unwrap();
+            let state = local.playback.state().await;
+            assert_eq!(state.refill, "idle");
+            assert!(!state.actions.contains(&"retry".into()));
+        }
         drop(service);
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();

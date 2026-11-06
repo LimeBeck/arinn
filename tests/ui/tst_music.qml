@@ -690,6 +690,43 @@ TestCase {
         const russian=like.width;
         for(const text of like.labels) {like.text=text;settle();compare(like.width,russian,text);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text+": "+more.mapToItem(view,more.width,0).x);}
     }
+    // #804 (brief *Presence › Favourites*): More pins a pinnable station to
+    // Home through the shell, whatever the provider supports, and unpins it
+    // there; the row waits while a favourites write is in flight.
+    function test_more_sheet_pins_a_pinnable_station_to_home() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeSourceId="fixture.music";
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},
+            station:{id:"station:wave",title:"Fixture wave",artwork:"cover:wave",pinnable:true},continuous:true,
+            actions:["pause","stop"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,pinsWritable:true});verify(view);
+        const requests=[];
+        view.stationPinRequested.connect((provider,station,title,artwork,pinned)=>requests.push([provider,station,title,artwork,pinned]));
+        view.openPlayer();wait(0);
+        const more=findChild(view,"musicMore");Ui.Focus.take(more);
+        keyClick(Qt.Key_Return);const list=findChild(view,"musicMoreActions");tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).actionKey,"homePin");compare(list.itemAtIndex(0).text,"Pin to Home");
+        keyClick(Qt.Key_Return);
+        compare(requests,[["fixture.music","station:wave","Fixture wave","cover:wave",true]]);
+        compare(catalog.commands,[]);compare(view.moreOpen,false);tryCompare(more,"activeFocus",true);
+        // Home holds the pin: More offers to unpin it.
+        view.pinnedStations=[["fixture.music","station:wave"]];
+        keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).text,"Unpin from Home");verify(list.itemAtIndex(0).Accessible.checked);
+        keyClick(Qt.Key_Return);compare(requests[1],["fixture.music","station:wave","Fixture wave","cover:wave",false]);
+        // The same station of another provider is not this pin.
+        view.pinnedStations=[["other","station:wave"]];
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).text,"Pin to Home");
+        // While a favourites write is in flight the row waits.
+        view.pinsWritable=false;tryCompare(findChild(view,"musicMore-homePin"),"busy",true);
+        keyClick(Qt.Key_Return);compare(requests.length,2);
+        keyClick(Qt.Key_Escape);
+        // A station the provider cannot pin keeps only the provider's pin.
+        catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:mix",title:"Mix"},actions:["pause","pin"]});
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).actionKey,"pin");compare(list.itemAtIndex(0).text,"Pin station");
+    }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the
     // Menu key never opens it.

@@ -91,10 +91,11 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   from the Continue card, the Quick menu, *Open player*, or a station or an
   album.
 - The *More* sheet (720, right) lists only the session's actions, as
-  container rows with a line icon: Dislike, Radio from this track, the
-  provider's station pin, Retry loading tracks and Stop. *Go to album* and
-  *Go to artist* wait for album and artist references in the protocol, and
-  *Pin station to Home* for #804. Back closes the sheet and returns to
+  container rows with a line icon: Dislike, Radio from this track, *Pin to
+  Home* or *Unpin from Home* for a `pinnable` station (#804; otherwise the
+  provider's station pin), Retry loading tracks and Stop. *Go to album* and
+  *Go to artist* wait for album and artist references in the protocol. Back
+  closes the sheet and returns to
   *More*; the Menu key keeps global navigation and never opens it.
 - The *Queue* sheet (720, right) lists the current entry first, with the
   playing mark and the initial focus, then the upcoming ones as container

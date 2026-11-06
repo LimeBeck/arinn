@@ -389,6 +389,17 @@ FocusScope {
         mode = "queue";
         Qt.callLater(focusInitial);
     }
+    // Home pins (brief *Presence › Favourites*, #804): the [provider,
+    // station] pairs on Home, and whether a pin can be written now. Pinning
+    // is the shell's; the view only asks.
+    property var pinnedStations: []
+    property bool pinsWritable: false
+    signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
+    readonly property bool stationPinnable: !!player.station && !!player.station.id
+                                            && player.station.pinnable === true && !!catalog.activeSourceId
+    readonly property bool stationPinned: stationPinnable
+                                          && pinnedStations.some(pair => pair[0] === catalog.activeSourceId
+                                                                         && pair[1] === player.station.id)
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false
@@ -404,7 +415,12 @@ FocusScope {
                        label: player.feedback === "disliked" ? qsTr("Disliked") : qsTr("Dislike")});
         if (supported("radio") && !!current.id)
             rows.push({id: "radio", icon: "radio", busy: busy, label: qsTr("Radio from this track")});
-        if (supported("pin") && player.station && player.station.id)
+        // A pinnable station pins to Home, which mirrors the provider's own
+        // pin; any other station keeps only the provider's pin.
+        if (stationPinnable)
+            rows.push({id: "homePin", icon: "push_pin", selected: stationPinned, busy: busy || !pinsWritable,
+                       label: stationPinned ? qsTr("Unpin from Home") : qsTr("Pin to Home")});
+        else if (supported("pin") && player.station && player.station.id)
             rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true, busy: busy,
                        label: player.pinned === true ? qsTr("Unpin station") : qsTr("Pin station")});
         if (supported("retry"))
@@ -433,7 +449,11 @@ FocusScope {
             requestRadio(current.id || "", true);
             return;
         }
-        if (id === "pin")
+        if (id === "homePin") {
+            if (pinsWritable)
+                stationPinRequested(catalog.activeSourceId, player.station.id, player.station.title || "",
+                                    player.station.artwork || "", !stationPinned);
+        } else if (id === "pin")
             catalog.transport("pin", player.station ? player.station.id : "");
         else
             catalog.transport(id);

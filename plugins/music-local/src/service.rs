@@ -332,44 +332,7 @@ impl MusicHandler for LocalService {
             } else {
                 match query.facet.as_str() {
                     "tracks" => view.tracks.iter().map(entity).collect(),
-                    "albums" | "artists" => {
-                        let mut groups = BTreeMap::new();
-                        for t in &view.tracks {
-                            let (id, title, kind) = if query.facet == "albums" {
-                                (format!("album:{}", t.album_id), t.album.clone(), "album")
-                            } else {
-                                (
-                                    paths::group("artist", &t.artist),
-                                    t.artist.clone(),
-                                    "artist",
-                                )
-                            };
-                            let e = groups.entry(id.clone()).or_insert_with(|| Entity {
-                                id,
-                                kind: kind.into(),
-                                title,
-                                artist: if kind == "album" {
-                                    if t.album_artist.is_empty() {
-                                        t.artist.clone()
-                                    } else {
-                                        t.album_artist.clone()
-                                    }
-                                } else {
-                                    String::new()
-                                },
-                                album: String::new(),
-                                artwork: if kind == "album" {
-                                    format!("cover:{}", t.id)
-                                } else {
-                                    String::new()
-                                },
-                                duration_us: 0,
-                                available: false,
-                            });
-                            e.available |= t.available;
-                        }
-                        groups.into_values().collect()
-                    }
+                    "albums" | "artists" => groups(&view.tracks, &query.facet),
                     "playlists" => {
                         view.playlists
                             .iter()
@@ -513,6 +476,49 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
     result
 }
 
+/// Albums or artists built from tracks. A group is available when any of its
+/// tracks is, and as new as its newest track (#806).
+fn groups(tracks: &[Track], facet: &str) -> Vec<Entity> {
+    let mut groups = BTreeMap::new();
+    for t in tracks {
+        let (id, title, kind) = if facet == "albums" {
+            (format!("album:{}", t.album_id), t.album.clone(), "album")
+        } else {
+            (
+                paths::group("artist", &t.artist),
+                t.artist.clone(),
+                "artist",
+            )
+        };
+        let e = groups.entry(id.clone()).or_insert_with(|| Entity {
+            id,
+            kind: kind.into(),
+            title,
+            artist: if kind == "album" {
+                if t.album_artist.is_empty() {
+                    t.artist.clone()
+                } else {
+                    t.album_artist.clone()
+                }
+            } else {
+                String::new()
+            },
+            album: String::new(),
+            artwork: if kind == "album" {
+                format!("cover:{}", t.id)
+            } else {
+                String::new()
+            },
+            duration_us: 0,
+            available: false,
+            added_at: 0,
+        });
+        e.available |= t.available;
+        e.added_at = e.added_at.max(t.added_at);
+    }
+    groups.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -528,6 +534,34 @@ mod tests {
                 ..Track::default()
             })
         }
+    }
+    /// #806: an album or artist is as new as its newest track, and a group
+    /// whose tracks have no date has none.
+    #[test]
+    fn groups_take_their_newest_track_date() {
+        let track = |id: &str, album: &str, artist: &str, added_at: u64| Track {
+            id: id.into(),
+            album: album.into(),
+            album_id: album.into(),
+            artist: artist.into(),
+            available: true,
+            added_at,
+            ..Track::default()
+        };
+        let tracks = [
+            track("1", "A", "X", 1_700_000_000),
+            track("2", "A", "Y", 1_750_000_000),
+            track("3", "B", "Y", 0),
+        ];
+        let albums = groups(&tracks, "albums");
+        let date = |entries: &[Entity], title: &str| {
+            entries.iter().find(|e| e.title == title).unwrap().added_at
+        };
+        assert_eq!(date(&albums, "A"), 1_750_000_000);
+        assert_eq!(date(&albums, "B"), 0);
+        let artists = groups(&tracks, "artists");
+        assert_eq!(date(&artists, "X"), 1_700_000_000);
+        assert_eq!(date(&artists, "Y"), 1_750_000_000);
     }
     /// Review of #710: `/m` and `/m/` got the same root ID and every
     /// provider start failed; a nested root scanned its files twice.

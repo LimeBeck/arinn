@@ -1380,6 +1380,7 @@ Window {
             objectName: "productionMusic"
             pinnedStations: root.pinnedMusicStations(backend.favorites)
             pinsWritable: backend.favoritesReady === true && backend.favoriteSaving !== true
+            pinWriteError: backend.favoriteError || ""
             onStationPinRequested: (providerId, stationId, title, artwork, pinned) => {
                 if (pinned) backend.pinMusicStation(providerId, stationId, title, artwork);
                 else backend.unpinMusicStation(providerId, stationId);

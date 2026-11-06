@@ -709,6 +709,18 @@ TestCase {
         keyClick(Qt.Key_Return);
         compare(requests,[["fixture.music","station:wave","Fixture wave","cover:wave",true]]);
         compare(catalog.commands,[]);compare(view.moreOpen,false);tryCompare(more,"activeFocus",true);
+        // A failed save shows on Now playing, for the station it was asked
+        // for (Codex review of #836); an error from elsewhere does not.
+        const failure=findChild(view,"musicPinFailure");
+        verify(!failure.visible);
+        view.pinWriteError="Favorites could not be saved.";
+        tryCompare(failure,"visible",true);compare(failure.text,"Favorites could not be saved.");
+        view.pinWriteError="";tryCompare(failure,"visible",false);
+        view.pinWriteError="Favorites could not be saved.";
+        catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:other",title:"Other",pinnable:true}});
+        tryCompare(failure,"visible",false);
+        catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:wave",title:"Fixture wave",artwork:"cover:wave",pinnable:true}});
+        tryCompare(failure,"visible",true);view.pinWriteError="";
         // Home holds the pin: More offers to unpin it.
         view.pinnedStations=[["fixture.music","station:wave"]];
         keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);

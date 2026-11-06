@@ -394,6 +394,13 @@ FocusScope {
     // is the shell's; the view only asks.
     property var pinnedStations: []
     property bool pinsWritable: false
+    // The shell's last favourites write error. Now playing shows it after a
+    // pin asked here, until the station changes or the player closes, so a
+    // failed save is never silent (Codex review of #836).
+    property string pinWriteError: ""
+    property string pinAskedFor: ""
+    readonly property string pinFailure: pinAskedFor.length > 0 && player.station
+                                         && player.station.id === pinAskedFor ? pinWriteError : ""
     signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
     // Home stores a new pin with its title, cleaned of control characters
     // (MusicPins1): a station without one cannot be pinned, though a pin
@@ -412,8 +419,10 @@ FocusScope {
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false
-    onModeChanged: if (mode !== "player")
-        moreOpen = false
+    onModeChanged: if (mode !== "player") {
+        moreOpen = false;
+        pinAskedFor = "";
+    }
     readonly property var moreActions: {
         const rows = [];
         // A command in flight blocks every row, visibly: each sends one,
@@ -459,9 +468,11 @@ FocusScope {
             return;
         }
         if (id === "homePin") {
-            if (pinsWritable)
+            if (pinsWritable) {
+                pinAskedFor = player.station.id;
                 stationPinRequested(catalog.activeSourceId, player.station.id, stationPinTitle,
                                     player.station.artwork || "", !stationPinned);
+            }
         } else if (id === "pin")
             catalog.transport("pin", player.station ? player.station.id : "");
         else
@@ -1764,11 +1775,23 @@ FocusScope {
             }
         }
         Ui.UiText {
+            objectName: "musicPinFailure"
+            x: 760
+            y: 880
+            width: 1064
+            visible: root.pinFailure.length > 0 && !root.playbackProblem.length
+            role: "caption"
+            color: Ui.Theme.textSecondary
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            text: root.pinFailure
+        }
+        Ui.UiText {
             objectName: "musicRefill"
             x: 760
             y: 880
             width: 1064
-            visible: root.player.continuous === true && !root.playbackProblem.length
+            visible: root.player.continuous === true && !root.playbackProblem.length && !root.pinFailure.length
             role: "caption"
             color: Ui.Theme.textSecondary
             maximumLineCount: 1

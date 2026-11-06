@@ -3,7 +3,8 @@
 
 //! Blocking persistence primitives. Call these from a dedicated blocking task.
 use arinn_protocol::{
-    favorites::{self, FavoriteList},
+    favorites::{self, FavoriteList, MAX_FAVORITES},
+    music_pins::{MusicPin, MusicPinList},
     production::EntityRef,
     validation::{self, ErrorCode, MAX_BODY_BYTES},
     web::{MAX_SHORTCUTS, WebShortcut, WebShortcutList},
@@ -522,7 +523,7 @@ impl Store {
         let version: u32 = transaction
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .map_err(|_| ErrorCode::Internal)?;
-        if version > 8 {
+        if version > 9 {
             return Err(ErrorCode::Unsupported);
         }
         if version == 0 {
@@ -586,6 +587,18 @@ impl Store {
             }
             transaction
                 .execute_batch("PRAGMA user_version = 8;")
+                .map_err(|_| ErrorCode::Internal)?;
+        }
+        if version <= 8 {
+            // Pinned music stations (ADR-0143): what Home shows while the
+            // provider is away. The order is the favorites order.
+            transaction
+                .execute_batch(
+                    "CREATE TABLE IF NOT EXISTS music_pins (provider_id TEXT NOT NULL, station_id TEXT NOT NULL,
+                         title TEXT NOT NULL, artwork TEXT NOT NULL,
+                         PRIMARY KEY(provider_id, station_id));
+                     PRAGMA user_version = 9;",
+                )
                 .map_err(|_| ErrorCode::Internal)?;
         }
         transaction.commit().map_err(|_| ErrorCode::Internal)
@@ -838,6 +851,22 @@ impl Store {
         }
         let next = revision.checked_add(1).ok_or(ErrorCode::Conflict)?;
         for entry in entries {
+            // A station enters the favorites only through MusicPins1.Pin,
+            // which stores what Home shows for it (ADR-0143).
+            if entry.capability == favorites::MUSIC_STATION_CAPABILITY
+                && !current.entries.contains(entry)
+            {
+                let exists: bool = transaction
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM music_pins WHERE provider_id=?1 AND station_id=?2)",
+                        [&entry.provider_id, &entry.local_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(|_| ErrorCode::Internal)?;
+                if !exists {
+                    return Err(ErrorCode::NotFound);
+                }
+            }
             if entry.capability == favorites::SHORTCUT_CAPABILITY
                 && !current.entries.contains(entry)
             {
@@ -869,6 +898,8 @@ impl Store {
                 )
                 .map_err(|_| ErrorCode::Internal)?;
         }
+        // A station removed from the favorites is no longer pinned.
+        forget_unpinned_stations(&transaction)?;
         transaction
             .execute(
                 "UPDATE favorite_state SET revision=?1 WHERE singleton=0",
@@ -877,6 +908,147 @@ impl Store {
             .map_err(|_| ErrorCode::Internal)?;
         transaction.commit().map_err(|_| ErrorCode::Internal)?;
         Ok((next, true))
+    }
+    /// Pinned stations in favorites order, with the favorites revision, from
+    /// one snapshot (ADR-0143).
+    pub fn music_pins(&self) -> Result<MusicPinList, ErrorCode> {
+        let transaction = self
+            .connection
+            .unchecked_transaction()
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let list = read_music_pins(&transaction)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(list)
+    }
+    /// Pins a station at the captured favorites revision: stores its
+    /// presentation and appends its favorites target. A pinned station only
+    /// has its title and artwork refreshed, in place. Returns the new
+    /// revision and whether anything changed.
+    pub fn pin_music_station(
+        &mut self,
+        revision: u64,
+        pin: &MusicPin,
+    ) -> Result<(u64, bool), ErrorCode> {
+        pin.validate()?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let current = read_favorite_list(&transaction)?;
+        if revision != current.revision {
+            return Err(ErrorCode::Conflict);
+        }
+        let target = pin.target();
+        let pinned = current.entries.contains(&target);
+        if !pinned && current.entries.len() >= MAX_FAVORITES {
+            return Err(ErrorCode::Unavailable);
+        }
+        let stored: Option<(String, String)> = transaction
+            .query_row(
+                "SELECT title, artwork FROM music_pins WHERE provider_id=?1 AND station_id=?2",
+                [&pin.provider_id, &pin.station_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|_| ErrorCode::Internal)?;
+        if pinned && stored.as_ref() == Some(&(pin.title.clone(), pin.artwork.clone())) {
+            transaction.commit().map_err(|_| ErrorCode::Internal)?;
+            return Ok((revision, false));
+        }
+        let next = revision.checked_add(1).ok_or(ErrorCode::Conflict)?;
+        transaction
+            .execute(
+                "INSERT INTO music_pins VALUES (?1,?2,?3,?4)
+                 ON CONFLICT(provider_id, station_id) DO UPDATE SET
+                     title=excluded.title, artwork=excluded.artwork",
+                params![pin.provider_id, pin.station_id, pin.title, pin.artwork],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        if !pinned {
+            transaction
+                .execute(
+                    "INSERT INTO favorites VALUES (?1,?2,?3,?4)",
+                    params![
+                        current.entries.len() as i64,
+                        target.provider_id,
+                        target.capability,
+                        target.local_id
+                    ],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
+        }
+        transaction
+            .execute(
+                "UPDATE favorite_state SET revision=?1 WHERE singleton=0",
+                [next.to_string()],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        read_favorite_list(&transaction)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok((next, true))
+    }
+    /// Removes a pinned station and its favorites target at the captured
+    /// revision; the rest of the favorites keep their order.
+    pub fn unpin_music_station(
+        &mut self,
+        revision: u64,
+        provider_id: &str,
+        station_id: &str,
+    ) -> Result<u64, ErrorCode> {
+        validation::id(provider_id)?;
+        validation::id(station_id)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ErrorCode::Unavailable)?;
+        let current = read_favorite_list(&transaction)?;
+        if revision != current.revision {
+            return Err(ErrorCode::Conflict);
+        }
+        let entries: Vec<EntityRef> = current
+            .entries
+            .iter()
+            .filter(|e| {
+                !(e.capability == favorites::MUSIC_STATION_CAPABILITY
+                    && e.provider_id == provider_id
+                    && e.local_id == station_id)
+            })
+            .cloned()
+            .collect();
+        let removed = transaction
+            .execute(
+                "DELETE FROM music_pins WHERE provider_id=?1 AND station_id=?2",
+                [provider_id, station_id],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        if removed == 0 && entries.len() == current.entries.len() {
+            return Err(ErrorCode::NotFound);
+        }
+        let next = revision.checked_add(1).ok_or(ErrorCode::Conflict)?;
+        transaction
+            .execute("DELETE FROM favorites", [])
+            .map_err(|_| ErrorCode::Internal)?;
+        for (position, entry) in entries.iter().enumerate() {
+            transaction
+                .execute(
+                    "INSERT INTO favorites VALUES (?1,?2,?3,?4)",
+                    params![
+                        position as i64,
+                        entry.provider_id,
+                        entry.capability,
+                        entry.local_id
+                    ],
+                )
+                .map_err(|_| ErrorCode::Internal)?;
+        }
+        transaction
+            .execute(
+                "UPDATE favorite_state SET revision=?1 WHERE singleton=0",
+                [next.to_string()],
+            )
+            .map_err(|_| ErrorCode::Internal)?;
+        transaction.commit().map_err(|_| ErrorCode::Internal)?;
+        Ok(next)
     }
     /// Legacy internal writer uses the same durable revision, never bypasses CAS.
     pub fn set_favorites(&mut self, entries: &[Target]) -> Result<(), ErrorCode> {
@@ -1158,6 +1330,42 @@ fn prune(transaction: &rusqlite::Transaction<'_>, now: i64) -> Result<(), ErrorC
     Ok(())
 }
 
+fn forget_unpinned_stations(connection: &Connection) -> Result<(), ErrorCode> {
+    connection
+        .execute(
+            "DELETE FROM music_pins WHERE NOT EXISTS (SELECT 1 FROM favorites f
+                 WHERE f.capability=?1 AND f.provider_id=music_pins.provider_id
+                   AND f.local_id=music_pins.station_id)",
+            [favorites::MUSIC_STATION_CAPABILITY],
+        )
+        .map_err(|_| ErrorCode::Internal)?;
+    Ok(())
+}
+fn read_music_pins(connection: &Connection) -> Result<MusicPinList, ErrorCode> {
+    let revision = read_favorite_list(connection)?.revision;
+    let mut query = connection
+        .prepare(
+            "SELECT p.provider_id, p.station_id, p.title, p.artwork FROM favorites f
+             JOIN music_pins p ON p.provider_id=f.provider_id AND p.station_id=f.local_id
+             WHERE f.capability=?1 ORDER BY f.position",
+        )
+        .map_err(|_| ErrorCode::Internal)?;
+    let pins = query
+        .query_map([favorites::MUSIC_STATION_CAPABILITY], |row| {
+            Ok(MusicPin {
+                provider_id: row.get(0)?,
+                station_id: row.get(1)?,
+                title: row.get(2)?,
+                artwork: row.get(3)?,
+            })
+        })
+        .map_err(|_| ErrorCode::Internal)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| ErrorCode::Internal)?;
+    let list = MusicPinList { revision, pins };
+    list.validate().map_err(|_| ErrorCode::Internal)?;
+    Ok(list)
+}
 fn read_favorite_list(connection: &Connection) -> Result<FavoriteList, ErrorCode> {
     let revision = connection
         .query_row(

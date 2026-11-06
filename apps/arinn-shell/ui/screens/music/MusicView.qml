@@ -210,6 +210,10 @@ FocusScope {
                 // nearest working control holds it and hands it back
                 // (review of #798).
                 Qt.callLater(() => {
+                    // Not from under the Quick menu or another scope that
+                    // holds focus now (review of #798).
+                    if (!root.focusIsFree())
+                        return;
                     const target = root.playerFocus();
                     root.fallbackFocus = target;
                     Ui.Focus.take(target);
@@ -278,13 +282,18 @@ FocusScope {
             tracks.currentIndex = index;
             tracks.positionViewAtIndex(index, ListView.Contain);
         }
-        // Only while focus is still in the list, or nowhere in the view: a
-        // user who moved on keeps their focus (review of #798).
+        // Only while focus is still in the list, or nowhere: a user who
+        // moved on, or a scope above the view, keeps it (reviews of #798).
         const item = hostWindow ? hostWindow.activeFocusItem : null;
         const inList = !!item && (item === tracks || isInside(item, tracks));
-        const elsewhere = !!item && item !== root && containsFocusItem(item);
-        if (tracks.visible && (inList || !elsewhere))
+        if (tracks.visible && (inList || focusIsFree()))
             Ui.Focus.take(tracks);
+    }
+    // No control holds focus: none at all, or only the view itself. Focus
+    // in another scope (the Quick menu, the power scope) is not free.
+    function focusIsFree() {
+        const item = hostWindow ? hostWindow.activeFocusItem : null;
+        return !item || item === root || (hostWindow && item === hostWindow.contentItem);
     }
     function isInside(item, scope) {
         for (let current = item; current; current = current.parent)

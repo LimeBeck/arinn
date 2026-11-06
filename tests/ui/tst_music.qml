@@ -37,6 +37,8 @@ TestCase {
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
+    // A scope above the view, such as the Quick menu, holding focus.
+    Component {id:scopeFactory;FocusScope {width:10;height:10;Item {objectName:"scopeItem";width:10;height:10;focus:true}}}
     // As the shell places it: no size given (#756 M6, M7).
     Component {id:shellViewFactory;Music.MusicView {}}
     Component {id:artworkFactory;Music.MusicArtwork {width:128;height:128;retryInterval:10}}
@@ -601,5 +603,25 @@ TestCase {
         view.parentId="album:9";view.back();catalog.busy=true;catalog.entries=[];wait(50);
         compare(view.restoreEntity,"album:9");
         catalog.busy=false;tryCompare(view,"restoreEntity","");
+    }
+    // Review of #798: the loading hand-off and the opener restore pulled
+    // focus from under a scope that held it (the Quick menu, power).
+    function test_focus_hand_offs_leave_another_scope_alone() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const playing={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","stop","next"],upcoming:[]};
+        catalog.activeState=playing;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        const scope=createTemporaryObject(scopeFactory,suite);const held=findChild(scope,"scopeItem");
+        view.openPlayer();const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        scope.forceActiveFocus();tryCompare(held,"activeFocus",true);
+        catalog.activeState=Object.assign({},playing,{playback:"loading",actions:["stop","next"]});wait(50);
+        compare(held.activeFocus,true);compare(view.activeFocus,false);
+        catalog.activeState=playing;view.mode="catalogue";
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        view.parentId="album:2";view.back();compare(view.restoreEntity,"album:2");
+        scope.forceActiveFocus();tryCompare(held,"activeFocus",true);
+        catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
+        const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
+        compare(held.activeFocus,true);compare(view.activeFocus,false);
     }
 }

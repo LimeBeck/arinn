@@ -359,6 +359,11 @@ private slots:
     QTRY_VERIFY(catalog.playbackProblem().isEmpty());
     QVERIFY(catalog.notice().isEmpty());
     QVERIFY(changed.count() > 0);
+    // The one-second poll alone does not announce an unchanged session.
+    const auto announced = changed.count();
+    catalog.refresh();
+    QTest::qWait(300);
+    QCOMPARE(changed.count(), announced);
     const auto now = catalog.nowPlaying();
     QCOMPARE(now.value("id").toString(), MusicCatalog::sessionEntryId());
     QCOMPARE(now.value("title").toString(), QStringLiteral("Synthetic"));

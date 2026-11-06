@@ -64,6 +64,10 @@ signals:
   void problemsChanged();
 private:
   void providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens);
+  void updateProblems();
+  // The derived values last announced through problemsChanged.
+  QVariantMap m_nowPlaying;
+  QString m_playbackProblem, m_notice;
   void readState();void readActive();void readPage(bool append);void fail(const QString &code);
   void send(const QString &action,const QString &entity,const QString &occurrence,qint64 positionUs,bool active,const QString &text=QString());
   QVariantList m_sources,m_entries;

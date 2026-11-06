@@ -30,9 +30,10 @@ void registerMusic(){qmlRegisterType<MusicCatalog>("Arinn.Shell",1,0,"MusicCatal
 Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 }
 MusicCatalog::MusicCatalog(QObject *parent):QObject(parent){
-  // The derived lines read the status, the browsed state and the session.
+  // The derived lines read the status, the browsed state and the session;
+  // the one-second poll re-emits those, so notify only on a real change.
   for(auto changed:{&MusicCatalog::statusChanged,&MusicCatalog::stateChanged,&MusicCatalog::activeChanged})
-    connect(this,changed,this,&MusicCatalog::problemsChanged);
+    connect(this,changed,this,&MusicCatalog::updateProblems);
   auto *watch=new QDBusServiceWatcher(service,QDBusConnection::sessionBus(),QDBusServiceWatcher::WatchForOwnerChange,this);
   connect(watch,&QDBusServiceWatcher::serviceOwnerChanged,this,[this]{++m_commandTicket;++m_epoch;++m_pageTicket;++m_stateTicket;++m_registryTicket;m_registryBusy=m_pageBusy=m_stateBusy=m_commandBusy=m_activeBusy=m_commandWaitingRefresh=false;m_uncertainStart=false;m_path.clear();m_generation.clear();m_sources.clear();m_entries.clear();m_state.clear();m_active.clear();m_activeId.clear();m_activeGeneration.clear();m_next.clear();emit activeChanged();emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();refresh();});
   m_timer.setInterval(1000);connect(&m_timer,&QTimer::timeout,this,&MusicCatalog::refresh);m_timer.start();QTimer::singleShot(0,this,&MusicCatalog::refresh);
@@ -175,6 +176,18 @@ void MusicCatalog::send(const QString &action,const QString &entity,const QStrin
 }
 
 QString MusicCatalog::sessionEntryId() { return QStringLiteral("arinn-music-session"); }
+
+void MusicCatalog::updateProblems() {
+  auto nowPlaying = this->nowPlaying();
+  auto problem = playbackProblem();
+  auto notice = this->notice();
+  if (nowPlaying == m_nowPlaying && problem == m_playbackProblem && notice == m_notice)
+    return;
+  m_nowPlaying = std::move(nowPlaying);
+  m_playbackProblem = std::move(problem);
+  m_notice = std::move(notice);
+  emit problemsChanged();
+}
 
 QVariantMap MusicCatalog::nowPlaying() const {
   const auto current = m_active.value(QStringLiteral("current")).toMap();

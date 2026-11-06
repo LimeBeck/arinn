@@ -1039,6 +1039,7 @@ Window {
             wifiLevel: home.wifiLevel
             network: home.network
             clockText: home.clockText
+            musicLine: home.musicStatusLine
         }
         Ui.HomeView {
             id: home
@@ -1105,6 +1106,13 @@ Window {
                 musicView.openFromRoom({provider: providerId, kind: "station", id: stationId, title: title});
             }
             onMusicTransportRequested: musicCatalog.togglePlayback()
+            // Music presence on Home (#803, MH-4): the status line while it
+            // plays, and Play/Pause without moving focus.
+            musicStatusLine: musicCatalog.statusLine
+            onMusicKeyRequested: action => {
+                if (action === "toggle") musicCatalog.togglePlayback();
+                else musicCatalog.transport(action === "play" ? "resume" : "pause");
+            }
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows

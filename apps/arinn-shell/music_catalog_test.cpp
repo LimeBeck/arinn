@@ -905,6 +905,77 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Synthetic wave · Paused"));
   }
+  // #803 (brief *Presence*, MH-2): the Continue card's variant 1 reads the
+  // state, "artist · station or album", the position and, without a track
+  // cover, the station's cover.
+  void theHomeCardCarriesVariantOne() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    QString account;
+    auto publish = [&](const QString &playback, const QJsonObject &station, const QString &art) {
+      QJsonObject track{{"id", "t1"}, {"kind", "track"}, {"title", "Synthetic"},
+                        {"artist", "Fixture artist"}, {"album", "Fixture album"},
+                        {"duration_us", 200000000}};
+      if (!art.isEmpty())
+        track.insert("artwork", art);
+      QJsonObject value{{"revision", 1}, {"session", "s"}, {"playback", playback},
+                        {"position_us", 50000000}, {"actions", QJsonArray{"pause", "resume"}},
+                        {"current", QJsonObject{{"occurrence", "o"}, {"track", track}}}};
+      if (!station.isEmpty())
+        value.insert("station", station);
+      if (!account.isEmpty())
+        value.insert("account", account);
+      daemon.active = QString::fromUtf8(QJsonDocument(QJsonObject{
+          {"provider_id", "local"}, {"generation", "g1"}, {"state", value}})
+                                            .toJson(QJsonDocument::Compact));
+    };
+    // The asset an image URL carries.
+    auto assetOf = [](const QString &url) {
+      QString provider, path, generation, asset;
+      AssetImages::parseImageId(url.mid(QStringLiteral("image://arinn-assets/").size()), &provider,
+                                &path, &generation, &asset);
+      return asset;
+    };
+    publish("playing", {}, QStringLiteral("cover-1"));
+    MusicCatalog catalog;
+    // The image URL needs the provider's path, which the registry brings.
+    QTRY_COMPARE(assetOf(catalog.homeEntries().value(0).toMap().value("artwork").toString()),
+                 QStringLiteral("cover-1"));
+    auto entry = catalog.homeEntries().first().toMap();
+    QCOMPARE(entry.value("musicState").toString(), QStringLiteral("playing"));
+    QCOMPARE(entry.value("subtitle").toString(), QStringLiteral("Fixture artist · Fixture album"));
+    QCOMPARE(entry.value("progress").toDouble(), 0.25);
+    QCOMPARE(entry.value("sourceIcon").toString(), QStringLiteral("public"));
+    QVERIFY(entry.value("playPause").toBool());
+    publish("paused", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
+                                  {"title", "Synthetic wave"}, {"artwork", "wave-cover"}},
+            QString());
+    catalog.refresh();
+    QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("musicState").toString(),
+                 QStringLiteral("paused"));
+    entry = catalog.homeEntries().first().toMap();
+    QCOMPARE(entry.value("subtitle").toString(), QStringLiteral("Fixture artist · Synthetic wave"));
+    QCOMPARE(entry.value("station").toString(), QStringLiteral("Synthetic wave"));
+    QTRY_COMPARE(assetOf(catalog.homeEntries().value(0).toMap().value("artwork").toString()),
+                 QStringLiteral("wave-cover"));
+    // This computer's mark for a local session (review of #827).
+    account = QStringLiteral("local");
+    publish("paused", {}, QString());
+    catalog.refresh();
+    QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("sourceIcon").toString(),
+                 QStringLiteral("screen"));
+    account.clear();
+    // The status line only while playing (MH-4).
+    QCOMPARE(catalog.statusLine(), QString());
+    publish("playing", {}, QStringLiteral("cover-1"));
+    catalog.refresh();
+    QTRY_COMPARE(catalog.statusLine(), QStringLiteral("Synthetic · Fixture artist"));
+    publish("stopped", {}, QString());
+    catalog.refresh();
+    QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("musicState").toString(), QString());
+    QCOMPARE(catalog.statusLine(), QString());
+    QVERIFY(!catalog.homeEntries().value(0).toMap().contains("progress"));
+  }
   // The stale "Unavailable" under every music screen (#756 M5, M8): a
   // provider keeps its last error after it skipped to the next track. The
   // reason shows only while the session stays stopped and clears once it

@@ -87,6 +87,10 @@ pub struct Local {
     /// The rest of a seed group that did not fit the station's first batch;
     /// refills take it before the shuffled library (review of #815).
     seed_rest: tokio::sync::Mutex<std::collections::VecDeque<Track>>,
+    /// Held while the station starts, refills or is reconciled, so a
+    /// background refill of an old station cannot take a new station's seed
+    /// (review of #815).
+    station: tokio::sync::Mutex<()>,
 }
 struct LocalResolver(Arc<RwLock<View>>);
 impl Resolver for LocalResolver {
@@ -162,6 +166,7 @@ impl Local {
             assets: Arc::new(tokio::sync::Semaphore::new(2)),
             deck: tokio::sync::Mutex::new(Vec::new()),
             seed_rest: tokio::sync::Mutex::new(std::collections::VecDeque::new()),
+            station: tokio::sync::Mutex::new(()),
         });
         // The library station never runs dry: like a service's station it
         // tops up its queue while it plays.
@@ -174,6 +179,7 @@ impl Local {
                 let Some(local) = weak.upgrade() else {
                     return;
                 };
+                let _ = local.reconcile_station().await;
                 let state = local.playback.state().await;
                 if state
                     .station
@@ -217,6 +223,7 @@ impl Local {
     /// Starts the library station; tracks of `seed` (a track, album,
     /// artist or playlist) play first.
     async fn start_station(&self, seed: &str) -> Result<(), ErrorCode> {
+        let _station = self.station.lock().await;
         let mut first: Vec<Track> = if seed == LIBRARY_STATION {
             vec![]
         } else {
@@ -263,6 +270,7 @@ impl Local {
         Ok(())
     }
     async fn refill_station(&self) -> Result<(), ErrorCode> {
+        let _station = self.station.lock().await;
         // Never take more than the queue holds: what it cannot take would be
         // lost from the seed or the deck.
         let room = 64usize
@@ -295,6 +303,48 @@ impl Local {
         // station going (review of #815).
         self.playback
             .apply_radio_refill_repeating(request, tracks, uuid::Uuid::new_v4().to_string())
+            .await
+    }
+    /// A rescan may remove tracks the station already queued; reaching one
+    /// would stop the station (review of #815). The upcoming tracks are
+    /// replaced by those still playable, in order, topped up from the deck.
+    async fn reconcile_station(&self) -> Result<(), ErrorCode> {
+        let _station = self.station.lock().await;
+        let state = self.playback.state().await;
+        if !state
+            .station
+            .as_ref()
+            .is_some_and(|s| s.id == LIBRARY_STATION)
+        {
+            return Ok(());
+        }
+        let playable: BTreeMap<String, Track> = self
+            .view
+            .read()
+            .await
+            .tracks
+            .iter()
+            .filter(|t| t.available)
+            .map(|t| (t.id.clone(), t.clone()))
+            .collect();
+        if state
+            .upcoming
+            .iter()
+            .all(|e| playable.contains_key(&e.track.id))
+        {
+            return Ok(());
+        }
+        let mut kept: Vec<Track> = state
+            .upcoming
+            .iter()
+            .filter_map(|e| playable.get(&e.track.id).cloned())
+            .collect();
+        if kept.len() < 32 {
+            kept.extend(self.deal(32 - kept.len()).await);
+        }
+        let request = self.playback.begin_radio_refill(true).await?;
+        self.playback
+            .apply_radio_refill_repeating(request, kept, uuid::Uuid::new_v4().to_string())
             .await
     }
     pub fn rescan(self: &Arc<Self>) {
@@ -332,6 +382,7 @@ impl Local {
                 && !owner.shutdown.load(Ordering::Acquire)
             {
                 owner.publish(view).await;
+                let _ = owner.reconcile_station().await;
             } else if !owner.shutdown.load(Ordering::Acquire) {
                 owner.view.write().await.degraded = true;
             }
@@ -1107,6 +1158,114 @@ mod tests {
             assert!(!state.actions.contains(&"retry".into()));
         }
         drop(service);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: a rescan that removed a track already queued for the
+    /// station left it there, and reaching it stopped the station.
+    #[tokio::test]
+    async fn a_rescan_takes_removed_tracks_out_of_the_station_queue() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-reconcile-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let files: Vec<String> = (0..80).map(|i| format!("track-{i:02}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root.clone()],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let service = LocalService(local.clone());
+        let before = service
+            .command(command("radio", "", LIBRARY_STATION))
+            .await
+            .unwrap();
+        let current = before.current.unwrap().track.id;
+        // A rescan finds only the playing track and a handful of others.
+        let keep: HashSet<String> = local
+            .view
+            .read()
+            .await
+            .tracks
+            .iter()
+            .take(5)
+            .map(|t| t.id.clone())
+            .chain([current.clone()])
+            .collect();
+        {
+            let mut view = local.view.write().await;
+            for track in &mut view.tracks {
+                if !keep.contains(&track.id) {
+                    track.available = false;
+                }
+            }
+        }
+        local.reconcile_station().await.unwrap();
+        let after = local.playback.state().await;
+        assert_eq!(after.current.unwrap().track.id, current);
+        assert!(!after.upcoming.is_empty());
+        assert!(after.upcoming.iter().all(|e| keep.contains(&e.track.id)));
+        drop(service);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: a refill of the old station running while a new one
+    /// starts must not take the new station's seed; the seed group stays
+    /// whole across the queue and the waiting rest. The station lock is the
+    /// fix; this guards the invariant but does not force the interleaving.
+    #[tokio::test]
+    async fn a_station_start_and_a_refill_do_not_interleave() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-serial-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let files: Vec<String> = (0..100).map(|i| format!("track-{i:03}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let album = format!("album:{}", local.view.read().await.tracks[0].album_id);
+        let seed: Vec<String> = local
+            .selected(&album)
+            .await
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        for _ in 0..20 {
+            local.start_station(LIBRARY_STATION).await.unwrap();
+            let (started, _) = tokio::join!(local.start_station(&album), local.refill_station());
+            started.unwrap();
+            let state = local.playback.state().await;
+            let mut order: Vec<String> = state
+                .current
+                .iter()
+                .chain(state.upcoming.iter())
+                .map(|e| e.track.id.clone())
+                .collect();
+            order.truncate(
+                order
+                    .iter()
+                    .position(|id| !seed.contains(id))
+                    .unwrap_or(order.len()),
+            );
+            order.extend(local.seed_rest.lock().await.iter().map(|t| t.id.clone()));
+            assert_eq!(order, seed);
+        }
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();
     }

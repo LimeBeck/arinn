@@ -208,6 +208,7 @@ A right-hand sheet 720 wide.
 - **Video.** The same card shows a video session: the poster in place of the cover, the episode in place of the artist.
 - **Without a session** the existing single row stays. The card is fed by the music session as well as by media sessions (M2).
 - **Two sessions at once.** A media session (a browser tab, a video player) and the music session can both exist.
+  - Only sessions that are **playing or paused** take part. A stopped session, titled or not, is not shown in the Quick menu; Continue may still show it (§5.1). With no session playing or paused, the plain row stays.
   - **One precedence order** decides which session the card shows:
     1. a playing session ranks above a paused one;
     2. between two sessions in the same state, the one whose playback state changed last ranks higher.

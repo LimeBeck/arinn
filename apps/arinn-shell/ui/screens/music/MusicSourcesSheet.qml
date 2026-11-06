@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
+import QtQuick.Window
 import "../.." as Ui
 
 // The Sources sheet (brief mh-01, MH-5): every music source with its mark,
@@ -29,6 +30,13 @@ FocusScope {
             else if (at !== i)
                 rowModel.move(at, i, 1);
         }
+        // A source that left with focus on its pill hands focus to the
+        // first row that has an action.
+        Qt.callLater(() => {
+            const window = Window.window;
+            if (visible && window && window.activeFocusItem === root)
+                focusFirst();
+        });
     }
     onSourcesChanged: syncRows()
     Component.onCompleted: syncRows()

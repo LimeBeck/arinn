@@ -791,4 +791,20 @@ TestCase {
         room.shelves=[Object.assign({},room.shelves[0],{entries:room.shelves[0].entries.concat([room.card("local","station:late","station","Late")])}),room.shelves[1]];
         tryCompare(stations,"count",2);compare(stations.focusedEntry,null);
     }
+    // Review of #812: the shell opens Music by giving the view focus through
+    // its scope, without calling focusInitial(); a card still takes it.
+    function test_focus_routed_by_scope_reaches_a_card() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room,visible:false});verify(view);
+        view.visible=true;view.forceActiveFocus();
+        tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
+        // A source that leaves while its pill has focus hands focus on.
+        Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        // Down moves to the service's row, which then leaves.
+        keyClick(Qt.Key_Down);tryVerify(()=>!findChild(sheet,"musicSourceAction-scan").activeFocus);
+        room.sources=[room.sources[0]];
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+    }
 }

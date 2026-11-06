@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
+import QtQuick.Window
 import "../.." as Ui
 
 // The full list behind a shelf's All tile (brief mh-11, MH-10): tabs
@@ -44,6 +45,15 @@ FocusScope {
             Ui.Focus.take(grid);
         else
             Ui.Focus.take(tabs.itemAt(0));
+    }
+    // Focus routed here by scope (the shell opening the section) lands on
+    // this scope itself, with no card to hold it: hand it on (review of #812).
+    onActiveFocusChanged: if (activeFocus)
+        Qt.callLater(claimFocus)
+    function claimFocus() {
+        const window = Window.window;
+        if (visible && activeFocus && window && window.activeFocusItem === root)
+            focusInitial();
     }
     function focusKey(key) {
         const at = entries.findIndex(entry => entry.key === key);

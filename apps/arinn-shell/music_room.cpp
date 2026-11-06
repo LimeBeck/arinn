@@ -594,7 +594,10 @@ QVariantList MusicRoom::sources() const {
                             {"actions", actions},
                             {"prompt", source.state.value("prompt")},
                             {"busy", source.commandBusy},
-                            {"answered", source.answered}});
+                            {"answered", source.answered},
+                            // `connected` is announced with these rows.
+                            {"browsable", !source.stateFailed &&
+                                              browsable(source.state)}});
   }
   return rows;
 }

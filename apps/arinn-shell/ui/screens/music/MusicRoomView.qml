@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
+import QtQuick.Window
 import "../.." as Ui
 
 // The Music root (brief mh-01, ADR-0142 MH-1, MH-5, MH-9): one room over every
@@ -91,6 +92,15 @@ FocusScope {
             shelfArea.contentY = top;
         else if (top + shelf.height > shelfArea.contentY + shelfArea.height)
             shelfArea.contentY = Math.max(0, top + shelf.height - shelfArea.height);
+    }
+    // Focus routed here by scope (the shell opening the section) lands on
+    // this scope itself, with no card to hold it: hand it on (review of #812).
+    onActiveFocusChanged: if (activeFocus)
+        Qt.callLater(claimFocus)
+    function claimFocus() {
+        const window = Window.window;
+        if (visible && activeFocus && window && window.activeFocusItem === root)
+            focusInitial();
     }
     function openSources() {
         sourcesSheet.open();

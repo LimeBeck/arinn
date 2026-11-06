@@ -128,11 +128,16 @@ FocusScope {
         }
     }
     Ui.AmbientGlow {
+        objectName: "musicAllGlow"
         anchors.fill: parent
         veilEnabled: false
         strength: 0.6
         lit: !!root.focusedEntry && grid.activeFocus
-        source: root.focusedEntry ? (root.focusedEntry.image || "") : ""
+        // The artwork the card shows: a playing station without its own
+        // cover shows the playing track's (#843, Codex review of #848).
+        source: root.focusedEntry ? (root.focusedEntry.image
+            || (root.focusedEntry.kind === "station" && root.focusedEntry.key === root.playingKey
+                ? root.playingImage : "")) : ""
         anchor: grid.currentItem
     }
     Ui.UiText {

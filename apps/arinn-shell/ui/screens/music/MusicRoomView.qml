@@ -131,7 +131,11 @@ FocusScope {
         veilEnabled: false
         strength: 0.6
         lit: !!root.focusedEntry && !root.sheetOpen
-        source: root.focusedEntry ? (root.focusedEntry.image || "") : ""
+        // The artwork the card shows: a playing station without its own
+        // cover shows the playing track's (#843, Codex review of #848).
+        source: root.focusedEntry ? (root.focusedEntry.image
+            || (root.focusedEntry.kind === "station" && root.focusedEntry.key === root.playingKey
+                ? root.playingImage : "")) : ""
         anchor: root.focusedShelf ? root.focusedShelf.focusedCard : null
     }
     // The top bar as on Home: the lockup; the status area is the shell's.

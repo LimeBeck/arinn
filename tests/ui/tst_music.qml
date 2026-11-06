@@ -1064,8 +1064,10 @@ TestCase {
         const stations=findChild(view,"musicShelf-stations");tryCompare(stations,"activeFocus",true);
         const cards=[];const list=findChild(stations,"musicShelfCards");
         for(let i=0;i<2;i++){list.currentIndex=i;wait(0);cards.push(findChild(list.currentItem,"musicShelfCard"));}
-        // The playing station without its own cover: the track's cover.
+        // The playing station without its own cover: the track's cover, and
+        // the room's light follows it (Codex review of #848).
         compare(cards[0].playing,true);compare(findChild(cards[0],"musicCardArtwork").source.toString(),"image://fixture/track-cover");
+        list.currentIndex=0;wait(0);tryCompare(findChild(view,"musicRoomGlow"),"source","image://fixture/track-cover");
         // A station that does not play keeps the neutral chip.
         compare(cards[1].playing,false);compare(findChild(cards[1],"musicCardArtwork").source.toString(),"");
         // One glyph on the unavailable card, and the card dims as one layer.
@@ -1085,6 +1087,7 @@ TestCase {
         grid.currentIndex=0;wait(0);
         compare(grid.currentItem.playing,true);
         compare(findChild(grid.currentItem,"musicCardArtwork").source.toString(),"image://fixture/track-cover");
+        tryCompare(findChild(findChild(view,"musicAll"),"musicAllGlow"),"source","image://fixture/track-cover");
     }
     // #800: a late source adds its entries without moving focus; an entry
     // that leaves hands focus to its neighbour.

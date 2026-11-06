@@ -212,6 +212,11 @@ private:
   // MusicPins1.List: "provider\nstation" → {title, artwork}.
   QHash<QString, QVariantMap> m_musicPins;
   quint64 m_musicPinTicket = 0;
+  // A transient MusicPins1.List failure is read again on a later status
+  // poll, at most kMusicPinRetries times per favorites read.
+  bool m_musicPinsReading = false;
+  bool m_musicPinsRetry = false;
+  int m_musicPinRetries = 0;
   void readMusicPins();
   void sendMusicPin(QDBusMessage message);
   quint64 m_favoriteRevision = 0, m_favoriteTicket = 0;

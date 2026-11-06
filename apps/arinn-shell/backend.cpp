@@ -205,6 +205,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
             m_favoriteReconcile = false;
             m_favoriteTargets.clear();
             m_favoriteError.clear();
+            m_musicPinsReading = m_musicPinsRetry = false;
             stopNativeFocusObservation();
             ++m_connectionEpoch;
             m_daemonOwner = owner;
@@ -643,6 +644,8 @@ void Backend::reloadCatalog() {
             }
             if (!m_favoritesRequested)
               readFavorites();
+            else if (m_musicPinsRetry && !m_musicPinsReading)
+              readMusicPins();
             // Status is polled every second. It may replace a connection
             // banner, and only a connection banner: an operation result has to
             // stay visible when that poll's reply arrives in the same turn.
@@ -1613,16 +1616,21 @@ void Backend::readFavorites() {
         // Pinned stations take their title and artwork from MusicPins1.
         if (std::any_of(targets.cbegin(), targets.cend(), [](const QVariant &t) {
               return t.toMap().value("capability") == QLatin1String("music-station");
-            }))
+            })) {
+          m_musicPinRetries = 0;
           readMusicPins();
-        else
+        } else {
           m_musicPins.clear();
+          m_musicPinsRetry = false;
+        }
         publishState();
       });
 }
 void Backend::readMusicPins() {
   if (!m_connected || !m_daemonOwner.startsWith(':'))
     return;
+  m_musicPinsReading = true;
+  m_musicPinsRetry = false;
   const auto epoch = m_connectionEpoch, ticket = ++m_musicPinTicket;
   auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
                                             "org.arinn.MusicPins1", "List");
@@ -1634,8 +1642,22 @@ void Backend::readMusicPins() {
             call->deleteLater();
             if (epoch != m_connectionEpoch || ticket != m_musicPinTicket)
               return;
+            m_musicPinsReading = false;
             // An older daemon or a bad answer: pinned stations show as
             // unavailable favourites, which the user can still remove.
+            const auto error = reply.errorName();
+            const bool older =
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownInterface") ||
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownMethod") ||
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownObject");
+            if (reply.type() == QDBusMessage::ErrorMessage && !older) {
+              // Transient: the titles already read stay, and a later status
+              // poll reads again, a bounded number of times (favorites.md).
+              constexpr int kMusicPinRetries = 5;
+              m_musicPinsRetry = m_musicPinRetries < kMusicPinRetries;
+              ++m_musicPinRetries;
+              return;
+            }
             if (reply.type() == QDBusMessage::ErrorMessage ||
                 reply.signature() != "(ta(ssss))" ||
                 (!reply.service().isEmpty() && reply.service() != m_daemonOwner)) {
@@ -1643,6 +1665,7 @@ void Backend::readMusicPins() {
               publishState();
               return;
             }
+            m_musicPinRetries = 0;
             const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             qulonglong revision = 0;
             QHash<QString, QVariantMap> pins;

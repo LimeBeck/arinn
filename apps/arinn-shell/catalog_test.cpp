@@ -155,6 +155,10 @@ public:
   int favoriteWrites = 0;
   QString favoriteFailure;
   bool favoriteListError = false;
+  // MusicPins1.List answers this many times with a transient error, or
+  // always as an older daemon without the interface.
+  int pinListFailures = 0;
+  bool pinListUnknown = false;
   // BuildInfo: empty fails with NotSupported, "absent" is a daemon older
   // than the method, "self" is this shell's build, anything else is sent.
   QString build;
@@ -317,6 +321,15 @@ public:
         signal << favoriteRevision;
         bus.send(signal);
       };
+      if (m.member() == "List" && pinListUnknown) {
+        bus.send(m.createErrorReply("org.freedesktop.DBus.Error.UnknownInterface", "fixture"));
+        return true;
+      }
+      if (m.member() == "List" && pinListFailures > 0) {
+        --pinListFailures;
+        bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
+        return true;
+      }
       if (m.member() == "List") {
         a.beginStructure();
         a << favoriteRevision;
@@ -485,6 +498,41 @@ private slots:
   // #804, ADR-0143: a pinned music station is a favorite whose title comes
   // from MusicPins1; it pins and unpins through MusicPins1, and removing it
   // like any favorite works too.
+  // #804: a transient MusicPins1.List failure is read again on a later
+  // status poll, so a pinned station gets its title once the daemon
+  // recovers; an older daemon without the interface is not polled again.
+  void transientMusicPinListFailuresAreReadAgain() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    daemon.pinListFailures = 2;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE_WITH_TIMEOUT(
+          backend.favorites().value(0).toMap().value("title").toString(),
+          QString("Fixture station"), 10000);
+      QCOMPARE(daemon.pinListFailures, 0);
+      QCOMPARE(daemon.pinCalls.count("List"), 3);
+    }
+    daemon.pinCalls.clear();
+    daemon.pinListUnknown = true;
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(daemon.pinCalls.count("List"), 1);
+      QTest::qWait(2500);
+      QCOMPARE(daemon.pinCalls.count("List"), 1);
+      QVERIFY(backend.favorites().value(0).toMap().value("unavailable").toBool());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void pinnedMusicStationsAreFavorites() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;

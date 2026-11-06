@@ -123,7 +123,10 @@ the station and the provider's own `pin` action are the shell's (#804).
 
 - **Reading.** The shell accepts `music-station` targets in `Favorites1.List`.
   When the list holds any, it reads `MusicPins1.List` and gives the station's
-  Favourites row the pinned title. While the source is available, the stored
+  Favourites row the pinned title. A transient `List` failure keeps the titles
+  already read and is read again on a later status poll, at most five times
+  per favorites read; an older daemon without the interface is not asked
+  again. While the source is available, the stored
   artwork ID is shown through the source's current asset-image route
   (`MusicCatalog.artworkUrl`). Without a record, or against an older
   daemon, the row is the usual removable "Unavailable favorite".

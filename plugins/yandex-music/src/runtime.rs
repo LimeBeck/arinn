@@ -659,7 +659,13 @@ impl Runtime {
                 if error.is_some()
                     && let Some((entries, tracks, bytes)) = stale
                 {
-                    while d.cache.len() >= 8 {
+                    // The same eight-entry and 16 MiB limits as any listing
+                    // (Codex review of #849).
+                    while !d.cache.is_empty()
+                        && (d.cache.len() >= 8
+                            || d.cache.iter().map(|c| c.bytes).sum::<usize>() + bytes
+                                > 16 * 1024 * 1024)
+                    {
                         d.cache.pop_front();
                     }
                     let revision = d.revision;
@@ -1718,7 +1724,25 @@ mod tests {
         // listing stays, not an error, and waits another minute, even when
         // the cache evicted it meanwhile (Codex review of #849).
         assert!(listing().await.unwrap().entries == first.entries);
-        fixture.runtime.data.lock().await.cache.clear();
+        // Eviction meanwhile: the cache is full of other large listings,
+        // and the restored one still respects the byte limit.
+        {
+            let mut d = fixture.runtime.data.lock().await;
+            d.cache.clear();
+            for n in 0..2 {
+                d.cache.push_back(Cache {
+                    key: format!("other-{n}"),
+                    revision: 0,
+                    entries: vec![],
+                    tracks: vec![],
+                    error: None,
+                    bytes: 8 * 1024 * 1024,
+                    incomplete: false,
+                    fetched: tokio::time::Instant::now(),
+                    announced: false,
+                });
+            }
+        }
         tokio::time::timeout(Duration::from_secs(5), async {
             while !fixture.runtime.data.lock().await.pending.is_empty() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1729,8 +1753,10 @@ mod tests {
         let after = listing().await.unwrap();
         assert!(after.entries == first.entries);
         let d = fixture.runtime.data.lock().await;
-        assert!(d.cache[0].incomplete && d.cache[0].error.is_none());
-        assert!(d.cache[0].fetched.elapsed() < Duration::from_secs(60));
+        let restored = d.cache.iter().find(|c| c.incomplete).unwrap();
+        assert!(restored.error.is_none());
+        assert!(restored.fetched.elapsed() < Duration::from_secs(60));
+        assert!(d.cache.iter().map(|c| c.bytes).sum::<usize>() <= 16 * 1024 * 1024);
         drop(d);
         assert_eq!(mock.finish().len(), 4);
     }

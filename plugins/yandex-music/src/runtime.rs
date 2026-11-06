@@ -15,7 +15,7 @@ use arinn_protocol::{
     validation::ErrorCode,
 };
 use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -161,13 +161,41 @@ fn station(id: &str, title: &str) -> Entity {
 /// no image, no artwork (#843). A slow or failed lookup leaves it empty and
 /// never holds up the station.
 async fn station_artwork(api: &Api, id: &str) -> String {
-    let Ok(key) = seed(id) else {
-        return String::new();
-    };
-    match tokio::time::timeout(Duration::from_secs(3), api.station_image(&key)).await {
-        Ok(Ok(Some(_))) => format!("station-cover:{key}"),
-        _ => String::new(),
+    station_artworks(api, &[id.to_owned()])
+        .await
+        .remove(id)
+        .unwrap_or_default()
+}
+/// The artwork IDs of several stations, asked at most eight at a time under
+/// one shared 3-second deadline: however many stations are slow, the
+/// listing waits no longer, and those stations go without artwork (Codex
+/// review of #849).
+async fn station_artworks(api: &Api, ids: &[String]) -> HashMap<String, String> {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let slots = Arc::new(Semaphore::new(8));
+    let mut lookups = tokio::task::JoinSet::new();
+    for id in ids {
+        let Ok(key) = seed(id) else {
+            continue;
+        };
+        let (api, slots, id) = (api.clone(), slots.clone(), id.clone());
+        lookups.spawn(async move {
+            let _slot = slots.acquire_owned().await;
+            let image = api.station_image(&key).await;
+            (
+                id,
+                matches!(image, Ok(Some(_))).then(|| format!("station-cover:{key}")),
+            )
+        });
     }
+    let mut artworks = HashMap::new();
+    while let Ok(Some(done)) = tokio::time::timeout_at(deadline, lookups.join_next()).await {
+        if let Ok((id, Some(artwork))) = done {
+            artworks.insert(id, artwork);
+        }
+    }
+    // Dropping the set cancels the lookups still running.
+    artworks
 }
 fn seed(entity: &str) -> Result<String, ErrorCode> {
     if entity == "station:wave" {
@@ -618,8 +646,10 @@ impl Runtime {
             }
             // Each station's cover as its rotor info names it now, also for
             // a pin stored before stations carried one (#843).
+            let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
+            let mut artworks = station_artworks(api, &ids).await;
             for entry in &mut entries {
-                entry.artwork = station_artwork(api, &entry.id).await;
+                entry.artwork = artworks.remove(&entry.id).unwrap_or_default();
             }
             entries.extend(
                 api.user_playlists(&uid)
@@ -1416,6 +1446,71 @@ mod tests {
             "{}",
             requests[0].0
         );
+    }
+    /// Codex review of #849: a full station memo makes room for one more
+    /// station by dropping a single entry, never the whole memo.
+    #[tokio::test]
+    async fn a_full_station_memo_keeps_its_answers() {
+        let mock = Mock::new(vec![response_with(json!([{"station":{
+            "icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/x/%%"}}}]))]);
+        {
+            let mut known = mock.api.station_images.lock().unwrap();
+            for n in 0..1024 {
+                known.insert(format!("track:{n}"), None);
+            }
+        }
+        assert!(
+            mock.api
+                .station_image("track:5000")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let known = mock.api.station_images.lock().unwrap();
+        assert_eq!(known.len(), 1024);
+        assert!(known.contains_key("track:5000"));
+        drop(known);
+        // A known station is answered from the memo, with no request.
+        assert!(
+            mock.api
+                .station_image("track:5000")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: slow station lookups share one deadline, so
+    /// twelve stalled stations cost about three seconds, not three each,
+    /// and come back without artwork.
+    #[tokio::test]
+    async fn slow_station_covers_share_one_deadline() {
+        // A service that accepts every request and never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut api = Mock::new(vec![]).api.clone();
+        api.origin =
+            reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let held = std::thread::spawn(move || {
+            let mut sockets = Vec::new();
+            let until = std::time::Instant::now() + Duration::from_secs(6);
+            while std::time::Instant::now() < until {
+                if let Ok((socket, _)) = listener.accept() {
+                    sockets.push(socket);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let ids: Vec<String> = (1..=12).map(|n| format!("station:track:{n}")).collect();
+        let started = std::time::Instant::now();
+        let artworks = station_artworks(&api, &ids).await;
+        assert!(artworks.is_empty());
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "{:?}",
+            started.elapsed()
+        );
+        held.join().unwrap();
     }
     /// #825: the epoch guard covers the new kinds: a reconnect while an
     /// artist cover is being resolved ends it with a conflict.

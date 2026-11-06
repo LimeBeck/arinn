@@ -284,9 +284,14 @@ impl Api {
             .await?;
         let image = parse::station_image(&info).map(str::to_owned);
         let mut known = self.station_images.lock().map_err(|_| Error::Unavailable)?;
-        // A bounded memo: stations come from the Wave, pins and radio starts.
-        if known.len() >= 256 {
-            known.clear();
+        // A bounded memo with room for every pin (256), My Wave and the
+        // radios started in one connection; past that only one entry makes
+        // way, never the whole memo (Codex review of #849).
+        if known.len() >= 1024
+            && !known.contains_key(key)
+            && let Some(other) = known.keys().next().cloned()
+        {
+            known.remove(&other);
         }
         known.insert(key.into(), image.clone());
         Ok(image)

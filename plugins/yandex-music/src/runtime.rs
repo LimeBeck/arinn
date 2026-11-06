@@ -161,15 +161,23 @@ fn station(id: &str, title: &str) -> Entity {
         ..Entity::default()
     }
 }
-/// A station's artwork ID when its rotor info names an image, else empty:
-/// no image, no artwork (#843). A slow or failed lookup leaves it empty and
-/// never holds up the station.
-async fn station_artwork(api: &Api, id: &str) -> String {
-    station_artworks(api, &[id.to_owned()])
-        .await
-        .0
-        .remove(id)
-        .unwrap_or_default()
+/// A starting station's artwork from what the connection already knows: the
+/// radio never waits for optional artwork. An unknown station is asked in
+/// the background, so its next listing or start has the cover (Codex review
+/// of #849).
+fn known_station_artwork(api: &Api, seed: &str) -> String {
+    match api.known_station_image(seed) {
+        Some(Some(_)) => format!("station-cover:{seed}"),
+        Some(None) => String::new(),
+        None => {
+            let (api, seed) = (api.clone(), seed.to_owned());
+            tokio::spawn(async move {
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(15), api.station_image(&seed)).await;
+            });
+            String::new()
+        }
+    }
 }
 /// The artwork IDs of several stations, asked at most eight at a time under
 /// one shared 3-second deadline: however many stations are slow, the
@@ -555,11 +563,11 @@ impl Runtime {
             cached = Some(listing);
         }
         if !d.pending.contains(&key) {
-            let permit = self
-                .catalogue_slots
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| ErrorCode::Unavailable)?;
+            // With every slot busy, a stale listing is still shown and asked
+            // again on a later request (Codex review of #849).
+            let Ok(permit) = self.catalogue_slots.clone().try_acquire_owned() else {
+                return cached.ok_or(ErrorCode::Unavailable);
+            };
             let api = self
                 .source
                 .read()
@@ -585,7 +593,18 @@ impl Runtime {
                     Ok((e, t, complete)) => (e, t, None, !complete),
                     Err(e) => (vec![], vec![], Some(e), false),
                 };
-                // A listing fetched again replaces its earlier one.
+                // A failed refresh keeps the listing it was refreshing and
+                // tries again a minute later; a new result replaces it
+                // (Codex review of #849).
+                if error.is_some()
+                    && let Some(kept) = d
+                        .cache
+                        .iter_mut()
+                        .find(|c| c.key == key && c.error.is_none())
+                {
+                    kept.fetched = tokio::time::Instant::now();
+                    return;
+                }
                 d.cache.retain(|c| c.key != key);
                 let mut bytes = serde_json::to_vec(&entries).map_or(16 * 1024 * 1024, |b| b.len())
                     + serde_json::to_vec(&tracks).map_or(16 * 1024 * 1024, |b| b.len());
@@ -884,7 +903,7 @@ impl Runtime {
             format!("station:{seed}")
         };
         let mut playing = station(&station_id, title);
-        playing.artwork = station_artwork(api, &station_id).await;
+        playing.artwork = known_station_artwork(api, &seed);
         let mut d = self.data.lock().await;
         if d.epoch != epoch {
             return Err(ErrorCode::Conflict);
@@ -1538,6 +1557,88 @@ mod tests {
         assert_eq!(second.entries[0].artwork, "station-cover:user:onyourwave");
         assert!(!fixture.runtime.data.lock().await.cache[0].incomplete);
         assert_eq!(mock.finish().len(), 6);
+    }
+    /// Codex review of #849: a radio start never waits for its cover. An
+    /// unknown station starts without one and is asked in the background;
+    /// a known one starts with it, and a known "no image" asks nothing.
+    #[tokio::test]
+    async fn a_radio_start_does_not_wait_for_its_cover() {
+        let wave = json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]);
+        let mock = Mock::new(vec![response_with(wave)]);
+        assert_eq!(known_station_artwork(&mock.api, "user:onyourwave"), "");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while mock.api.known_station_image("user:onyourwave").is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            known_station_artwork(&mock.api, "user:onyourwave"),
+            "station-cover:user:onyourwave"
+        );
+        mock.api
+            .station_images
+            .lock()
+            .unwrap()
+            .insert("track:9".into(), None);
+        assert_eq!(known_station_artwork(&mock.api, "track:9"), "");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: a stale listing is still shown when its refresh
+    /// cannot start because every catalogue slot is busy, and when the
+    /// refresh fails; it is asked again a minute later.
+    #[tokio::test]
+    async fn a_stale_listing_survives_busy_slots_and_a_failed_refresh() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let mock = Mock::new(vec![
+            (200, account),
+            (500, "{}".into()),
+            (200, json!({"result":[]}).to_string()),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        let first = loop {
+            if let Ok(listing) = listing().await {
+                break listing;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        let age = || async {
+            fixture.runtime.data.lock().await.cache[0].fetched =
+                tokio::time::Instant::now() - Duration::from_secs(61);
+        };
+        age().await;
+        // Both slots busy: the stale listing, no error.
+        let slots = fixture
+            .runtime
+            .catalogue_slots
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        assert!(listing().await.unwrap().entries == first.entries);
+        drop(slots);
+        // The refresh fails (the account request answers 500): the stale
+        // listing stays, not an error, and waits another minute.
+        assert!(listing().await.unwrap().entries == first.entries);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let after = listing().await.unwrap();
+        assert!(after.entries == first.entries);
+        let d = fixture.runtime.data.lock().await;
+        assert!(d.cache[0].incomplete && d.cache[0].error.is_none());
+        assert!(d.cache[0].fetched.elapsed() < Duration::from_secs(60));
+        drop(d);
+        assert_eq!(mock.finish().len(), 4);
     }
     /// Codex review of #849: a full station memo makes room for one more
     /// station by dropping a single entry, never the whole memo.

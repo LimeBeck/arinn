@@ -264,6 +264,12 @@ impl Api {
         parse::collections(&result)
     }
 
+    /// What the connection already knows about a station's image, without a
+    /// request: `None` when it has not asked yet (#843).
+    pub(crate) fn known_station_image(&self, key: &str) -> Option<Option<String>> {
+        self.station_images.lock().ok()?.get(key).cloned()
+    }
+
     /// The image reference a rotor station's info names, or `None` (#843).
     /// An answer, image or none, is kept for this connection; a failure is
     /// not, so a later listing asks again.

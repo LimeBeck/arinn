@@ -34,8 +34,8 @@ Ui.Surface {
         onItemRemoved: root.measure()
     }
     shapeRole: "action"
-    implicitWidth: Math.max(180, pillRow.implicitWidth - label.implicitWidth
-        + Math.max(label.implicitWidth, widestLabel) + 56)
+    // The label is already as wide as the widest one (delta review of #821).
+    implicitWidth: Math.max(180, pillRow.implicitWidth + 56)
     implicitHeight: 88
     width: implicitWidth
     height: implicitHeight

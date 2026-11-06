@@ -212,6 +212,7 @@ FocusScope {
         deletingPlaylist = false;
         roomPlay = null;
         moreOpen = false;
+        replaceOpener = null;
     }
     readonly property var selected: catalog.state || ({})
     readonly property var player: catalog.activeState || ({})
@@ -1918,6 +1919,7 @@ FocusScope {
             onActivated: {
                 const id = root.pendingPlay;
                 root.pendingPlay = "";
+                root.replaceOpener = null;
                 root.startCommand(root.pendingAction, id, root.pendingActive);
                 root.openPlayer();
             }

@@ -591,11 +591,15 @@ TestCase {
         tryCompare(like,"text","Like");compare(labels,["Saving…","Like"]);
         // Review of #821: one width for every state, so Queue and More stay
         // put, and in Russian the row stays in the safe area.
+        // The layout settles after each change before it is read (delta
+        // review of #821).
         const queue=findChild(view,"musicQueue"),more=findChild(view,"musicMore");
-        const at=more.mapToItem(view,0,0).x;
-        for(const text of ["Liked","Saving…","Not saved","Like"]) {like.text=text;wait(0);compare(more.mapToItem(view,0,0).x,at,text);}
-        like.labels=["Нравится","Понравилось","Сохраняем…","Не сохранено"];queue.text="Очередь";wait(0);
-        for(const text of like.labels) {like.text=text;wait(0);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text);}
+        const settle=()=>{waitForRendering(view);wait(50);};
+        settle();const at=more.mapToItem(view,0,0).x,width=like.width;
+        for(const text of ["Liked","Saving…","Not saved","Like"]) {like.text=text;settle();compare(like.width,width,text);compare(more.mapToItem(view,0,0).x,at,text);}
+        like.labels=["Нравится","Понравилось","Сохраняем…","Не сохранено"];queue.text="Очередь";like.text="Нравится";settle();
+        const russian=like.width;
+        for(const text of like.labels) {like.text=text;settle();compare(like.width,russian,text);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text+": "+more.mapToItem(view,more.width,0).x);}
     }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the

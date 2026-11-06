@@ -68,6 +68,11 @@ RU = {
     "Continue": "Продолжить",
     "New": "Новое",
     "Now running": "Сейчас запущено",
+    # Music presence on Home (#803, MH-2)
+    "%1 · playing": "%1 · играет",
+    "OK — open player · ⏯ — pause": "OK — открыть плеер · ⏯ — пауза",
+    "OK — open player · ⏯ — play": "OK — открыть плеер · ⏯ — продолжить",
+    "OK — open player": "OK — открыть плеер",
     "Online": "Онлайн",
     "Games": "Игры",
     "Media": "Медиа",

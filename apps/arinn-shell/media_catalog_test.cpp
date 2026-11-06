@@ -1198,6 +1198,17 @@ private slots:
     }
     shown.sort();
     QCOMPARE(shown, QStringList({QStringLiteral("playing:"), QStringLiteral("stopped:Titled")}));
+    // The quick menu's sessions (spec §5.7; Codex review of #826): every
+    // playing or paused one, the untitled paused session too; never a
+    // stopped one.
+    QStringList sessions;
+    for (const auto &entry : catalog.sessionEntries()) {
+      const auto map = entry.toMap();
+      sessions << map.value(QStringLiteral("state")).toString() + QLatin1Char(':') +
+                      map.value(QStringLiteral("title")).toString();
+    }
+    sessions.sort();
+    QCOMPARE(sessions, QStringList({QStringLiteral("paused:"), QStringLiteral("playing:")}));
   }
   // The omitted session stays in the catalog: the player screen still sees it.
   void omittedSessionStaysInTheCatalog() {
@@ -2187,6 +2198,50 @@ private slots:
     QTRY_VERIFY(menu->isVisible());
     QTest::qWait(200);
     QVERIFY(!daemon.commands.contains(QStringLiteral("Stop")));
+    QVERIFY(!window->property("playerFromQuickMenu").toBool());
+  }
+  // #805 (Codex review of #826): Open player on a session without player
+  // features opens the session screen; Back from there returns to the
+  // sheet, not Home.
+  void openPlayerOnASessionScreenAndBackReturnToTheSheet() {
+    MediaDaemon daemon;
+    daemon.page1 = {session(QStringLiteral("plain"), QStringLiteral("Plain"),
+                            QStringLiteral("paused"), 4000000, monotonicUs(), 9000000,
+                            {QStringLiteral("play"), QStringLiteral("pause")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.m_connected = true;
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    QVERIFY(QTest::qWaitForWindowActive(window));
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto menu = window->findChild<QQuickItem *>(QStringLiteral("quickMenu"));
+    auto sessionView = window->findChild<QQuickItem *>(QStringLiteral("productionSession"));
+    QVERIFY(catalog && menu && sessionView);
+    QTRY_COMPARE(catalog->sessionEntries().size(), 1);
+    QVERIFY(!catalog->playerSession());
+    const auto entryId =
+        catalog->sessionEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openQuickMenu"));
+    QTRY_VERIFY(menu->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(menu, "openPlayerRequested", Q_ARG(QString, entryId)));
+    QTRY_VERIFY(sessionView->isVisible());
+    QVERIFY(!menu->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(sessionView, "backRequested"));
+    QTRY_VERIFY(menu->isVisible());
+    QVERIFY(!sessionView->isVisible());
     QVERIFY(!window->property("playerFromQuickMenu").toBool());
   }
   // #507 (Codex on #502): Back pressed before the Status refresh that

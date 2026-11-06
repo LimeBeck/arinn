@@ -191,6 +191,27 @@ across the right edge, is cut at the edge. On the left, cards stay visible as th
 painted and takes no pointer focus or clicks, though D-pad focus still reaches
 it. Scrolling to a focused card keeps its body inside the safe right edge. So
 no card peeks past x1824 (#564). The rest of a focused row is drawn at brightness 0.82 and other rows at 0.62; the focused image stays at 1.
+A playing or paused music session leads the further Continue cards as the
+music card's variant 1 (#803, ADR-0142 MH-2): `ContentCard.musicState` draws
+the cover blurred by 28 px under a 30–55 % Charcoal shade, the cover centred
+at the frame height minus 44 with a hairline and a cast shadow, the playing
+chip (56 × 42 at 16 px, three Ember bars that move while playing and stand
+still in `text-3` on pause) and the Ember progress line. The backdrop is masked
+to the card's rounded outline without padding (`autoPaddingEnabled: false`),
+so it never spills past the card, and it replaces the sharp cover wherever
+shader effects draw; the software renderer keeps the sharp cover. The card has
+no transport button of its own. Without a cover,
+the station's is used, then the source's mark (`screen` or `public`) in a
+neutral chip. The caption is
+the track over "artist · station or album"; the hero reads "station ·
+playing" or "Paused" and names the keys, the Play/Pause key only while the
+session offers the action it needs (`homeEntries.playPause`), else just "OK —
+open player". Play/Pause, Play and Pause act only when the session can do what
+each asks; otherwise the key passes on. OK opens *Now playing*, Back
+returns to the card, and Play/Pause on Home acts on the music session
+without moving focus unless the focused card is linked to a media session
+(`HomeView.mediaKey`). The shell has no reduced-motion setting yet; the
+bars stop with `motionEnabled`.
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional
 `currentServiceTitle`, `openServices` (`{id, title, letter, icon}`, the service on
@@ -319,8 +340,12 @@ Fixes from the TV design review [#756](https://github.com/LimeBeck/arinn/issues/
   left fade. Focus, `reveal()` and the focused card's glow still use the safe
   right edge at x 1824. Home rows keep the handoff's hard safe edge.
 - **Status area** (C26). `StatusArea.qml` is the top bar's right side: the
-  browser-unavailable chip, the download chip, mute, Wi-Fi or cable or no
-  network, and the clock. Home uses it next to its lockup; `Main.qml` draws one
+  browser-unavailable chip, the download chip, the music line, mute, Wi-Fi or
+  cable or no network, and the clock. While music plays, `musicLine` shows an
+  Ember dot and "track · artist" (24/500, `text-2`, at most 420 px, elided);
+  on pause it goes. `Main.qml` binds it from `MusicCatalog.statusLine` to
+  Home's and the screens' areas; the video player and Ambient show no status
+  area (#803, ADR-0142 MH-4). Home uses it next to its lockup; `Main.qml` draws one
   more (`screenStatusArea`) at the same place over Library, Settings,
   Downloads and Open services, bound to Home's state. Open services drops its
   own clock there (`BrowserView.ownClock: false`); a view shown alone keeps

@@ -24,10 +24,24 @@ FocusScope {
     property string stopFailed: ""
     property bool stopSent: false
     property string stopAction: ""
+    // Session states read since the command ended: the catalogue may end a
+    // command before its next read answers (Codex review of #851).
+    property int stopReads: -1
+    Connections {
+        target: root.catalog
+        ignoreUnknownSignals: true
+        function onActiveChanged() { root.countStopRead(); }
+        function onActiveStateChanged() { root.countStopRead(); }
+    }
+    function countStopRead() {
+        if (stopReads >= 0)
+            ++stopReads;
+    }
     function stopThenTurnOff(id) {
         stopping = id;
         stopFailed = "";
         stopSent = false;
+        stopReads = -1;
         stopWatch.elapsed = 0;
         stopWatch.restart();
     }
@@ -83,9 +97,14 @@ FocusScope {
                 stop();
                 root.setEnabled(root.stopping, false);
                 root.stopping = "";
-            } else {
-                root.failStop();
+                return;
             }
+            // Not ended yet: decide only after two reads since the command
+            // ended, so the state is the command's own result.
+            if (root.stopReads < 0)
+                root.stopReads = 0;
+            else if (root.stopReads >= 2)
+                root.failStop();
         }
     }
     readonly property var sources: room ? room.sources : []

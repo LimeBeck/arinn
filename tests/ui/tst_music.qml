@@ -1176,6 +1176,10 @@ TestCase {
         // the session still playing once the command has ended does.
         tryCompare(catalog,"commands",["stop"]);catalog.errorText="The source could not do that. Try again.";
         wait(300);compare(room.commands[room.commands.length-1],"local:on");catalog.busy=false;
+        // The command has ended: the state read after it decides, not the
+        // state from before it (Codex review of #851).
+        wait(400);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
+        for(let i=0;i<2;i++){wait(150);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});}
         const errors=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceError"&&c.visible)out.push(c.text);walk(c);}};walk(sheet);return out;};
         tryVerify(()=>errors().includes("The music could not be stopped, so the source stays on."));
         compare(room.commands[room.commands.length-1],"local:on");catalog.errorText="";

@@ -781,6 +781,24 @@ private slots:
     QCOMPARE(daemon.sets.at(2).value, QStringLiteral("\"\""));
     QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
   }
+  // Codex review of #851: a daemon that does not list the setting cannot
+  // store a turned-off source, so nothing changes and nothing is written.
+  void musicSourcesNeedTheCoreSetting() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("true"),
+                 QStringLiteral("{}"), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+    QTest::qWait(200);
+    QVERIFY(daemon.sets.isEmpty());
+  }
   // ADR-0112: the light field and the ambient timeout come from the daemon's
   // own settings; the same ids from another provider do not count.
   void shellPreferencesFromTheCoreSource() {

@@ -834,6 +834,12 @@ void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
   // review of #851).
   if (providerId.isEmpty() || !m_loaded || m_unreachable)
     return;
+  // The daemon must list the setting, or the change could not be stored
+  // (Codex review of #851).
+  const auto *row =
+      find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  if (!row || !row->enabled)
+    return;
   auto wanted = musicDisabledSources();
   if (enabled)
     wanted.removeAll(providerId);
@@ -863,9 +869,16 @@ void SettingsCatalog::writeMusicDisabled() {
                                                               m_musicDisabledWanted))
                                                 .toJson(QJsonDocument::Compact));
   setValue(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources), text);
-  // Sent only once the write is in flight (Codex review of #851).
-  if (m_pending.contains(key))
+  // Sent only once the write is in flight (Codex review of #851). A write
+  // that could not be sent, the setting gone or the daemon away, shows the
+  // stored list again.
+  if (m_pending.contains(key)) {
     m_musicDisabledSent = m_musicDisabledWanted;
+  } else {
+    m_musicDisabledWanting = false;
+    m_errors.remove(key);
+    emit preferencesChanged();
+  }
 }
 void SettingsCatalog::publish() {
   syncDeferred();

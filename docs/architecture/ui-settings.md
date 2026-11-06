@@ -40,8 +40,10 @@ stored in `config.toml` as a list. The daemon refuses a value that is not a
 list of distinct ids, at most 64, whose text fits the setting's 4096
 characters; a hand-edited invalid list reads as none.
 - This screen leaves the row out, because the *Sources* sheet sets it.
-- `SettingsCatalog.musicDisabledSources` shows a change at once. Before the
-  daemon's settings are read, or while it is away, a change is refused.
+- `SettingsCatalog.musicDisabledSources` shows a change at once. A change is
+  refused before the daemon's settings are read, while the daemon is away,
+  or when it does not list the setting. A write that cannot be sent shows
+  the stored list again.
 - `setMusicSourceEnabled` writes it one write at a time; a change made while
   a write is in flight is written after it, and a refused write shows the
   stored list again.

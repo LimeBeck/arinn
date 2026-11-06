@@ -112,7 +112,8 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
 endforeach()
 
 set(ARINN_MUSIC_FILES ui/screens/music/qmldir ui/screens/music/MusicView.qml
-    ui/screens/music/MusicIcon.qml ui/screens/music/MusicButton.qml ui/screens/music/MusicArtwork.qml)
+    ui/screens/music/MusicIcon.qml ui/screens/music/MusicButton.qml ui/screens/music/MusicArtwork.qml
+    ui/screens/music/MusicDialog.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} music_screen PREFIX "/" FILES ${ARINN_MUSIC_FILES})
 endforeach()

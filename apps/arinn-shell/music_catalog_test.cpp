@@ -321,6 +321,83 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
+    QVERIFY(catalog.homeEntries().first().toMap().value("live").toBool());
+  }
+  // The stale "Unavailable" under every music screen (#756 M5, M8): a
+  // provider keeps its last error after it skipped to the next track. The
+  // reason shows only while the session stays stopped and clears once it
+  // plays again. The Quick menu reads the same session (#756 M2).
+  void playbackProblemHasAReasonAndClearsOnRecovery() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    auto publish = [&](const QString &playback, const QString &error) {
+      QJsonObject current{{"revision", 1}, {"session", "s"}, {"playback", playback},
+                          {"actions", QJsonArray{playback == "playing" ? "pause" : "resume"}},
+                          {"current", QJsonObject{{"occurrence", "o"},
+                                                  {"track", QJsonObject{{"id", "t1"},
+                                                                        {"title", "Synthetic"},
+                                                                        {"artist", "Artist"}}}}}};
+      if (!error.isEmpty())
+        current["error"] = error;
+      daemon.active = QString::fromUtf8(
+          QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
+                                    {"state", current}})
+              .toJson(QJsonDocument::Compact));
+    };
+    publish("stopped", "NotFound");
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.playbackProblem(), QStringLiteral("The track was not found in this source."));
+    QTRY_COMPARE(catalog.notice(),
+                 QStringLiteral("Playback stopped. The track was not found in this source."));
+    QVERIFY(catalog.nowPlaying().isEmpty());
+    // An unknown code reads as a generic failure, never as the code.
+    publish("stopped", "Internal");
+    catalog.refresh();
+    QTRY_COMPARE(catalog.playbackProblem(), QStringLiteral("The track could not be played."));
+    // A queue that ended naturally after a skipped failure has no problem.
+    publish("ended", "Unavailable");
+    catalog.refresh();
+    QTRY_VERIFY(catalog.playbackProblem().isEmpty());
+    QVERIFY(catalog.notice().isEmpty());
+    QSignalSpy changed(&catalog, &MusicCatalog::problemsChanged);
+    publish("playing", "Unavailable");
+    catalog.refresh();
+    QTRY_COMPARE(catalog.nowPlaying().value("state").toString(), QStringLiteral("playing"));
+    QVERIFY(catalog.playbackProblem().isEmpty());
+    QVERIFY(catalog.notice().isEmpty());
+    QVERIFY(changed.count() > 0);
+    // The one-second poll alone does not announce an unchanged session.
+    const auto announced = changed.count();
+    catalog.refresh();
+    QTest::qWait(300);
+    QCOMPARE(changed.count(), announced);
+    const auto now = catalog.nowPlaying();
+    QCOMPARE(now.value("id").toString(), MusicCatalog::sessionEntryId());
+    QCOMPARE(now.value("title").toString(), QStringLiteral("Synthetic"));
+    QCOMPARE(now.value("subtitle").toString(), QStringLiteral("Artist"));
+    QCOMPARE(now.value("state").toString(), QStringLiteral("playing"));
+    QVERIFY(now.value("playPause").toBool());
+    // Play/Pause from the sheet and Home's card pauses a playing session.
+    QTRY_VERIFY(!catalog.sources().isEmpty());
+    const auto before = daemon.commands.size();
+    catalog.togglePlayback();
+    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("pause"));
+    publish("loading", QString());
+    catalog.refresh();
+    QTRY_COMPARE(catalog.activeState().value("playback").toString(), QStringLiteral("loading"));
+    QVERIFY(catalog.nowPlaying().isEmpty());
+  }
+  // A degraded source says that part of it is unavailable, with no code.
+  void aDegradedSourceExplainsItself() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    auto degraded = state({"tracks"});
+    degraded["backend"] = "degraded";
+    degraded["error"] = "Unavailable";
+    daemon.states.insert("local", degraded);
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.notice(),
+                 QStringLiteral("Part of this source is unavailable. Refresh to try again."));
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

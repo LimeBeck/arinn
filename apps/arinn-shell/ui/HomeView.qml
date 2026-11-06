@@ -331,7 +331,13 @@ FocusScope {
         const own = entries.filter(entry => entry !== merged);
         const lead = own.length && own[0].kind !== "media" ? own[0] : null;
         const activity = shown ? service : lead ? [lead] : [];
-        const rest = (shown || !lead ? own : own.slice(1))
+        // A playing or paused music session leads the further cards: saved
+        // positions come after it and would push it past the four that fit
+        // (#756 M3). A stopped one keeps its place (spec §5.1).
+        const further = shown || !lead ? own : own.slice(1);
+        const liveMusic = entry => entry.kind === "music" && entry.live === true;
+        const rest = further.filter(liveMusic)
+            .concat(further.filter(entry => !liveMusic(entry)))
             .map(entry => entry.kind === "media" && entry.serviceId ? tabCard(entry) : entry);
         // A fresh shell may know the open tab before it has Return or media
         // evidence. The summary is hidden for one tab, so give that tab its

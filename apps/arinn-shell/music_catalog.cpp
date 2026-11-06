@@ -30,6 +30,10 @@ void registerMusic(){qmlRegisterType<MusicCatalog>("Arinn.Shell",1,0,"MusicCatal
 Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 }
 MusicCatalog::MusicCatalog(QObject *parent):QObject(parent){
+  // The derived lines read the status, the browsed state and the session;
+  // the one-second poll re-emits those, so notify only on a real change.
+  for(auto changed:{&MusicCatalog::statusChanged,&MusicCatalog::stateChanged,&MusicCatalog::activeChanged})
+    connect(this,changed,this,&MusicCatalog::updateProblems);
   auto *watch=new QDBusServiceWatcher(service,QDBusConnection::sessionBus(),QDBusServiceWatcher::WatchForOwnerChange,this);
   connect(watch,&QDBusServiceWatcher::serviceOwnerChanged,this,[this]{++m_commandTicket;++m_epoch;++m_pageTicket;++m_stateTicket;++m_registryTicket;m_registryBusy=m_pageBusy=m_stateBusy=m_commandBusy=m_activeBusy=m_commandWaitingRefresh=false;m_uncertainStart=false;m_path.clear();m_generation.clear();m_sources.clear();m_entries.clear();m_state.clear();m_active.clear();m_activeId.clear();m_activeGeneration.clear();m_next.clear();emit activeChanged();emit sourcesChanged();emit entriesChanged();emit stateChanged();emit statusChanged();refresh();});
   m_timer.setInterval(1000);connect(&m_timer,&QTimer::timeout,this,&MusicCatalog::refresh);m_timer.start();QTimer::singleShot(0,this,&MusicCatalog::refresh);
@@ -40,7 +44,7 @@ QVariantList MusicCatalog::homeEntries()const {
   const auto track=current.value("track").toMap();const auto playback=m_active.value("playback").toString();
   const bool playing=playback==QStringLiteral("playing"),paused=playback==QStringLiteral("paused");
   const auto status=playing?tr("Playing"):paused?tr("Paused"):playback==QStringLiteral("loading")?tr("Loading…"):tr("Stopped");
-  return {QVariantMap{{"id",QStringLiteral("arinn-music-session")},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"artwork",track.value("image")},{"statusText",activeSourceName().isEmpty()?tr("Music · %1").arg(status):tr("%1 · %2").arg(activeSourceName(),status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"busy",m_commandBusy}}};
+  return {QVariantMap{{"id",sessionEntryId()},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"artwork",track.value("image")},{"statusText",activeSourceName().isEmpty()?tr("Music · %1").arg(status):tr("%1 · %2").arg(activeSourceName(),status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"live",playing||paused},{"busy",m_commandBusy}}};
 }
 void MusicCatalog::fail(const QString &value){
   if(value==QStringLiteral("Conflict"))m_error=tr("The music source changed. Try again.");
@@ -169,4 +173,80 @@ void MusicCatalog::send(const QString &action,const QString &entity,const QStrin
       fail(failure);m_commandWaitingRefresh=true;m_stateBusy=false;++m_stateTicket;readState();readActive();return;}
     m_commandBusy=false;if(!active){m_state=imageState(json.toVariantMap(),m_sourceId,m_path,m_generation);emit stateChanged();}emit statusChanged();readActive();
   });
+}
+
+QString MusicCatalog::sessionEntryId() { return QStringLiteral("arinn-music-session"); }
+
+void MusicCatalog::updateProblems() {
+  auto nowPlaying = this->nowPlaying();
+  auto problem = playbackProblem();
+  auto notice = this->notice();
+  if (nowPlaying == m_nowPlaying && problem == m_playbackProblem && notice == m_notice)
+    return;
+  m_nowPlaying = std::move(nowPlaying);
+  m_playbackProblem = std::move(problem);
+  m_notice = std::move(notice);
+  emit problemsChanged();
+}
+
+QVariantMap MusicCatalog::nowPlaying() const {
+  const auto current = m_active.value(QStringLiteral("current")).toMap();
+  const auto playback = m_active.value(QStringLiteral("playback")).toString();
+  const bool playing = playback == QStringLiteral("playing");
+  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")))
+    return {};
+  const auto track = current.value(QStringLiteral("track")).toMap();
+  const auto actions = m_active.value(QStringLiteral("actions")).toStringList();
+  return {{QStringLiteral("id"), sessionEntryId()},
+          {QStringLiteral("kind"), QStringLiteral("music")},
+          {QStringLiteral("title"), track.value(QStringLiteral("title"))},
+          {QStringLiteral("subtitle"), track.value(QStringLiteral("artist"))},
+          {QStringLiteral("state"), playback},
+          // Not tied to a command in flight: the row would lose focus while
+          // it waits, and the catalogue drops a second press anyway.
+          {QStringLiteral("playPause"),
+           actions.contains(playing ? QStringLiteral("pause") : QStringLiteral("resume"))}};
+}
+
+void MusicCatalog::togglePlayback() {
+  const auto playback = m_active.value(QStringLiteral("playback")).toString();
+  if (playback == QStringLiteral("playing"))
+    transport(QStringLiteral("pause"));
+  else if (playback == QStringLiteral("paused"))
+    transport(QStringLiteral("resume"));
+}
+
+QString MusicCatalog::playbackProblem() const {
+  const auto error = m_active.value(QStringLiteral("error")).toString();
+  const auto playback = m_active.value(QStringLiteral("playback")).toString();
+  // A provider keeps its last error after it skipped to the next track: only
+  // a stopped session failed. One that plays, is paused, loads or ended
+  // naturally has recovered (reviews of #797; provider side #810).
+  if (error.isEmpty() || playback != QStringLiteral("stopped"))
+    return {};
+  if (error == QStringLiteral("NotFound"))
+    return tr("The track was not found in this source.");
+  if (error == QStringLiteral("PermissionDenied"))
+    return tr("This source no longer allows playing the track. Sign in again in Settings.");
+  if (error == QStringLiteral("Timeout"))
+    return tr("The music source did not respond in time.");
+  if (error == QStringLiteral("Unsupported"))
+    return tr("This track cannot be played here.");
+  return tr("The track could not be played.");
+}
+
+QString MusicCatalog::notice() const {
+  if (!m_error.isEmpty())
+    return m_error;
+  if (m_state.value(QStringLiteral("account")).toString() == QStringLiteral("restricted"))
+    return tr("Music access was denied.");
+  const auto problem = playbackProblem();
+  if (!problem.isEmpty())
+    return tr("Playback stopped. %1").arg(problem);
+  // A degraded source still browses; some of its content is missing.
+  if (m_state.value(QStringLiteral("backend")).toString() == QStringLiteral("degraded")
+      && !m_state.value(QStringLiteral("error")).toString().isEmpty()
+      && !m_state.value(QStringLiteral("catalogue_loading")).toBool())
+    return tr("Part of this source is unavailable. Refresh to try again.");
+  return {};
 }

@@ -28,6 +28,32 @@ opens the player and offers a separate pause/resume action. Search reuses the
 shell's on-screen keyboard. New Russian strings have a separate music catalogue
 to avoid the active #718 translation zone.
 
+The active session reaches the rest of the shell through `MusicCatalog`, not
+MPRIS, which the native providers do not publish (#756 M1–M8, #794):
+
+- Automatic Ambient may start while music plays: the owner decided on
+  2026-11-06 that music does not hold it off (#756 M4 dropped). Video and
+  other media sessions still do.
+- `nowPlaying` is the Quick menu's Now playing row when no managed or MPRIS
+  session plays; its OK pauses or resumes through `togglePlayback()`, as the
+  Home card's action does.
+- Home's Continue row keeps a playing or paused music card ahead of saved
+  positions, so it is never pushed past the four further cards; a stopped
+  session keeps its place (spec §5.1).
+- `playbackProblem` turns the session's error code into a reason while the
+  session stays stopped; providers report a failure as `stopped` and a natural
+  end as `ended`. A provider may keep its last error after it skipped to the
+  next track (#810), so the reason clears once the session plays, is paused,
+  loads or ends. `notice` is the one status line under the music screens: a
+  failed request, a denied account, a degraded source or a stopped session,
+  never a bare code. The player keeps its state as the heading and shows the
+  reason under the controls with Retry, which plays the failed track again; a
+  station shows *Play next* instead while it has a loaded next track, because
+  its `retry` only reloads the queue.
+- `MusicView` fills the logical canvas itself, so its background, the confirm
+  dialogs (the close flow's scrim and centred 900 × r48 plate) and the
+  bottom-anchored keyboard panel are drawn on screen.
+
 Local settings apply on provider restart through the existing settings contract
 (#704/#683). Scan publishes an immutable view; secure playback reopening does
 not wait for a scan lock. Shutdown cancels further scan work between files;

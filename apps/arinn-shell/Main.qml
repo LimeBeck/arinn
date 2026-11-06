@@ -945,7 +945,7 @@ Window {
         visible: !root.activityBehind
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
-        MusicCatalog { id: musicCatalog }
+        MusicCatalog { id: musicCatalog; objectName: "musicCatalog" }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45
         // (Hearth light brief, *Global navigation*; #756 C17). Not on the
@@ -1030,7 +1030,7 @@ Window {
                                monogram: "⌕", enabled: true}].concat(backend.favorites)
             newEntries: libraryCatalog.newEntries
             onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayer();}
-            onMusicTransportRequested: musicCatalog.transport(musicCatalog.activeState.playback === "playing" ? "pause" : "resume")
+            onMusicTransportRequested: musicCatalog.togglePlayback()
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows
@@ -1588,8 +1588,13 @@ Window {
             focus: root.focusedScreen === "quickMenu"
             overActivity: root.activityBehind
             connected: backend.connected === true
+            // Managed and MPRIS media, then the native music session, which
+            // publishes no MPRIS (#756 M2). A playing session wins over a
+            // paused one.
             nowPlaying: {
-                const media = mediaCatalog.continueEntries.filter(entry => entry.state === "playing" || entry.state === "paused");
+                const music = musicCatalog.nowPlaying;
+                const media = mediaCatalog.continueEntries.filter(entry => entry.state === "playing" || entry.state === "paused")
+                    .concat(music && music.id ? [music] : []);
                 return media.find(entry => entry.state === "playing") || media[0] || null;
             }
             audio: systemStatus.audio
@@ -1600,7 +1605,10 @@ Window {
             network: systemStatus.network
             wifiLevel: systemStatus.wifiLevel
             clockText: home.clockText
-            onPlayPauseRequested: sessionId => mediaCatalog.sessionAction(sessionId, "playPause")
+            onPlayPauseRequested: sessionId => {
+                if (sessionId === musicCatalog.nowPlaying.id) musicCatalog.togglePlayback();
+                else mediaCatalog.sessionAction(sessionId, "playPause");
+            }
             // The volume keys' semantics: Right turns the sound back on, then
             // raises it (owner decision of 2026-10-21 on #477).
             onMuteToggleRequested: systemControl.toggleMuted()

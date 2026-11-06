@@ -16,6 +16,8 @@ TestCase {
             property var activeState: ({session:"session",playback:"playing",current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",artist:"Fixture artist",duration_us:10000000}},actions:["pause","next","stop","seek"],upcoming:[]})
             property string activeSourceName: "Fixture music"
             property string errorText: ""
+            property string notice: ""
+            property string playbackProblem: ""
             property bool busy: false
             property bool transportBusy: busy
             property bool more: false
@@ -32,6 +34,8 @@ TestCase {
         }
     }
     Component {id:viewFactory;Music.MusicView {width:1920;height:1080}}
+    // As the shell places it: no size given (#756 M6, M7).
+    Component {id:shellViewFactory;Music.MusicView {}}
     Component {id:artworkFactory;Music.MusicArtwork {width:128;height:128;retryInterval:10}}
     Component {id:homeFactory;Ui.HomeView {}}
     Component {id:rowFactory;Ui.HomeRow {width:1600;entries:[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause"}]}}
@@ -75,7 +79,7 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"player"});verify(view);
         const heading=findChild(view,"musicHeading");verify(heading);
         compare(heading.text,"Now playing");
-        for(const state of [{playback:"playing",error:"Unavailable",title:"Now playing"},{playback:"paused",error:"Unavailable",title:"Paused"},{playback:"loading",title:"Loading music…"},{playback:"paused",title:"Paused"},{playback:"stopped",title:"Stopped"},{playback:"stopped",error:"Unavailable",title:"Playback failed"}]) {
+        for(const state of [{playback:"playing",error:"Unavailable",title:"Now playing"},{playback:"paused",error:"Unavailable",title:"Paused"},{playback:"loading",title:"Loading music…"},{playback:"paused",title:"Paused"},{playback:"stopped",title:"Stopped"},{playback:"stopped",error:"Unavailable",title:"Stopped"}]) {
             catalog.activeState={playback:state.playback,error:state.error,actions:[],upcoming:[]};
             tryCompare(heading,"text",state.title);
         }
@@ -291,4 +295,104 @@ TestCase {
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"authorize");
     }
 
+    function covers(item,view) {
+        const origin=item.mapToItem(view,0,0);
+        return origin.x<=0 && origin.y<=0 && origin.x+item.width>=view.width && origin.y+item.height>=view.height;
+    }
+    function inside(item,view) {
+        const origin=item.mapToItem(view,0,0);
+        return item.width>0 && item.height>0 && origin.x>=0 && origin.y>=0
+            && origin.x+item.width<=view.width && origin.y+item.height<=view.height;
+    }
+    // The shell gave the view no size: the replace question had no scrim
+    // and no plate, and the keyboard panel opened above the screen (#756
+    // M6, M7). The view fills the logical canvas itself.
+    function test_replace_dialog_and_keyboard_show_in_the_shell() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(shellViewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        compare(view.width,1920);compare(view.height,1080);
+        view.requestPlay("track-1");
+        const dialog=findChild(view,"musicReplaceDialog");tryCompare(dialog,"visible",true);
+        verify(covers(findChild(dialog,"musicDialogScrim"),view),"the scrim covers the screen");
+        const plate=findChild(dialog,"musicDialogPlate");
+        compare(plate.width,900);compare(plate.radius,48);
+        const centre=plate.mapToItem(view,plate.width/2,plate.height/2);
+        compare(Math.round(centre.x),960);compare(Math.round(centre.y),540);
+        tryCompare(findChild(view,"musicKeepQueue"),"activeFocus",true);
+        keyClick(Qt.Key_Escape);tryCompare(dialog,"visible",false);
+        const toggle=findChild(view,"musicKeyboard");Ui.Focus.take(toggle);tryCompare(toggle,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.typing,true);
+        const keyboard=findChild(view,"musicOnScreenKeyboard");
+        tryVerify(()=>keyboard.activeFocus);
+        verify(inside(keyboard,view),"the keyboard panel is on screen");
+        keyClick(Qt.Key_Escape);compare(view.typing,false);tryCompare(findChild(view,"musicSearch"),"activeFocus",true);
+    }
+    // The bare "Unavailable" had no reason (#756 M5): the line shows the
+    // catalogue's notice, and an unavailable row says why.
+    function test_notice_and_unavailable_rows_carry_a_reason() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.entries=[{id:"t1",kind:"track",title:"Fixture",artist:"Fixture artist",available:false}];
+        catalog.state={account:"local",facets:["tracks"],actions:["play"],error:"Unavailable"};
+        catalog.activeState={session:"s",playback:"playing",error:"Unavailable",current:{track:{id:"t0",title:"Playing"}},actions:["pause"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const notice=findChild(view,"musicNotice");
+        // A stale provider error alone is not shown while music plays.
+        compare(notice.visible,false);
+        catalog.notice="Playback stopped. The track could not be played.";
+        tryCompare(notice,"visible",true);compare(notice.text,catalog.notice);
+        catalog.notice="";tryCompare(notice,"visible",false);
+        const row=findChild(view,"musicEntries").currentItem;verify(row);
+        let texts=[];
+        (function walk(item){for(const child of item.children){if(child.text!==undefined && child.role!==undefined)texts.push(child.text);walk(child);}})(row);
+        verify(texts.includes("Fixture artist · This source cannot play it"),texts.join("|"));
+        verify(!texts.includes("Unavailable"));
+    }
+    // A failed player named the failure as its title and offered nothing
+    // (#756 M8): the heading keeps the state, the cause and Retry follow.
+    function test_failed_player_shows_the_cause_and_retry() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"stopped",error:"NotFound",current:{track:{id:"track-0",title:"Fixture"}},actions:["play"],upcoming:[]};
+        catalog.playbackProblem="The track was not found in this source.";
+        catalog.notice="Playback stopped. The track was not found in this source.";
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        compare(findChild(view,"musicHeading").text,"Stopped");
+        compare(findChild(view,"musicPlaybackProblem").text,"Playback failed. The track was not found in this source.");
+        compare(findChild(view,"musicNotice").visible,false);
+        const retry=findChild(view,"musicRetryPlayback");verify(retry.visible);
+        const play=findChild(view,"musicPlayPause");Ui.Focus.take(play);tryCompare(play,"activeFocus",true);
+        keyClick(Qt.Key_Down);tryCompare(retry,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(catalog.commands,["play"]);
+        keyClick(Qt.Key_Up);tryCompare(play,"activeFocus",true);
+        // Review of #797: a station's `retry` only reloads its queue, so a
+        // failed station plays its next loaded track; with none loaded the
+        // failure offers no action of its own.
+        catalog.activeState={session:"s",playback:"stopped",continuous:true,error:"Unavailable",current:{track:{id:"track-0",title:"Fixture"}},actions:["retry","next"],upcoming:[]};
+        wait(0);compare(retry.visible,false);
+        catalog.activeState={session:"s",playback:"stopped",continuous:true,error:"Unavailable",current:{track:{id:"track-0",title:"Fixture"}},actions:["retry","next"],upcoming:[{occurrence:"o2",track:{id:"track-1",title:"Next"}}]};
+        tryCompare(retry,"visible",true);compare(retry.text,"Play next");
+        Ui.Focus.take(retry);keyClick(Qt.Key_Return);compare(catalog.commands,["play","next"]);
+        // Review of #797: the recovered player hid Retry with focus still on
+        // it, and a second OK sent another retry.
+        catalog.activeState={session:"s",playback:"playing",continuous:true,current:{track:{id:"track-0",title:"Fixture"}},actions:["pause","retry"],upcoming:[]};
+        catalog.playbackProblem="";
+        tryCompare(findChild(view,"musicPlaybackFailure"),"visible",false);
+        tryCompare(play,"activeFocus",true);compare(retry.activeFocus,false);
+        view.retryPlayback();compare(catalog.commands,["play","next"]);
+    }
+    // Saved positions pushed the playing music past the four further
+    // cards of Continue (#756 M3).
+    function test_continue_keeps_the_music_card_ahead_of_saved_positions() {
+        const saved=[];
+        for(let i=0;i<5;i++)saved.push({id:"saved-"+i,kind:"media",title:"Saved "+i,libraryEntryId:"l"+i});
+        const home=createTemporaryObject(homeFactory,suite,{
+            continueEntries:[{id:"activity",title:"Fixture application",running:true}].concat(saved)
+                .concat([{id:"arinn-music-session",kind:"music",live:true,title:"Fixture song",subtitle:"Fixture artist"}])});
+        verify(home);
+        const ids=home.continuePresentation.map(entry=>entry.id);
+        compare(ids[0],"activity");compare(ids[1],"arinn-music-session");compare(ids.length,5);
+        // Review of #797: a stopped session does not displace saved
+        // positions (spec §5.1).
+        home.continueEntries=home.continueEntries.map(entry=>entry.kind==="music" ? Object.assign({},entry,{live:false}) : entry);
+        compare(home.continuePresentation.map(entry=>entry.id).indexOf("arinn-music-session"),-1);
+    }
 }

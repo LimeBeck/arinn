@@ -14,6 +14,9 @@
 #include <QQmlProperty>
 #include <QTest>
 #include <QTimer>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtDBus>
 
 namespace {
@@ -22,9 +25,89 @@ const QString service = QStringLiteral("org.arinn.Daemon1");
 const QString path = QStringLiteral("/org/arinn/Daemon1");
 const QString control = QStringLiteral("org.arinn.SystemControl1");
 
+// One native music source in Daemon1.Providers (ADR-0134).
+struct MusicProviderRow {};
+QDBusArgument &operator<<(QDBusArgument &argument, const MusicProviderRow &) {
+  argument.beginStructure();
+  argument << QStringLiteral("fixture-music") << QStringLiteral("plugin")
+           << QStringLiteral("system") << QStringLiteral("Fixture music") << QStringLiteral("1")
+           << QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/fixture_music"))
+           << QStringList{QStringLiteral("music")} << QStringLiteral("ready")
+           << QStringLiteral("available") << QStringLiteral("g1") << qulonglong(1) << QString()
+           << qulonglong(0) << qulonglong(0) << qulonglong(0) << qulonglong(0);
+  argument.endStructure();
+  return argument;
+}
+const QDBusArgument &operator>>(const QDBusArgument &argument, MusicProviderRow &) {
+  return argument;
+}
+
 // Home state as the platform reports it; Back hands the screen back.
 class QuickMenuDaemon : public QDBusVirtualObject {
 public:
+  // The native music session (MusicController1.GetActive): empty for none,
+  // otherwise its playback state. Music commands are recorded in order.
+  QString musicPlayback;
+  QStringList musicCommands;
+  QJsonObject musicState() const {
+    QJsonObject state{{"revision", 1}, {"catalogue_revision", 1}, {"backend", "available"},
+                      {"account", "local"}, {"facets", QJsonArray{"tracks"}},
+                      {"actions", QJsonArray{}}, {"playback", "stopped"}};
+    if (musicPlayback.isEmpty())
+      return state;
+    state["session"] = QStringLiteral("session-1");
+    state["playback"] = musicPlayback;
+    state["current"] = QJsonObject{
+        {"occurrence", "o1"},
+        {"track", QJsonObject{{"id", "t1"}, {"title", "Synthetic song"},
+                              {"artist", "Synthetic artist"}, {"available", true}}}};
+    state["actions"] = QJsonArray{musicPlayback == QLatin1String("playing") ? "pause" : "resume",
+                                  "stop", "next"};
+    return state;
+  }
+  bool handleMusic(const QDBusMessage &m, const QDBusConnection &bus) {
+    const auto json = [](const QJsonObject &value) {
+      return QString::fromUtf8(QJsonDocument(value).toJson(QJsonDocument::Compact));
+    };
+    if (m.interface() == QLatin1String("org.arinn.MusicController1")) {
+      bus.send(m.createReply(musicPlayback.isEmpty()
+          ? QStringLiteral("null")
+          : json(QJsonObject{{"provider_id", "fixture-music"}, {"generation", "g1"},
+                             {"state", musicState()}})));
+      return true;
+    }
+    if (m.interface() == service && m.member() == QLatin1String("Providers")) {
+      QDBusArgument body;
+      body.beginStructure();
+      body << QStringLiteral("snapshot");
+      body.beginArray(QMetaType::fromType<MusicProviderRow>());
+      body << MusicProviderRow{};
+      body.endArray();
+      body << QString();
+      body.endStructure();
+      bus.send(m.createReply(QVariant::fromValue(body)));
+      return true;
+    }
+    if (m.interface() != QLatin1String("org.arinn.Music1"))
+      return false;
+    if (m.member() == QLatin1String("Command")) {
+      const auto action = QJsonDocument::fromJson(m.arguments().value(1).toString().toUtf8())
+                              .object().value("action").toString();
+      musicCommands << action;
+      if (action == QLatin1String("pause"))
+        musicPlayback = QStringLiteral("paused");
+      else if (action == QLatin1String("resume"))
+        musicPlayback = QStringLiteral("playing");
+    } else if (m.member() == QLatin1String("GetPage")) {
+      bus.send(m.createReply(json(QJsonObject{
+          {"generation", "g1"}, {"revision", 1}, {"next_token", ""},
+          {"entries", QJsonArray{QJsonObject{{"id", "t1"}, {"kind", "track"},
+                                             {"title", "Synthetic song"}, {"available", true}}}}})));
+      return true;
+    }
+    bus.send(m.createReply(json(musicState())));
+    return true;
+  }
   bool home = false;
   QString returnWindow;
   int backs = 0;
@@ -53,6 +136,8 @@ public:
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &m,
                      const QDBusConnection &bus) override {
+    if (!musicPlayback.isNull() && handleMusic(m, bus))
+      return true;
     if (m.interface() == control) {
       controlCalls << m.member();
       const QString member = m.member();
@@ -174,7 +259,27 @@ class QuickMenuTest : public QObject {
   }
   bool menuOpen() { return menu->isVisible() && focusIn(menu); }
 
+  // A playing native music session, known to the shell before the test
+  // goes on. Only a test that asks for music gets the music source.
+  void startMusic(const QString &playback = QStringLiteral("playing")) {
+    daemon.musicPlayback = playback;
+    auto *catalog = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("musicCatalog"));
+    QVERIFY(catalog);
+    QVERIFY(QMetaObject::invokeMethod(catalog, "refresh"));
+    QTRY_COMPARE(catalog->property("activeState").toMap().value("playback").toString(),
+                 playback);
+  }
+  void showShell() {
+    daemon.request("HomeRequested");
+    QTRY_VERIFY(window->isVisible());
+    window->requestActivate();
+    QTRY_VERIFY(window->isActive());
+    QTRY_VERIFY(focusIn(home));
+  }
+
 private slots:
+  void initTestCase() { qDBusRegisterMetaType<MusicProviderRow>(); }
   void init() {
     daemon.home = false;
     daemon.returnWindow.clear();
@@ -186,11 +291,13 @@ private slots:
     daemon.holdSuspend = false;
     daemon.heldSuspend = {};
     daemon.sessionSwitch.clear();
+    daemon.musicPlayback = QString();
+    daemon.musicCommands.clear();
     guard.m_blocked = false;
     auto bus = daemon.bus;
     QVERIFY(bus.isConnected());
     bus.unregisterObject(path);
-    QVERIFY(bus.registerVirtualObject(path, &daemon));
+    QVERIFY(bus.registerVirtualObject(path, &daemon, QDBusConnection::SubPath));
     QVERIFY(bus.registerService(service));
     backend = std::make_unique<Backend>();
     QTRY_VERIFY(backend->connected());
@@ -1196,6 +1303,67 @@ private slots:
     QTRY_VERIFY(window->isVisible());
     QTest::qWait(200);
     QVERIFY(!power()->property("open").toBool());
+  }
+
+  // The native music session publishes no MPRIS: the sheet's Now playing
+  // row read "Nothing is playing" while it played (#756 M2).
+  void nowPlayingShowsNativeMusic() {
+    showShell();
+    startMusic();
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    auto *row = child(window, "quickMenuMedia");
+    QTRY_COMPARE(row->property("text").toString(), QStringLiteral("Synthetic song"));
+    QVERIFY(row->isEnabled());
+    // The playing session takes the sheet's first focus, and OK pauses it.
+    QTRY_VERIFY(row->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.musicCommands, QStringList{QStringLiteral("pause")});
+    QTRY_COMPARE(row->property("description").toString(), QStringLiteral("Paused · OK plays"));
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_COMPARE(daemon.musicCommands,
+                 (QStringList{QStringLiteral("pause"), QStringLiteral("resume")}));
+  }
+
+  // Home leaves the music player, by the remote's key and by the
+  // platform's request, as it does every other section (#756 M1, §6.3).
+  void homeLeavesTheMusicPlayer() {
+    showShell();
+    startMusic();
+    auto *music = child(window, "productionMusic");
+    QVERIFY(music);
+    for (const bool remote : {true, false}) {
+      QVERIFY(QQmlProperty::write(home, QStringLiteral("screen"), QStringLiteral("music")));
+      QVERIFY(QMetaObject::invokeMethod(music, "openPlayer"));
+      QTRY_VERIFY(music->isVisible());
+      QTRY_VERIFY(focusIn(music));
+      QCOMPARE(music->property("mode").toString(), QStringLiteral("player"));
+      if (remote)
+        QTest::keyClick(window, Qt::Key_Home);
+      else
+        daemon.request("HomeRequested");
+      QTRY_COMPARE(home->property("screen").toString(), QStringLiteral("home"));
+      QTRY_VERIFY2(!music->isVisible(), remote ? "Home key" : "Home request");
+      QTRY_VERIFY(focusIn(home));
+    }
+  }
+
+  // Automatic ambient may start while native music plays: the owner
+  // decided on 2026-11-06 that music does not hold it off (#756 M4
+  // dropped). Video and other media sessions still do; AmbientIdle's own
+  // tests cover those.
+  void ambientMayStartOverNativeMusic() {
+    auto *idle = engine->rootObjects().value(0)->findChild<QObject *>(
+        QStringLiteral("ambientIdle"));
+    QVERIFY(idle);
+    showShell();
+    QTRY_VERIFY(idle->property("eligible").toBool());
+    for (const auto &playback : {QStringLiteral("playing"), QStringLiteral("loading")}) {
+      startMusic(playback);
+      QTest::qWait(100);
+      QVERIFY(!idle->property("mediaPlaying").toBool());
+      QVERIFY(idle->property("eligible").toBool());
+    }
   }
 };
 

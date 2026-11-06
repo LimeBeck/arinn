@@ -620,6 +620,7 @@ RU.update({
 RU.update({
     "Local library": "Локальная библиотека",
     "Local music": "Локальная музыка",
+    "Yandex Music": "Яндекс Музыка",
     "Desktop applications": "Приложения рабочего стола",
     "Media sessions": "Медиасеансы",
 })

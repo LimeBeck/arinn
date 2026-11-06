@@ -2642,6 +2642,10 @@
         <source>Media sessions</source>
         <translation>Медиасеансы</translation>
     </message>
+    <message>
+        <source>Yandex Music</source>
+        <translation>Яндекс Музыка</translation>
+    </message>
 </context>
 <context>
     <name>SettingsView</name>

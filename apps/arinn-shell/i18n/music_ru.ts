@@ -6,6 +6,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicCatalog</name>
     <message>
+      <source>Local music</source>
+      <translation>Локальная музыка</translation>
+    </message>
+    <message>
+      <source>Yandex Music</source>
+      <translation>Яндекс Музыка</translation>
+    </message>
+    <message>
       <source>Music</source>
       <translation>Музыка</translation>
     </message>

@@ -55,6 +55,21 @@ QVariantMap imageState(QVariantMap state, const QString &id,
   }
   return state;
 }
+// The music sources this repository ships, named in the shell's language
+// wherever a source is named (spec §5.6, #838). Matched by plugin id and name
+// together, as Settings does, so a third-party source keeps its own name.
+QString sourceName(const QString &plugin, const QString &name) {
+  static const struct {
+    const char *plugin, *name;
+  } known[] = {
+      {"music-local", QT_TRANSLATE_NOOP("MusicCatalog", "Local music")},
+      {"yandex-music", QT_TRANSLATE_NOOP("MusicCatalog", "Yandex Music")},
+  };
+  for (const auto &entry : known)
+    if (plugin == QLatin1String(entry.plugin) && name == QLatin1String(entry.name))
+      return QCoreApplication::translate("MusicCatalog", entry.name);
+  return name;
+}
 void registerMusic() {
   qmlRegisterType<MusicCatalog>("Arinn.Shell", 1, 0, "MusicCatalog");
 }
@@ -215,7 +230,7 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
           if (capabilities.contains(QStringLiteral("music")))
             rows.append(
                 QVariantMap{{"id", id},
-                            {"name", name},
+                            {"name", sourceName(plugin, name)},
                             {"path", endpoint.path()},
                             {"generation", generation},
                             {"ready", runtime == QStringLiteral("ready")}});

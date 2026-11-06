@@ -106,9 +106,10 @@ FocusScope {
     Flickable {
         id: area
         objectName: "musicSearchShelves"
-        x: Ui.Theme.safeLeft
+        // Full width: each shelf insets its content (#838).
+        x: 0
         y: 96
-        width: parent.width - Ui.Theme.safeLeft
+        width: parent.width
         height: parent.height - y
         contentHeight: column.height + 96
         interactive: false

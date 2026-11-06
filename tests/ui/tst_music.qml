@@ -885,6 +885,96 @@ TestCase {
         // Up from the first shelf reaches the header pills.
         keyClick(Qt.Key_Up);keyClick(Qt.Key_Up);tryCompare(findChild(view,"musicSources"),"activeFocus",true);
     }
+    // #838 (TV check): the focused first card of a shelf stays whole at the
+    // safe area, cards scrolled left fade at the screen edge, rows scrolled
+    // up fade under the hero, a focused card has the mat and rim, and the
+    // focused All tile keeps a light label on its dark plate.
+    function test_room_edges_fades_and_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const many=kind=>{const out=[];for(let i=0;i<12;i++)out.push(room.card("local",kind+":"+i,kind,kind+" "+i));return out;};
+        room.shelves=[room.shelves[0],{id:"albums",title:"Albums",kind:"album",entries:many("album")},
+                      {id:"forYou",title:"For you",kind:"playlist",entries:many("playlist")},
+                      {id:"artists",title:"Artists",kind:"artist",entries:many("artist")},
+                      {id:"recent",title:"Recent tracks",kind:"track",entries:many("track")}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();const roomView=findChild(view,"musicRoom");roomView.focusInitial();
+        tryCompare(findChild(view,"musicShelf-stations"),"activeFocus",true);
+        // Nothing scrolled yet: no top fade.
+        verify(!findChild(view,"musicShelvesTopFade").visible);
+        keyClick(Qt.Key_Down);const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        const area=findChild(view,"musicShelves");
+        const first=albums.focusedCard;verify(first);const card=findChild(first,"musicShelfCard");
+        tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+        // The card, its mat and rim and its caption lie right of the clip.
+        const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
+        const clipLeft=area.mapToItem(view,0,0).x;
+        verify(mat.mapToItem(view,0,0).x-Ui.Theme.rimThickness>=clipLeft,"mat "+mat.mapToItem(view,0,0).x+" clip "+clipLeft);
+        verify(findChild(card,"musicCardTitle").mapToItem(view,0,0).x>=clipLeft);
+        verify(card.mapToItem(view,0,0).x>=Ui.Theme.edgeFadeEnd,"left edge "+card.mapToItem(view,0,0).x);
+        compare(findChild(card,"musicCardFocus").shown,true);
+        // The title and the first card start at the safe area.
+        compare(findChild(albums,"musicShelfTitle").mapToItem(view,0,0).x,Ui.Theme.safeLeft);
+        const edge=findChild(albums,"musicShelfEdgeFade");verify(!edge.visible);
+        for(let i=0;i<8;i++)keyClick(Qt.Key_Right);
+        tryVerify(()=>edge.visible);compare(edge.mapToItem(view,0,0).x,Ui.Theme.edgeFadeStart);
+        // Rows scrolled up fade under the hero; the focused shelf's title
+        // stays below the band.
+        const top=findChild(view,"musicShelvesTopFade");
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);
+        const recent=findChild(view,"musicShelf-recent");tryCompare(recent,"activeFocus",true);
+        tryVerify(()=>area.contentY>0);tryVerify(()=>top.visible);compare(top.mapToItem(view,0,0).y,area.mapToItem(view,0,0).y);
+        tryVerify(()=>findChild(recent,"musicShelfTitle").mapToItem(view,0,0).y>=top.mapToItem(view,0,0).y+top.height-1);
+        // The All tile in focus: a dark container plate, a light label.
+        for(let i=0;i<12;i++)keyClick(Qt.Key_Right);
+        const all=findChild(recent.focusedCard,"musicShelfAll");tryCompare(all,"activeFocus",true);
+        const label=findChild(all,"musicShelfAllLabel");
+        const near=(a,b)=>["r","g","b","a"].every(k=>Math.abs(a[k]-b[k])<=1/255);verify(near(label.color,Ui.Theme.textPrimary));
+        const lum=c=>{const f=v=>v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4);return 0.2126*f(c.r)+0.7152*f(c.g)+0.0722*f(c.b);};
+        const plate=all.background.color;const a=lum(label.color),b=lum(plate);
+        verify((Math.max(a,b)+0.05)/(Math.min(a,b)+0.05)>=4.5,"contrast "+(Math.max(a,b)+0.05)/(Math.min(a,b)+0.05));
+    }
+    // #838: in the All grid a focused card on the first column and row stays
+    // whole inside the grid's clip.
+    function test_all_grid_keeps_a_focused_card_whole() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();keyClick(Qt.Key_Down);
+        const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");const grid=findChild(all,"musicAllGrid");tryCompare(grid,"activeFocus",true);
+        const card=grid.currentItem;tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+        const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
+        const clip=findChild(all,"musicAllClip");const box=clip.mapToItem(view,0,0);const at=mat.mapToItem(view,0,0);
+        verify(at.x-Ui.Theme.rimThickness>=box.x,"left "+at.x+" clip "+box.x);
+        verify(at.y-Ui.Theme.rimThickness>=box.y,"top "+at.y+" clip "+box.y);
+        verify(!findChild(all,"musicAllTopFade").visible);
+    }
+    // #843 (shell part): an unavailable card shows one glyph and dims as one
+    // layer; a playing station without its own cover shows the playing
+    // track's, then the neutral chip with the station glyph.
+    function test_card_glyph_and_playing_station_cover() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const gone=Object.assign(room.card("local","station:all","station","All my music"),{available:false});
+        room.shelves=[{id:"stations",title:"Stations",kind:"station",entries:[room.card("account","station:mix","station","Fixture mix"),gone]}];
+        catalog.activeSourceId="account";
+        catalog.activeState={session:"s",playback:"playing",station:{id:"station:mix",title:"Fixture mix"},
+            current:{track:{id:"t",title:"T",image:"image://fixture/track-cover"}},actions:["pause"],upcoming:[]};
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const stations=findChild(view,"musicShelf-stations");tryCompare(stations,"activeFocus",true);
+        const cards=[];const list=findChild(stations,"musicShelfCards");
+        for(let i=0;i<2;i++){list.currentIndex=i;wait(0);cards.push(findChild(list.currentItem,"musicShelfCard"));}
+        // The playing station without its own cover: the track's cover.
+        compare(cards[0].playing,true);compare(findChild(cards[0],"musicCardArtwork").source.toString(),"image://fixture/track-cover");
+        // A station that does not play keeps the neutral chip.
+        compare(cards[1].playing,false);compare(findChild(cards[1],"musicCardArtwork").source.toString(),"");
+        // One glyph on the unavailable card, and the card dims as one layer.
+        // Glyphs on the artwork; the caption's source mark is not one.
+        const glyphs=item=>{let n=0;const walk=node=>{for(const child of node.children){if(child.objectName==="musicCardSource")continue;if(child.visible&&String(child).indexOf("LineIcon")>=0)n++;walk(child);}};walk(item);return n;};
+        compare(glyphs(cards[1]),1);compare(cards[1].opacity,0.6);compare(cards[1].layer.enabled,true);
+        compare(cards[0].layer.enabled,false);
+    }
     // #800: a late source adds its entries without moving focus; an entry
     // that leaves hands focus to its neighbour.
     function test_late_entries_keep_focus_and_a_dropped_source_moves_it() {

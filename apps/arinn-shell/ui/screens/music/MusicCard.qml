@@ -14,13 +14,19 @@ Ui.Surface {
     property bool round: false
     // The entry is the one that plays: the playing chip sits on its artwork.
     property bool playing: false
+    // The cover of the track that plays: a playing station without its own
+    // cover shows it (#843). Then the neutral chip with the station glyph.
+    property string playingImage: ""
     readonly property string kind: entry.kind || ""
     shapeRole: "content"
     text: entry.title || ""
     cornerRadius: round ? artworkWidth / 2 : Ui.Theme.stillRadius
     implicitWidth: artworkWidth
     implicitHeight: artworkHeight + Ui.Theme.contentCaptionHeight
+    // Dimmed as one layer, so the chip under the glyph never shows through
+    // (#843).
     opacity: entry.available === false ? 0.6 : 1
+    layer.enabled: opacity < 1
     contentItem: Item {
         MusicArtwork {
             id: art
@@ -28,7 +34,17 @@ Ui.Surface {
             width: root.artworkWidth
             height: root.artworkHeight
             radius: root.cornerRadius
-            source: root.entry.image || ""
+            // The card draws its own placeholder chip below: one glyph (#843).
+            placeholder: false
+            source: root.entry.image
+                || (root.playing && root.kind === "station" ? root.playingImage : "")
+            // Focus as on every content card (ADR-0136): the mat, then the
+            // rim from below (#838).
+            Ui.ArtworkFocus {
+                objectName: "musicCardFocus"
+                shown: root.activeFocus
+                artworkRadius: root.cornerRadius
+            }
         }
         // An artist without a portrait: its initial in a neutral chip.
         Rectangle {

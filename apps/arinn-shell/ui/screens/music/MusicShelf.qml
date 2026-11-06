@@ -14,6 +14,8 @@ FocusScope {
     property var shown: []
     // The key of the entry that plays, for the playing chip.
     property string playingKey: ""
+    // The cover of the track that plays, for a playing station (#843).
+    property string playingImage: ""
     property real rowBrightness: 0.62
     // The All tile ends a room shelf; search results have none.
     property bool showAll: true
@@ -27,6 +29,9 @@ FocusScope {
     readonly property var focusedEntry: list.currentIndex >= 0 && list.currentIndex < shown.length
         ? shown[list.currentIndex] : null
     readonly property Item focusedCard: list.currentItem
+    // The shelf spans the screen; its title and first card start at the
+    // safe area (#838).
+    readonly property real inset: Ui.Theme.safeLeft
     signal activated(var entry)
     signal allRequested(string shelfId)
     height: cardHeight + Ui.Theme.contentCaptionHeight + 72
@@ -49,7 +54,7 @@ FocusScope {
         else if (at < 0)
             at = Math.max(0, Math.min(index, showAll ? next.length : next.length - 1));
         list.currentIndex = at;
-        list.positionViewAtIndex(at, ListView.Contain);
+        reveal();
     }
     // Focus on a card by entry key; false when the shelf has no such card.
     function focusKey(key) {
@@ -57,16 +62,29 @@ FocusScope {
         if (at < 0)
             return false;
         list.currentIndex = at;
-        list.positionViewAtIndex(at, ListView.Contain);
+        reveal();
         Ui.Focus.take(list);
         return true;
+    }
+    // The current card stays between the safe areas: never in the left band
+    // where scrolled cards fade, nor past the right one (#838).
+    function reveal() {
+        list.forceLayout();
+        const item = list.currentItem;
+        if (!item)
+            return;
+        const left = item.x - list.contentX;
+        if (left < root.inset)
+            list.contentX = Math.max(-list.leftMargin, item.x - root.inset);
+        else if (left + item.width > list.width - Ui.Theme.safeRight)
+            list.contentX = item.x + item.width - list.width + Ui.Theme.safeRight;
     }
     onShelfChanged: sync()
     onActiveFocusChanged: if (!activeFocus) Qt.callLater(sync)
     Component.onCompleted: sync()
     Ui.UiText {
         objectName: "musicShelfTitle"
-        x: 0
+        x: root.inset
         y: 0
         role: "section"
         color: root.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
@@ -76,7 +94,10 @@ FocusScope {
         id: list
         objectName: "musicShelfCards"
         y: 56
-        width: Ui.Theme.canvasWidth - Ui.Theme.safeLeft
+        width: Ui.Theme.canvasWidth
+        // The first card starts at the safe area; a focused one grows past it
+        // and stays whole (#838).
+        leftMargin: root.inset
         height: root.cardHeight + Ui.Theme.contentCaptionHeight + 16
         orientation: ListView.Horizontal
         spacing: 32
@@ -85,9 +106,7 @@ FocusScope {
         keyNavigationEnabled: true
         highlightFollowsCurrentItem: false
         boundsBehavior: Flickable.StopAtBounds
-        preferredHighlightBegin: 0
-        preferredHighlightEnd: width - root.cardWidth - Ui.Theme.safeRight
-        highlightRangeMode: ListView.ApplyRange
+        onCurrentIndexChanged: root.reveal()
         model: root.shown.length + (root.showAll ? 1 : 0)
         delegate: FocusScope {
             id: slot
@@ -108,6 +127,7 @@ FocusScope {
                 round: root.round
                 rowBrightness: root.rowBrightness
                 playing: !!slot.entry && slot.entry.key === root.playingKey
+                playingImage: root.playingImage
                 onActivated: root.activated(slot.entry)
             }
             // The All tile opens the whole list for this shelf (mh-11).
@@ -124,13 +144,32 @@ FocusScope {
                 onActivated: root.allRequested(root.shelfId)
                 contentItem: Item {
                     Ui.UiText {
+                        objectName: "musicShelfAllLabel"
                         anchors.centerIn: parent
                         role: "control"
                         text: qsTr("All")
-                        color: parent.parent.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
+                        // A container: its focused plate is dark, so the label
+                        // stays light; ink is for a white action pill (#838).
+                        color: Ui.Theme.textPrimary
                     }
                 }
             }
+        }
+    }
+    // Cards scrolled left stay visible as they cross the screen edge and
+    // fade out from x 24 to x 112, as on Home (HomeRow rowEdgeFade, ADR-0136).
+    Rectangle {
+        objectName: "musicShelfEdgeFade"
+        z: 80
+        x: Ui.Theme.edgeFadeStart
+        y: list.y
+        width: Ui.Theme.edgeFadeEnd - Ui.Theme.edgeFadeStart
+        height: list.height
+        visible: list.contentX > -list.leftMargin + 0.5
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0; color: Ui.Theme.background }
+            GradientStop { position: 1; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0) }
         }
     }
 }

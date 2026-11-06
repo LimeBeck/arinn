@@ -226,6 +226,7 @@ struct PackagedName {
 constexpr PackagedName kProviderNames[] = {
     {"library", QT_TRANSLATE_NOOP("SettingsCatalog", "Local library")},
     {"music-local", QT_TRANSLATE_NOOP("SettingsCatalog", "Local music")},
+    {"yandex-music", QT_TRANSLATE_NOOP("SettingsCatalog", "Yandex Music")},
     {"mpv", QT_TRANSLATE_NOOP("SettingsCatalog", "Playback")},
     {"transmission", QT_TRANSLATE_NOOP("SettingsCatalog", "Downloads")},
     {"desktop", QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications")},

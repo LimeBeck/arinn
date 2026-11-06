@@ -747,7 +747,10 @@ FocusScope {
         // Backspace stays the field's own, to delete (#829, as BrowseView).
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back
                 || (event.key === Qt.Key_Backspace && !search.activeFocus)) {
-            back();
+            // One step per press: a held key does not close the keyboard and
+            // leave Find at once (review of #830, as Home and Browse).
+            if (!event.isAutoRepeat)
+                back();
             event.accepted = true;
         } else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
             catalog.transport(playing ? "pause" : "resume");

@@ -1288,6 +1288,18 @@ TestCase {
         tryCompare(field,"activeFocus",true);
         keyClick(Qt.Key_Back);compare(view.mode,"root");compare(room.searchQuery,"");
     }
+    // #829, review of #830: the catalogue filter field (no room) is left with
+    // Back too, after its keyboard panel closes.
+    function test_catalogue_filter_is_left_with_back() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        let backs=0;view.backRequested.connect(()=>backs++);
+        const field=findChild(view,"musicSearch");Ui.Focus.take(field);tryCompare(field,"activeFocus",true);
+        field.text="ab";field.cursorPosition=2;keyClick(Qt.Key_Backspace);compare(field.text,"a");compare(backs,0);
+        keyClick(Qt.Key_Return);tryCompare(view,"typing",true);
+        keyClick(Qt.Key_Back);tryCompare(view,"typing",false);compare(backs,0);tryCompare(field,"activeFocus",true);
+        keyClick(Qt.Key_Back);compare(backs,1);
+    }
     function test_find_searches_every_source() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
         const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);

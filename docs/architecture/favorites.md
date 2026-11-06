@@ -170,6 +170,8 @@ the station and the provider's own `pin` action are the shell's (#804).
   targets (`Main.pinnedMusicStations`) and the station's identity alone, so a
   pin whose `MusicPins1` record is not read yet, or whose station is no
   longer marked `pinnable`, can still be removed. The row waits while a favorites write
-  is in flight.
+  is in flight. A failed save shows on *Now playing* (`musicPinFailure`, the
+  shell's favourites write error) for the station it was asked for, until
+  the player closes.
   Any other station keeps the provider's own *Pin station* row.
 

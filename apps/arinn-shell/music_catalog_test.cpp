@@ -1062,11 +1062,13 @@ private slots:
     };
     const auto rowsFunction = extract(QStringLiteral("musicPinRows"));
     const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
+    const auto pairsFunction = extract(QStringLiteral("pinnedMusicStations"));
+    QVERIFY(!pairsFunction.isEmpty());
     QVERIFY(!rowsFunction.isEmpty());
     QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction +
+    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction + pairsFunction +
                        "    function rows(f, s, u, a) {\n"
                        "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id);\n"
                        "    }\n}")
@@ -1139,6 +1141,21 @@ private slots:
       }();
       return value.toBool();
     };
+    // Home's pins come from the stored targets, also for a placeholder row
+    // whose MusicPins1 record is missing (Codex review of #836).
+    const QVariantList stored{
+        QVariantMap{{"id", "app"}, {"providerId", "apps"}, {"capability", "application"},
+                    {"localId", "a"}},
+        QVariantMap{{"id", "p1"}, {"providerId", "local"}, {"capability", "music-station"},
+                    {"localId", "station:library"}, {"musicStation", true}},
+        QVariantMap{{"id", "p2"}, {"providerId", "cloud"}, {"capability", "music-station"},
+                    {"localId", "station:wave"}, {"unavailable", true}}};
+    QVariant pairs;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "pinnedMusicStations",
+                                      Q_RETURN_ARG(QVariant, pairs), Q_ARG(QVariant, stored)));
+    QCOMPARE(qvariant_cast<QJSValue>(pairs).toVariant().toList(),
+             (QVariantList{QVariant(QVariantList{"local", "station:library"}),
+                           QVariant(QVariantList{"cloud", "station:wave"})}));
     const QVariantList noPins{favorites.first()};
     QVERIFY(follows(true, false, noPins));
     QVERIFY(follows(false, true, favorites));
@@ -1188,6 +1205,8 @@ private slots:
     catalog.transport("pause");
     QVERIFY(catalog.transportBusy());
     catalog.syncProviderPin("local", "station:wave", true);
+    // Another station's change from the same read keeps it waiting.
+    catalog.syncProviderPin("local", "station:other", false);
     QCOMPARE(daemon.commands.size(), before + 1);
     QTRY_COMPARE(daemon.commands.size(), before + 2);
     QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));

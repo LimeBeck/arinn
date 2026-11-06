@@ -373,17 +373,17 @@ FocusScope {
     property var pinnedStations: []
     property bool pinsWritable: false
     signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
-    // Home stores a pin with its title, cleaned of control characters
-    // (MusicPins1): a station without one cannot be pinned (Codex review of
-    // #836).
+    // Home stores a new pin with its title, cleaned of control characters
+    // (MusicPins1): a station without one cannot be pinned, though a pin
+    // Home already holds can always be removed (Codex review of #836).
     readonly property string stationPinTitle: player.station && player.station.title
         ? String(player.station.title).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : ""
-    readonly property bool stationPinnable: !!player.station && !!player.station.id
+    readonly property bool stationPinKnown: !!player.station && !!player.station.id
                                             && player.station.pinnable === true && !!catalog.activeSourceId
-                                            && stationPinTitle.length > 0
-    readonly property bool stationPinned: stationPinnable
+    readonly property bool stationPinned: stationPinKnown
                                           && pinnedStations.some(pair => pair[0] === catalog.activeSourceId
                                                                          && pair[1] === player.station.id)
+    readonly property bool stationPinnable: stationPinned || (stationPinKnown && stationPinTitle.length > 0)
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false

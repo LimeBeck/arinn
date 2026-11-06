@@ -665,6 +665,13 @@ TestCase {
         catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:blank",title:" \t ",pinnable:true},actions:["pause","pin"]});
         Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
         compare(list.itemAtIndex(0).actionKey,"pin");
+        keyClick(Qt.Key_Escape);
+        // A pin Home already holds can still be removed when the title goes
+        // blank (Codex review of #836).
+        view.pinnedStations=[["fixture.music","station:blank"]];view.pinsWritable=true;
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).actionKey,"homePin");compare(list.itemAtIndex(0).text,"Unpin from Home");
+        keyClick(Qt.Key_Return);compare(requests[requests.length-1],["fixture.music","station:blank","","",false]);
     }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the

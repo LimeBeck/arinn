@@ -161,9 +161,9 @@ the station and the provider's own `pin` action are the shell's (#804).
   music command in flight waits for it; one whose station stopped playing is
   dropped. The Home shelf still comes from Arinn's store.
 - **Pinning from the player.** For a station the provider marks `pinnable`,
-  and whose title is not empty once control characters are removed (Home
-  stores the title), *Now playing*'s *More* sheet offers *Pin to Home* or
-  *Unpin from Home*
+  *Now playing*'s *More* sheet offers *Pin to Home* when the title is not
+  empty once control characters are removed (Home stores the title), and
+  *Unpin from Home* for a station Home holds, whatever its title now
   (`MusicView.stationPinRequested`, then `Backend.pinMusicStation` or
   `unpinMusicStation`). The row waits while a favorites write is in flight.
   Any other station keeps the provider's own *Pin station* row.

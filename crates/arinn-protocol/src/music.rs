@@ -47,9 +47,18 @@ pub struct Entity {
     /// shared shelves order ordinary entries by it, newest first.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub added_at: u64,
+    /// A station the shell may store and start later (ADR-0142 MH-6): its
+    /// `id` stays valid across provider restarts and generations, is never
+    /// reused for another station, and `radio` with it starts this station.
+    /// Only stations carry it. Optional on the wire, omitted when false.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pinnable: bool,
 }
 fn is_zero(value: &u64) -> bool {
     *value == 0
+}
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 /// 9999-12-31T23:59:59Z: a later date is a provider bug, not a library date.
 pub const MAX_ADDED_AT: u64 = 253_402_300_799;
@@ -74,6 +83,9 @@ impl Entity {
             return Err(ErrorCode::InvalidArgument);
         }
         if self.duration_us > 31_536_000_000_000 || self.added_at > MAX_ADDED_AT {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if self.pinnable && self.kind != "station" {
             return Err(ErrorCode::InvalidArgument);
         }
         Ok(())
@@ -470,5 +482,33 @@ mod tests {
             ..entity
         };
         assert!(late.validate().is_err());
+    }
+    /// #811: the pinnable mark is optional on the wire, omitted when false,
+    /// and only a station may carry it.
+    #[test]
+    fn pinnable_is_optional_and_only_for_stations() {
+        let old = r#"{"id":"station:x","kind":"station","title":"","artist":"","album":"","artwork":"","duration_us":0,"available":true}"#;
+        let station: Entity = decode(old).unwrap();
+        assert!(!station.pinnable);
+        assert!(
+            !serde_json::to_string(&station)
+                .unwrap()
+                .contains("pinnable")
+        );
+        let pinnable = Entity {
+            pinnable: true,
+            ..station.clone()
+        };
+        let json = serde_json::to_string(&pinnable).unwrap();
+        assert!(json.contains(r#""pinnable":true"#));
+        assert!(decode::<Entity>(&json).unwrap() == pinnable);
+        assert!(pinnable.validate().is_ok());
+        for kind in ["track", "album", "artist", "playlist"] {
+            let other = Entity {
+                kind: kind.into(),
+                ..pinnable.clone()
+            };
+            assert_eq!(other.validate(), Err(ErrorCode::InvalidArgument), "{kind}");
+        }
     }
 }

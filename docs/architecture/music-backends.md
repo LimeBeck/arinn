@@ -12,7 +12,7 @@ The [research](music-discovery.md) remains the source for feasibility limits.
 | Package | Implemented in this increment | Still missing |
 | --- | --- | --- |
 | `arinn-music-common` | Metadata, bounded finite/radio queue, private atomic state, owned audio-only player, natural playback events and continuous refill | Installed audio qualification |
-| `arinn-plugin-music-local` | Persistent catalogue/playlists, registration, snapshot paging, root settings, background scan, finite playback, bounded artwork extraction and native playlist save/delete | Native package/audio qualification |
+| `arinn-plugin-music-local` | Persistent catalogue/playlists, registration, snapshot paging, root settings, background scan, finite playback, the library station (`station:library`, a shuffled continuous queue the provider tops up; `radio` with a track or group plays it first), bounded artwork extraction and native playlist save/delete | Native package/audio qualification |
 | `arinn-plugin-yandex-music` | Device-code controller, staged Secret Service lifecycle, catalogue/search/liked content, signed stream resolution, artwork and continuous radio runtime | Live deployment-client, account and authenticated audio qualification |
 
 The proposed [music contract](../plugin-api/music.md) and

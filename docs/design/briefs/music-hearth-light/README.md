@@ -199,6 +199,8 @@ A right-hand sheet 720 wide.
   - Home lists Arinn's own pins and never infers pins from `selections`.
   - Where a provider supports the `pin` action, Arinn also sends it, so the service keeps its own list. The Home shelf still comes from Arinn's store.
   - A pin whose provider is disconnected stays on the shelf, marked unavailable with the reason.
+  - **A pin needs a stable station identity.** The music contract does not promise that a station ID survives a provider restart. Durable pins wait for the contract change that adds that guarantee or a re-resolution step ([#811](https://github.com/LimeBeck/arinn/issues/811)). Until then, pinning to Home is not offered.
+  - A stored pin that the provider no longer resolves is marked unavailable. Arinn never silently starts another station.
 
 **Quick menu (`mh-06`; MH-7).** While a media session plays or is paused, the *Now playing* row becomes a media card.
 - **Shape.** A container r20, 624 wide and 284 high, with a faint glow in the artwork hue at the left.

@@ -418,15 +418,23 @@ Yandex Music artwork IDs (#825) are opaque, at most 256 bytes and without `/`:
   tracks (its first track's cover, with no new request);
 - `album-cover:<id>` and `artist-cover:<id>` for search results and the
   library's artists;
-- `playlist-cover:<uid>:<kind>` for the account's playlists.
+- `playlist-cover:<uid>:<kind>` for the account's playlists;
+- `station-cover:<station key>` for a rotor station, such as My Wave
+  (`user:onyourwave`) or a track's radio (`track:<id>`) (#843).
 
 Each resolves through its own API object's `coverUri`, `cover.uri` or
 `ogImage`; a playlist's comes from the account's playlist list, which carries
-no tracks. The reference becomes the 600 × 600 image on `avatars.yandex.net`
+no tracks. A station's comes from `rotor/station/<key>/info`: its
+`icon.imageUrl`, else its `fullImageUrl`. The reference becomes the 600 × 600 image on `avatars.yandex.net`
 or `avatars.mds.yandex.net`, behind the same cache, epoch guard, size limit and
 `sniff` check as track covers.
 
-Search results and playlists carry an ID only when the API names an image.
+Search results, playlists and stations carry an ID only when the API names an
+image. Whether a station's info names one is asked once per connection, with a
+3-second limit; a failed or slow answer leaves the station without artwork
+and is asked again on the next listing. The Selections shelf asks for My Wave
+and every pinned station, including a pin stored before stations had covers.
+A radio start asks for its station once the session exists.
 A library artist always carries one, and an artist without a picture falls
 back to the shell's neutral artwork.
 

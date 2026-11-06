@@ -157,6 +157,18 @@ fn station(id: &str, title: &str) -> Entity {
         ..Entity::default()
     }
 }
+/// A station's artwork ID when its rotor info names an image, else empty:
+/// no image, no artwork (#843). A slow or failed lookup leaves it empty and
+/// never holds up the station.
+async fn station_artwork(api: &Api, id: &str) -> String {
+    let Ok(key) = seed(id) else {
+        return String::new();
+    };
+    match tokio::time::timeout(Duration::from_secs(3), api.station_image(&key)).await {
+        Ok(Ok(Some(_))) => format!("station-cover:{key}"),
+        _ => String::new(),
+    }
+}
 fn seed(entity: &str) -> Result<String, ErrorCode> {
     if entity == "station:wave" {
         Ok("user:onyourwave".into())
@@ -595,14 +607,19 @@ impl Runtime {
                 "station:wave",
                 station_title("user:onyourwave", &message_locale()),
             )];
-            for pin in &self.data.lock().await.pins {
+            let pins = self.data.lock().await.pins.clone();
+            for mut pin in pins {
                 if !entries.iter().any(|e| e.id == pin.id) {
-                    let mut pin = pin.clone();
                     if pin.id == "station:wave" {
                         pin.title = station_title("user:onyourwave", &message_locale()).into();
                     }
                     entries.push(pin);
                 }
+            }
+            // Each station's cover as its rotor info names it now, also for
+            // a pin stored before stations carried one (#843).
+            for entry in &mut entries {
+                entry.artwork = station_artwork(api, &entry.id).await;
             }
             entries.extend(
                 api.user_playlists(&uid)
@@ -791,6 +808,8 @@ impl Runtime {
         } else {
             format!("station:{seed}")
         };
+        let mut playing = station(&station_id, title);
+        playing.artwork = station_artwork(api, &station_id).await;
         let mut d = self.data.lock().await;
         if d.epoch != epoch {
             return Err(ErrorCode::Conflict);
@@ -800,7 +819,7 @@ impl Runtime {
             .radio(
                 session.batch.tracks.clone(),
                 session.batch.id.clone(),
-                station(&station_id, title),
+                playing,
             )
             .await?;
         let batches = VecDeque::from([feedback_batch(&session.batch)]);
@@ -1294,6 +1313,106 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert!(
             requests[0].0.starts_with("GET /albums/7 "),
+            "{}",
+            requests[0].0
+        );
+    }
+    /// #843: a station carries `station-cover:<key>` when its rotor info
+    /// names an image, and no artwork otherwise, also for a pin stored
+    /// before stations had covers; the answer is kept for the connection.
+    #[tokio::test]
+    async fn stations_carry_their_rotor_covers() {
+        let fixture = Fixture::new();
+        fixture.runtime.data.lock().await.pins = vec![
+            station("station:track:123", "Fixture radio"),
+            station("station:track:456", "Bare radio"),
+        ];
+        let account = json!({"result":{"account":{"uid":5}}});
+        let wave = json!({"result":[{"station":{"id":{"type":"user","tag":"onyourwave"},
+            "icon":{"backgroundColor":"#000000","imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]});
+        let track = json!({"result":[{"station":{"id":{"type":"track","tag":"123"},
+            "icon":{"imageUrl":""},"fullImageUrl":"avatars.yandex.net/get-music-content/2/b/%%"}}]});
+        let bare = json!({"result":[{"station":{"id":{"type":"track","tag":"456"},"icon":{}}}]});
+        let mock = Mock::new(vec![
+            (200, account.to_string()),
+            (200, wave.to_string()),
+            (200, track.to_string()),
+            (200, bare.to_string()),
+            (200, json!({"result":[]}).to_string()),
+            (200, account.to_string()),
+            (200, json!({"result":[]}).to_string()),
+        ]);
+        for _ in 0..2 {
+            let (entries, _) = fixture
+                .runtime
+                .fetch(&mock.api, &query("selections", "", ""))
+                .await
+                .unwrap();
+            let got: Vec<(&str, &str)> = entries
+                .iter()
+                .map(|e| (e.id.as_str(), e.artwork.as_str()))
+                .collect();
+            assert_eq!(
+                got,
+                [
+                    ("station:wave", "station-cover:user:onyourwave"),
+                    ("station:track:123", "station-cover:track:123"),
+                    ("station:track:456", ""),
+                ]
+            );
+            assert!(entries.iter().all(|e| e.validate().is_ok()));
+        }
+        let requests = mock.finish();
+        let paths: Vec<&str> = requests
+            .iter()
+            .filter_map(|r| r.0.split(' ').nth(1))
+            .filter(|p| p.starts_with("/rotor/"))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/rotor/station/user:onyourwave/info",
+                "/rotor/station/track:123/info",
+                "/rotor/station/track:456/info",
+            ]
+        );
+    }
+    /// #843: a station cover is resolved through the rotor info with the
+    /// same allow-list as the other covers; an image on another host is
+    /// refused before any download, and an ID that is not a station key in
+    /// its own form is not found and sends nothing.
+    #[tokio::test]
+    async fn a_station_cover_on_a_foreign_host_is_refused() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![response_with(json!([{"station":{
+            "icon":{"imageUrl":"images.example.com/get-music-misc/1/wave/%%"}}}]))]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        assert_eq!(
+            fixture
+                .runtime
+                .artwork("station-cover:user:onyourwave")
+                .await,
+            Err(ErrorCode::Unavailable)
+        );
+        for id in [
+            "station-cover:user:other",
+            "station-cover:track:123:45",
+            "station-cover:123",
+            "station-cover:genre:rock",
+            "station-cover:",
+        ] {
+            assert_eq!(
+                fixture.runtime.artwork(id).await,
+                Err(ErrorCode::NotFound),
+                "{id}"
+            );
+        }
+        let requests = mock.finish();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .0
+                .starts_with("GET /rotor/station/user:onyourwave/info "),
             "{}",
             requests[0].0
         );

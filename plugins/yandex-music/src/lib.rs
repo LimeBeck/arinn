@@ -53,6 +53,10 @@ pub struct Api {
     lease: Option<std::sync::Arc<std::sync::atomic::AtomicU8>>,
     expires_at: Option<u64>,
     deadline: Option<tokio::time::Instant>,
+    /// Whether each rotor station's info names an image, per connection:
+    /// a new account gets a new `Api` and asks again (#843).
+    station_images:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>>,
 }
 
 fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
@@ -144,6 +148,7 @@ impl Api {
             lease: None,
             expires_at: None,
             deadline: None,
+            station_images: Default::default(),
             client,
             origin: Url::parse("https://api.music.yandex.net/").map_err(|_| Error::InvalidInput)?,
         })
@@ -257,6 +262,34 @@ impl Api {
             .request(Method::GET, &["users", uid, "playlists", "list"], &[])
             .await?;
         parse::collections(&result)
+    }
+
+    /// The image reference a rotor station's info names, or `None` (#843).
+    /// An answer, image or none, is kept for this connection; a failure is
+    /// not, so a later listing asks again.
+    pub(crate) async fn station_image(&self, key: &str) -> Result<Option<String>, Error> {
+        if parse::station_seed(key).ok().as_deref() != Some(key) {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(known) = self
+            .station_images
+            .lock()
+            .map_err(|_| Error::Unavailable)?
+            .get(key)
+        {
+            return Ok(known.clone());
+        }
+        let info = self
+            .request(Method::GET, &["rotor", "station", key, "info"], &[])
+            .await?;
+        let image = parse::station_image(&info).map(str::to_owned);
+        let mut known = self.station_images.lock().map_err(|_| Error::Unavailable)?;
+        // A bounded memo: stations come from the Wave, pins and radio starts.
+        if known.len() >= 256 {
+            known.clear();
+        }
+        known.insert(key.into(), image.clone());
+        Ok(image)
     }
 
     pub async fn start_radio(&self, seed: &str) -> Result<RadioSession, Error> {

@@ -11,7 +11,8 @@ Ui.Surface {
     implicitHeight: 80
     width: 80
     height: 80
-    cornerRadius: 40
+    // A circle at every size: 96 and 120 in Now playing's row (#840, MH-3).
+    cornerRadius: width / 2
     shapeRole: "action"
     restingColor: selected ? Ui.Theme.platePrimary : Ui.Theme.plateAction
     focusedColor: Ui.Theme.textPrimary

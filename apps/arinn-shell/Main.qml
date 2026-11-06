@@ -1043,7 +1043,7 @@ Window {
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
                 || downloadsView.visible || browserView.visible || runningView.visible
-                || (musicView.visible && ["root", "all"].includes(musicView.mode) && !musicView.overlayOpen))
+                || (musicView.visible && musicView.screenStatus))
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress
@@ -1171,7 +1171,12 @@ Window {
             onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
             // replaces an open overlay (#329, §6.3).
-            onSectionRequested: route => root.closeOverlays()
+            onSectionRequested: route => {
+                root.closeOverlays();
+                // The Music entry lands on the room (#840, ADR-0142 MH-1).
+                if (route === "music")
+                    musicView.enterSection();
+            }
             onHomeKeyPressed: root.closeOverlays()
             onOpenServicesRequested: {
                 // From the menu over Browse or a session, Open services

@@ -588,6 +588,7 @@ impl Runtime {
                         kind: "playlist".into(),
                         title: p.title,
                         available: true,
+                        added_at: p.added_at,
                         ..Entity::default()
                     }),
             );
@@ -603,6 +604,7 @@ impl Runtime {
                         kind: "playlist".into(),
                         title: p.title,
                         available: true,
+                        added_at: p.added_at,
                         ..Entity::default()
                     })
                     .collect(),
@@ -611,50 +613,54 @@ impl Runtime {
         } else {
             api.liked_tracks(&uid).await.map_err(error)?
         };
-        let entries =
-            if query.parent.is_empty() && ["albums", "artists"].contains(&query.facet.as_str()) {
-                let mut groups = BTreeMap::new();
-                for t in &tracks {
-                    if query.facet == "artists" {
-                        for id in &t.artist_ids {
-                            groups.entry(format!("artist:{id}")).or_insert(Entity {
-                                id: format!("artist:{id}"),
-                                kind: "artist".into(),
-                                title: t.artist.clone(),
-                                available: t.available,
-                                ..Entity::default()
-                            });
-                        }
-                    }
-                    if query.facet == "albums" && !t.album_id.is_empty() {
-                        groups
-                            .entry(format!("album:{}", t.album_id))
-                            .or_insert(Entity {
-                                id: format!("album:{}", t.album_id),
-                                kind: "album".into(),
-                                title: t.album.clone(),
-                                artist: t.album_artist.clone(),
-                                available: t.available,
-                                ..Entity::default()
-                            });
+        let entries = if query.parent.is_empty()
+            && ["albums", "artists"].contains(&query.facet.as_str())
+        {
+            let mut groups = BTreeMap::new();
+            for t in &tracks {
+                if query.facet == "artists" {
+                    for id in &t.artist_ids {
+                        let group = groups.entry(format!("artist:{id}")).or_insert(Entity {
+                            id: format!("artist:{id}"),
+                            kind: "artist".into(),
+                            title: t.artist.clone(),
+                            available: t.available,
+                            ..Entity::default()
+                        });
+                        // A group takes its newest track's date (MH-9).
+                        group.added_at = group.added_at.max(t.added_at);
                     }
                 }
-                groups.into_values().collect()
-            } else {
-                let mut seen = HashSet::new();
-                tracks
-                    .iter()
-                    .filter(|t| seen.insert(&t.id))
-                    .filter(|t| {
-                        query.parent.is_empty()
-                            || query.search.trim().is_empty()
-                            || format!("{} {} {}", t.title, t.artist, t.album)
-                                .to_lowercase()
-                                .contains(&query.search.to_lowercase())
-                    })
-                    .map(track_entity)
-                    .collect()
-            };
+                if query.facet == "albums" && !t.album_id.is_empty() {
+                    let group = groups
+                        .entry(format!("album:{}", t.album_id))
+                        .or_insert(Entity {
+                            id: format!("album:{}", t.album_id),
+                            kind: "album".into(),
+                            title: t.album.clone(),
+                            artist: t.album_artist.clone(),
+                            available: t.available,
+                            ..Entity::default()
+                        });
+                    group.added_at = group.added_at.max(t.added_at);
+                }
+            }
+            groups.into_values().collect()
+        } else {
+            let mut seen = HashSet::new();
+            tracks
+                .iter()
+                .filter(|t| seen.insert(&t.id))
+                .filter(|t| {
+                    query.parent.is_empty()
+                        || query.search.trim().is_empty()
+                        || format!("{} {} {}", t.title, t.artist, t.album)
+                            .to_lowercase()
+                            .contains(&query.search.to_lowercase())
+                })
+                .map(track_entity)
+                .collect()
+        };
         Ok((entries, tracks))
     }
     async fn selected(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
@@ -1080,6 +1086,84 @@ mod tests {
         assert_eq!(all.len(), 2);
         assert_eq!(all[0].title, "Morning");
         assert_eq!(mock.finish().len(), 2);
+    }
+    /// #813 (ADR-0142 MH-9): liked tracks carry their like time, groups take
+    /// their newest track's date, a track without a like time and a release
+    /// date never count, and playlists carry their created date.
+    #[tokio::test]
+    async fn library_dates_come_from_likes_and_playlists_only() {
+        let fixture = Fixture::new();
+        let dated = |id: u64, title: &str, album: u64| {
+            json!({"id":id,"title":title,"available":true,"year":2001,
+                   "artists":[{"id":9,"name":"Fixture artist"}],
+                   "albums":[{"id":album,"title":"Fixture album","releaseDate":"2001-01-01T00:00:00+00:00"}]})
+        };
+        let likes = json!({"result":{"library":{"tracks":[
+            {"id":"123","albumId":"42","timestamp":"2024-05-01T12:00:00+00:00"},
+            {"id":"124","albumId":"42","timestamp":"2024-06-01T12:00:00+00:00"},
+            {"id":"125","albumId":"43"}
+        ]}}});
+        let tracks = json!({"result":[dated(123,"Older",42), dated(124,"Newer",42), dated(125,"Undated",43)]});
+        let account = json!({"result":{"account":{"uid":5}}});
+        for (facet, expected) in [
+            (
+                "tracks",
+                vec![
+                    ("Older", 1_714_564_800),
+                    ("Newer", 1_717_243_200),
+                    ("Undated", 0),
+                ],
+            ),
+            ("albums", vec![("album:42", 1_717_243_200), ("album:43", 0)]),
+            ("artists", vec![("artist:9", 1_717_243_200)]),
+        ] {
+            let mock = Mock::new(vec![
+                (200, account.to_string()),
+                (200, likes.to_string()),
+                (200, tracks.to_string()),
+            ]);
+            let (entries, _) = fixture
+                .runtime
+                .fetch(&mock.api, &query(facet, "", ""))
+                .await
+                .unwrap();
+            let got: Vec<(String, u64)> = entries
+                .iter()
+                .map(|e| {
+                    (
+                        if facet == "tracks" {
+                            e.title.clone()
+                        } else {
+                            e.id.clone()
+                        },
+                        e.added_at,
+                    )
+                })
+                .collect();
+            let expected: Vec<(String, u64)> =
+                expected.into_iter().map(|(k, v)| (k.into(), v)).collect();
+            assert_eq!(got, expected, "{facet}");
+            assert!(entries.iter().all(|e| e.validate().is_ok()));
+            mock.finish();
+        }
+        let mock =
+            Mock::new(vec![
+            (200, account.to_string()),
+            (200, json!({"result":[
+                {"kind":3,"title":"Dated","trackCount":2,"created":"2024-05-01T12:00:00+00:00"},
+                {"kind":4,"title":"Undated","trackCount":1}
+            ]}).to_string()),
+        ]);
+        let (entries, _) = fixture
+            .runtime
+            .fetch(&mock.api, &query("playlists", "", ""))
+            .await
+            .unwrap();
+        assert_eq!(
+            entries.iter().map(|e| e.added_at).collect::<Vec<_>>(),
+            [1_714_564_800, 0]
+        );
+        mock.finish();
     }
     #[tokio::test]
     async fn stale_feedback_cannot_use_a_new_accounts_client() {

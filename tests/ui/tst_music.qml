@@ -917,4 +917,18 @@ TestCase {
         keyClick(Qt.Key_Down);tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);
         keyClick(Qt.Key_Up);tryCompare(scan,"activeFocus",true);
     }
+    // Codex review of #812: shelves that arrive above the focused one keep
+    // the focused shelf in view.
+    function test_focused_shelf_stays_in_view_when_shelves_arrive_above() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const albums=room.shelves[1];room.shelves=[albums];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        const shelf=findChild(view,"musicShelf-albums");tryVerify(()=>shelf.activeFocus);
+        room.shelves=[{id:"stations",title:"Stations",kind:"station",entries:[room.card("account","station:mix","station","Fixture mix")]},
+                      {id:"forYou",title:"For you",kind:"playlist",entries:[room.card("account","playlist:1","playlist","Mix")]},albums];
+        const area=findChild(view,"musicShelves");
+        // Promptly, as the shelves arrive: not on some later event.
+        tryVerify(()=>shelf.activeFocus && shelf.y>=area.contentY && shelf.y+shelf.height<=area.contentY+area.height,500);
+    }
 }

@@ -2067,10 +2067,10 @@ private slots:
     QVERIFY(!player->isVisible());
     QVERIFY(!home->isVisible());
     QCOMPARE(window->color(), QColor(Qt::transparent));
-    // Now playing is the managed session.
-    auto media = window->findChild<QQuickItem *>(QStringLiteral("quickMenuMediaLabel"));
+    // Now playing is the managed session, on the media card (#805).
+    auto media = window->findChild<QQuickItem *>(QStringLiteral("quickMenuCardTitle"));
     QVERIFY(media);
-    QCOMPARE(media->property("text").toString(), QStringLiteral("Piece"));
+    QTRY_COMPARE(media->property("text").toString(), QStringLiteral("Piece"));
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(backend.backs, 1);
     QVERIFY(!menu->isVisible());

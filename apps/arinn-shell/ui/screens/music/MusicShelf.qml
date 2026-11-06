@@ -162,18 +162,21 @@ FocusScope {
         }
     }
     // Cards scrolled left stay visible as they cross the screen edge and
-    // fade out from x 24 to x 112, as on Home (HomeRow rowEdgeFade, ADR-0136).
+    // fade out from x 112 to x 24, as on Home (HomeRow rowEdgeFade,
+    // ADR-0136); left of x 24 the fade is opaque to the screen edge, so no
+    // sliver shows there (Codex review of #848).
     Rectangle {
         objectName: "musicShelfEdgeFade"
         z: 80
-        x: Ui.Theme.edgeFadeStart
+        x: 0
         y: list.y
-        width: Ui.Theme.edgeFadeEnd - Ui.Theme.edgeFadeStart
+        width: Ui.Theme.edgeFadeEnd
         height: list.height
         visible: list.contentX > -list.leftMargin + 0.5
         gradient: Gradient {
             orientation: Gradient.Horizontal
             GradientStop { position: 0; color: Ui.Theme.background }
+            GradientStop { position: Ui.Theme.edgeFadeStart / Ui.Theme.edgeFadeEnd; color: Ui.Theme.background }
             GradientStop { position: 1; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0) }
         }
     }

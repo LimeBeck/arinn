@@ -77,7 +77,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
   3. *Albums*: square covers 240 × 240.
   4. *Artists*: round portraits 240, with a neutral chip and initial when there is no portrait.
   5. *Recent tracks*: a short shelf of square covers. Selecting one plays it in the context it came from.
-- **Source mark.** Every caption starts its subtitle with the source's line icon, 22 px in `text-3`: a cloud for a streaming service, a drive for this computer. The detail and *Now playing* name the source in words in their eyebrow. With only one connected source the mark is still shown, so the meaning does not change when a second source is added.
+- **Source mark.** Every caption starts its subtitle with the provider's own icon, 22 px in a neutral chip, the same icon the *Sources* sheet shows. Where the shell has no icon for a provider, it uses the provider's short name, and providing icons is the implementation's choice. Without an icon, the short name is set in `text-3`. So two streaming services stay distinguishable, and so do duplicates that are deliberately not merged (MH-10). The frames use a cloud and a drive glyph as stand-ins, because the repository carries no service logos. The detail and *Now playing* name the source in words in their eyebrow. With only one connected source the mark is still shown, so the meaning does not change when a second source is added.
 - **Order (MH-9).** On every shelf:
   - personal entries come first: what a provider returns in its `selections` facet, in that provider's own order. With several such providers, the providers follow the order of the *Sources* sheet;
   - ordinary entries follow by date, newest first.
@@ -99,7 +99,7 @@ Built like the movie detail:
 - the cover is 420 × 420, r12;
 - the eyebrow, then the title in Playfair Display 104 (80 on three lines), then the creator and length as meta.
 
-Actions are pills: the primary *Listen*, then *Shuffle* where the source supports it and *Radio from album* with the matching capability. Opening the detail never starts playback.
+Actions are pills: the primary *Listen*, then *Radio from album* with the matching capability. There is no *Shuffle* pill: the music protocol has no shuffle action or play flag. Adding one is a separate `contract-change` task, and the pill follows it. Opening the detail never starts playback.
 
 Tracks are container rows r20 with the number, the title, the artist when it differs from the album's, and the duration.
 - At rest the rows have no plate and use `text-2`. In focus they get the 8 % plate and the rim.
@@ -203,7 +203,7 @@ A right-hand sheet 720 wide.
   - the title in Onest 600 32 and the artist in 24 `text-2`;
   - the Ember progress line;
   - a row of round buttons 64 (previous, play/pause, next) and an *Open player* pill.
-- **Focus.** It starts on play/pause. Left and Right move along the row; Down goes to *Sound*.
+- **Focus.** It starts on play/pause. Left and Right move along the row. Down goes to the second-session row when there is one (see below), otherwise to *Sound*. From the second-session row, Up returns to play/pause and Down goes to *Sound*.
 - **Open player** opens *Now playing* for music, or the video player for video. Back from there returns to the sheet.
 - **Video.** The same card shows a video session: the poster in place of the cover, the episode in place of the artist.
 - **Without a session** the existing single row stays. The card is fed by the music session as well as by media sessions (M2).

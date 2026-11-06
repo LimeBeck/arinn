@@ -1466,10 +1466,11 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
-        let known = mock.api.station_images.lock().unwrap();
-        assert_eq!(known.len(), 1024);
-        assert!(known.contains_key("track:5000"));
-        drop(known);
+        {
+            let known = mock.api.station_images.lock().unwrap();
+            assert_eq!(known.len(), 1024);
+            assert!(known.contains_key("track:5000"));
+        }
         // A known station is answered from the memo, with no request.
         assert!(
             mock.api

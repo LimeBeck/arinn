@@ -33,6 +33,9 @@ revision, field and observed fallback. The provider returns message references
 only for fixed labels it owns. Unknown/stale requests are omitted. A client
 applies the result only while the entire original identity and text still match.
 Message revisions prevent reuse of a translation after a semantic change.
+Association provenance changes also advance the owning snapshot revision and
+emit its existing update, even when plain text is identical. SDK media/download
+services expose `touch()` for this; a lock alone cannot expire cached references.
 
 The source catalogue and supplied translations are immutable for the export.
 Only the registered daemon in the current generation can call the SDK endpoint;

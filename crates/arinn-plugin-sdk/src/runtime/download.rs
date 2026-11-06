@@ -146,6 +146,24 @@ impl DownloadService {
         Ok(())
     }
 
+    /// Publish a new revision when fixed-text provenance changes while
+    /// the plain records stay identical. Hold the provider's provenance
+    /// lock until this completes so cached message associations expire.
+    pub async fn touch(&self) -> Result<(), ErrorCode> {
+        let (generation, revision) = {
+            let mut data = self.data.lock().await;
+            let revision = data
+                .snapshots
+                .as_mut()
+                .ok_or(ErrorCode::Unavailable)?
+                .touch()?;
+            data.revision = revision;
+            (data.generation.clone(), revision)
+        };
+        self.updates.send_replace((generation, revision));
+        Ok(())
+    }
+
     async fn authorized(&self, header: &Header<'_>) -> production::Result<()> {
         let data = self.data.lock().await;
         if !self.running.load(Ordering::Acquire)

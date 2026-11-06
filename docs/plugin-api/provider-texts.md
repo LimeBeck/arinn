@@ -117,10 +117,19 @@ Only the current publication needs to be retained; stale requests can be omitted
 
 Providers keep fixed-vs-content provenance in their model, protected by one
 provider-owned lock shared by publishing and resolving. Hold this lock while
-updating provenance and awaiting `replace`, and while capturing `text_snapshot`
-and checking the corresponding provenance during resolution. This also fences a
-fixed label becoming content with the same visible text, which would otherwise
-leave the SDK snapshot revision unchanged. Unknown provenance means omission.
+updating provenance and awaiting publication, and while capturing
+`text_snapshot` and checking provenance during resolution. Unknown provenance
+means omission.
+
+Every change to an association MUST publish a new owning snapshot revision,
+even when all plain fields are identical: fixed-to-content, content-to-fixed,
+or a different message key, message revision, arguments or numerus count.
+Call `DownloadService::touch()` or `MediaService::touch()` if `replace` kept the
+revision, before releasing the provenance lock. Music providers advance the
+corresponding state or catalogue revision and emit their existing StateChanged.
+Provider metadata is immutable within a generation; changing it starts a new
+generation. A lock alone does not invalidate already cached client references.
+The new snapshot revision/signals make the client's identity check discard them.
 
 For a catalogue entry and the same station in playback, use their respective
 scope/revision pair; they are not interchangeable. New scopes need a separately

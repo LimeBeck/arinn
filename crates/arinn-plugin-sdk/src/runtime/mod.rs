@@ -961,6 +961,50 @@ mod unchanged_revision_tests {
     }
 
     #[tokio::test]
+    async fn identical_text_provenance_changes_expire_cached_download_references() {
+        use arinn_protocol::download::{Job, STATE_ERROR};
+        let job = Job {
+            id: "job-1".into(),
+            title: "Content".into(),
+            state: STATE_ERROR.into(),
+            completed_bytes: 0,
+            has_total: false,
+            total_bytes: 0,
+            rate_bytes_per_second: 0,
+            eta_seconds: -1,
+            has_progress: false,
+            progress: 0.0,
+            actions: vec![],
+            error_code: "Unavailable".into(),
+            error_message: "The download stopped.".into(),
+            outputs: vec![],
+        };
+        let service = DownloadService::new(Idle, vec![job.clone()], "available").unwrap();
+        assert_eq!(service.touch().await, Err(ErrorCode::Unavailable));
+        service.running().store(true, Ordering::Release);
+        service.set_daemon_owner(":1.20".into()).await;
+        let (generation, mut updates) = registered(&service).await;
+        // A client resolved this publication while the error was fixed text.
+        let cached = service.text_snapshot().await.unwrap();
+        // The provider now knows this is content with identical visible text.
+        // Its provenance lock encloses replace plus touch before release.
+        service.replace(vec![job], "available").await.unwrap();
+        assert_eq!(
+            service.text_snapshot().await.unwrap().revision,
+            cached.revision
+        );
+        assert_eq!(sent(&mut updates), None);
+        service.touch().await.unwrap();
+        let current = service.text_snapshot().await.unwrap();
+        assert_eq!(current.entries, cached.entries);
+        assert_eq!(current.generation, cached.generation);
+        assert_ne!(current.revision, cached.revision);
+        assert_eq!(sent(&mut updates), Some((generation, current.revision)));
+        service.clear().await;
+        assert_eq!(service.touch().await, Err(ErrorCode::Unavailable));
+    }
+
+    #[tokio::test]
     async fn media_text_snapshot_tracks_publication_and_registration() {
         let service = MediaService::new(Idle, vec![], "available").unwrap();
         assert!(service.text_snapshot().await.is_none());

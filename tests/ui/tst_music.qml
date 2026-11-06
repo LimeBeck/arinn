@@ -1193,6 +1193,21 @@ TestCase {
         catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
         tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
     }
+    // Codex review of #851: a command already in flight does not use up the
+    // stop's own time; the stop's deadline starts when it is sent.
+    function test_turning_off_waits_for_a_command_in_flight() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");
+        catalog.busyOnTransport=true;catalog.busy=true;
+        sheet.stopThenTurnOff("local");
+        wait(12000);compare(catalog.commands,[]);compare(sheet.stopFailed,"");
+        catalog.busy=false;tryCompare(catalog,"commands",["stop"]);
+        wait(5000);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
+    }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);

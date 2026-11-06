@@ -58,7 +58,10 @@ FocusScope {
         onTriggered: {
             elapsed += interval;
             const music = root.catalog;
-            if (!music || elapsed > 10000) {
+            // Each wait has its own deadline: for a command already in
+            // flight, then for the stop from when it is sent. A command may
+            // take 5.5 s and its read 3 s more (Codex review of #851).
+            if (!music || elapsed > 15000) {
                 root.failStop();
                 return;
             }
@@ -82,6 +85,7 @@ FocusScope {
                 if (root.stopAction.length) {
                     music.transport(root.stopAction);
                     root.stopSent = true;
+                    elapsed = 0;
                     return;
                 }
                 stop();

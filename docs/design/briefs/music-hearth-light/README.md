@@ -64,7 +64,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
 
 - **Top bar** as on Home: the lockup on the left and the status area on the right (MH-4). Music gains the screen chrome it lacks today (M20).
 - **Hero** (x 120, y 150, fixed height 240), as on Home. It describes the focused item and never repeats the row label.
-  - The eyebrow names the kind: "Station", "Album · 2024", "Playlist · 42 tracks" or "Artist". An Ember dot plus "playing" is added when the item is the one that plays.
+  - The eyebrow names the kind: "Station", "Album", "Playlist · 42 tracks" or "Artist" (a year, as in the frames' "Album · 2024", only when the metadata carries one). An Ember dot plus "playing" is added when the item is the one that plays.
   - Below it come the title in Playfair Display 96 (68 on two lines) and a meta line of 28.
 - **Header controls** on the right of the hero line: a *Sources* pill and a *Find* pill (MH-5).
   - *Sources* opens a right-hand sheet 720 wide that lists every music source: its name, its icon in the neutral chip and its state (connected, needs sign-in, scanning, unavailable with a reason) (M11).
@@ -106,7 +106,7 @@ Tracks are container rows r20 with the number, the title, the artist when it dif
 - The row that plays carries the playing equaliser in place of its number.
 - An unavailable track stays readable and says why.
 
-An artist detail uses the same frame: a round portrait, then shelves of releases and tracks. A shelf the source cannot supply is absent. The eyebrow names the source in words ("Album · 2024 · This computer").
+An artist detail uses the same frame: a round portrait, then shelves of releases and tracks. A shelf the source cannot supply is absent. The eyebrow names the source in words ("Album · This computer").
 
 ### Search (`mh-10`)
 
@@ -126,7 +126,7 @@ Back restores the opening entity on the root or in the list (M16).
   - the eyebrow is the context: an Ember dot plus "My Wave · source" or "Album · source";
   - the title in Playfair Display 96, with the fit steps 96/80/64 from #790;
   - the artist in Onest 600 32 `text-1`;
-  - album and year as 28 meta.
+  - the album as 28 meta, plus the year only when the metadata carries one. The music `Entity` has no year today, so none is shown; a year needs a separate `contract-change` task.
 - **Seek line.** A 4 px track at 20 % white with an Ember fill. The knob shows only in focus. Elapsed and total time sit below it in tabular figures, with hours when a track is longer than an hour (M25). Left and Right on the line seek; there is no separate seek button.
 - **Row**, in one line and vertically centred (MH-3):
   - previous: round, 96;
@@ -194,6 +194,13 @@ A right-hand sheet 720 wide.
 **Favourites (MH-6).** A pinned station is a Favourites shelf item: its name with the source icon in the neutral chip.
 - Selecting it starts the station, replacing the current queue with the usual confirmation, and opens *Now playing*.
 - The pin is made in the *More* sheet. It is removed there or in the shelf item's action sheet.
+- **Arinn keeps the pins itself**, like web shortcuts: provider ID, station entity ID, title and artwork ID, in the order pinned.
+  - The music contract cannot list pins. `State.pinned` covers only the current station, and the `selections` facet mixes personal stations with saved ones.
+  - Home lists Arinn's own pins and never infers pins from `selections`.
+  - Where a provider supports the `pin` action, Arinn also sends it, so the service keeps its own list. The Home shelf still comes from Arinn's store.
+  - A pin whose provider is disconnected stays on the shelf, marked unavailable with the reason.
+  - **A pin needs a stable station identity.** The music contract does not promise that a station ID survives a provider restart. Durable pins wait for the contract change that adds that guarantee or a re-resolution step ([#811](https://github.com/LimeBeck/arinn/issues/811)). Until then, pinning to Home is not offered.
+  - A stored pin that the provider no longer resolves is marked unavailable. Arinn never silently starts another station.
 
 **Quick menu (`mh-06`; MH-7).** While a media session plays or is paused, the *Now playing* row becomes a media card.
 - **Shape.** A container r20, 624 wide and 284 high, with a faint glow in the artwork hue at the left.

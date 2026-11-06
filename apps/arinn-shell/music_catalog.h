@@ -8,6 +8,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <optional>
 class MusicCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
@@ -123,6 +124,13 @@ private:
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
   void forgetStaleUnresolved();
+  void mirrorPin();
+  // The provider pin still to mirror (#804).
+  struct PinMirror {
+    QString provider, station;
+    bool pinned = false;
+  };
+  std::optional<PinMirror> m_pinMirror;
   // (provider ID, station ID) -> the provider generation that answered. A
   // pair, not a joined string: protocol IDs may hold any character but NUL.
   QMap<QPair<QString, QString>, QString> m_unresolved;

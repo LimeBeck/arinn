@@ -726,6 +726,12 @@ TestCase {
         catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:mix",title:"Mix"},actions:["pause","pin"]});
         Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
         compare(list.itemAtIndex(0).actionKey,"pin");compare(list.itemAtIndex(0).text,"Pin station");
+        keyClick(Qt.Key_Escape);
+        // Codex review of #836: a pinnable station with no title Home could
+        // store is not offered for Home either.
+        catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:blank",title:" \t ",pinnable:true},actions:["pause","pin"]});
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).actionKey,"pin");
     }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the

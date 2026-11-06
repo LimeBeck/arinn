@@ -395,8 +395,14 @@ FocusScope {
     property var pinnedStations: []
     property bool pinsWritable: false
     signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
+    // Home stores a pin with its title, cleaned of control characters
+    // (MusicPins1): a station without one cannot be pinned (Codex review of
+    // #836).
+    readonly property string stationPinTitle: player.station && player.station.title
+        ? String(player.station.title).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : ""
     readonly property bool stationPinnable: !!player.station && !!player.station.id
                                             && player.station.pinnable === true && !!catalog.activeSourceId
+                                            && stationPinTitle.length > 0
     readonly property bool stationPinned: stationPinnable
                                           && pinnedStations.some(pair => pair[0] === catalog.activeSourceId
                                                                          && pair[1] === player.station.id)
@@ -451,7 +457,7 @@ FocusScope {
         }
         if (id === "homePin") {
             if (pinsWritable)
-                stationPinRequested(catalog.activeSourceId, player.station.id, player.station.title || "",
+                stationPinRequested(catalog.activeSourceId, player.station.id, stationPinTitle,
                                     player.station.artwork || "", !stationPinned);
         } else if (id === "pin")
             catalog.transport("pin", player.station ? player.station.id : "");

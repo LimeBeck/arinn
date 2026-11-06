@@ -58,8 +58,9 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
 - The player's control row is its last row: Up from any control reaches the
   seek bar, and Down leaves the row only for a failure's Retry.
 - Back returns from the queue to *Queue*, from a detail to the album, artist
-  or playlist it was opened from, and from a player opened on Home's card to
-  Home.
+  or playlist it was opened from (loading up to ten further pages to find
+  it), and from a player opened on Home's card to Home, also after a queue
+  replacement reopened that player.
 - Scrims, dialog plates and radii are theme tokens (`Theme.scrim`,
   `dialogSurface`, `dialogRadius`, the shape-role radii). Icons are
   `LineIcon` glyphs. An album or playlist title is Playfair Display

@@ -190,8 +190,11 @@ FocusScope {
     }
     // Back from a player opened on Home's card returns to Home (#756 M16).
     property bool playerFromHome: false
+    // Reopening the player on screen (a confirmed replacement, radio from
+    // this track) keeps where it was opened from.
     function openPlayer() {
-        playerFromHome = false;
+        if (mode !== "player")
+            playerFromHome = false;
         mode = "player";
         Qt.callLater(focusInitial);
     }
@@ -201,14 +204,26 @@ FocusScope {
     }
     // The album, artist or playlist a detail was opened from; Back focuses
     // it again once the list is back (#756 M16).
+    // An entity from a later page keeps the restore pending while more
+    // pages load, up to a bound.
     property string restoreEntity: ""
+    property int restorePages: 0
+    readonly property int restorePageLimit: 10
     function restoreOpener() {
         if (!restoreEntity.length || !catalog.entries.length)
             return;
         const index = catalog.entries.findIndex(entry => entry.id === restoreEntity);
+        if (index < 0 && catalog.more && restorePages < restorePageLimit) {
+            restorePages++;
+            catalog.loadMore();
+            return;
+        }
         restoreEntity = "";
-        if (index >= 0)
+        restorePages = 0;
+        if (index >= 0) {
             tracks.currentIndex = index;
+            tracks.positionViewAtIndex(index, ListView.Contain);
+        }
         if (tracks.visible)
             Ui.Focus.take(tracks);
     }

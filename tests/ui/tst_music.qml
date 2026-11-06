@@ -26,7 +26,8 @@ TestCase {
             property var browsed: []
             property var played: []
             function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
-            function loadMore() {}
+            property int loads: 0
+            function loadMore() {loads++;}
             function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
             property var positions: []
             property var occurrences: []
@@ -482,5 +483,33 @@ TestCase {
         let backs=0;view.backRequested.connect(()=>backs++);
         keyClick(Qt.Key_Escape);compare(view.mode,"catalogue");compare(backs,0);
         view.openPlayerFromHome();wait(0);keyClick(Qt.Key_Escape);compare(backs,1);compare(view.mode,"catalogue");
+    }
+    // Review of #798: an entity from a later page was not found on the
+    // first page after Back, and focus landed on an unrelated row.
+    function test_back_finds_an_opener_on_a_later_page() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:150",parentKind:"album",parentTitle:"Late"});
+        verify(view);wait(0);
+        view.back();compare(view.restoreEntity,"album:150");
+        const page=from=>{const rows=[];for(let i=from;i<from+100;i++)rows.push({id:"album:"+i,kind:"album",title:"A"+i,available:true});return rows;};
+        catalog.more=true;catalog.entries=page(0);
+        tryCompare(catalog,"loads",1);compare(view.restoreEntity,"album:150");
+        catalog.more=false;catalog.entries=page(0).concat(page(100));
+        const list=findChild(view,"musicEntries");
+        tryCompare(list,"currentIndex",150);tryCompare(list,"activeFocus",true);compare(view.restoreEntity,"");
+    }
+    // Review of #798: replacing the queue from a player opened on Home
+    // reopened it as an ordinary player, so Back went to the catalogue.
+    function test_replacement_keeps_the_home_origin() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","radio"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        let backs=0;view.backRequested.connect(()=>backs++);
+        view.openPlayerFromHome();wait(0);
+        view.requestRadio("t",true);wait(0);const confirm=findChild(view,"musicReplaceQueue");
+        Ui.Focus.take(confirm);tryCompare(confirm,"activeFocus",true);keyClick(Qt.Key_Return);
+        compare(catalog.commands,["radio"]);compare(view.mode,"player");
+        wait(0);keyClick(Qt.Key_Escape);compare(backs,1);
     }
 }

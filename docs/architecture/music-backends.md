@@ -406,7 +406,8 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   `artists` and `tracks` one after another, again when the catalogue
   revision changes. A new revision keeps each facet's entries until its new
   first page replaces them, so no card leaves and returns. Only first pages
-  chain; further pages are the *All* list's, from `selections` and the
+  chain; further pages are the *All* list's (`loading` covers first pages and
+  sources whose state has not answered yet), from `selections` and the
   shelf's own facet. A continuation older than its 30 s lease, or one that
   fails, reads again from the first page and pages forward to where the list
   was, keeping the shown entries until it has caught up. A first page that
@@ -438,7 +439,9 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   sheet says why. The sheet shows each source's state and its `connect`,
   `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by
   capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
-  with Cancel focused. The catalogue screen no longer shows the source switch,
+  with Cancel focused. A command the source refuses shows a note under that
+  source until the next command, the account state changes or the source
+  restarts. The catalogue screen no longer shows the source switch,
   *Refresh*, *Disconnect* or the account panel while a room is present.
 - The room is never shown empty. Once every source has answered and nothing
   loads, a room without shelves says why, from the source rows: every source

@@ -131,6 +131,7 @@ void MusicRoom::follow() {
       source.catalogueRevision = 0;
       source.stateBusy = source.commandBusy = false;
       source.answered = false;
+      source.commandError.clear();
     }
   }
   // A source that left takes its entries along (brief: a source drops out).
@@ -225,6 +226,11 @@ void MusicRoom::readState(const QString &id) {
               return;
             }
             const auto state = json.toVariantMap();
+            // A refused command's note goes once the source's account state
+            // moves on (delta review of #812).
+            if (!source.commandBusy &&
+                state.value("account") != source.state.value("account"))
+              source.commandError.clear();
             source.answered = true;
             source.stateFailed = false;
             source.stateError.clear();
@@ -540,10 +546,13 @@ void MusicRoom::rebuild() {
   bool dated = false;
   for (const auto &shelf : shelfDefs) {
     // Dates count over everything read, not only the shelf preview: the All
-    // list orders those too (Codex review of #812).
-    for (const auto &entry : gather(QLatin1String(shelf.id), QString(), 0))
+    // list orders those too (Codex review of #812). One ordered list gives
+    // both.
+    auto entries = gather(QLatin1String(shelf.id), QString(), 0);
+    for (const auto &entry : entries)
       dated = dated || entry.toMap().value("added_at").toULongLong() > 0;
-    const auto entries = gather(QLatin1String(shelf.id), QString(), shelf.limit);
+    if (entries.size() > shelf.limit)
+      entries = entries.mid(0, shelf.limit);
     if (entries.isEmpty())
       continue;
     shelves.append(QVariantMap{{"id", QLatin1String(shelf.id)},

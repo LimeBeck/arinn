@@ -1,0 +1,1 @@
+- The Quick menu shows a playing or paused session as a media card with its cover, track or episode, progress, previous, play/pause, next and *Open player*; a second session sits in a compact row under it, the one that plays (or changed last) comes first, and the sheet's rows scroll with focus ([#805](https://github.com/LimeBeck/arinn/issues/805)).

@@ -1312,17 +1312,83 @@ private slots:
     startMusic();
     daemon.request("QuickMenuRequested");
     QTRY_VERIFY(menuOpen());
-    auto *row = child(window, "quickMenuMedia");
-    QTRY_COMPARE(row->property("text").toString(), QStringLiteral("Synthetic song"));
-    QVERIFY(row->isEnabled());
-    // The playing session takes the sheet's first focus, and OK pauses it.
-    QTRY_VERIFY(row->hasActiveFocus());
+    // #805: the media card shows the music session; its play/pause takes the
+    // sheet's first focus, and OK pauses it.
+    auto *card = child(window, "quickMenuMediaCard");
+    auto *title = child(window, "quickMenuCardTitle");
+    auto *button = child(window, "quickMenuCardPlayPause");
+    QTRY_VERIFY(card->isVisible());
+    QTRY_COMPARE(title->property("text").toString(), QStringLiteral("Synthetic song"));
+    QVERIFY(button->isEnabled());
+    QTRY_VERIFY(button->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(daemon.musicCommands, QStringList{QStringLiteral("pause")});
-    QTRY_COMPARE(row->property("description").toString(), QStringLiteral("Paused · OK plays"));
+    QTRY_COMPARE(button->property("text").toString(), QStringLiteral("Play"));
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(daemon.musicCommands,
                  (QStringList{QStringLiteral("pause"), QStringLiteral("resume")}));
+    // Open player opens Now playing; Back from there returns to the sheet.
+    auto *open = child(window, "quickMenuCardOpen");
+    auto *music = child(window, "productionMusic");
+    QTest::keyClick(window, Qt::Key_Right);
+    QTest::keyClick(window, Qt::Key_Right);
+    QTRY_VERIFY(open->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(!menuOpen());
+    QTRY_VERIFY(music->isVisible());
+    QTRY_COMPARE(music->property("mode").toString(), QStringLiteral("player"));
+    QTRY_VERIFY(focusIn(music));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(menuOpen());
+    QTRY_VERIFY(child(window, "quickMenuCardPlayPause")->hasActiveFocus());
+  }
+
+  // Codex review of #826: Home from a player the sheet opened ends the way
+  // back to the sheet; a later ordinary visit to Music goes back as usual.
+  void homeEndsTheWayBackToTheSheet() {
+    showShell();
+    startMusic();
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    auto *music = child(window, "productionMusic");
+    auto *quickMenu = child(window, "quickMenu");
+    QVERIFY(QMetaObject::invokeMethod(quickMenu, "openPlayerRequested",
+                                      Q_ARG(QString, QStringLiteral("arinn-music-session"))));
+    QTRY_VERIFY(!menuOpen());
+    QTRY_VERIFY(music->isVisible());
+    QTRY_VERIFY(engine->rootObjects().value(0)->property("playerFromQuickMenu").toBool());
+    QTest::keyClick(window, Qt::Key_Home);
+    QTRY_VERIFY(!music->isVisible());
+    QVERIFY(!engine->rootObjects().value(0)->property("playerFromQuickMenu").toBool());
+    QVERIFY(QQmlProperty::write(home, QStringLiteral("screen"), QStringLiteral("music")));
+    QVERIFY(QMetaObject::invokeMethod(music, "openPlayer"));
+    QTRY_VERIFY(focusIn(music));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTest::qWait(300);
+    QVERIFY(!menuOpen());
+  }
+  // Codex review of #826: Open player for music over the media player
+  // closes that player as its Home key does; Now playing is on screen.
+  void openPlayerForMusicLeavesTheMediaPlayer() {
+    showShell();
+    startMusic();
+    auto *root = engine->rootObjects().value(0);
+    auto *music = child(window, "productionMusic");
+    auto *quickMenu = child(window, "quickMenu");
+    QVERIFY(QQmlProperty::write(root, QStringLiteral("playerOpen"), true));
+    daemon.request("QuickMenuRequested");
+    QTRY_VERIFY(menuOpen());
+    QTRY_COMPARE(child(window, "quickMenuCardTitle")->property("text").toString(),
+                 QStringLiteral("Synthetic song"));
+    QVERIFY(QMetaObject::invokeMethod(quickMenu, "openPlayerRequested",
+                                      Q_ARG(QString, QStringLiteral("arinn-music-session"))));
+    QTRY_VERIFY(!menuOpen());
+    QVERIFY(!root->property("playerOpen").toBool());
+    QTRY_VERIFY(music->isVisible());
+    QTRY_COMPARE(music->property("mode").toString(), QStringLiteral("player"));
+    QTRY_VERIFY(focusIn(music));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(menuOpen());
   }
 
   // Home leaves the music player, by the remote's key and by the

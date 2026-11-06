@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Arinn contributors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
+#include <QMap>
+#include <QPair>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -30,6 +32,11 @@ class MusicCatalog : public QObject {
   // "track · artist" for the status area while the session plays; empty on
   // pause and without a session (brief *Presence*, MH-4, #803).
   Q_PROPERTY(QString statusLine READ statusLine NOTIFY problemsChanged)
+  // [provider ID, station ID] pairs of stored stations the provider answered
+  // `radio` with NotFound or Unavailable for (music.md). Changes when one is
+  // found missing, starts again, or its provider restarts or leaves.
+  Q_PROPERTY(QVariantList unresolvedStations READ unresolvedStations NOTIFY
+                 unresolvedChanged)
   // The active session plays or is loading its next track: interface sounds
   // stay quiet (spec §5.6, #756 M26).
   Q_PROPERTY(bool audible READ audible NOTIFY activeChanged)
@@ -60,6 +67,7 @@ public:
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
   QString statusLine() const;
+  QVariantList unresolvedStations() const;
   bool audible() const;
   QString playbackProblem() const;
   QString notice() const;
@@ -67,6 +75,19 @@ public:
   static QString sessionEntryId();
   // Play/Pause from Home's card and the Quick menu.
   Q_INVOKABLE void togglePlayback();
+  // A pinned station the provider answered `radio` with NotFound for: Home
+  // marks its pin unavailable and never starts another station (#804).
+  Q_INVOKABLE bool stationResolved(const QString &providerId,
+                                   const QString &stationId) const;
+  // The image URL of a provider's opaque artwork ID through the source's
+  // current endpoint and generation; empty while the source is absent
+  // (pinned stations on Home, #804).
+  Q_INVOKABLE QString artworkUrl(const QString &providerId,
+                                 const QString &artworkId) const;
+  // Mirrors Arinn's pin to the provider's `pin` action where it covers the
+  // station that plays now (music brief, Favourites).
+  Q_INVOKABLE void syncProviderPin(const QString &providerId,
+                                   const QString &stationId, bool pinned);
   Q_INVOKABLE void choose(const QString &id);
   Q_INVOKABLE void browse(const QString &facet,
                           const QString &parent = QString(),
@@ -93,6 +114,7 @@ signals:
   // source or its generation changed.
   void browseReset();
   void problemsChanged();
+  void unresolvedChanged();
   // A page read failed; the list it was for does not arrive.
   void pageFailed();
 
@@ -100,6 +122,10 @@ private:
   void providers(const QString &token, quint64 ticket, const QString &snapshot,
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
+  void forgetStaleUnresolved();
+  // (provider ID, station ID) -> the provider generation that answered. A
+  // pair, not a joined string: protocol IDs may hold any character but NUL.
+  QMap<QPair<QString, QString>, QString> m_unresolved;
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;

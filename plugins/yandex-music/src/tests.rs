@@ -227,3 +227,92 @@ fn anonymous_download_client_carries_no_oauth_header() {
     assert!(!request.headers().contains_key(AUTHORIZATION));
     assert!(mock.finish().is_empty());
 }
+
+/// #825: each cover kind reads its own API object: an album's `coverUri`, an
+/// artist's `cover.uri` from its brief info, a playlist's from the account's
+/// playlist list (no tracks). The reference becomes the 600 × 600 image on
+/// the avatars CDN; any other host is refused.
+#[tokio::test]
+async fn every_cover_kind_reads_its_own_object() {
+    use crate::parse::Cover;
+    let mock = Mock::new(vec![
+        response(json!({"id":7,"coverUri":"avatars.yandex.net/get-music-content/1/a/%%"})),
+        response(
+            json!({"artist":{"id":9,"cover":{"type":"from-album-cover","uri":"avatars.yandex.net/get-music-content/2/b/%%"}}}),
+        ),
+        response(json!([
+            {"kind":4,"title":"Other","trackCount":1},
+            {"kind":3,"title":"Pictured","trackCount":2,"ogImage":"avatars.yandex.net/get-yapic/3/c/%%"}
+        ])),
+        response(json!([{"id":123,"coverUri":"avatars.mds.yandex.net/get-music-content/4/d/%%"}])),
+        response(json!({"id":8,"title":"Bare"})),
+    ]);
+    let api = &mock.api;
+    assert_eq!(
+        api.cover_reference(&Cover::Album("7".into()))
+            .await
+            .unwrap(),
+        "avatars.yandex.net/get-music-content/1/a/%%"
+    );
+    assert_eq!(
+        api.cover_reference(&Cover::Artist("9".into()))
+            .await
+            .unwrap(),
+        "avatars.yandex.net/get-music-content/2/b/%%"
+    );
+    assert_eq!(
+        api.cover_reference(&Cover::Playlist {
+            uid: "5".into(),
+            kind: "3".into()
+        })
+        .await
+        .unwrap(),
+        "avatars.yandex.net/get-yapic/3/c/%%"
+    );
+    assert_eq!(
+        api.cover_reference(&Cover::Track("123".into()))
+            .await
+            .unwrap(),
+        "avatars.mds.yandex.net/get-music-content/4/d/%%"
+    );
+    // No image: nothing to load, and no guess.
+    assert_eq!(
+        api.cover_reference(&Cover::Album("8".into())).await,
+        Err(Error::Unavailable)
+    );
+    let requests: Vec<String> = mock.finish().into_iter().map(|(line, _)| line).collect();
+    let paths: Vec<&str> = requests
+        .iter()
+        .map(|line| line.split(' ').nth(1).unwrap())
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            "/albums/7",
+            "/artists/9/brief-info",
+            "/users/5/playlists/list",
+            "/tracks",
+            "/albums/8"
+        ]
+    );
+    let url = crate::stream::cover_url("avatars.yandex.net/get-music-content/1/a/%%").unwrap();
+    assert_eq!(
+        url.as_str(),
+        "https://avatars.yandex.net/get-music-content/1/a/600x600"
+    );
+    assert!(crate::stream::cover_url("https://avatars.mds.yandex.net/get-yapic/3/c/%%").is_ok());
+    for foreign in [
+        "images.example.com/a/%%",
+        "avatars.yandex.net.example.com/a/%%",
+        "music.yandex.ru/a/%%",
+        "avatars.yandex.net:8443/a/%%",
+        "user@avatars.yandex.net/a/%%",
+        "http://avatars.yandex.net/a/%%",
+    ] {
+        assert_eq!(
+            crate::stream::cover_url(foreign),
+            Err(Error::InvalidResponse),
+            "{foreign}"
+        );
+    }
+}

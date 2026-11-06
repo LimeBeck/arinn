@@ -587,7 +587,12 @@ void MediaCatalog::publish() {
          row.wireActions.contains(QStringLiteral("play-pause")) ||
              row.wireActions.contains(row.state == QLatin1String("playing")
                                           ? QStringLiteral("pause")
-                                          : QStringLiteral("play"))}};
+                                          : QStringLiteral("play"))},
+        // The quick menu's card offers previous and next only when the
+        // session does (#805).
+        {QStringLiteral("previous"),
+         row.wireActions.contains(QStringLiteral("previous"))},
+        {QStringLiteral("next"), row.wireActions.contains(QStringLiteral("next"))}};
     // The provider's reported position, not the advancing clock: the entry
     // changes only with the snapshot, so Home's row is not rebuilt per tick.
     if (row.durationUs > 0) {
@@ -1677,7 +1682,8 @@ void MediaCatalog::sessionAction(const QString &id, const QString &requested) {
         return;
       action = QStringLiteral("playPause");
     }
-  } else {
+  } else if (requested != QLatin1String("previous") &&
+             requested != QLatin1String("next")) {
     return;
   }
   if (!supports(action) || !methodFor(action)) {

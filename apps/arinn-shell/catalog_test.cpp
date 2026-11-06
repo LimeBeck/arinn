@@ -5,6 +5,7 @@
 #include "flow_trace_recorder.h"
 #include "build_identity.h"
 #include "web_icon_references.h"
+#include <optional>
 #include <QUuid>
 #include <QtDBus>
 #include <QtTest>
@@ -36,6 +37,23 @@ Q_DECLARE_METATYPE(RunningWire)
 Q_DECLARE_METATYPE(HomeWire)
 Q_DECLARE_METATYPE(ShortcutWire)
 Q_DECLARE_METATYPE(TargetWire)
+// MusicPins1's (ssss) pin (ADR-0143).
+struct PinWire {
+  QString provider, station, title, artwork;
+};
+Q_DECLARE_METATYPE(PinWire)
+QDBusArgument &operator<<(QDBusArgument &a, const PinWire &p) {
+  a.beginStructure();
+  a << p.provider << p.station << p.title << p.artwork;
+  a.endStructure();
+  return a;
+}
+const QDBusArgument &operator>>(const QDBusArgument &a, PinWire &p) {
+  a.beginStructure();
+  a >> p.provider >> p.station >> p.title >> p.artwork;
+  a.endStructure();
+  return a;
+}
 QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
   a.beginStructure();
   a << p.id << QString("plugin") << QString() << QString("Provider")
@@ -131,10 +149,22 @@ public:
   int lists = 0;
   int providerCalls = 0;
   QList<TargetWire> favorites;
+  // MusicPins1 records of the pinned stations among `favorites`.
+  QList<PinWire> pins;
+  QStringList pinCalls;
   qulonglong favoriteRevision = 1;
   int favoriteWrites = 0;
   QString favoriteFailure;
   bool favoriteListError = false;
+  // MusicPins1.List answers this many times with a transient error, or
+  // always as an older daemon without the interface.
+  int pinListFailures = 0;
+  bool pinListUnknown = false;
+  // MusicPins1.List answers with these pins instead, or at a revision this
+  // much ahead of the favorites revision this many times.
+  std::optional<QList<PinWire>> pinListOverride;
+  int pinRevisionSkews = 0;
+  int favoriteLists = 0;
   // BuildInfo: empty fails with NotSupported, "absent" is a daemon older
   // than the method, "self" is this shell's build, anything else is sent.
   QString build;
@@ -284,9 +314,72 @@ public:
         bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
         return true;
       }
+      ++favoriteLists;
       a.beginStructure();
       a << favoriteRevision << favorites;
       a.endStructure();
+    } else if (m.interface() == "org.arinn.MusicPins1") {
+      pinCalls << m.member();
+      auto changed = [&] {
+        ++favoriteRevision;
+        bus.send(m.createReply(QVariant::fromValue(favoriteRevision)));
+        auto signal = QDBusMessage::createSignal(
+            "/org/arinn/Daemon1", "org.arinn.Favorites1", "Changed");
+        signal << favoriteRevision;
+        bus.send(signal);
+      };
+      if (m.member() == "List" && pinListUnknown) {
+        bus.send(m.createErrorReply("org.freedesktop.DBus.Error.UnknownInterface", "fixture"));
+        return true;
+      }
+      if (m.member() == "List" && pinListFailures > 0) {
+        --pinListFailures;
+        bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
+        return true;
+      }
+      if (m.member() == "List" && pinListOverride) {
+        a.beginStructure();
+        a << favoriteRevision;
+        a.beginArray(QMetaType::fromType<PinWire>());
+        for (const auto &pin : std::as_const(*pinListOverride))
+          a << pin;
+        a.endArray();
+        a.endStructure();
+      } else if (m.member() == "List") {
+        a.beginStructure();
+        a << favoriteRevision + (pinRevisionSkews > 0 ? 1 : 0);
+        if (pinRevisionSkews > 0)
+          --pinRevisionSkews;
+        a.beginArray(QMetaType::fromType<PinWire>());
+        for (const auto &target : std::as_const(favorites))
+          for (const auto &pin : std::as_const(pins))
+            if (target.capability == "music-station" &&
+                target.provider == pin.provider && target.id == pin.station)
+              a << pin;
+        a.endArray();
+        a.endStructure();
+      } else if (m.arguments().first().toULongLong() != favoriteRevision) {
+        bus.send(m.createErrorReply("org.arinn.Error.Conflict", "fixture"));
+        return true;
+      } else if (m.member() == "Pin") {
+        const auto pin = qdbus_cast<PinWire>(m.arguments().at(1));
+        pins << pin;
+        favorites << TargetWire{pin.provider, "music-station", pin.station};
+        changed();
+        return true;
+      } else if (m.member() == "Unpin") {
+        const auto provider = m.arguments().at(1).toString(),
+                   station = m.arguments().at(2).toString();
+        favorites.removeIf([&](const TargetWire &t) {
+          return t.capability == "music-station" && t.provider == provider &&
+                 t.id == station;
+        });
+        pins.removeIf([&](const PinWire &p) {
+          return p.provider == provider && p.station == station;
+        });
+        changed();
+        return true;
+      }
     } else if (m.interface() == "org.arinn.Favorites1" && m.member() == "Set") {
       ++favoriteWrites;
       if (!favoriteFailure.isEmpty() ||
@@ -419,6 +512,165 @@ private slots:
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");
   }
+  // #804, ADR-0143: a pinned music station is a favorite whose title comes
+  // from MusicPins1; it pins and unpins through MusicPins1, and removing it
+  // like any favorite works too.
+  // #804: a transient MusicPins1.List failure is read again on a later
+  // status poll, so a pinned station gets its title once the daemon
+  // recovers; an older daemon without the interface is not polled again.
+  void transientMusicPinListFailuresAreReadAgain() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    daemon.pinListFailures = 2;
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE_WITH_TIMEOUT(
+          backend.favorites().value(0).toMap().value("title").toString(),
+          QString("Fixture station"), 10000);
+      QCOMPARE(daemon.pinListFailures, 0);
+      QCOMPARE(daemon.pinCalls.count("List"), 3);
+    }
+    daemon.pinCalls.clear();
+    daemon.pinListUnknown = true;
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(daemon.pinCalls.count("List"), 1);
+      QTest::qWait(2500);
+      QCOMPARE(daemon.pinCalls.count("List"), 1);
+      QVERIFY(backend.favorites().value(0).toMap().value("unavailable").toBool());
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // #804: provider and station IDs may hold a newline, so two pins whose
+  // IDs join to the same text keep their own titles.
+  void musicPinsWithNewlinesInTheirIdsKeepTheirTitles() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"a\nb", "c", "First", ""}, {"a", "b\nc", "Second", ""}};
+    daemon.favorites = {{"a\nb", "music-station", "c"}, {"a", "music-station", "b\nc"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.favorites().size(), 2);
+      QTRY_COMPARE(backend.favorites().at(0).toMap().value("title").toString(),
+                   QString("First"));
+      QTRY_COMPARE(backend.favorites().at(1).toMap().value("title").toString(),
+                   QString("Second"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // #804: a MusicPins1.List reply that breaks MusicPinList's invariants is
+  // not shown at all; a list of another favorites revision has favorites
+  // read again until the two agree.
+  void malformedMusicPinListsAreNotShown() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    const PinWire good{"fixture.music", "station:library", "Fixture station", ""};
+    const QList<QList<PinWire>> malformed{
+        {good, {"fixture.music", "station:library", "Twin", ""}},
+        {good, {"fixture.music", "station:other", "Path", "../cover"}},
+        {good, {"fixture.music", "station:other", "Tab\there", ""}},
+        {good, {"fixture.music", "station:other", QString(257, u'x'), ""}},
+        {good, {"fixture.music", QString(257, u's'), "Long ID", ""}}};
+    for (const auto &list : malformed) {
+      daemon.pinListOverride = list;
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(daemon.pinCalls.count("List") > 0, true);
+      QTest::qWait(200);
+      QCOMPARE(backend.favorites().size(), 1);
+      QVERIFY(backend.favorites().first().toMap().value("unavailable").toBool());
+      daemon.pinCalls.clear();
+    }
+    daemon.pinListOverride.reset();
+    daemon.pinRevisionSkews = 2;
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE_WITH_TIMEOUT(
+          backend.favorites().value(0).toMap().value("title").toString(),
+          QString("Fixture station"), 10000);
+      QCOMPARE(daemon.pinRevisionSkews, 0);
+      QVERIFY(daemon.favoriteLists >= 3);
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  void pinnedMusicStationsAreFavorites() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      QTRY_COMPARE(backend.favorites().first().toMap().value("title").toString(),
+                   QString("Fixture station"));
+      auto row = backend.favorites().first().toMap();
+      QVERIFY(row.value("musicStation").toBool());
+      QCOMPARE(row.value("providerId").toString(), QString("fixture.music"));
+      QCOMPARE(row.value("stationId").toString(), QString("station:library"));
+      QVERIFY(row.value("launchable").toBool());
+      QVERIFY(backend.musicStationPinned("fixture.music", "station:library"));
+      QVERIFY(!backend.musicStationPinned("fixture.music", "station:wave"));
+      backend.pinMusicStation("fixture.music", "station:wave", "Wave", "cover:wave");
+      QTRY_COMPARE(backend.favorites().size(), 2);
+      QTRY_COMPARE(backend.favorites().last().toMap().value("title").toString(),
+                   QString("Wave"));
+      QVERIFY(daemon.pinCalls.contains("Pin"));
+      backend.unpinMusicStation("fixture.music", "station:library");
+      QTRY_COMPARE(backend.favorites().size(), 1);
+      QVERIFY(!backend.musicStationPinned("fixture.music", "station:library"));
+      // A pinned station leaves like any favorite, through Favorites1.Set.
+      backend.setFavorite(backend.favorites().first().toMap().value("id").toString(), false);
+      QTRY_VERIFY(backend.favorites().isEmpty());
+      QVERIFY(daemon.favorites.isEmpty());
+      // MusicPins1 takes at most 256 UTF-8 bytes and no control characters:
+      // a long Cyrillic title is cut on a character boundary, a control
+      // character becomes a space, and the pin is not refused.
+      const QString word = QString::fromUtf8("Станция\tЁ");
+      QString longTitle;
+      while (longTitle.toUtf8().size() < 400)
+        longTitle += word;
+      backend.pinMusicStation("fixture.music", "station:long", longTitle + "\U0001F3B5",
+                              QString());
+      QTRY_COMPARE(daemon.pins.last().station, QString("station:long"));
+      const auto stored = daemon.pins.last().title;
+      QVERIFY(stored.toUtf8().size() <= 256);
+      QVERIFY(stored.toUtf8().size() >= 250);
+      QCOMPARE(QString::fromUtf8(stored.toUtf8()), stored);
+      QVERIFY(!stored.contains(QChar(u'\t')));
+      QVERIFY(stored.startsWith(QString::fromUtf8("Станция Ё")));
+      QVERIFY(longTitle.replace(QChar(u'\t'), QChar(u' ')).startsWith(stored));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
   void savedFavoritesMutationAndUnavailableRetention() {
     auto bus = QDBusConnection::sessionBus();
     CatalogDaemon daemon;
@@ -502,6 +754,7 @@ private slots:
     qDBusRegisterMetaType<HomeWire>();
     qDBusRegisterMetaType<ShortcutWire>();
     qDBusRegisterMetaType<TargetWire>();
+    qDBusRegisterMetaType<PinWire>();
   }
   void catalog_data() {
     QTest::addColumn<QString>("mode");

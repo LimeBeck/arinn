@@ -112,6 +112,23 @@ fn track_entity(track: &Track) -> Entity {
     value.artwork = format!("cover:{}", track.id);
     value
 }
+/// One of the account's playlists; its cover only when the API names one
+/// (#825).
+fn playlist(uid: &str, p: crate::Collection) -> Entity {
+    Entity {
+        artwork: if p.cover && crate::parse::digits(uid) && crate::parse::digits(&p.id) {
+            format!("playlist-cover:{uid}:{}", p.id)
+        } else {
+            String::new()
+        },
+        id: format!("playlist:{}", p.id),
+        kind: "playlist".into(),
+        title: p.title,
+        available: true,
+        added_at: p.added_at,
+        ..Entity::default()
+    }
+}
 fn station_title(seed: &str, locale: &str) -> &'static str {
     let russian = locale.split(['_', '-', '.']).next() == Some("ru");
     match (seed == "user:onyourwave", russian) {
@@ -382,11 +399,9 @@ impl Runtime {
         self: &Arc<Self>,
         id: &str,
     ) -> Result<arinn_protocol::assets::Asset, ErrorCode> {
-        let id = id
-            .strip_prefix("cover:")
-            .filter(|id| crate::parse::track_id(id))
-            .ok_or(ErrorCode::NotFound)?
-            .to_owned();
+        // A track's, an album's, an artist's or a playlist's cover (#825).
+        let cover = crate::parse::cover(id).ok_or(ErrorCode::NotFound)?;
+        let id = id.to_owned();
         let api = self
             .source
             .read()
@@ -395,7 +410,7 @@ impl Runtime {
             .ok_or(ErrorCode::Unavailable)?;
         let epoch = api.epoch;
         let owner = self.clone();
-        let request = id.clone();
+        let request = cover;
         self.guard(
             epoch,
             self.artwork_cache.get(epoch, id, async move {
@@ -594,14 +609,7 @@ impl Runtime {
                     .await
                     .map_err(error)?
                     .into_iter()
-                    .map(|p| Entity {
-                        id: format!("playlist:{}", p.id),
-                        kind: "playlist".into(),
-                        title: p.title,
-                        available: true,
-                        added_at: p.added_at,
-                        ..Entity::default()
-                    }),
+                    .map(|p| playlist(&uid, p)),
             );
             return Ok((entries, vec![]));
         } else if query.facet == "playlists" {
@@ -610,14 +618,7 @@ impl Runtime {
                     .await
                     .map_err(error)?
                     .into_iter()
-                    .map(|p| Entity {
-                        id: format!("playlist:{}", p.id),
-                        kind: "playlist".into(),
-                        title: p.title,
-                        available: true,
-                        added_at: p.added_at,
-                        ..Entity::default()
-                    })
+                    .map(|p| playlist(&uid, p))
                     .collect(),
                 vec![],
             ));
@@ -636,6 +637,12 @@ impl Runtime {
                             kind: "artist".into(),
                             title: t.artist.clone(),
                             available: t.available,
+                            // The artist's own picture (#825).
+                            artwork: if crate::parse::digits(id) {
+                                format!("artist-cover:{id}")
+                            } else {
+                                String::new()
+                            },
                             ..Entity::default()
                         });
                         // A group takes its newest track's date (MH-9).
@@ -651,6 +658,9 @@ impl Runtime {
                             title: t.album.clone(),
                             artist: t.album_artist.clone(),
                             available: t.available,
+                            // A track's cover is its album's: no new
+                            // request (#825, as music-local).
+                            artwork: format!("cover:{}", t.id),
                             ..Entity::default()
                         });
                     group.added_at = group.added_at.max(t.added_at);
@@ -983,6 +993,9 @@ mod tests {
     fn track(id: u64, title: &str) -> serde_json::Value {
         json!({"id":id,"title":title,"available":true,"artists":[{"id":9,"name":"Fixture artist"}],"albums":[{"id":42,"title":"Fixture album"}]})
     }
+    fn response_with(value: serde_json::Value) -> (u16, String) {
+        (200, json!({ "result": value }).to_string())
+    }
     fn query(facet: &str, parent: &str, search: &str) -> Query {
         Query {
             facet: facet.into(),
@@ -1175,6 +1188,140 @@ mod tests {
             [1_714_564_800, 0]
         );
         mock.finish();
+    }
+    /// #825: grouped albums take their first track's cover, grouped artists
+    /// and search results their own, playlists theirs only when the API
+    /// names one; every ID passes the Entity artwork rules.
+    #[tokio::test]
+    async fn albums_artists_and_playlists_carry_their_covers() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}});
+        let likes = json!({"result":{"library":{"tracks":[{"id":"123","albumId":"42"}]}}});
+        let tracks = json!({"result":[track(123,"One")]});
+        for (facet, expected) in [("albums", "cover:123:42"), ("artists", "artist-cover:9")] {
+            let mock = Mock::new(vec![
+                (200, account.to_string()),
+                (200, likes.to_string()),
+                (200, tracks.to_string()),
+            ]);
+            let (entries, _) = fixture
+                .runtime
+                .fetch(&mock.api, &query(facet, "", ""))
+                .await
+                .unwrap();
+            assert_eq!(entries.len(), 1, "{facet}");
+            assert_eq!(entries[0].artwork, expected, "{facet}");
+            mock.finish();
+        }
+        let searches = [
+            (
+                "albums",
+                json!({"albums":{"results":[
+                    {"id":7,"title":"Pictured","coverUri":"avatars.yandex.net/get-music-content/1/a/%%"},
+                    {"id":8,"title":"Bare"}
+                ]}}),
+                vec!["album-cover:7", ""],
+            ),
+            (
+                "artists",
+                json!({"artists":{"results":[
+                    {"id":9,"name":"Pictured","cover":{"type":"from-album-cover","uri":"avatars.yandex.net/get-music-content/2/b/%%"}},
+                    {"id":10,"name":"Shared","ogImage":"avatars.yandex.net/get-music-content/3/c/%%"},
+                    {"id":11,"name":"Bare","cover":{"type":"mosaic"}}
+                ]}}),
+                vec!["artist-cover:9", "artist-cover:10", ""],
+            ),
+        ];
+        for (facet, result, expected) in searches {
+            let mock = Mock::new(vec![
+                (200, account.to_string()),
+                (200, json!({ "result": result }).to_string()),
+            ]);
+            let (entries, _) = fixture
+                .runtime
+                .fetch(&mock.api, &query(facet, "", "fixture"))
+                .await
+                .unwrap();
+            let got: Vec<&str> = entries.iter().map(|e| e.artwork.as_str()).collect();
+            assert_eq!(got, expected, "{facet}");
+            assert!(entries.iter().all(|e| e.validate().is_ok()));
+            mock.finish();
+        }
+        let mock = Mock::new(vec![
+            (200, account.to_string()),
+            (200, json!({"result":[
+                {"kind":3,"title":"Pictured","trackCount":2,"cover":{"type":"pic","uri":"avatars.yandex.net/get-yapic/3/c/%%"}},
+                {"kind":4,"title":"Bare","trackCount":1,"cover":{"type":"mosaic","itemsUri":[]}}
+            ]}).to_string()),
+        ]);
+        let (entries, _) = fixture
+            .runtime
+            .fetch(&mock.api, &query("playlists", "", ""))
+            .await
+            .unwrap();
+        let got: Vec<&str> = entries.iter().map(|e| e.artwork.as_str()).collect();
+        assert_eq!(got, ["playlist-cover:5:3", ""]);
+        assert!(entries.iter().all(|e| e.validate().is_ok()));
+        mock.finish();
+    }
+    /// #825: an album cover on a host outside the avatars CDN is refused
+    /// before any download; an ID that is not this provider's is not found
+    /// and sends nothing.
+    #[tokio::test]
+    async fn a_cover_on_a_foreign_host_is_refused() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![response_with(
+            json!({"id":7,"coverUri":"images.example.com/get-music-content/1/a/%%"}),
+        )]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        assert_eq!(
+            fixture.runtime.artwork("album-cover:7").await,
+            Err(ErrorCode::Unavailable)
+        );
+        for id in [
+            "album-cover:7/8",
+            "playlist-cover:5",
+            "artist-cover:x",
+            "station:wave",
+        ] {
+            assert_eq!(
+                fixture.runtime.artwork(id).await,
+                Err(ErrorCode::NotFound),
+                "{id}"
+            );
+        }
+        let requests = mock.finish();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0].0.starts_with("GET /albums/7 "),
+            "{}",
+            requests[0].0
+        );
+    }
+    /// #825: the epoch guard covers the new kinds: a reconnect while an
+    /// artist cover is being resolved ends it with a conflict.
+    #[tokio::test]
+    async fn a_reconnect_ends_a_cover_in_flight() {
+        let fixture = Fixture::new();
+        // A service that accepts the request and never answers it.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut api = Mock::new(vec![]).api.clone();
+        api.origin =
+            reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        let held = std::thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+            drop(socket);
+        });
+        fixture.runtime.connected(api).await;
+        let next = Mock::new(vec![]);
+        let (result, ()) = tokio::join!(fixture.runtime.artwork("artist-cover:9"), async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            fixture.runtime.connected(next.api.clone()).await;
+        });
+        assert_eq!(result, Err(ErrorCode::Conflict));
+        held.join().unwrap();
+        assert!(next.finish().is_empty());
     }
     #[tokio::test]
     async fn stale_feedback_cannot_use_a_new_accounts_client() {

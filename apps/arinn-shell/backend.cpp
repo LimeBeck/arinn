@@ -22,6 +22,23 @@ struct FavoriteWire {
 };
 Q_DECLARE_METATYPE(FavoriteWire)
 Q_DECLARE_METATYPE(QList<FavoriteWire>)
+// MusicPins1.Pin's (ssss) pin (ADR-0143).
+struct MusicPinWire {
+  QString provider, station, title, artwork;
+};
+Q_DECLARE_METATYPE(MusicPinWire)
+QDBusArgument &operator<<(QDBusArgument &arg, const MusicPinWire &v) {
+  arg.beginStructure();
+  arg << v.provider << v.station << v.title << v.artwork;
+  arg.endStructure();
+  return arg;
+}
+const QDBusArgument &operator>>(const QDBusArgument &arg, MusicPinWire &v) {
+  arg.beginStructure();
+  arg >> v.provider >> v.station >> v.title >> v.artwork;
+  arg.endStructure();
+  return arg;
+}
 QDBusArgument &operator<<(QDBusArgument &arg, const FavoriteWire &v) {
   arg.beginStructure();
   arg << v.provider << v.capability << v.local;
@@ -145,6 +162,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
   connect(&m_focusExpiry, &QTimer::timeout, this, &Backend::clearNativeFocus);
   qDBusRegisterMetaType<FavoriteWire>();
   qDBusRegisterMetaType<QList<FavoriteWire>>();
+  qDBusRegisterMetaType<MusicPinWire>();
   // An action's result is shown briefly; connection states stay (#258).
   m_resultTimer.setSingleShot(true);
   m_resultTimer.setInterval(resultMessageMs);
@@ -187,6 +205,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
             m_favoriteReconcile = false;
             m_favoriteTargets.clear();
             m_favoriteError.clear();
+            m_musicPinsReading = m_musicPinsRetry = false;
             stopNativeFocusObservation();
             ++m_connectionEpoch;
             m_daemonOwner = owner;
@@ -384,7 +403,30 @@ QVariantList Backend::favorites() const {
   for (const auto &value : m_favoriteTargets) {
     const auto target = value.toMap();
     QVariantMap row;
-    for (const auto &candidate : catalog) {
+    // A pinned music station (ADR-0143): its presentation is the daemon's
+    // MusicPins1 record. Whether its source can start it now is Home's
+    // business (#804); the row only carries the identity.
+    if (target.value("capability") == QLatin1String("music-station")) {
+      const auto pin = m_musicPins.value({target.value("providerId").toString(),
+                                          target.value("localId").toString()});
+      if (!pin.isEmpty()) {
+        row = target;
+        row["id"] = QUuid::createUuidV5(
+                        QUuid(),
+                        QJsonDocument(QJsonArray{target.value("providerId").toString(),
+                                                 target.value("capability").toString(),
+                                                 target.value("localId").toString()})
+                            .toJson(QJsonDocument::Compact))
+                        .toString();
+        row["title"] = pin.value("title");
+        row["musicStation"] = true;
+        row["stationId"] = target.value("localId");
+        row["artworkId"] = pin.value("artwork");
+        row["monogram"] = monogramFor(pin.value("title").toString());
+        row["launchable"] = true;
+      }
+    }
+    for (const auto &candidate : row.isEmpty() ? catalog : QVariantList{}) {
       const auto entry = candidate.toMap();
       if (entry.value("providerId") == target.value("providerId") &&
           entry.value("capability") == target.value("capability") &&
@@ -601,6 +643,8 @@ void Backend::reloadCatalog() {
             }
             if (!m_favoritesRequested)
               readFavorites();
+            else if (m_musicPinsRetry && !m_musicPinsReading)
+              readMusicPins();
             // Status is polled every second. It may replace a connection
             // banner, and only a connection banner: an operation result has to
             // stay visible when that poll's reply arrives in the same turn.
@@ -1544,7 +1588,7 @@ void Backend::readFavorites() {
             bytes += 4 + field.toUtf8().size() + 1;
           }
           if (!validId(local) || !validId(provider) ||
-              !(capability == "application" ||
+              !(capability == "application" || capability == "music-station" ||
                 (provider == "arinn" && capability == "web-shortcut")) ||
               seen.contains(key) || targets.size() >= 1024 ||
               bytes > 256 * 1024) {
@@ -1568,8 +1612,199 @@ void Backend::readFavorites() {
         if (m_favoritesError) m_favoriteError.clear();
         m_favoritesLoaded = true;
         m_favoritesError = false;
+        // Pinned stations take their title and artwork from MusicPins1.
+        if (std::any_of(targets.cbegin(), targets.cend(), [](const QVariant &t) {
+              return t.toMap().value("capability") == QLatin1String("music-station");
+            })) {
+          readMusicPins();
+        } else {
+          m_musicPins.clear();
+          m_musicPinsRetry = false;
+        }
         publishState();
       });
+}
+// MusicPin::validate (ADR-0143): IDs of 1..256 UTF-8 bytes without NUL, a
+// title of 1..256 bytes without control characters, and an opaque artwork ID.
+static bool validMusicPin(const MusicPinWire &pin) {
+  auto id = [](const QString &value) {
+    const auto bytes = value.toUtf8().size();
+    return bytes > 0 && bytes <= 256 && !value.contains(QChar(u'\0'));
+  };
+  if (!id(pin.provider) || !id(pin.station) || pin.title.trimmed().isEmpty() ||
+      pin.title.toUtf8().size() > 256)
+    return false;
+  for (const auto ch : pin.title)
+    if (ch.category() == QChar::Other_Control)
+      return false;
+  if (pin.artwork.size() > 256)
+    return false;
+  for (const auto ch : pin.artwork)
+    if (ch.unicode() > 0x7f ||
+        !(ch.isLetterOrNumber() || QStringLiteral("-_.:").contains(ch)))
+      return false;
+  return true;
+}
+void Backend::readMusicPins() {
+  if (!m_connected || !m_daemonOwner.startsWith(':'))
+    return;
+  m_musicPinsReading = true;
+  m_musicPinsRetry = false;
+  const auto epoch = m_connectionEpoch, ticket = ++m_musicPinTicket;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "List");
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(msg, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch, ticket](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch || ticket != m_musicPinTicket)
+              return;
+            m_musicPinsReading = false;
+            constexpr int kMusicPinRetries = 5;
+            // An older daemon or a bad answer: pinned stations show as
+            // unavailable favourites, which the user can still remove.
+            const auto error = reply.errorName();
+            const bool older =
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownInterface") ||
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownMethod") ||
+                error == QLatin1String("org.freedesktop.DBus.Error.UnknownObject");
+            if (reply.type() == QDBusMessage::ErrorMessage && !older) {
+              // Transient: the titles already read stay, and a later status
+              // poll reads again, a bounded number of times (favorites.md).
+              m_musicPinsRetry = m_musicPinRetries < kMusicPinRetries;
+              ++m_musicPinRetries;
+              return;
+            }
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "(ta(ssss))" ||
+                (!reply.service().isEmpty() && reply.service() != m_daemonOwner)) {
+              m_musicPins.clear();
+              publishState();
+              return;
+            }
+            const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
+            qulonglong revision = 0;
+            QHash<QPair<QString, QString>, QVariantMap> pins;
+            bool valid = true;
+            arg.beginStructure();
+            arg >> revision;
+            arg.beginArray();
+            while (!arg.atEnd()) {
+              MusicPinWire pin;
+              arg >> pin;
+              const QPair<QString, QString> key{pin.provider, pin.station};
+              if (!validMusicPin(pin) || pins.contains(key) || pins.size() >= 1024) {
+                valid = false;
+                break;
+              }
+              pins.insert(key, {{"title", pin.title}, {"artwork", pin.artwork}});
+            }
+            if (valid) {
+              arg.endArray();
+              arg.endStructure();
+            }
+            // The whole reply holds MusicPinList's invariants or none of it
+            // is shown: its stations stay removable unavailable favourites.
+            if (!valid || revision == 0) {
+              m_musicPins.clear();
+              publishState();
+              return;
+            }
+            // A list of another favorites revision describes other targets:
+            // favorites are read again, which reads the pins again, within
+            // the same bounded budget as a transient failure.
+            if (revision != m_favoriteRevision) {
+              if (m_musicPinRetries < kMusicPinRetries) {
+                ++m_musicPinRetries;
+                m_favoritesRequested = false;
+              }
+              return;
+            }
+            m_musicPinRetries = 0;
+            m_musicPins = pins;
+            publishState();
+          });
+}
+bool Backend::musicStationPinned(const QString &providerId,
+                                 const QString &stationId) const {
+  return isFavorite({{"providerId", providerId},
+                     {"capability", QStringLiteral("music-station")},
+                     {"localId", stationId}});
+}
+// MusicPins1 takes a title of at most 256 UTF-8 bytes with no control
+// characters (MusicPin::validate): a provider's title is cleaned and cut on
+// a character boundary rather than refused (#804).
+static QString musicPinTitle(const QString &title) {
+  constexpr qsizetype maxBytes = 256;
+  QString clean;
+  clean.reserve(title.size());
+  for (const auto ch : title)
+    clean.append(ch.category() == QChar::Other_Control ? QChar(u' ') : ch);
+  clean = clean.trimmed();
+  qsizetype bytes = 0, end = 0;
+  while (end < clean.size()) {
+    const bool pair = clean.at(end).isHighSurrogate() && end + 1 < clean.size() &&
+                      clean.at(end + 1).isLowSurrogate();
+    const auto length = pair ? 2 : 1;
+    const auto size = clean.mid(end, length).toUtf8().size();
+    if (bytes + size > maxBytes)
+      break;
+    bytes += size;
+    end += length;
+  }
+  return clean.left(end).trimmed();
+}
+void Backend::pinMusicStation(const QString &providerId, const QString &stationId,
+                              const QString &rawTitle, const QString &artwork) {
+  const auto title = musicPinTitle(rawTitle);
+  if (!favoritesReady() || m_favoriteSaving || providerId.isEmpty() ||
+      stationId.isEmpty() || title.isEmpty())
+    return;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "Pin");
+  msg << QVariant::fromValue<qulonglong>(m_favoriteRevision)
+      << QVariant::fromValue(MusicPinWire{providerId, stationId, title, artwork});
+  sendMusicPin(msg);
+}
+void Backend::unpinMusicStation(const QString &providerId, const QString &stationId) {
+  if (!favoritesReady() || m_favoriteSaving || !musicStationPinned(providerId, stationId))
+    return;
+  auto msg = QDBusMessage::createMethodCall(m_daemonOwner, path,
+                                            "org.arinn.MusicPins1", "Unpin");
+  msg << QVariant::fromValue<qulonglong>(m_favoriteRevision) << providerId
+      << stationId;
+  sendMusicPin(msg);
+}
+// One favorites write at a time, reconciled through List as setFavorite is.
+void Backend::sendMusicPin(QDBusMessage message) {
+  const auto epoch = m_connectionEpoch;
+  m_favoriteSaving = true;
+  m_favoriteError.clear();
+  publishState();
+  auto call = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 3000), this);
+  connect(call, &QDBusPendingCallWatcher::finished, this,
+          [this, epoch](auto *call) {
+            const auto reply = call->reply();
+            call->deleteLater();
+            if (epoch != m_connectionEpoch)
+              return;
+            m_favoriteReconcile = true;
+            const auto code = reply.errorName().section('.', -1);
+            if (reply.type() == QDBusMessage::ErrorMessage ||
+                reply.signature() != "t") {
+              m_favoriteError =
+                  code == "Conflict"
+                      ? tr("Favorites changed. Refresh before trying again.")
+                      : tr("Favorites could not be saved. Refresh the list "
+                           "before trying again.");
+            } else
+              setResultMessage(tr("Favorites saved"));
+            readFavorites();
+            publishState();
+          });
 }
 void Backend::setFavorite(const QString &id, bool pinned) {
   if (!favoritesReady() || m_favoriteSaving)

@@ -1624,6 +1624,14 @@
         <source>Restart it to finish. Navigation remains available.</source>
         <translation>Перезапустите его, чтобы завершить обновление. Навигация остаётся доступной.</translation>
     </message>
+    <message>
+        <source>Music source not connected</source>
+        <translation>Источник музыки не подключён</translation>
+    </message>
+    <message>
+        <source>This station is no longer available</source>
+        <translation>Эта станция больше недоступна</translation>
+    </message>
 </context>
 <context>
     <name>MediaCatalog</name>
@@ -2234,14 +2242,6 @@
         <translation>Arinn не может продолжить воспроизведение</translation>
     </message>
     <message>
-        <source>Playing · OK pauses</source>
-        <translation>Воспроизводится · OK — пауза</translation>
-    </message>
-    <message>
-        <source>Paused · OK plays</source>
-        <translation>На паузе · OK — воспроизвести</translation>
-    </message>
-    <message>
         <source>Sound</source>
         <translation>Звук</translation>
     </message>
@@ -2304,6 +2304,34 @@
     <message>
         <source>Close</source>
         <translation>Закрыть</translation>
+    </message>
+    <message>
+        <source>Playing</source>
+        <translation>Воспроизводится</translation>
+    </message>
+    <message>
+        <source>Paused</source>
+        <translation>Пауза</translation>
+    </message>
+    <message>
+        <source>Previous</source>
+        <translation>Назад</translation>
+    </message>
+    <message>
+        <source>Pause</source>
+        <translation>Пауза</translation>
+    </message>
+    <message>
+        <source>Play</source>
+        <translation>Смотреть</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Далее</translation>
+    </message>
+    <message>
+        <source>Open player</source>
+        <translation>Открыть плеер</translation>
     </message>
 </context>
 <context>

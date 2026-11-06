@@ -17,6 +17,7 @@ pub mod input;
 pub mod keyboard;
 pub mod kwin;
 pub mod library;
+pub mod localization;
 pub mod media;
 pub mod media_association;
 pub mod media_window;

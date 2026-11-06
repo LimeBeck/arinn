@@ -1,0 +1,20 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.ProviderTexts1">
+    <method name="GetCatalog">
+      <arg name="generation" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+    <method name="GetTranslation">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="locale" type="s" direction="in" />
+      <arg type="ay" direction="out" />
+    </method>
+    <method name="Resolve">
+      <arg name="generation" type="s" direction="in" />
+      <arg name="requests" type="s" direction="in" />
+      <arg type="s" direction="out" />
+    </method>
+  </interface>
+</node>

@@ -1,0 +1,1 @@
+- Music: a track that failed and was skipped no longer reports its error again when the queue later ends normally; the error clears once a later track plays ([#810](https://github.com/LimeBeck/arinn/issues/810)).

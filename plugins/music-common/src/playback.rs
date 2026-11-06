@@ -781,6 +781,10 @@ impl Playback {
                         && d.started != d.queue.current().map(|e| e.occurrence)
                     {
                         d.started = d.queue.current().map(|e| e.occurrence);
+                        // A later track plays: an error kept from a skipped
+                        // one no longer describes this session, and must
+                        // not come back at its natural end (#810).
+                        d.error = None;
                         if let Some(event) = event(&d, EventKind::Started) {
                             let _ = this.events.send(event);
                         }
@@ -1244,6 +1248,112 @@ mod tests {
         assert!(d.prepared.is_empty());
         assert!(d.queue.current().is_none());
         assert_eq!(d.status, "stopped");
+    }
+    /// Resolves every track but `bad`, which fails as an unplayable file.
+    struct FailingResolver;
+    impl Resolver for FailingResolver {
+        fn resolve(
+            &self,
+            id: String,
+        ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
+            Box::pin(async move {
+                if id == "bad" {
+                    Err(ErrorCode::Unavailable)
+                } else {
+                    Ok(Source::File(std::fs::File::open("/dev/null").unwrap()))
+                }
+            })
+        }
+    }
+    /// #810: the error of a skipped track was kept while the next track
+    /// played, and came back when the queue ended naturally.
+    #[tokio::test]
+    async fn a_skipped_tracks_error_is_cleared_once_a_later_track_plays() {
+        use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+        let directory = std::env::temp_dir().join(format!("am-{}", uuid::Uuid::new_v4()));
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&directory)
+            .unwrap();
+        let executable = directory.join("fixture.py");
+        std::fs::write(&executable,r##"#!/usr/bin/python3
+import json,socket,sys
+path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
+server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
+connection,_=server.accept();stream=connection.makefile('rwb',buffering=0)
+idle=False
+for line in stream:
+ request=json.loads(line);command=request['command'];data=None;error='success'
+ if command[0]=='loadfile':
+  stream.write((json.dumps({'event':'start-file','playlist_entry_id':7})+'\n').encode())
+  stream.write(b'{"event":"file-loaded"}\n')
+  idle=True
+  stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"eof"}\n')
+ elif command[0]=='seek':
+  idle=True
+  stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"eof"}\n')
+ elif command[0]=='get_property':
+  prop=command[1]
+  if prop=='playlist/0/id':data=7
+  elif prop=='idle-active':data=idle
+  elif prop=='pause':data=False
+  elif prop=='time-pos':data=0
+  elif prop=='duration':data=10
+ stream.write((json.dumps({'request_id':request['request_id'],'data':data,'error':error})+'\n').encode())
+"##).unwrap();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let playback = Playback::new(
+            Player::new(&directory, executable).unwrap(),
+            Arc::new(FailingResolver),
+        );
+        let track = |id: &str| Track {
+            id: id.into(),
+            available: true,
+            ..Track::default()
+        };
+        let state = playback
+            .play(vec![track("bad"), track("good")])
+            .await
+            .unwrap();
+        let wait = |want: &'static str, error: bool| {
+            let playback = playback.clone();
+            async move {
+                tokio::time::timeout(std::time::Duration::from_secs(8), async {
+                    loop {
+                        let state = playback.state().await;
+                        if state.playback == want && state.error.is_some() == error {
+                            return state;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    }
+                })
+                .await
+                .unwrap()
+            }
+        };
+        let failed = wait("stopped", true).await;
+        assert_eq!(failed.current.unwrap().track.id, "bad");
+        playback
+            .command(&Command {
+                request_id: uuid::Uuid::new_v4().to_string(),
+                action: "next".into(),
+                session: state.session.clone(),
+                entity: String::new(),
+                occurrence: String::new(),
+                position_us: 0,
+                replaces_provider: String::new(),
+                replaces_session: String::new(),
+                text: String::new(),
+            })
+            .await
+            .unwrap();
+        // The good track plays to its natural end: ended, with no error.
+        let ended = wait("ended", false).await;
+        assert_eq!(ended.current.unwrap().track.id, "good");
+        assert_eq!(ended.error, None);
+        playback.stop().await.unwrap();
+        drop(playback);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     struct FixtureResolver;
     impl Resolver for FixtureResolver {

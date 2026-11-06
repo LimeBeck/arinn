@@ -20,6 +20,10 @@ class MediaCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList continueEntries READ continueEntries NOTIFY
                  continueEntriesChanged)
+  // Every playing or paused session, titled or not: the quick menu's
+  // sessions (spec §5.7). Continue's untitled rule (§5.1) is not applied.
+  Q_PROPERTY(QVariantList sessionEntries READ sessionEntries NOTIFY
+                 sessionEntriesChanged)
   Q_PROPERTY(QString sessionState READ sessionState NOTIFY sessionChanged)
   Q_PROPERTY(QString sessionTitle READ sessionTitle NOTIFY sessionChanged)
   Q_PROPERTY(QString sessionSubtitle READ sessionSubtitle NOTIFY sessionChanged)
@@ -49,6 +53,7 @@ class MediaCatalog : public QObject {
 public:
   explicit MediaCatalog(QObject *parent = nullptr);
   QVariantList continueEntries() const { return m_continue; }
+  QVariantList sessionEntries() const { return m_sessionEntries; }
   QString sessionState() const;
   QString sessionTitle() const;
   QString sessionSubtitle() const;
@@ -116,6 +121,7 @@ signals:
   void presentationChanged();
   void presentationHomeRequested();
   void continueEntriesChanged();
+  void sessionEntriesChanged();
   void sessionChanged();
   void positionChanged();
   void operationChanged();
@@ -215,6 +221,7 @@ private:
   quint64 m_linksWanted = 0;
   void readLinks(const QString &owner, quint64 epoch);
   QVariantList m_continue;
+  QVariantList m_sessionEntries;
   QList<SessionRow> m_sessions;
   QString m_explicitId;
   QString m_operation;

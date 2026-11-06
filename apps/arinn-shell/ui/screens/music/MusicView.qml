@@ -337,18 +337,21 @@ FocusScope {
         moreOpen = false
     readonly property var moreActions: {
         const rows = [];
+        // A command in flight blocks the rows that send one, visibly
+        // (Codex review of #821); Radio only asks first.
+        const busy = transportBusy;
         if (supported("dislike"))
-            rows.push({id: "dislike", icon: "thumb_down", selected: player.feedback === "disliked",
+            rows.push({id: "dislike", icon: "thumb_down", selected: player.feedback === "disliked", busy: busy,
                        label: player.feedback === "disliked" ? qsTr("Disliked") : qsTr("Dislike")});
         if (supported("radio") && !!current.id)
             rows.push({id: "radio", icon: "radio", label: qsTr("Radio from this track")});
         if (supported("pin") && player.station && player.station.id)
-            rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true,
+            rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true, busy: busy,
                        label: player.pinned === true ? qsTr("Unpin station") : qsTr("Pin station")});
         if (supported("retry"))
-            rows.push({id: "retry", icon: "refresh", label: qsTr("Retry loading tracks")});
+            rows.push({id: "retry", icon: "refresh", busy: busy, label: qsTr("Retry loading tracks")});
         if (supported("stop"))
-            rows.push({id: "stop", icon: "stop", label: qsTr("Stop")});
+            rows.push({id: "stop", icon: "stop", busy: busy, label: qsTr("Stop")});
         return rows;
     }
     function openMore() {

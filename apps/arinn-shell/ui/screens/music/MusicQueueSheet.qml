@@ -196,11 +196,12 @@ FocusScope {
                             color: Ui.Theme.textSecondary
                         }
                     }
-                    // The current entry carries the playing mark.
+                    // The current entry carries the playing mark, before its
+                    // duration (Codex review of #821).
                     Row {
                         objectName: "musicQueuePlaying"
-                        anchors.right: parent.right
-                        anchors.rightMargin: 28
+                        anchors.right: rowDuration.visible ? rowDuration.left : parent.right
+                        anchors.rightMargin: rowDuration.visible ? 20 : 28
                         anchors.verticalCenter: parent.verticalCenter
                         visible: row.entry.current === true
                         spacing: 4
@@ -217,11 +218,12 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
+                        id: rowDuration
                         objectName: "musicQueueDuration"
                         anchors.right: parent.right
                         anchors.rightMargin: 28
                         anchors.verticalCenter: parent.verticalCenter
-                        visible: row.entry.current !== true && (row.track.duration_us || 0) > 0
+                        visible: (row.track.duration_us || 0) > 0
                         role: "meta"
                         color: Ui.Theme.textSecondary
                         font.features: ({ "tnum": 1 })

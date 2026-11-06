@@ -99,9 +99,13 @@ FocusScope {
                 height: 96
                 focus: ListView.isCurrentItem
                 text: moreAction.label || ""
+                // While a command is in flight the row ignores presses and
+                // shows it.
+                busy: moreAction.busy === true
                 Accessible.checkable: moreAction.selected !== undefined
                 Accessible.checked: moreAction.selected === true
                 contentItem: Item {
+                    opacity: row.busy ? 0.45 : 1
                     Row {
                         x: 28
                         anchors.verticalCenter: parent.verticalCenter

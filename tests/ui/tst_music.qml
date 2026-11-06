@@ -608,6 +608,15 @@ TestCase {
         keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Return);
         compare(view.moreOpen,false);compare(view.pendingPlay,"t");
         keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
+        // Codex review of #821: a command in flight blocks the rows that send
+        // one, visibly; Radio still asks first.
+        catalog.busyOnTransport=false;catalog.busy=true;
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        const stopRow=findChild(view,"musicMore-stop");verify(stopRow.busy);compare(findChild(view,"musicMore-radio").busy,false);
+        compare(stopRow.Accessible.description,"Loading");
+        list.currentIndex=4;keyClick(Qt.Key_Return);compare(catalog.commands,["pin"]);compare(view.moreOpen,true);
+        catalog.busy=false;tryCompare(stopRow,"busy",false);
+        keyClick(Qt.Key_Escape);tryCompare(more,"activeFocus",true);
         // With nothing more to offer, the sheet says so.
         catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause"],upcoming:[]};
         Ui.Focus.take(more);keyClick(Qt.Key_Return);
@@ -630,6 +639,11 @@ TestCase {
         compare(findChild(view,"musicQueueTitle").text,"Fixture wave");
         const footer=findChild(view,"musicQueueFooter");verify(footer.visible);compare(footer.text,"More tracks will follow");
         compare(findChild(list.itemAtIndex(1),"musicQueueDuration").text,"1:00");
+        // Codex review of #821: the current row keeps its duration too, with
+        // the playing mark before it.
+        const nowDuration=findChild(list.currentItem,"musicQueueDuration"),mark=findChild(list.currentItem,"musicQueuePlaying");
+        verify(nowDuration.visible);compare(nowDuration.text,"3:05");
+        verify(mark.mapToItem(list.currentItem,mark.width,0).x<=nowDuration.mapToItem(list.currentItem,0,0).x);
         // A state poll keeps the focused row.
         keyClick(Qt.Key_Down);compare(list.currentIndex,1);
         catalog.activeState=Object.assign({},catalog.activeState,{position_us:2000000});wait(0);

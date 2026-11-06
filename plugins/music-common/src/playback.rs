@@ -531,20 +531,31 @@ impl Playback {
         }
     }
     async fn load_current(self: &Arc<Self>, mut token: u64) {
-        // Bound immediate resolve/load-command retries so refills cannot
-        // create a synchronous hot loop. Deferred native errors are handled
-        // by the paced session poll, which may continue through later batches.
-        for attempt in 0..=crate::queue::MAX_UPCOMING {
-            let Some(next) = self
-                .load_current_once(token, attempt < crate::queue::MAX_UPCOMING)
-                .await
-            else {
-                return;
-            };
-            token = next;
+        loop {
+            // Bound each immediate retry window, then yield so a refilling
+            // provider cannot create a hot loop or strand queued work.
+            for _ in 0..=crate::queue::MAX_UPCOMING {
+                let Some(next) = self.load_current_once(token).await else {
+                    return;
+                };
+                token = next;
+            }
+            let mut changes = self.load_changes.subscribe();
+            {
+                let d = self.data.lock().await;
+                if d.token != token {
+                    return;
+                }
+                changes.borrow_and_update();
+            }
+            tokio::select! {
+                biased;
+                _ = changes.changed() => return,
+                _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+            }
         }
     }
-    async fn load_current_once(self: &Arc<Self>, token: u64, can_skip: bool) -> Option<u64> {
+    async fn load_current_once(self: &Arc<Self>, token: u64) -> Option<u64> {
         let mut changes = self.load_changes.subscribe();
         let (id, prepared) = {
             let mut d = self.data.lock().await;
@@ -617,7 +628,7 @@ impl Playback {
             }
             Err(error) => {
                 d.error = Some(error);
-                self.advance_after_failure(&mut d, can_skip)
+                self.advance_after_failure(&mut d)
             }
         };
         d.revision += 1;
@@ -628,7 +639,7 @@ impl Playback {
         }
         next
     }
-    fn advance_after_failure(&self, d: &mut Data, can_skip: bool) -> Option<u64> {
+    fn advance_after_failure(&self, d: &mut Data) -> Option<u64> {
         if let Some(skipped) = event(d, EventKind::Skipped) {
             let _ = self.events.send(skipped);
             d.started = None;
@@ -636,7 +647,7 @@ impl Playback {
         d.loaded = false;
         d.status = "stopped".into();
         d.waiting_end = d.station.is_some();
-        if d.station.is_none() || !can_skip || d.queue.advance().is_err() {
+        if d.station.is_none() || d.queue.advance().is_err() {
             return None;
         }
         d.token += 1;
@@ -798,7 +809,7 @@ impl Playback {
                 }
                 let next = if snapshot.failed {
                     d.error = Some(ErrorCode::Unavailable);
-                    self.advance_after_failure(&mut d, true)
+                    self.advance_after_failure(&mut d)
                 } else {
                     None
                 };
@@ -883,7 +894,7 @@ impl Playback {
                     }
                     if snapshot.failed {
                         d.error = Some(ErrorCode::Unavailable);
-                        advance = this.advance_after_failure(&mut d, true).is_some();
+                        advance = this.advance_after_failure(&mut d).is_some();
                         d.revision += 1;
                     } else if let Some(eof) = snapshot.eof {
                         acknowledge = Some(eof);
@@ -1912,54 +1923,133 @@ for line in stream:
     struct RefillingFailure {
         playback: std::sync::Mutex<Weak<Playback>>,
         attempts: std::sync::atomic::AtomicUsize,
+        times: std::sync::Mutex<Vec<tokio::time::Instant>>,
+        recover_after: Option<usize>,
     }
     impl Resolver for RefillingFailure {
+        fn prefetch_capacity(&self) -> usize {
+            0
+        }
         fn resolve(
             &self,
-            _id: String,
+            id: String,
         ) -> Pin<Box<dyn Future<Output = Result<Source, ErrorCode>> + Send + '_>> {
             Box::pin(async move {
-                self.attempts
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if id != "bad" {
+                    return FixtureResolver.resolve(id).await;
+                }
+                let attempt = self
+                    .attempts
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                    + 1;
+                self.times.lock().unwrap().push(tokio::time::Instant::now());
+                if self.recover_after.is_some_and(|limit| attempt > limit) {
+                    return FixtureResolver.resolve(id).await;
+                }
                 let playback = self.playback.lock().unwrap().upgrade().unwrap();
-                let request = playback.begin_radio_refill(false).await.unwrap();
-                playback
-                    .apply_radio_refill_repeating(
-                        request,
-                        vec![Track {
-                            id: "bad".into(),
-                            available: true,
-                            ..Track::default()
-                        }],
-                        "batch".into(),
-                    )
-                    .await
-                    .unwrap();
+                if playback.state().await.upcoming.len() <= 8 {
+                    let request = playback.begin_radio_refill(false).await.unwrap();
+                    playback
+                        .apply_radio_refill_repeating(
+                            request,
+                            vec![
+                                Track {
+                                    id: "bad".into(),
+                                    available: true,
+                                    ..Track::default()
+                                };
+                                8
+                            ],
+                            "batch".into(),
+                        )
+                        .await
+                        .unwrap();
+                }
                 Err(ErrorCode::Unavailable)
             })
         }
     }
     #[tokio::test]
-    async fn a_station_bounds_immediate_failed_loads_even_if_the_provider_keeps_refilling() {
+    async fn a_station_continues_queued_work_after_a_paced_failure_window() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let resolver = Arc::new(RefillingFailure {
             playback: std::sync::Mutex::new(Weak::new()),
             attempts: AtomicUsize::new(0),
+            times: std::sync::Mutex::new(Vec::new()),
+            recover_after: Some(crate::queue::MAX_UPCOMING + 1),
         });
         let fixture = LoadFixture::new(resolver.clone());
         *resolver.playback.lock().unwrap() = Arc::downgrade(&fixture.playback);
-        fixture.start(true, &["bad"]).await;
-        let state = fixture
-            .wait(|state| state.playback == "stopped" && state.error.is_some())
-            .await;
+        fixture.flag("ready");
+        let initial = fixture.start(true, &["bad"]).await;
+        let playing = fixture.wait(|state| state.playback == "playing").await;
+        assert_eq!(playing.session, initial.session);
+        assert_ne!(
+            playing.current.unwrap().occurrence,
+            initial.current.unwrap().occurrence
+        );
+        assert!(playing.upcoming.len() >= 8);
+        assert_eq!(playing.error, None);
         assert_eq!(
             resolver.attempts.load(Ordering::SeqCst),
-            crate::queue::MAX_UPCOMING + 1
+            crate::queue::MAX_UPCOMING + 2
         );
-        assert_eq!(state.error, Some(ErrorCode::Unavailable));
-        assert_eq!(state.current.unwrap().track.id, "bad");
-        assert_eq!(state.upcoming.len(), 1);
+        {
+            let times = resolver.times.lock().unwrap();
+            assert!(
+                times[crate::queue::MAX_UPCOMING + 1] - times[crate::queue::MAX_UPCOMING]
+                    >= std::time::Duration::from_millis(500)
+            );
+        }
         fixture.close().await;
+    }
+    #[tokio::test]
+    async fn stop_or_replacement_cancels_a_paused_failure_window() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for replace in [false, true] {
+            let resolver = Arc::new(RefillingFailure {
+                playback: std::sync::Mutex::new(Weak::new()),
+                attempts: AtomicUsize::new(0),
+                times: std::sync::Mutex::new(Vec::new()),
+                recover_after: None,
+            });
+            let fixture = LoadFixture::new(resolver.clone());
+            *resolver.playback.lock().unwrap() = Arc::downgrade(&fixture.playback);
+            fixture.flag("ready");
+            let initial = fixture.start(true, &["bad"]).await;
+            let first: usize = initial.current.unwrap().occurrence.parse().unwrap();
+            let paused = fixture
+                .wait(|state| {
+                    let attempts = resolver.attempts.load(Ordering::SeqCst);
+                    state.playback == "loading"
+                        && attempts > 0
+                        && attempts.is_multiple_of(crate::queue::MAX_UPCOMING + 1)
+                        && state.current.as_ref().is_some_and(|e| {
+                            e.occurrence.parse::<usize>().unwrap() == first + attempts
+                        })
+                })
+                .await;
+            assert!(paused.upcoming.len() >= 8);
+            assert_eq!(paused.error, Some(ErrorCode::Unavailable));
+            if replace {
+                fixture.start(false, &["new"]).await;
+                fixture.wait(|state| state.playback == "playing").await;
+            } else {
+                fixture.playback.stop().await.unwrap();
+            }
+            let attempts = resolver.attempts.load(Ordering::SeqCst);
+            tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+            assert_eq!(resolver.attempts.load(Ordering::SeqCst), attempts);
+            let after = fixture.playback.state().await;
+            assert_ne!(after.session, initial.session);
+            assert_eq!(after.error, None);
+            assert!(!after.continuous);
+            assert_eq!(
+                after.current.map(|e| e.track.id),
+                replace.then(|| "new".into())
+            );
+            fixture.close().await;
+        }
     }
     /// #810: the error of a skipped track was kept while the next track
     /// played, and came back when the queue ended naturally.

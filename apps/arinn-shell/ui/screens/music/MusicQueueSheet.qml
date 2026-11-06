@@ -107,7 +107,8 @@ FocusScope {
             visible: root.canSave
             enabled: root.saveEnabled
             text: qsTr("Save queue")
-            KeyNavigation.down: queueList
+            // An empty queue offers nothing below (review of #821).
+            KeyNavigation.down: queueList.count ? queueList : null
             onActivated: root.saveRequested()
         }
         Ui.UiText {

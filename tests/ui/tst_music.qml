@@ -168,6 +168,9 @@ TestCase {
         // More in one vertically centred row; no Stop in the row.
         compare(findChild(view,"musicStop"),null);
         const previous=findChild(view,"musicPrevious"),next=findChild(view,"musicNext"),queue=findChild(view,"musicQueue"),more=findChild(view,"musicMore");
+        // M14: the focus labels under the round buttons are 26.
+        Ui.Focus.take(next);tryCompare(next,"activeFocus",true);
+        const focusLabel=next.children.find(child=>child.text===next.text&&child.visible);verify(focusLabel);compare(focusLabel.font.pixelSize,26);
         compare(previous.width,96);compare(button.width,120);compare(next.width,96);compare(more.width,96);compare(more.iconName,"more_horiz");
         // Layout centres, before the focus lift.
         const centre=item=>item.parent.mapToItem(controls,0,item.y+item.height/2).y;
@@ -579,6 +582,20 @@ TestCase {
         catalog.errorText="";keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
         catalog.activeState=Object.assign({},catalog.activeState,{feedback:"liked"});catalog.busy=false;
         tryCompare(like,"text","Liked");compare(icon.name,"favorite_fill");compare(like.Accessible.checked,true);compare(like.selected,true);
+        // Review of #821: busy ends before the next state brings the
+        // feedback; the label stays "Saving…" until it does, never "Like".
+        const labels=[];like.textChanged.connect(()=>labels.push(like.text));
+        keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
+        catalog.busy=false;wait(50);compare(like.text,"Saving…");
+        catalog.activeState=Object.assign({},catalog.activeState,{feedback:""});
+        tryCompare(like,"text","Like");compare(labels,["Saving…","Like"]);
+        // Review of #821: one width for every state, so Queue and More stay
+        // put, and in Russian the row stays in the safe area.
+        const queue=findChild(view,"musicQueue"),more=findChild(view,"musicMore");
+        const at=more.mapToItem(view,0,0).x;
+        for(const text of ["Liked","Saving…","Not saved","Like"]) {like.text=text;wait(0);compare(more.mapToItem(view,0,0).x,at,text);}
+        like.labels=["Нравится","Понравилось","Сохраняем…","Не сохранено"];queue.text="Очередь";wait(0);
+        for(const text of like.labels) {like.text=text;wait(0);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text);}
     }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the
@@ -607,7 +624,11 @@ TestCase {
         // Radio from this track asks before replacing the queue.
         keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Return);
         compare(view.moreOpen,false);compare(view.pendingPlay,"t");
-        keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
+        // Review of #821: cancelling returns to More, by Back or by Cancel.
+        keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");tryCompare(more,"activeFocus",true);
+        keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Return);
+        tryCompare(findChild(view,"musicKeepQueue"),"activeFocus",true);keyClick(Qt.Key_Return);
+        compare(view.pendingPlay,"");tryCompare(more,"activeFocus",true);
         // Codex review of #821: a command in flight blocks the rows that send
         // one, visibly; Radio still asks first.
         catalog.busyOnTransport=false;catalog.busy=true;
@@ -664,7 +685,9 @@ TestCase {
             current:{track:{id:"t",title:"T",artist:"Fixture artist",album:"Fixture album",duration_us:60000000}},actions:["pause","seek"],upcoming:[]};
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
         const art=findChild(view,"musicPlayerArtwork");compare(art.width,560);compare(art.height,560);
-        verify(findChild(view,"musicPlayerGlow"));
+        const glow=findChild(view,"musicPlayerGlow");verify(glow);verify(glow.visible);
+        // Review of #821: the light sits under the heading, not over it.
+        const layers=glow.parent.children;verify(layers.indexOf(glow)<layers.indexOf(findChild(view,"musicHeading")));
         compare(findChild(view,"musicPlayerContext").text,"Fixture wave · Fixture music");
         compare(findChild(view,"musicPlayerArtist").font.pixelSize,32);compare(findChild(view,"musicPlayerAlbum").font.pixelSize,28);
         compare(findChild(view,"musicTrackTitle").font.family,Ui.Theme.contentFontFamily);

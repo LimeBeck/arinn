@@ -314,16 +314,39 @@ FocusScope {
         if (transportBusy || !supported("like"))
             return;
         likeFailed = false;
+        likeAwaitsState = false;
+        likeFeedbackBefore = player.feedback || "";
         likePending = true;
         catalog.transport("like");
         // A command the catalogue did not send ends the pending state.
         Qt.callLater(settleLike);
     }
+    // A like that went through stays pending until the next state brings
+    // its feedback, so the label never flashes back to "Like" (review of
+    // #821); a refused one fails at once.
+    property bool likeAwaitsState: false
+    property string likeFeedbackBefore: ""
     function settleLike() {
-        if (!likePending || catalog.transportBusy)
+        if (!likePending || catalog.transportBusy || likeAwaitsState)
             return;
+        if ((catalog.errorText || "").length > 0) {
+            likePending = false;
+            likeFailed = true;
+        } else if ((player.feedback || "") !== likeFeedbackBefore) {
+            likePending = false;
+        } else {
+            likeAwaitsState = true;
+        }
+    }
+    // After the state's own bindings, so the label goes from "Saving…"
+    // straight to the new state.
+    onPlayerChanged: if (likeAwaitsState)
+        Qt.callLater(finishLike)
+    function finishLike() {
+        if (!likeAwaitsState)
+            return;
+        likeAwaitsState = false;
         likePending = false;
-        likeFailed = (catalog.errorText || "").length > 0;
     }
     function openQueue() {
         moreOpen = false;
@@ -369,7 +392,8 @@ FocusScope {
         if (transportBusy && id !== "radio")
             return;
         if (id === "radio") {
-            closeMore();
+            moreOpen = false;
+            replaceOpener = moreButton;
             requestRadio(current.id || "", true);
             return;
         }
@@ -574,6 +598,17 @@ FocusScope {
         closePlaylist();
     }
 
+    // The control a replacement was asked from, when it is not where
+    // focusInitial() lands: Radio from this track in More returns to More
+    // (review of #821).
+    property Item replaceOpener: null
+    function cancelReplacement() {
+        pendingPlay = "";
+        const opener = replaceOpener;
+        replaceOpener = null;
+        if (!(opener && Ui.Focus.take(opener)))
+            focusInitial();
+    }
     function requestRadio(id, active) {
         pendingAction = "radio";
         pendingActive = active === true;
@@ -609,8 +644,7 @@ FocusScope {
         } else if (typing) {
             finishTyping();
         } else if (pendingPlay) {
-            pendingPlay = "";
-            focusInitial();
+            cancelReplacement();
         } else if (moreOpen) {
             closeMore();
         } else if (mode === "queue") {
@@ -706,6 +740,18 @@ FocusScope {
     Rectangle {
         anchors.fill: parent
         color: Ui.Theme.background
+    }
+    // Now playing's floor and pool take the artwork's hue (#802). It sits
+    // under every line of the screen, the heading too (review of #821).
+    Ui.AmbientGlow {
+        objectName: "musicPlayerGlow"
+        anchors.fill: parent
+        visible: playerView.visible
+        veilEnabled: false
+        strength: 0.7
+        lit: playerView.visible && (root.current.image || "").length > 0
+        source: root.current.image || ""
+        anchor: playerArtwork
     }
     // The detail header (#801): backdrop, cover, title and pills.
     MusicDetailHeader {
@@ -1322,16 +1368,6 @@ FocusScope {
         enabled: !root.pendingPlay
         anchors.fill: parent
         visible: root.mode === "player" || root.mode === "queue"
-        // The floor and the pool take the artwork's hue.
-        Ui.AmbientGlow {
-            objectName: "musicPlayerGlow"
-            anchors.fill: parent
-            veilEnabled: false
-            strength: 0.7
-            lit: (root.current.image || "").length > 0
-            source: root.current.image || ""
-            anchor: playerArtwork
-        }
         MusicArtwork {
             id: playerArtwork
             objectName: "musicPlayerArtwork"
@@ -1488,7 +1524,7 @@ FocusScope {
             height: 120
             Row {
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 24
+                spacing: 20
                 MusicButton {
                     id: previousButton
                     objectName: "musicPrevious"
@@ -1552,6 +1588,10 @@ FocusScope {
                     busy: root.likePending
                     visible: root.supported("like")
                     iconName: liked ? "favorite_fill" : "favorite"
+                    // One width for every state, so Queue and More never move
+                    // and the row stays in the safe area in every language
+                    // (review of #821).
+                    labels: [qsTr("Like"), qsTr("Liked"), qsTr("Saving…"), qsTr("Not saved")]
                     text: root.likePending ? qsTr("Saving…")
                         : root.likeFailed ? qsTr("Not saved")
                         : liked ? qsTr("Liked") : qsTr("Like")
@@ -1869,10 +1909,7 @@ FocusScope {
             id: cancelReplace
             objectName: "musicKeepQueue"
             text: qsTr("Cancel")
-            onActivated: {
-                root.pendingPlay = "";
-                root.focusInitial();
-            }
+            onActivated: root.cancelReplacement()
         }
         Ui.ActionButton {
             id: confirmReplace

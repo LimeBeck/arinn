@@ -512,6 +512,24 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   shows in place and appends new ones (`MusicRoom.stable`), and shelves are
   keyed by id, so a shelf is not recreated when another changes. A card or
   shelf that leaves hands focus to its neighbour.
+- **Turned-off sources (#842).** `MusicRoom.disabled` and
+  `MusicCatalog.disabledSources` are bound to
+  `SettingsCatalog.musicDisabledSources`.
+  - A turned-off source is left out of everything the room reads (shelves,
+    *All*, search, loading), as a source that left, and is read no more.
+    `sources` lists it last with status `off`, its local mark kept from its
+    last state.
+  - A room whose every source is off is settled, and its hero points to
+    *Sources*.
+  - The session of a turned-off source has no `homeEntries`, `nowPlaying`
+    or `statusLine`.
+  - `Main.musicPinRows` leaves its pinned stations out of Favourites; they
+    stay stored.
+  - In the sheet, every source that is on has *Turn off*, and one that is off
+    has *Turn on* under the *Off* group. Both go through
+    `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.
+  - Turning off the source whose session plays or is paused asks first, with
+    Cancel focused, then sends `stop` (or `pause` without it).
 - A source whose state cannot be read leaves the shelves, and the *Sources*
   sheet says why. The sheet shows each source's state and its `connect`,
   `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by

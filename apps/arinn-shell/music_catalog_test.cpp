@@ -1261,8 +1261,8 @@ private slots:
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction +
-                       "    function rows(f, s, u, a) {\n"
-                       "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id);\n"
+                       "    function rows(f, s, u, a, d) {\n"
+                       "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id, d);\n"
                        "    }\n}")
                           .toUtf8(),
                       QUrl());
@@ -1300,9 +1300,20 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, result),
                                       Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
                                       Q_ARG(QVariant, unresolved),
-                                      Q_ARG(QVariant, accounts)));
+                                      Q_ARG(QVariant, accounts), Q_ARG(QVariant, QVariant())));
     const auto rows = qvariant_cast<QJSValue>(result).toVariant().toList();
     QCOMPARE(rows.size(), 7);
+    // #842: a turned-off source's pins leave Favourites; the others and
+    // every other favourite stay.
+    QVariant offResult;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, offResult),
+                                      Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
+                                      Q_ARG(QVariant, unresolved), Q_ARG(QVariant, accounts),
+                                      Q_ARG(QVariant, QVariant(QStringList{"local"}))));
+    QStringList offIds;
+    for (const auto &row : qvariant_cast<QJSValue>(offResult).toVariant().toList())
+      offIds << row.toMap().value("id").toString();
+    QCOMPARE(offIds, (QStringList{"app", "awaystation:x", "cloudstation:wave", "downstation:wave"}));
     QVERIFY(!rows[6].toMap().value("unavailable").toBool());
     QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
     QVERIFY(!rows[1].toMap().value("unavailable").toBool());

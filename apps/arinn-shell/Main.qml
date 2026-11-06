@@ -795,8 +795,11 @@ Window {
     }
     // `artworkUrl(provider, artworkId)` gives the image URL of a stored
     // artwork ID while its source is present.
-    function musicPinRows(favorites, sources, unresolved, accounts, artworkUrl) {
-        return favorites.map(entry => {
+    // A pinned station of a turned-off source leaves Favourites and stays
+    // stored: it returns when the source is turned on (#842).
+    function musicPinRows(favorites, sources, unresolved, accounts, artworkUrl, disabled) {
+        const off = disabled || [];
+        return favorites.filter(entry => !entry.musicStation || !off.includes(entry.providerId)).map(entry => {
             if (!entry.musicStation) return entry;
             const source = sources.find(s => s.id === entry.providerId);
             // The room's row carries the account: signed out, expired,
@@ -998,12 +1001,17 @@ Window {
         visible: !root.activityBehind
         // Keys bubble here from every screen that left them unaccepted.
         Keys.onPressed: event => root.unhandledKey(event)
-        MusicCatalog { id: musicCatalog; objectName: "musicCatalog" }
+        // Sources turned off in the Sources sheet (#842), stored as a core
+        // preference; the change shows at once.
+        MusicCatalog { id: musicCatalog; objectName: "musicCatalog"
+                       disabledSources: settingsCatalog.musicDisabledSources }
         // The Music root over every source (#800).
         // Home reads the room's account rows for pinned stations, so the room
         // also follows its sources while Home shows any (#804).
         MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog
-                    active: root.musicRoomFollows(musicView.visible, backend.homeVisible, backend.favorites) }
+                    active: root.musicRoomFollows(musicView.visible, backend.homeVisible, backend.favorites)
+                    disabled: settingsCatalog.musicDisabledSources
+                    onSourceEnabledRequested: (source, enabled) => settingsCatalog.setMusicSourceEnabled(source, enabled) }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45
         // (Hearth light brief, *Global navigation*; #756 C17). Not on the
@@ -1095,7 +1103,8 @@ Window {
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(root.musicPinRows(backend.favorites, musicCatalog.sources,
                                                                              musicCatalog.unresolvedStations, musicRoom.sources,
-                                                                             (provider, artwork) => musicCatalog.artworkUrl(provider, artwork)))
+                                                                             (provider, artwork) => musicCatalog.artworkUrl(provider, artwork),
+                                                                             settingsCatalog.musicDisabledSources))
             newEntries: libraryCatalog.newEntries
             onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayerFromHome();}
             // A pinned station starts like a station card in the music room:

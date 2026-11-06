@@ -81,6 +81,11 @@ public:
   // Connect, authorize, cancel, scan (Refresh) or disconnect, sent to one
   // source by its own state's capabilities (MH-5).
   Q_INVOKABLE void sourceCommand(const QString &source, const QString &action);
+  // Turn a source off or on (#842): the shell stores the choice and sets
+  // `disabled` from it.
+  Q_INVOKABLE void setSourceEnabled(const QString &source, bool enabled) {
+    emit sourceEnabledRequested(source, enabled);
+  }
   Q_INVOKABLE void refresh();
 
   // MH-9: each provider's personal entries first, providers in Sources
@@ -102,6 +107,7 @@ signals:
   void loadingChanged();
   // Some page arrived or a source left: lists read again.
   void listChanged();
+  void sourceEnabledRequested(const QString &source, bool enabled);
 
 private slots:
   void follow();

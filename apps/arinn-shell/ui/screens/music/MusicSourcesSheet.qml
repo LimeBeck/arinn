@@ -7,9 +7,15 @@ import "../.." as Ui
 // The Sources sheet (brief mh-01, MH-5): every music source with its mark,
 // its state and its housekeeping as pills, by capability. It never filters
 // the room. Disconnect asks first, with Cancel as the initial focus.
+// Turn off (#842) takes a source out of the room and moves it to the Off
+// group at the bottom, where Turn on brings it back; the source that plays
+// asks first, then its session stops.
 FocusScope {
     id: root
     property var room: null
+    // The source whose session plays or is paused, if any.
+    property string playingSource: ""
+    signal stopRequested()
     readonly property var sources: room ? room.sources : []
     // Rows are keyed by source id and read their source by id, so a state
     // change (a command in flight, a new state) never recreates the focused
@@ -42,16 +48,24 @@ FocusScope {
     Component.onCompleted: syncRows()
     // The source whose Disconnect waits for confirmation.
     property string disconnecting: ""
+    // The playing source whose Turn off waits for confirmation (#842).
+    property string turningOff: ""
+    function setEnabled(id, enabled) {
+        if (room && room.setSourceEnabled)
+            room.setSourceEnabled(id, enabled);
+    }
     signal closed()
     anchors.fill: parent
     visible: false
     function open() {
         disconnecting = "";
+        turningOff = "";
         visible = true;
         Qt.callLater(focusFirst);
     }
     function close() {
         disconnecting = "";
+        turningOff = "";
         visible = false;
         closed();
     }
@@ -80,11 +94,14 @@ FocusScope {
             : action === "authorize" ? qsTr("Sign in")
             : action === "cancel" ? qsTr("Cancel sign-in")
             : action === "scan" ? qsTr("Refresh")
+            : action === "off" ? qsTr("Turn off")
+            : action === "on" ? qsTr("Turn on")
             : qsTr("Disconnect");
     }
     function statusText(source) {
         const status = source.status;
-        return status === "connected" ? qsTr("Connected")
+        return status === "off" ? qsTr("Off")
+            : status === "connected" ? qsTr("Connected")
             : status === "scanning" ? qsTr("Scanning the library…")
             : status === "signin" ? qsTr("Needs sign-in")
             : status === "connecting" ? qsTr("Connecting…")
@@ -95,6 +112,11 @@ FocusScope {
         if (action === "disconnect") {
             disconnecting = source.id;
             Qt.callLater(() => Ui.Focus.take(keepSource));
+        } else if (action === "off" && source.id === playingSource) {
+            turningOff = source.id;
+            Qt.callLater(() => Ui.Focus.take(keepPlaying));
+        } else if (action === "off" || action === "on") {
+            setEnabled(source.id, action === "on");
         } else if (room) {
             room.sourceCommand(source.id, action);
         }
@@ -102,8 +124,9 @@ FocusScope {
     Keys.onPressed: event => {
         if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key)) {
             event.accepted = true;
-            if (disconnecting.length) {
+            if (disconnecting.length || turningOff.length) {
                 disconnecting = "";
+                turningOff = "";
                 focusFirst();
             } else {
                 close();
@@ -164,9 +187,15 @@ FocusScope {
                     readonly property var modelData: root.sources.find(source => source.id === sourceKey) || ({})
                     // The pills change only when the actions do; focus then
                     // stays on the same action, or the row's first one.
+                    // Every source that is on can be turned off; one that is
+                    // off can only be turned on (#842).
+                    readonly property bool off: modelData.status === "off"
+                    function pillsFor(source) {
+                        return source.status === "off" ? ["on"] : (source.actions || []).concat(["off"]);
+                    }
                     property var actionList: []
                     onModelDataChanged: {
-                        const next = modelData.actions || [];
+                        const next = pillsFor(modelData);
                         if (JSON.stringify(next) === JSON.stringify(actionList))
                             return;
                         let focused = "";
@@ -181,15 +210,29 @@ FocusScope {
                                         Ui.Focus.take(pills.itemAt(i));
                                         return;
                                     }
-                                root.focusFirst();
+                                // Turned off or on: focus stays on this
+                                // source, on its new first pill.
+                                if (pills.count)
+                                    Ui.Focus.take(pills.itemAt(0));
+                                else
+                                    root.focusFirst();
                             });
                     }
-                    Component.onCompleted: actionList = modelData.actions || []
+                    Component.onCompleted: actionList = pillsFor(modelData)
                     objectName: "musicSourceRow"
                     width: parent.width
                     spacing: 16
                     function firstAction() {
                         return pills.count ? pills.itemAt(0) : null;
+                    }
+                    // The Off group's heading, over its first source (#842).
+                    Ui.UiText {
+                        objectName: "musicSourcesOffGroup"
+                        visible: sourceRow.off && (sourceRow.index === 0
+                            || !rows.itemAt(sourceRow.index - 1) || !rows.itemAt(sourceRow.index - 1).off)
+                        role: "section"
+                        color: Ui.Theme.textSecondary
+                        text: qsTr("Turned off")
                     }
                     Row {
                         spacing: 20
@@ -281,6 +324,36 @@ FocusScope {
                 }
             }
         }
+        }
+    }
+    // Turning off the source that plays stops its music (#842).
+    MusicDialog {
+        objectName: "musicTurnOffDialog"
+        visible: root.turningOff.length > 0
+        z: 2
+        title: qsTr("Turn off this source?")
+        body: qsTr("The music from this source stops.")
+        onDismissed: { root.turningOff = ""; root.focusFirst(); }
+        Ui.ActionButton {
+            id: keepPlaying
+            objectName: "musicKeepPlaying"
+            text: qsTr("Cancel")
+            KeyNavigation.right: stopSource
+            onActivated: { root.turningOff = ""; root.focusFirst(); }
+        }
+        Ui.ActionButton {
+            id: stopSource
+            objectName: "musicTurnOffSource"
+            text: qsTr("Turn off")
+            destructive: true
+            KeyNavigation.left: keepPlaying
+            onActivated: {
+                const id = root.turningOff;
+                root.turningOff = "";
+                root.stopRequested();
+                root.setEnabled(id, false);
+                Qt.callLater(root.focusFirst);
+            }
         }
     }
     MusicDialog {

@@ -24,12 +24,16 @@ FocusScope {
     readonly property bool firstUse: !!room && room.settled !== false && !room.loading
         && shelves.length === 0 && rows.length > 0
     readonly property var rows: room ? room.sources : []
-    readonly property var unreachable: rows.filter(source => source.status === "unavailable")
-    readonly property bool allUnreachable: firstUse && unreachable.length > 0 && unreachable.length === rows.length
-    readonly property bool needsSignIn: firstUse && !allUnreachable
-        && rows.some(source => source.status === "signin")
-    readonly property bool connectedEmpty: firstUse && !allUnreachable && !needsSignIn
-    readonly property bool localEmpty: connectedEmpty && rows.some(source => source.local === true)
+    // Turned-off sources (#842) say nothing about why the room is empty,
+    // unless every source is off: then the room points to Sources.
+    readonly property var liveRows: rows.filter(source => source.status !== "off")
+    readonly property bool allOff: firstUse && liveRows.length === 0
+    readonly property var unreachable: liveRows.filter(source => source.status === "unavailable")
+    readonly property bool allUnreachable: firstUse && unreachable.length > 0 && unreachable.length === liveRows.length
+    readonly property bool needsSignIn: firstUse && !allOff && !allUnreachable
+        && liveRows.some(source => source.status === "signin")
+    readonly property bool connectedEmpty: firstUse && !allOff && !allUnreachable && !needsSignIn
+    readonly property bool localEmpty: connectedEmpty && liveRows.some(source => source.local === true)
     readonly property bool sheetOpen: sourcesSheet.visible
     // The shelf and entry under focus.
     property Item focusedShelf: null
@@ -183,7 +187,8 @@ FocusScope {
             role: "hero"
             fitSteps: [[96, 1], [68, 2]]
             textFormat: Text.PlainText
-            text: root.allUnreachable ? qsTr("Music is unavailable")
+            text: root.allOff ? qsTr("Music sources are off")
+                : root.allUnreachable ? qsTr("Music is unavailable")
                 : root.connectedEmpty ? qsTr("No music yet")
                 : root.firstUse ? qsTr("Connect a source")
                 : root.focusedEntry ? (root.focusedEntry.title || "") : qsTr("Music")
@@ -199,9 +204,11 @@ FocusScope {
             maximumLineCount: 1
             elide: Text.ElideRight
             text: {
+                if (root.allOff)
+                    return qsTr("Turn a source on in Sources.");
                 if (root.allUnreachable)
                     return root.unreachable[0].reason || "";
-                if (root.connectedEmpty && rows.some(source => source.status === "scanning"))
+                if (root.connectedEmpty && root.liveRows.some(source => source.status === "scanning"))
                     return qsTr("Scanning the library…");
                 if (root.localEmpty)
                     return qsTr("Add folders with music in Settings.");
@@ -228,7 +235,7 @@ FocusScope {
             y: 190
             visible: root.firstUse
             primary: true
-            text: root.allUnreachable || root.connectedEmpty ? qsTr("Sources") : qsTr("Connect a source")
+            text: root.allOff || root.allUnreachable || root.connectedEmpty ? qsTr("Sources") : qsTr("Connect a source")
             KeyNavigation.up: sourcesButton
             onVisibleChanged: if (!visible) Qt.callLater(root.settleFocus)
             onActivated: root.openSources()
@@ -395,6 +402,15 @@ FocusScope {
         objectName: "musicSourcesOverlay"
         z: 10
         room: root.room
+        // The source whose session plays or is paused: turning it off asks
+        // first, then stops the music (#842).
+        playingSource: ["playing", "paused", "loading"].includes(root.player.playback) ? root.activeSource : ""
+        onStopRequested: {
+            if (!root.catalog)
+                return;
+            const actions = root.player.actions || [];
+            root.catalog.transport(actions.includes("stop") ? "stop" : "pause");
+        }
         onClosed: Ui.Focus.take(sourcesButton.visible && !root.firstUse ? sourcesButton : connectFirst)
     }
 }

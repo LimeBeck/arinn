@@ -64,6 +64,10 @@ TestCase {
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
+            // As Main stores the choice and MusicRoom lists an off source last (#842).
+            function setSourceEnabled(source,enabled) {commands=commands.concat([source+":"+(enabled?"on":"off")]);
+                const rows=sources.map(row=>row.id!==source?row:Object.assign({},row,enabled?{status:"connected",actions:row.offActions||[],browsable:true}:{status:"off",offActions:row.actions,actions:[],browsable:false}));
+                sources=rows.filter(row=>row.status!=="off").concat(rows.filter(row=>row.status==="off"));}
             // Find over every source (#801): the query is kept; tests set the results.
             property var searchShelves: []
             property var searchPending: []
@@ -1079,6 +1083,51 @@ TestCase {
         keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(room.commands,["local:scan","account:disconnect"]);
         keyClick(Qt.Key_Escape);tryCompare(sheet,"visible",false);tryCompare(sources,"activeFocus",true);
     }
+    // #842: Turn off moves a source to the Off group, where Turn on brings
+    // it back; turning off the source that plays asks first, with Cancel
+    // focused, then stops its music.
+    function test_sources_can_be_turned_off_and_on() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();const sources=findChild(view,"musicSources");Ui.Focus.take(sources);keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        // The service's row: Refresh, Disconnect, Turn off.
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Right);keyClick(Qt.Key_Right);
+        const off=()=>{const rows=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")rows.push(c);walk(c);}};walk(sheet);return rows;};
+        tryVerify(()=>off().some(pill=>pill.activeFocus));compare(off()[0].text,"Turn off");
+        keyClick(Qt.Key_Return);compare(room.commands,["account:off"]);
+        // It moves to the Off group, last, and focus stays on it: Turn on.
+        const on=findChild(sheet,"musicSourceAction-on");tryVerify(()=>on&&on.activeFocus);compare(on.text,"Turn on");
+        const headings=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourcesOffGroup"&&c.visible)out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>headings().length===1);
+        compare(room.sources[1].id,"account");compare(room.sources[1].status,"off");
+        keyClick(Qt.Key_Return);compare(room.commands,["account:off","account:on"]);
+        tryVerify(()=>!findChild(sheet,"musicSourceAction-on"));
+        // The source that plays: Turn off asks first, Cancel focused.
+        Ui.Focus.take(off()[0]);keyClick(Qt.Key_Return);
+        const keep=findChild(sheet,"musicKeepPlaying");tryCompare(keep,"activeFocus",true);
+        compare(findChild(sheet,"musicTurnOffDialog").visible,true);compare(room.commands.length,2);
+        keyClick(Qt.Key_Return);tryCompare(findChild(sheet,"musicTurnOffDialog"),"visible",false);compare(room.commands.length,2);
+        Ui.Focus.take(off()[0]);keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(findChild(sheet,"musicTurnOffSource"),"activeFocus",true);
+        catalog.commands=[];keyClick(Qt.Key_Return);
+        compare(catalog.commands,["stop"]);compare(room.commands[2],"local:off");
+    }
+    // #842: with every source off, the room points to Sources.
+    function test_every_source_off_points_to_sources() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.shelves=[];room.sources=room.sources.map(row=>Object.assign({},row,{status:"off",actions:[],browsable:false}));
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const connect=findChild(view,"musicConnectFirst");tryCompare(connect,"activeFocus",true);
+        compare(findChild(view,"musicHeroTitle").text,"Music sources are off");
+        compare(findChild(view,"musicHeroMeta").text,"Turn a source on in Sources.");
+        compare(connect.text,"Sources");
+        keyClick(Qt.Key_Return);tryCompare(findChild(view,"musicSourcesOverlay"),"visible",true);
+        tryCompare(findChild(view,"musicSourceAction-on"),"activeFocus",true);
+    }
     // #800 first use: no connected source, so the hero offers Connect, which
     // opens the Sources sheet, and no shelf shows.
     function test_first_use_offers_connect() {
@@ -1268,8 +1317,9 @@ TestCase {
         const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
         compare(findChild(view,"musicRoom").firstUse,false);compare(findChild(view,"musicConnectFirst").visible,false);
     }
-    // Codex review of #812: Up in the Sources sheet skips a source without
-    // housekeeping actions, as Down does.
+    // Codex review of #812: Up and Down in the Sources sheet move between
+    // rows' first pills. Since #842 every row has one: a source without
+    // housekeeping can still be turned off.
     function test_sources_sheet_up_skips_actionless_rows() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
         room.sources=[{id:"a",name:"Fixture A",local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
@@ -1279,7 +1329,10 @@ TestCase {
         view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
         const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
         const scan=findChild(sheet,"musicSourceAction-scan");tryCompare(scan,"activeFocus",true);
+        const offs=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        keyClick(Qt.Key_Down);tryVerify(()=>offs()[1].activeFocus);
         keyClick(Qt.Key_Down);tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);
+        keyClick(Qt.Key_Up);tryVerify(()=>offs()[1].activeFocus);
         keyClick(Qt.Key_Up);tryCompare(scan,"activeFocus",true);
     }
     // Codex review of #812: shelves that arrive above the focused one keep

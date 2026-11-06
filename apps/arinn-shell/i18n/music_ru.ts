@@ -517,6 +517,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoomView</name>
     <message>
+      <source>Music sources are off</source>
+      <translation>Источники музыки выключены</translation>
+    </message>
+    <message>
+      <source>Turn a source on in Sources.</source>
+      <translation>Включите источник в разделе «Источники».</translation>
+    </message>
+    <message>
       <source>Scanning the library…</source>
       <translation>Сканирование медиатеки…</translation>
     </message>
@@ -601,6 +609,30 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   </context>
   <context>
     <name>MusicSourcesSheet</name>
+    <message>
+      <source>Turn off</source>
+      <translation>Выключить</translation>
+    </message>
+    <message>
+      <source>Turn on</source>
+      <translation>Включить</translation>
+    </message>
+    <message>
+      <source>Off</source>
+      <translation>Выключен</translation>
+    </message>
+    <message>
+      <source>Turned off</source>
+      <translation>Выключенные</translation>
+    </message>
+    <message>
+      <source>Turn off this source?</source>
+      <translation>Выключить этот источник?</translation>
+    </message>
+    <message>
+      <source>The music from this source stops.</source>
+      <translation>Музыка из этого источника остановится.</translation>
+    </message>
     <message>
       <source>Connect</source>
       <translation>Подключить</translation>

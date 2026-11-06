@@ -32,8 +32,19 @@ rows on this screen. `SettingsCatalog` also exposes them as `lightField`,
 `lightFollowsTime` and `ambientTimeoutMinutes` for `Main.qml`, which binds the
 light field to `lightField` and the time-of-day light to
 `lightFollowsTime`. An invalid hand-edited value of any of these keys in `config.toml`
-reads as its default, with one warning line and no value in the log. The
-same source lists `browser_application` and, when search engines are
+reads as its default, with one warning line and no value in the log.
+
+`music_disabled_sources` (#842) holds the music sources turned off in the
+music *Sources* sheet. It is a string with a JSON array of provider ids,
+stored in `config.toml` as a list. The daemon refuses a value that is not a
+list of distinct ids, and a hand-edited invalid list reads as none.
+- This screen leaves the row out, because the *Sources* sheet sets it.
+- `SettingsCatalog.musicDisabledSources` shows a change at once.
+- `setMusicSourceEnabled` writes it one write at a time; a change made while
+  a write is in flight is written after it, and a refused write shows the
+  stored list again.
+
+The same source lists `browser_application` and, when search engines are
 packaged, `search_engine` under Applications. The daemon checks its own schema
 with the same rules as a provider schema, so every row has a category the
 screen knows (#682). The titles, descriptions and option titles of the `arinn`

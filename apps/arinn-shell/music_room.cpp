@@ -303,31 +303,47 @@ void MusicRoom::readNext(const QString &id) {
   auto found = m_sources.find(id);
   if (found == m_sources.end() || found->second.pending.isEmpty())
     return;
-  readPage(id, found->second.pending.takeFirst(), false);
+  readPage(id, found->second.pending.takeFirst(), false, true);
 }
 
 void MusicRoom::readPage(const QString &id, const QString &facetId,
-                         bool append) {
+                         bool append, bool chained) {
   auto found = m_sources.find(id);
   if (found == m_sources.end())
     return;
   auto &source = found->second;
   auto &facet = source.facets[facetId];
-  if (facet.busy || (append && facet.next.isEmpty()))
+  if (facet.busy || (append && facet.next.isEmpty())) {
+    if (chained)
+      readNext(id);
     return;
+  }
   const auto token = append ? facet.next : QString();
   if (!token.isEmpty() && facet.tokens.contains(token)) {
     // A provider that repeats a token ends the resume with what it read,
-    // instead of leaving the facet resuming (follow-up of #812).
+    // instead of leaving the facet resuming (follow-up of #812); a shorter
+    // read never replaces what is shown (review of #819).
     if (facet.resumeTo > 0) {
-      if (!facet.buffer.isEmpty())
+      if (facet.buffer.size() >= facet.entries.size())
         facet.entries = facet.buffer;
       facet.buffer.clear();
       facet.resumeTo = 0;
       facet.next.clear();
+      facet.failed = false;
+      facet.retries = 0;
+      facet.loaded = true;
+      facet.stale = false;
       rebuild();
     }
+    if (chained)
+      readNext(id);
     return;
+  }
+  // Every first page of a resume, a retried one too, starts its tokens and
+  // its buffer afresh (review of #819).
+  if (!append && facet.resumeTo > 0) {
+    facet.tokens.clear();
+    facet.buffer.clear();
   }
   facet.busy = true;
   const auto ticket = source.ticket;
@@ -344,7 +360,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
       QDBusConnection::sessionBus().asyncCall(message, 5500), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, id, facetId, ticket, append, token](auto *watch) {
+      [this, id, facetId, ticket, append, chained, token](auto *watch) {
         const auto reply = watch->reply();
         watch->deleteLater();
         auto found = m_sources.find(id);
@@ -370,7 +386,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
             facet.resumeTo = facet.entries.size() + 1;
             facet.buffer.clear();
             facet.tokens.clear();
-            readPage(id, facetId, false);
+            readPage(id, facetId, false, chained);
             return;
           }
           // A resume that fails (a catch-up page, or its first page refused
@@ -389,7 +405,9 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.
           facet.stale = false;
-          if (!append && !resuming)
+          // The chain goes on also after a resume that ends here (review
+          // of #819): facets queued behind it are read too.
+          if (chained)
             readNext(id);
           rebuild();
           return;
@@ -427,7 +445,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         if (resuming) {
           facet.buffer = entries;
           if (entries.size() < facet.resumeTo && !facet.next.isEmpty()) {
-            readPage(id, facetId, true);
+            readPage(id, facetId, true, chained);
             return;
           }
           facet.buffer.clear();
@@ -438,8 +456,9 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         facet.retries = 0;
         facet.loaded = true;
         facet.stale = false;
-        // Only the first pages chain: a further page is the All list's own.
-        if (!append && !resuming)
+        // Only the first pages chain: a further page is the All list's own,
+        // unless it belongs to a resume the chain started.
+        if (chained)
           readNext(id);
         rebuild();
       });

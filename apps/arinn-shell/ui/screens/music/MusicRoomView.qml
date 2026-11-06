@@ -73,6 +73,9 @@ FocusScope {
         return false;
     }
     // Focus a shelf where it was left (its All tile after the All list).
+    function focusFind() {
+        return findButton.visible && Ui.Focus.take(findButton);
+    }
     function focusShelf(id) {
         for (let i = 0; i < shelfRepeater.count; ++i) {
             const shelf = shelfRepeater.itemAt(i);

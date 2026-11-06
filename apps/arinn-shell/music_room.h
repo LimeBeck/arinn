@@ -138,7 +138,10 @@ private:
   };
   void readState(const QString &id);
   void readNext(const QString &id);
-  void readPage(const QString &id, const QString &facet, bool append);
+  // `chained`: the read came from the source's chain of first pages, which
+  // goes on once this facet's read (or its resume) ends.
+  void readPage(const QString &id, const QString &facet, bool append,
+                bool chained = false);
   void rebuild();
   void startSearch(const QString &id);
   void readSearch(const QString &id);

@@ -991,7 +991,28 @@ TestCase {
         const radio=findChild(header,"musicDetailRadio");
         verify(save.mapToItem(view,0,0).x>=radio.mapToItem(view,0,0).x+radio.width);
         compare(save.mapToItem(view,0,0).y,radio.mapToItem(view,0,0).y);
+        // Review of #819: the playlist actions join the pills for the D-pad,
+        // and Down from them reaches the tracks.
+        Ui.Focus.take(radio);keyClick(Qt.Key_Right);tryCompare(save,"activeFocus",true);
+        keyClick(Qt.Key_Left);tryCompare(radio,"activeFocus",true);
+        Ui.Focus.take(save);keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicEntries"),"activeFocus",true);
         catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
+        // Review of #819: nothing overlaps the tracks, also under a title on
+        // three lines, and the status line stays below them.
+        const rows=findChild(view,"musicEntries"),notice=findChild(view,"musicNotice");
+        compare(findChild(view,"musicListPosition").visible,false);
+        verify(rows.y+rows.height<=notice.y);
+        const shortEntry=view.detailEntry;
+        view.detailEntry=Object.assign({},shortEntry,{title:"An extended synthetic title from the fixture album that runs over three whole lines of the detail"});
+        const meta=findChild(header,"musicDetailMeta");
+        tryVerify(()=>radio.mapToItem(view,0,0).y>=meta.mapToItem(view,0,meta.height).y);
+        verify(rows.y>=radio.mapToItem(view,0,radio.height).y);
+        verify(rows.y+rows.height<=notice.y);
+        view.detailEntry=shortEntry;
+        // One track is one track, not "1 tracks".
+        const twoTracks=catalog.entries;catalog.entries=[twoTracks[0]];
+        verify(meta.text.indexOf("1 track")>=0);verify(meta.text.indexOf("1 tracks")<0);
+        catalog.entries=twoTracks;
         // The row of the session that plays carries the playing mark.
         catalog.activeSourceId="account";
         const list=findChild(view,"musicEntries");tryCompare(list,"count",2);
@@ -1025,6 +1046,23 @@ TestCase {
         keyClick(Qt.Key_Return);verify(view.detailView);compare(catalog.sourceId,"account");
         keyClick(Qt.Key_Escape);compare(view.mode,"search");
         tryVerify(()=>results.activeFocus);compare(results.focusedEntry.key,"account\nalbum:1");
+        // Review of #819: a query typed just before a result opens is still
+        // searched, and never filters the detail.
+        const browses=catalog.browsed.filter(parent=>parent==="album:1").length;
+        field.text="fixe";keyClick(Qt.Key_Return);verify(view.detailView);
+        wait(500);compare(catalog.browsed.filter(parent=>parent==="album:1").length,browses+1);
+        verify(room.searches.indexOf("fixe")>=0);
+        keyClick(Qt.Key_Escape);compare(view.mode,"search");tryVerify(()=>results.activeFocus);
+        // Review of #819: cancelling Replace from a track result keeps focus
+        // on that result, and Back still returns to the results first.
+        const found=room.searchShelves[0];
+        room.searchShelves=[found,{id:"tracks",title:"Tracks",kind:"track",entries:[room.card("local","track:9","track","Nine")]}];
+        keyClick(Qt.Key_Down);const trackShelf=findChild(view,"musicSearchShelf-tracks");tryVerify(()=>trackShelf.activeFocus);
+        keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","track:9");
+        keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
+        tryVerify(()=>trackShelf.activeFocus);compare(trackShelf.focusedEntry.key,"local\ntrack:9");
+        compare(view.mode,"search");
+        Ui.Focus.take(results);room.searchShelves=[found];
         // Codex review of #819: a focused shelf that leaves hands focus to
         // the shelf in its place, and the last one to the field.
         const albums=room.searchShelves[0];
@@ -1032,6 +1070,8 @@ TestCase {
         keyClick(Qt.Key_Down);const tracks=findChild(view,"musicSearchShelf-tracks");tryVerify(()=>tracks.activeFocus);
         room.searchShelves=[albums];tryVerify(()=>findChild(view,"musicSearchShelf-albums").activeFocus);
         room.searchShelves=[];tryCompare(field,"activeFocus",true);
+        // Back from Find returns to the Find button (review of #819).
         keyClick(Qt.Key_Escape);compare(view.mode,"root");compare(room.searchQuery,"");
+        tryCompare(findChild(view,"musicFind"),"activeFocus",true);
     }
 }

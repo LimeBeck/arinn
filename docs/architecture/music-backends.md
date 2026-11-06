@@ -472,7 +472,17 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   and the artist only where it differs from the album's. An artist detail
   lists its tracks; the protocol pages no releases for an artist, so that
   shelf is absent. Opening never plays; Back returns to the room or the
-  results with focus on the entry it was opened from.
+  results with focus on the entry it was opened from. The pills move down
+  under a title on three lines, and the tracks start below them and end above
+  the status line; the playlist actions join the pills' line for the D-pad
+  (Right from the last pill, Down to the tracks). A detail opened from a
+  detail's row never takes the Find text as a filter.
+- Back from Find returns to the *Find* button. A Find query typed just
+  before a result opens is still searched; a catalogue filter typed in
+  another mode is dropped.
 - A resume that fails keeps its target and the shown entries, and its retry
-  resumes; a provider that repeats a token ends the resume with what it read. Back from a detail, the player or the *All* list returns to the room
+  resumes, reading its tokens afresh; a retry started from a source's chain of
+  first pages goes on with that chain, so every failed facet is read again. A
+  provider that repeats a token ends the resume with what it read, never with
+  fewer entries than are shown. Back from a detail, the player or the *All* list returns to the room
   with focus on the card it was opened from.

@@ -19,7 +19,15 @@ Item {
     property bool canRadio: false
     readonly property string kind: entry.kind || ""
     readonly property Item firstPill: listen.visible ? listen : radio.visible ? radio : null
+    readonly property Item lastPill: radio.visible ? radio : listen.visible ? listen : null
     readonly property real pillsEnd: pills.x + pills.width
+    readonly property real pillsY: pills.y
+    // Where the tracks may start: below the pills, which move down under a
+    // title on three lines (review of #819).
+    readonly property real contentBottom: pills.y + pills.height
+    // The control right of the last pill (the playlist actions), so the
+    // pills' line is one row for the D-pad (review of #819).
+    property Item rightNeighbour: null
     signal listenRequested()
     signal radioRequested()
     signal downRequested()
@@ -37,7 +45,9 @@ Item {
             total += Math.max(0, track.duration_us || 0);
         const minutes = Math.round(total / 60000000);
         const parts = [];
-        if (count)
+        if (count === 1)
+            parts.push(qsTr("1 track"));
+        else if (count)
             parts.push(qsTr("%n tracks", "", count));
         if (minutes >= 60)
             parts.push(qsTr("%1 h %2 min").arg(Math.floor(minutes / 60)).arg(minutes % 60));
@@ -84,6 +94,7 @@ Item {
         source: root.entry.image || ""
     }
     Column {
+        id: titleColumn
         x: 600
         y: 140
         width: Ui.Theme.canvasWidth - x - Ui.Theme.safeRight
@@ -120,7 +131,7 @@ Item {
     Row {
         id: pills
         x: 600
-        y: 540
+        y: Math.max(540, titleColumn.y + titleColumn.height + 32)
         spacing: 16
         Ui.ActionButton {
             id: listen
@@ -128,7 +139,7 @@ Item {
             primary: true
             visible: root.canListen
             text: qsTr("Listen")
-            KeyNavigation.right: radio.visible ? radio : null
+            KeyNavigation.right: radio.visible ? radio : root.rightNeighbour
             Keys.onDownPressed: root.downRequested()
             onActivated: root.listenRequested()
         }
@@ -140,6 +151,7 @@ Item {
                 : root.kind === "playlist" ? qsTr("Radio from playlist")
                 : qsTr("Radio from album")
             KeyNavigation.left: listen.visible ? listen : null
+            KeyNavigation.right: root.rightNeighbour
             Keys.onDownPressed: root.downRequested()
             onActivated: root.radioRequested()
         }

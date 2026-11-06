@@ -652,6 +652,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>This computer</source>
       <translation>Этот компьютер</translation>
     </message>
+    <message>
+      <source>1 track</source>
+      <translation>1 трек</translation>
+    </message>
     <message numerus="yes">
       <source>%n tracks</source>
       <translation>

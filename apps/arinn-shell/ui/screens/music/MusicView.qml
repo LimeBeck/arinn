@@ -38,7 +38,8 @@ FocusScope {
     property var roomPlay: null
     Component.onCompleted: if (room)
         mode = "root"
-    function openRoom() {
+    // `atFind`: Back from Find returns to the Find button (review of #819).
+    function openRoom(atFind) {
         mode = "root";
         fromAll = false;
         roomPlay = null;
@@ -49,6 +50,8 @@ FocusScope {
         parentKind = "";
         const key = roomKey, shelf = roomShelf;
         Qt.callLater(() => {
+            if (atFind === true && roomView.focusFind())
+                return;
             if (!(key.length && roomView.focusEntry(key)) && !roomView.focusShelf(shelf))
                 roomView.focusInitial();
         });
@@ -288,6 +291,13 @@ FocusScope {
             .find(item => item.visible && item.enabled) || queueButton;
     }
     function focusInitial() {
+        // Find keeps focus on the result it was left from, or its first
+        // result, or the field (review of #819).
+        if (mode === "search" && room) {
+            if (!(roomKey.length && searchView.focusKey(roomKey)) && !searchView.focusInitial())
+                Ui.Focus.take(search);
+            return;
+        }
         // The room and its All lists keep their own focus (review of #812).
         if (mode === "root" && room) {
             if (!(roomKey.length && roomView.focusEntry(roomKey))
@@ -511,8 +521,9 @@ FocusScope {
             openRoom();
         } else if (mode === "search") {
             search.text = "";
+            searchDelay.stop();
             room.search("");
-            openRoom();
+            openRoom(true);
         } else if (room && mode === "catalogue" && fromSearch) {
             parentId = "";
             parentTitle = "";
@@ -596,6 +607,7 @@ FocusScope {
         canRadio: (root.selected.actions || []).includes("radio")
         onListenRequested: root.requestPlay(root.parentId)
         onRadioRequested: root.requestRadio(root.parentId)
+        rightNeighbour: saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : null
         onDownRequested: Ui.Focus.take(tracks.count ? tracks : root.detailAction())
     }
     // An album, artist or playlist is content: its title is Playfair Display
@@ -729,7 +741,10 @@ FocusScope {
                 color: Ui.Theme.textHint
                 verticalAlignment: Text.AlignVCenter
             }
-            onTextChanged: searchDelay.restart()
+            onTextChanged: {
+                searchDelay.forMode = root.mode;
+                searchDelay.restart();
+            }
             Keys.onDownPressed: root.mode === "search" ? searchView.focusInitial() : root.belowSearch()
             Keys.onUpPressed: Ui.Focus.take(sourcePicker)
             Keys.onEscapePressed: root.back()
@@ -744,9 +759,14 @@ FocusScope {
             Timer {
                 id: searchDelay
                 interval: 350
-                onTriggered: if (root.mode === "search")
+                // The mode the text was typed in: a Find query is searched
+                // even after a result opens, and never browses the detail;
+                // a catalogue filter is dropped once that mode is left
+                // (review of #819).
+                property string forMode: ""
+                onTriggered: if (forMode === "search")
                     root.room.search(search.text);
-                else
+                else if (forMode === root.mode && !root.detailView)
                     root.browse(root.facet, root.parentId, search.text)
             }
         }
@@ -843,8 +863,9 @@ FocusScope {
     }
     Row {
         // In a detail it follows the pills on their line, never under them
-        // (Codex review of #819).
-        y: root.detailView ? 540 : 880
+        // (Codex review of #819), and joins them for the D-pad: Left goes
+        // back to the pills, Down to the tracks (review of #819).
+        y: root.detailView ? detailHeader.pillsY : 880
         x: root.detailView ? detailHeader.pillsEnd + 24 : 120
         spacing: 24
         visible: root.mode === "catalogue" && root.parentId.length > 0
@@ -855,9 +876,10 @@ FocusScope {
             text: qsTr("Save playlist")
             enabled: !root.catalog.busy
             onActivated: root.namePlaylist(root.parentId, false)
-            KeyNavigation.up: tracks
-            KeyNavigation.right: removeGroup.visible ? removeGroup : root.catalogueAction()
-            KeyNavigation.down: root.catalogueAction()
+            KeyNavigation.up: root.detailView ? null : tracks
+            KeyNavigation.left: root.detailView ? detailHeader.lastPill : null
+            KeyNavigation.right: removeGroup.visible ? removeGroup : root.detailView ? null : root.catalogueAction()
+            KeyNavigation.down: root.detailView ? (tracks.count ? tracks : null) : root.catalogueAction()
         }
         Ui.ActionButton {
             id: removeGroup
@@ -869,18 +891,20 @@ FocusScope {
                 root.deletingPlaylist = true;
                 Qt.callLater(() => Ui.Focus.take(keepPlaylist));
             }
-            KeyNavigation.up: tracks
-            KeyNavigation.left: saveGroup.visible ? saveGroup : tracks
-            KeyNavigation.down: root.catalogueAction()
+            KeyNavigation.up: root.detailView ? null : tracks
+            KeyNavigation.left: saveGroup.visible ? saveGroup : root.detailView ? detailHeader.lastPill : tracks
+            KeyNavigation.down: root.detailView ? (tracks.count ? tracks : null) : root.catalogueAction()
         }
     }
     ListView {
         id: tracks
         objectName: "musicEntries"
         x: 120
-        y: root.detailView ? 650 : 385
+        // In a detail the tracks start below the pills and end above the
+        // status line (review of #819).
+        y: root.detailView ? detailHeader.contentBottom + 40 : 385
         width: 1680
-        height: root.detailView ? 380 : 450
+        height: root.detailView ? 960 - y : 450
         clip: true
         spacing: 12
         visible: root.mode === "catalogue" && ["local", "connected"].includes(root.selected.account)
@@ -898,7 +922,7 @@ FocusScope {
                 if (root.catalog.more) {
                     tracks.positionViewAtEnd();
                     Qt.callLater(() => Ui.Focus.take(tracks.footerItem));
-                } else
+                } else if (!root.detailView)
                     Ui.Focus.take(root.detailAction());
             } else
                 event.accepted = false;
@@ -1019,10 +1043,19 @@ FocusScope {
                 else if (modelData.kind === "track")
                     root.requestPlay(modelData.id);
                 else {
+                    // In a detail the row becomes the detail, and the Find
+                    // text never filters it (review of #819).
+                    if (root.detailView)
+                        root.detailEntry = Object.assign({}, modelData, {
+                            provider: root.detailEntry.provider,
+                            providerName: root.detailEntry.providerName,
+                            local: root.detailEntry.local,
+                            key: root.detailEntry.key
+                        });
                     root.parentId = modelData.id;
                     root.parentKind = modelData.kind;
                     root.parentTitle = text;
-                    root.browse(root.facet, modelData.id, search.text);
+                    root.browse(root.facet, modelData.id, root.detailView ? "" : search.text);
                 }
             }
         }
@@ -1030,7 +1063,8 @@ FocusScope {
             id: loadMoreButton
             objectName: "musicLoadMore"
             Keys.onUpPressed: Ui.Focus.take(tracks.currentItem || tracks)
-            Keys.onDownPressed: Ui.Focus.take(root.detailAction())
+            Keys.onDownPressed: if (!root.detailView)
+                Ui.Focus.take(root.detailAction())
             visible: root.catalog.more
             text: qsTr("Load more")
             enabled: !root.catalog.busy
@@ -1043,7 +1077,8 @@ FocusScope {
         y: 850
         role: "caption"
         color: Ui.Theme.textSecondary
-        visible: root.mode === "catalogue" && tracks.visible && tracks.count > 0
+        // A detail numbers its rows instead (review of #819).
+        visible: root.mode === "catalogue" && tracks.visible && tracks.count > 0 && !root.detailView
         text: qsTr("%1 of %2").arg(tracks.currentIndex + 1).arg(tracks.count)
     }
     Column {

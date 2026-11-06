@@ -90,10 +90,25 @@ pub(crate) fn station_image(info: &Value) -> Result<Option<&str>, Error> {
         .and_then(|entry| entry.get("station"))
         .filter(|station| station.is_object())
         .ok_or(Error::InvalidResponse)?;
-    Ok([&station["icon"]["imageUrl"], &station["fullImageUrl"]]
-        .into_iter()
-        .filter_map(Value::as_str)
-        .find(|reference| !reference.is_empty()))
+    // A present field of the wrong type is malformed too, not "no image"
+    // (Codex review of #849).
+    let icon = &station["icon"];
+    if !icon.is_null() && !icon.is_object() {
+        return Err(Error::InvalidResponse);
+    }
+    let mut found = None;
+    for field in [&icon["imageUrl"], &station["fullImageUrl"]] {
+        match field {
+            Value::Null => {}
+            Value::String(reference) => {
+                if found.is_none() && !reference.is_empty() {
+                    found = Some(reference.as_str());
+                }
+            }
+            _ => return Err(Error::InvalidResponse),
+        }
+    }
+    Ok(found)
 }
 
 /// A library date from the API ("2024-05-01T12:00:00+00:00", optionally
@@ -564,6 +579,9 @@ mod tests {
             json!([]),
             json!([{}]),
             json!([{"station": "x"}]),
+            json!([{"station": {"icon": {"imageUrl": 5}}}]),
+            json!([{"station": {"icon": 5}}]),
+            json!([{"station": {"fullImageUrl": ["g/%%"]}}]),
             json!({"station": {"fullImageUrl": "g/%%"}}),
         ] {
             assert_eq!(

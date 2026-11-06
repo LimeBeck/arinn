@@ -64,21 +64,32 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
 - The player's control row is its last row: Up from any control reaches the
   seek bar, and Down leaves the row only for a failure's Retry.
 - Now playing (#802, brief mh-03, ADR-0142 MH-3):
+  - no page title (#840): the top bar carries the lockup, and the shell's
+    status area shows unless a sheet or a dialog covers the screen
+    (`MusicView.screenStatus`);
   - the artwork is 560 with the floor and pool in its hue (`AmbientGlow`);
-  - the eyebrow names the context (the station, or *Album*) and the source
-    after an Ember dot; the title is Playfair 96 with the fit steps 96/80/64;
-    the artist is Onest 600 32 and the album 28 meta, with no year (the
-    `Entity` carries none);
+  - the eyebrow names the context (the station, or *Album*), then the source
+    while playing, or the state otherwise (*Fixture wave · paused*; without
+    a context, the source and the state). The Ember dot shows only while
+    playing. The title is Playfair 96 with the fit steps 96/80/64; the artist
+    is Onest 600 32 and the album 28 meta. The album line hides when it
+    repeats the title, ignoring case, and carries no year (the `Entity`
+    carries none);
   - the seek line is a 4 px track at 20 % white with an Ember fill. Its knob
     shows only in focus, and elapsed and total time sit below it in tabular
     figures, both with hours when the track is longer than an hour;
-  - one vertically centred row: previous 96, play/pause 120, next 96, the
-    *Like* and *Queue* pills and a round *More* (`more_horiz`). Left and Right
+  - one vertically centred row: the circles previous 96, play/pause 120 and
+    next 96 (`MusicButton` radius is half its width), the *Like* and *Queue*
+    pills and a round *More* (`more_horiz`). Left and Right
     stop at its ends, Down from the seek line returns to play/pause, and the
     labels under the round buttons appear in focus at 26;
   - *Like* shows a filled heart and *Liked* when liked, *Saving…* while its
     command is in flight and *Not saved* when it fails, until the track
     changes or Like is pressed again; it is checkable for accessibility.
+- Global navigation's *Music* entry lands on the room, whatever mode Music
+  was left in, and the session keeps playing (#840, MH-1). The player opens
+  from the Continue card, the Quick menu, *Open player*, or a station or an
+  album.
 - The *More* sheet (720, right) lists only the session's actions, as
   container rows with a line icon: Dislike, Radio from this track, the
   provider's station pin, Retry loading tracks and Stop. *Go to album* and

@@ -122,15 +122,82 @@ TestCase {
         Ui.Focus.take(refresh);keyClick(Qt.Key_Right);tryCompare(disconnect,"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(refresh,"activeFocus",true);
     }
-    function test_player_heading_matches_loading_paused_and_failed_state() {
+    // Now playing has no page title: the state is in the eyebrow, and the
+    // Ember dot only while playing (#840).
+    function test_now_playing_state_is_in_the_eyebrow() {
         const catalog=createTemporaryObject(catalogFactory,suite);
-        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"player"});verify(view);
-        const heading=findChild(view,"musicHeading");verify(heading);
-        compare(heading.text,"Now playing");
-        for(const state of [{playback:"playing",error:"Unavailable",title:"Now playing"},{playback:"paused",error:"Unavailable",title:"Paused"},{playback:"loading",title:"Loading music…"},{playback:"paused",title:"Paused"},{playback:"stopped",title:"Stopped"},{playback:"stopped",error:"Unavailable",title:"Stopped"}]) {
-            catalog.activeState={playback:state.playback,error:state.error,actions:[],upcoming:[]};
-            tryCompare(heading,"text",state.title);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,mode:"player"});verify(view);wait(0);
+        const heading=findChild(view,"musicHeading"),context=findChild(view,"musicPlayerContext"),dot=findChild(view,"musicPlayerDot");
+        verify(heading);verify(context);verify(dot);
+        compare(heading.visible,false);
+        const station={id:"station:wave",title:"Fixture wave"};
+        for(const state of [{playback:"playing",text:"Fixture music",dot:true},{playback:"paused",text:"Fixture music · paused",dot:false},
+                            {playback:"playing",station:station,text:"Fixture wave · Fixture music",dot:true},{playback:"paused",station:station,text:"Fixture wave · paused",dot:false},
+                            {playback:"loading",station:station,text:"Fixture wave · loading",dot:false},{playback:"stopped",error:"Unavailable",text:"Fixture music · stopped",dot:false}]) {
+            catalog.activeState={playback:state.playback,error:state.error,station:state.station,actions:[],upcoming:[]};
+            tryCompare(context,"text",state.text);compare(dot.visible,state.dot);compare(heading.visible,false);
         }
+        // Without a context or a source the state stands alone.
+        catalog.activeSourceName="";
+        tryCompare(context,"text","Stopped");
+        catalog.activeState={playback:"paused",actions:[],upcoming:[]};tryCompare(context,"text","Paused");
+        catalog.activeState={playback:"loading",actions:[],upcoming:[]};tryCompare(context,"text","Loading music…");
+        catalog.activeState={playback:"playing",actions:[],upcoming:[]};tryCompare(context,"text","Now playing");
+        // The Queue sheet opens over Now playing: no title either.
+        view.mode="queue";wait(0);compare(heading.visible,false);
+        view.mode="catalogue";tryCompare(heading,"visible",true);
+    }
+    // Lockup and the shell's status area, as frame mh-03 (#840).
+    function test_now_playing_has_the_screen_chrome() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);wait(0);
+        compare(view.screenStatus,true);
+        view.openPlayer();wait(0);compare(view.mode,"player");
+        const lockup=findChild(view,"musicPlayerLockup");verify(lockup);verify(lockup.visible);
+        compare(lockup.x,Ui.Theme.safeLeft);compare(lockup.height,40);
+        compare(view.screenStatus,true);
+        view.openMore();tryCompare(view,"screenStatus",false);
+        view.moreOpen=false;tryCompare(view,"screenStatus",true);
+        view.openQueue();tryCompare(view,"screenStatus",false);
+    }
+    // Previous, play/pause, next and More are circles (#840, MH-3).
+    function test_round_buttons_are_circles() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        for(const [name,size] of [["musicPrevious",96],["musicPlayPause",120],["musicNext",96],["musicMore",96]]) {
+            const button=findChild(view,name);verify(button,name);
+            compare(button.width,size,name);compare(button.height,size,name);compare(button.cornerRadius,size/2,name);
+        }
+    }
+    // A single named as its album says it once (#840).
+    function test_album_line_is_hidden_when_it_repeats_the_title() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const track={id:"t",title:"Fixture single",artist:"Fixture artist",album:"Fixture album",duration_us:60000000};
+        catalog.activeState={session:"s",playback:"playing",current:{track:track},actions:["pause"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const album=findChild(view,"musicPlayerAlbum");verify(album);
+        verify(album.visible);compare(album.text,"Fixture album");
+        catalog.activeState={session:"s",playback:"playing",current:{track:Object.assign({},track,{album:"FIXTURE Single"})},actions:["pause"],upcoming:[]};
+        tryCompare(album,"visible",false);
+        catalog.activeState={session:"s",playback:"playing",current:{track:Object.assign({},track,{album:""})},actions:["pause"],upcoming:[]};
+        tryCompare(album,"visible",false);
+    }
+    // Global navigation's Music entry lands on the room, not on the player
+    // it was left in; the session keeps playing (#840, MH-1).
+    function test_music_entry_lands_on_the_room() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);wait(0);
+        view.openPlayer();wait(0);compare(view.mode,"player");
+        view.openMore();wait(0);verify(view.moreOpen);
+        view.enterSection();
+        compare(view.mode,"root");compare(view.moreOpen,false);compare(view.overlayOpen,false);
+        compare(catalog.commands,[]);compare(catalog.activeState.playback,"playing");
+        tryVerify(()=>findChild(view,"musicNowPlaying").visible===false);
+        // Without a room the catalogue stays where it is.
+        const plain=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(plain);
+        plain.openPlayer();wait(0);plain.enterSection();compare(plain.mode,"player");
     }
     function test_browsing_preserves_active_session_and_replacement_waits_for_confirmation() {
         const catalog=createTemporaryObject(catalogFactory,suite);
@@ -422,7 +489,7 @@ TestCase {
         catalog.playbackProblem="The track was not found in this source.";
         catalog.notice="Playback stopped. The track was not found in this source.";
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
-        compare(findChild(view,"musicHeading").text,"Stopped");
+        compare(findChild(view,"musicPlayerContext").text,"Fixture music · stopped");
         compare(findChild(view,"musicPlaybackProblem").text,"Playback failed. The track was not found in this source.");
         compare(findChild(view,"musicNotice").visible,false);
         const retry=findChild(view,"musicRetryPlayback");verify(retry.visible);

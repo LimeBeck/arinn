@@ -257,6 +257,18 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Треки</translation>
     </message>
     <message>
+      <source>paused</source>
+      <translation>на паузе</translation>
+    </message>
+    <message>
+      <source>loading</source>
+      <translation>загрузка</translation>
+    </message>
+    <message>
+      <source>stopped</source>
+      <translation>остановлено</translation>
+    </message>
+    <message>
       <source>Paused</source>
       <translation>Пауза</translation>
     </message>

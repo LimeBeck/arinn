@@ -29,9 +29,9 @@ The [music Hearth light brief](../design/briefs/music-hearth-light/README.md) an
 | --- | --- |
 | MH-1 | The Music root is a Home-like room: a hero describing the focused item, then shelves of Stations, For you, Albums, Artists and Recent tracks. Album, playlist and artist detail is built like the movie detail. |
 | MH-2 | The music Continue card shows a centred cover over its own blurred backdrop, a playing equaliser in a neutral chip and an Ember progress line. |
-| MH-3 | The player row is previous, play/pause (the default focus) and next, then the labelled pills *Like* and *Queue*. Other actions are in a *More* sheet. This replaces layout B. |
+| MH-3 | The player row is previous, play/pause (the default focus) and next, then the labelled pills *Like* and *Queue* and a *More* button that opens a sheet with the other actions. The Menu key keeps its meaning (§6.2). This replaces layout B. |
 | MH-4 | While music plays, the status area shows an Ember dot and "track · artist". |
-| MH-5 | The source is one header control with a sheet. *Refresh* and *Disconnect* live in *Settings › Music*. |
+| MH-5 | The source is one header control with a sheet. *Refresh*, *Connect* and *Disconnect* live in that sheet, off the browsing surface. Settings has no Music category and holds no actions (§5.6, [ADR-0065](0065-provider-settings-contract.md)). |
 | MH-6 | Stations can be pinned to the Favourites shelf on Home. |
 | MH-7 | While media plays or is paused, the Quick menu's *Now playing* row is a media card with previous, play/pause, next and *Open player*. It is fed by the music session as well as by media sessions. |
 | MH-8 | Automatic Ambient may start while music plays, and Ambient shows the current track. It still must not start while video or other media plays, or while an external Activity is in the foreground. |

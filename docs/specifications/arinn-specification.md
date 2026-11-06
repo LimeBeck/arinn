@@ -212,7 +212,7 @@ track/album/artist/playlist browsing, search and an independent background audio
 session. The Music section is laid out like Home: a hero over shelves of
 stations, personal playlists, albums, artists and recent tracks, with the source
 as one header control. The player row holds previous, play/pause and next, plus
-Like and Queue; other actions are in a More sheet. Owner decision on 2026-11-06
+Like, Queue and More; More opens a sheet with the other actions. Owner decision on 2026-11-06
 ([ADR-0142](../adr/0142-music-in-hearth-light.md)), replacing the single-row
 layout B selected in #707/#710. Browsing
 another source MUST preserve the active session; replacing its queue MUST ask

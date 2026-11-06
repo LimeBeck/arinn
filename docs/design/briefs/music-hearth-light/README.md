@@ -47,9 +47,9 @@ Given on 2026-11-06 in the Claude session of [#756](https://github.com/LimeBeck/
 | --- | --- |
 | MH-1 | **Direction A, shelves.** The Music root is a Home-like room with a hero and shelves. Rejected: B (the section opens on the player, with the catalogue as a shelf below) and C (the current list restyled to the roles). |
 | MH-2 | **Continue card, variant 1.** A centred cover over its own blurred backdrop, a playing equaliser in a neutral chip and an Ember progress line. Rejected: a mini-player (cover on the left, time on the right) and a full-bleed cover, which crops a square cover by 44 %. |
-| MH-3 | **Player row.** Previous, play/pause and next, then the labelled pills *Like* and *Queue*. Dislike, *Radio from this track*, *Pin station* and *Stop* move to the *More* sheet. This replaces the layout B row selected on 2026-11-01. |
+| MH-3 | **Player row.** Previous, play/pause and next, then the labelled pills *Like* and *Queue* and a *More* button. Dislike, *Radio from this track*, *Pin station* and *Stop* move to the *More* sheet. This replaces the layout B row selected on 2026-11-01. |
 | MH-4 | **Status area.** While music plays, an Ember dot and "track · artist" appear left of the clock. |
-| MH-5 | **Source.** One header control with a sheet. *Refresh* and *Disconnect* move to *Settings › Music*. |
+| MH-5 | **Source.** One header control with a sheet. *Refresh* and *Disconnect* leave the browsing surface and move into that sheet. The decision first named *Settings › Music*. Settings has no such category, and its rows hold typed values, not actions (§5.6, [ADR-0065](../../../adr/0065-provider-settings-contract.md)). So the review of #799 moved the actions to the source sheet. The intent, no housekeeping on the browsing surface, is unchanged. |
 | MH-6 | **Stations on Favourites.** Stations can be pinned to the Favourites shelf on Home. |
 | MH-7 | **Quick menu.** While media plays, the *Now playing* row becomes a media card with transport and *Open player*. |
 | MH-8 | **Ambient during music.** Automatic Ambient may start while music plays, and it shows the current track. It still does not start while video or other media plays. This changes [specification §5.7](../../../specifications/arinn-specification.md#57-system-ui-power-and-ambient). Until now the rule was violated by accident (M4). |
@@ -66,6 +66,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
   - Below it come the title in Playfair Display 96 (68 on two lines) and a meta line of 28.
 - **Header controls** on the right of the hero line: the source control (MH-5) and a *Find* pill.
   - The source control is an action pill with the source name and a chevron. It opens a right-hand sheet that lists the sources with their connection state and a check on the current one (M11).
+  - Each source row in the sheet holds that source's housekeeping as pills, by capability: *Connect*, *Refresh* and *Disconnect* (MH-5). *Disconnect* asks for confirmation, with Cancel as the initial focus. A provider's typed settings, such as local music folders, stay in their Settings category.
   - *Find* opens the music search screen, laid out like *Site or search*.
 - **Shelves**, in this order. A shelf the source cannot supply is absent, not empty.
   1. *Stations*: My Wave, mixes and pinned stations as 16:9 cards 448 × 252. The playing station shows the playing chip (see *Continue card*).
@@ -75,7 +76,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
   5. *Recent tracks*: a short shelf of square covers. Selecting one plays it in the context it came from.
 - **Each shelf ends with an *All* tile.** It opens the full list or grid for that facet: the former facet screens, now in container rows.
 - **Light.** Rows follow the Hearth light rules: the focused row at 0.82, other rows at 0.62, the floor light on, the pool keyed to the focused artwork.
-- **First use.** With no connected source, the hero explains the next step ("Connect a source in Settings › Music") and offers that one action. The shelves stay absent. Arinn never shows an empty connected library.
+- **First use.** With no connected source, the hero explains the next step ("Connect a source") and offers that one action. The shelves stay absent. Arinn never shows an empty connected library.
 
 ### Album, playlist and artist detail (`mh-02`)
 
@@ -115,7 +116,7 @@ Back restores the opening entity on the root or in the list (M16).
   - *Like* shows its selected state as a filled heart plus "Liked", not only as a stronger plate (M18). It has pending and failure states.
 - **D-pad.** Up from the row goes to the seek line, Down from the seek line returns to play/pause. Left and Right move along the row and stop at its ends (M15).
 - **Labels.** Labels under the round buttons appear in focus at 26 (M14).
-- **More.** The Menu key, or a *More* pill when the row has room, opens the *More* sheet. A hint line under the row says so.
+- **More.** A round *More* button (96, `more_horiz`) ends the row and opens the *More* sheet. It is always present. The Menu key keeps its §6.2 meaning (global navigation) and never opens the sheet.
 - **No Stop button in the row.** Stopping is in *More*.
 
 ### More sheet

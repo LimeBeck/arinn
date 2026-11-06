@@ -432,8 +432,10 @@ or `avatars.mds.yandex.net`, behind the same cache, epoch guard, size limit and
 Search results, playlists and stations carry an ID only when the API names an
 image. Whether a station's info names one is asked once per connection, at
 most eight stations at a time under one shared 3-second deadline; a failed or
-slow answer leaves the station without artwork and is asked again on the
-next listing. The memo holds 1024 stations, room for every pin, and past
+slow answer leaves the station without artwork. Such a listing is marked
+incomplete in the catalogue cache: a request after a minute fetches it again
+while the cached one is still shown, so a station is asked again instead of
+keeping "no cover". An answer of "no image" is final for the connection. The memo holds 1024 stations, room for every pin, and past
 that drops one entry at a time. The Selections shelf asks for My Wave
 and every pinned station, including a pin stored before stations had covers.
 A radio start asks for its station once the session exists.

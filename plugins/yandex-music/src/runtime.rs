@@ -67,6 +67,10 @@ struct Cache {
     tracks: Vec<Track>,
     error: Option<ErrorCode>,
     bytes: usize,
+    /// Some station cover lookup failed or ran out of time: the listing is
+    /// asked again later instead of keeping "no cover" (#843).
+    incomplete: bool,
+    fetched: tokio::time::Instant,
 }
 struct Radio {
     wire: String,
@@ -163,14 +167,16 @@ fn station(id: &str, title: &str) -> Entity {
 async fn station_artwork(api: &Api, id: &str) -> String {
     station_artworks(api, &[id.to_owned()])
         .await
+        .0
         .remove(id)
         .unwrap_or_default()
 }
 /// The artwork IDs of several stations, asked at most eight at a time under
 /// one shared 3-second deadline: however many stations are slow, the
 /// listing waits no longer, and those stations go without artwork (Codex
-/// review of #849).
-async fn station_artworks(api: &Api, ids: &[String]) -> HashMap<String, String> {
+/// review of #849). The flag is false when some lookup failed or ran out of
+/// time, so the caller can ask again later.
+async fn station_artworks(api: &Api, ids: &[String]) -> (HashMap<String, String>, bool) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     let slots = Arc::new(Semaphore::new(8));
     let mut lookups = tokio::task::JoinSet::new();
@@ -182,20 +188,31 @@ async fn station_artworks(api: &Api, ids: &[String]) -> HashMap<String, String> 
         lookups.spawn(async move {
             let _slot = slots.acquire_owned().await;
             let image = api.station_image(&key).await;
-            (
-                id,
-                matches!(image, Ok(Some(_))).then(|| format!("station-cover:{key}")),
-            )
+            let artwork = matches!(image, Ok(Some(_))).then(|| format!("station-cover:{key}"));
+            (id, artwork, image.is_ok())
         });
     }
     let mut artworks = HashMap::new();
-    while let Ok(Some(done)) = tokio::time::timeout_at(deadline, lookups.join_next()).await {
-        if let Ok((id, Some(artwork))) = done {
-            artworks.insert(id, artwork);
+    let mut complete = true;
+    loop {
+        match tokio::time::timeout_at(deadline, lookups.join_next()).await {
+            Ok(Some(Ok((id, artwork, answered)))) => {
+                complete &= answered;
+                if let Some(artwork) = artwork {
+                    artworks.insert(id, artwork);
+                }
+            }
+            Ok(Some(Err(_))) => complete = false,
+            Ok(None) => break,
+            // The deadline: the lookups still running are cancelled when the
+            // set drops, and their stations are asked again later.
+            Err(_) => {
+                complete = false;
+                break;
+            }
         }
     }
-    // Dropping the set cancels the lookups still running.
-    artworks
+    (artworks, complete)
 }
 fn seed(entity: &str) -> Result<String, ErrorCode> {
     if entity == "station:wave" {
@@ -517,14 +534,25 @@ impl Runtime {
         let key = serde_json::to_string(&query.without_token())
             .map_err(|_| ErrorCode::InvalidArgument)?;
         let mut d = self.data.lock().await;
+        let mut cached = None;
         if let Some(cache) = d.cache.iter().find(|c| c.key == key) {
             if let Some(error) = cache.error {
                 return Err(error);
             }
-            return Ok(MusicCatalogue {
+            let listing = MusicCatalogue {
                 revision: cache.revision,
                 entries: cache.entries.clone(),
-            });
+            };
+            // A listing with unanswered station covers is fetched again, at
+            // most once a minute, while the cached one stays shown; an
+            // answered "no image" is final for the connection (#843).
+            if !cache.incomplete
+                || cache.fetched.elapsed() < Duration::from_secs(60)
+                || d.pending.contains(&key)
+            {
+                return Ok(listing);
+            }
+            cached = Some(listing);
         }
         if !d.pending.contains(&key) {
             let permit = self
@@ -544,7 +572,7 @@ impl Runtime {
             tokio::spawn(async move {
                 let _permit = permit;
                 let result =
-                    tokio::time::timeout(Duration::from_secs(30), this.fetch(&api, &query))
+                    tokio::time::timeout(Duration::from_secs(30), this.fetch_listing(&api, &query))
                         .await
                         .unwrap_or(Err(ErrorCode::Timeout));
                 let mut d = this.data.lock().await;
@@ -553,10 +581,12 @@ impl Runtime {
                 }
                 d.pending.remove(&key);
                 d.revision += 1;
-                let (mut entries, mut tracks, mut error) = match result {
-                    Ok((e, t)) => (e, t, None),
-                    Err(e) => (vec![], vec![], Some(e)),
+                let (mut entries, mut tracks, mut error, incomplete) = match result {
+                    Ok((e, t, complete)) => (e, t, None, !complete),
+                    Err(e) => (vec![], vec![], Some(e), false),
                 };
+                // A listing fetched again replaces its earlier one.
+                d.cache.retain(|c| c.key != key);
                 let mut bytes = serde_json::to_vec(&entries).map_or(16 * 1024 * 1024, |b| b.len())
                     + serde_json::to_vec(&tracks).map_or(16 * 1024 * 1024, |b| b.len());
                 if bytes > 16 * 1024 * 1024 {
@@ -581,17 +611,20 @@ impl Runtime {
                         tracks,
                         error,
                         bytes,
+                        incomplete,
+                        fetched: tokio::time::Instant::now(),
                     });
                 }
             });
         }
-        Err(ErrorCode::Unavailable)
+        cached.ok_or(ErrorCode::Unavailable)
     }
-    async fn fetch(
+    /// A listing, and whether every station cover lookup in it was answered.
+    async fn fetch_listing(
         &self,
         api: &Api,
         query: &Query,
-    ) -> Result<(Vec<Entity>, Vec<Track>), ErrorCode> {
+    ) -> Result<(Vec<Entity>, Vec<Track>, bool), ErrorCode> {
         let uid = api.account_uid().await.map_err(error)?;
         let tracks = if let Some(id) = query.parent.strip_prefix("playlist:") {
             api.playlist_tracks(&uid, id).await.map_err(error)?
@@ -612,6 +645,7 @@ impl Runtime {
                     .await
                     .map_err(error)?,
                 vec![],
+                true,
             ));
         } else if !query.search.trim().is_empty() {
             let mut tracks = Vec::new();
@@ -647,7 +681,7 @@ impl Runtime {
             // Each station's cover as its rotor info names it now, also for
             // a pin stored before stations carried one (#843).
             let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
-            let mut artworks = station_artworks(api, &ids).await;
+            let (mut artworks, complete) = station_artworks(api, &ids).await;
             for entry in &mut entries {
                 entry.artwork = artworks.remove(&entry.id).unwrap_or_default();
             }
@@ -658,7 +692,7 @@ impl Runtime {
                     .into_iter()
                     .map(|p| playlist(&uid, p)),
             );
-            return Ok((entries, vec![]));
+            return Ok((entries, vec![], complete));
         } else if query.facet == "playlists" {
             return Ok((
                 api.user_playlists(&uid)
@@ -668,6 +702,7 @@ impl Runtime {
                     .map(|p| playlist(&uid, p))
                     .collect(),
                 vec![],
+                true,
             ));
         } else {
             api.liked_tracks(&uid).await.map_err(error)?
@@ -729,7 +764,17 @@ impl Runtime {
                 .map(track_entity)
                 .collect()
         };
-        Ok((entries, tracks))
+        Ok((entries, tracks, true))
+    }
+    #[cfg(test)]
+    async fn fetch(
+        &self,
+        api: &Api,
+        query: &Query,
+    ) -> Result<(Vec<Entity>, Vec<Track>), ErrorCode> {
+        self.fetch_listing(api, query)
+            .await
+            .map(|(entries, tracks, _)| (entries, tracks))
     }
     async fn selected(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
@@ -1447,6 +1492,53 @@ mod tests {
             requests[0].0
         );
     }
+    /// Codex review of #849: a Selections listing whose station cover
+    /// lookup failed is not kept as "no cover": a later request, once a
+    /// minute has passed, fetches it again while the cached one is shown.
+    #[tokio::test]
+    async fn a_listing_with_a_failed_station_lookup_is_fetched_again() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let wave = json!({"result":[{"station":{
+            "icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]});
+        let playlists = json!({"result":[]}).to_string();
+        let mock = Mock::new(vec![
+            (200, account.clone()),
+            (500, "{}".into()),
+            (200, playlists.clone()),
+            (200, account),
+            (200, wave.to_string()),
+            (200, playlists),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        let first = loop {
+            if let Ok(listing) = listing().await {
+                break listing;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        assert_eq!(first.entries[0].artwork, "");
+        // Within the minute the cached listing is final.
+        assert_eq!(listing().await.unwrap().revision, first.revision);
+        {
+            let mut d = fixture.runtime.data.lock().await;
+            assert!(d.cache[0].incomplete);
+            d.cache[0].fetched = tokio::time::Instant::now() - Duration::from_secs(61);
+        }
+        // The stale listing is still shown while it is fetched again.
+        assert_eq!(listing().await.unwrap().entries[0].artwork, "");
+        let second = loop {
+            let next = listing().await.unwrap();
+            if next.revision != first.revision {
+                break next;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        assert_eq!(second.entries[0].artwork, "station-cover:user:onyourwave");
+        assert!(!fixture.runtime.data.lock().await.cache[0].incomplete);
+        assert_eq!(mock.finish().len(), 6);
+    }
     /// Codex review of #849: a full station memo makes room for one more
     /// station by dropping a single entry, never the whole memo.
     #[tokio::test]
@@ -1504,8 +1596,9 @@ mod tests {
         });
         let ids: Vec<String> = (1..=12).map(|n| format!("station:track:{n}")).collect();
         let started = std::time::Instant::now();
-        let artworks = station_artworks(&api, &ids).await;
+        let (artworks, complete) = station_artworks(&api, &ids).await;
         assert!(artworks.is_empty());
+        assert!(!complete);
         assert!(
             started.elapsed() < Duration::from_secs(6),
             "{:?}",

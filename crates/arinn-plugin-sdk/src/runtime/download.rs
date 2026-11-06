@@ -96,6 +96,24 @@ impl DownloadService {
         self.registrations.subscribe()
     }
 
+    /// Current publication for a TextsHandler. Check its generation and
+    /// revision against the request; keep fixed-vs-content provenance under
+    /// a provider-owned lock shared by publishing and resolving.
+    pub async fn text_snapshot(&self) -> Option<super::TextSnapshot<Job>> {
+        let data = self.data.lock().await;
+        if !self.running.load(Ordering::Acquire)
+            || data.daemon_owner.is_empty()
+            || data.snapshots.is_none()
+        {
+            return None;
+        }
+        Some(super::TextSnapshot {
+            generation: data.generation.clone(),
+            revision: data.revision,
+            entries: data.jobs.clone(),
+        })
+    }
+
     /// Publish normalized jobs. A new revision is published only when the
     /// jobs or the backend state changed.
     pub async fn replace(&self, jobs: Vec<Job>, backend: &str) -> Result<(), ErrorCode> {
@@ -125,6 +143,24 @@ impl DownloadService {
         if let Some(update) = update {
             self.updates.send_replace(update);
         }
+        Ok(())
+    }
+
+    /// Publish a new revision when fixed-text provenance changes while
+    /// the plain records stay identical. Hold the provider's provenance
+    /// lock until this completes so cached message associations expire.
+    pub async fn touch(&self) -> Result<(), ErrorCode> {
+        let (generation, revision) = {
+            let mut data = self.data.lock().await;
+            let revision = data
+                .snapshots
+                .as_mut()
+                .ok_or(ErrorCode::Unavailable)?
+                .touch()?;
+            data.revision = revision;
+            (data.generation.clone(), revision)
+        };
+        self.updates.send_replace((generation, revision));
         Ok(())
     }
 

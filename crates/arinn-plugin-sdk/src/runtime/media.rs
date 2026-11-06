@@ -191,6 +191,23 @@ impl MediaService {
         self.registrations.subscribe()
     }
 
+    /// Current publication for a TextsHandler. Never trust the request's
+    /// revision as evidence that a session still has a fixed title.
+    pub async fn text_snapshot(&self) -> Option<super::TextSnapshot<Session>> {
+        let data = self.data.lock().await;
+        if !self.running.load(Ordering::Acquire)
+            || data.daemon_owner.is_empty()
+            || data.snapshots.is_none()
+        {
+            return None;
+        }
+        Some(super::TextSnapshot {
+            generation: data.generation.clone(),
+            revision: data.revision,
+            entries: data.sessions.clone(),
+        })
+    }
+
     pub async fn replace(&self, sessions: Vec<Session>, backend: &str) -> Result<(), ErrorCode> {
         media::validate_sessions(&sessions)?;
         backend_state(backend)?;

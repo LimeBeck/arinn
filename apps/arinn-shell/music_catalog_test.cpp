@@ -528,6 +528,29 @@ private slots:
     room.search(QString());
     QVERIFY(room.searchShelves().isEmpty());
   }
+  // Codex review of #819: a search page refused while the provider's slots
+  // are busy is read again, so the source still contributes its results.
+  void roomRetriesARefusedSearchPage() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    daemon.states["account"] = state({"albums"}, "connected");
+    daemon.pages["account/albums"] =
+        QJsonArray{QJsonObject{{"id", "album:a"}, {"kind", "album"}, {"title", "A"},
+                               {"available", true}}};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    const auto before = daemon.pageReads.value("account");
+    daemon.pageError = QStringLiteral("Unavailable");
+    room.search(QStringLiteral("fixture"));
+    QTRY_VERIFY(daemon.pageReads.value("account") > before);
+    QTest::qWait(100);
+    daemon.pageError.clear();
+    QVERIFY(!room.searchPending().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(room.searchShelves().size(), 1, 10000);
+    QTRY_VERIFY(room.searchPending().isEmpty());
+  }
   // Follow-up of #812 (in #801): a resume whose catch-up page fails keeps
   // the shown entries and its target, and the retry resumes to them instead
   // of showing only the first page.

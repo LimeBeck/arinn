@@ -458,6 +458,9 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   source, one page at a time per source, and the result shelves take each
   source's results in their own order, sources in turn, unmerged. Sources
   still answering are named under the field; late results never move focus.
+  A page the source refuses (its two materialisation slots busy with the
+  room's and the catalogue's reads) is read again after the source's other
+  pages, up to three attempts.
   A source that joins, leaves or restarts during a search is searched again
   alone, and the others' results stay; a result shelf that leaves with focus
   hands it to the shelf in its place, or to the field. A query beyond the

@@ -145,6 +145,7 @@ private:
   void rebuild();
   void startSearch(const QString &id);
   void readSearch(const QString &id);
+  void continueSearch(const QString &id);
   void rebuildSearch();
   struct Search {
     std::map<QString, QVariantList> facets;
@@ -152,6 +153,10 @@ private:
     bool busy = false;
     // Replies to an earlier run of this source's search are dropped.
     quint64 ticket = 0;
+    // A page refused while the provider's slots are busy is read again
+    // once the others have answered, a few times (Codex review of #819).
+    QStringList retry;
+    std::map<QString, int> attempts;
   };
   std::map<QString, Search> m_search;
   QString m_searchQuery;

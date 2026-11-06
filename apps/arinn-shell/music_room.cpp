@@ -71,6 +71,10 @@ constexpr qint64 leaseMs = 25000;
 // A first page that failed is read again after this long, doubling with
 // each failure up to a minute.
 constexpr qint64 retryMs = 3000;
+// A search page refused (the provider's two materialisation slots busy with
+// the room's and the catalogue's reads) is read again this often.
+constexpr int searchAttempts = 3;
+constexpr int searchRetryMs = 1500;
 qint64 retryDelay(int retries) {
   return std::min<qint64>(retryMs << std::min(retries, 5), 60000);
 }
@@ -834,7 +838,8 @@ QStringList MusicRoom::searchPending() const {
     const auto found = m_search.find(id);
     const auto source = m_sources.find(id);
     if (found != m_search.end() && source != m_sources.end() &&
-        (found->second.busy || !found->second.pending.isEmpty()))
+        (found->second.busy || !found->second.pending.isEmpty() ||
+         !found->second.retry.isEmpty()))
       names.append(source->second.state.value("account").toString() ==
                            QLatin1String("local")
                        ? tr("This computer")
@@ -942,13 +947,24 @@ void MusicRoom::readSearch(const QString &id) {
                 source == m_sources.end() ||
                 source->second.generation != generation)
               return;
-            found->second.busy = false;
+            auto &search = found->second;
+            search.busy = false;
             const auto json = object(reply);
+            const bool answered =
+                json.value("generation").toString() == generation &&
+                json.value("entries").isArray();
+            // A refused page is read again after the source's other pages
+            // (Codex review of #819); after the last attempt that shelf goes
+            // without this source.
+            if (!answered && ++search.attempts[facet] < searchAttempts) {
+              search.retry.append(facet);
+              continueSearch(id);
+              return;
+            }
             QVariantList entries;
             const bool local = source->second.state.value("account").toString() ==
                                QLatin1String("local");
-            // A failed search page leaves that shelf without this source.
-            if (json.value("generation").toString() == generation)
+            if (answered)
               for (const auto &item : json.value("entries").toArray()) {
                 auto row = item.toObject().toVariantMap();
                 const auto entity = row.value("id").toString();
@@ -963,10 +979,35 @@ void MusicRoom::readSearch(const QString &id) {
                                         row.value("artwork").toString()));
                 entries.append(row);
               }
-            found->second.facets[facet] = entries;
-            readSearch(id);
+            search.facets[facet] = entries;
+            continueSearch(id);
             rebuildSearch();
           });
+}
+
+// The next page of a source's search; refused pages wait until the others
+// have answered, then are read again after a pause.
+void MusicRoom::continueSearch(const QString &id) {
+  auto found = m_search.find(id);
+  if (found == m_search.end())
+    return;
+  auto &search = found->second;
+  if (!search.pending.isEmpty()) {
+    readSearch(id);
+    return;
+  }
+  if (search.busy || search.retry.isEmpty())
+    return;
+  const auto ticket = search.ticket;
+  QTimer::singleShot(searchRetryMs, this, [this, id, ticket] {
+    auto found = m_search.find(id);
+    if (found == m_search.end() || found->second.ticket != ticket ||
+        found->second.busy)
+      return;
+    found->second.pending.append(found->second.retry);
+    found->second.retry.clear();
+    readSearch(id);
+  });
 }
 
 void MusicRoom::rebuildSearch() {

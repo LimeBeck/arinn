@@ -672,6 +672,10 @@ TestCase {
         Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
         compare(list.itemAtIndex(0).actionKey,"homePin");compare(list.itemAtIndex(0).text,"Unpin from Home");
         keyClick(Qt.Key_Return);compare(requests[requests.length-1],["fixture.music","station:blank","","",false]);
+        // ...and when the provider no longer marks it pinnable.
+        catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:blank",title:"Blank"},actions:["pause"]});
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
+        compare(list.itemAtIndex(0).actionKey,"homePin");compare(list.itemAtIndex(0).text,"Unpin from Home");
     }
     // #802 (brief *More sheet*): More lists only what the session supports,
     // in the brief's order; Back closes it and restores focus to More; the

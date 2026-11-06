@@ -3,6 +3,7 @@
 #include "music_catalog.h"
 #include "asset_images.h"
 #include <QJsonArray>
+#include <algorithm>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlEngine>
@@ -479,13 +480,15 @@ void MusicCatalog::readActive() {
     return;
   m_activeBusy = true;
   const auto epoch = m_epoch;
+  // A read asked after a command ended describes the session after it.
+  const auto commandsDone = m_commandsDone;
   auto message = call(QStringLiteral("/org/arinn/Daemon1"),
                       "org.arinn.MusicController1", "GetActive");
   auto *pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(message, 3000), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, epoch](auto *watch) {
+      [this, epoch, commandsDone](auto *watch) {
         const auto reply = watch->reply();
         watch->deleteLater();
         if (epoch != m_epoch)
@@ -503,6 +506,7 @@ void MusicCatalog::readActive() {
           m_commandBusy = m_commandWaitingRefresh = false;
           emit statusChanged();
         }
+        m_activeSeen = std::max(m_activeSeen, commandsDone);
         if (reply.arguments().first().toString() == QStringLiteral("null")) {
           m_active.clear();
           m_activeId.clear();
@@ -612,6 +616,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             if (epoch != m_epoch) {
               m_commandBusy = false;
+              ++m_commandsDone;
               emit statusChanged();
               readActive();
               return;
@@ -638,6 +643,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
                 m_startGeneration = generation;
                 m_startSession = oldSession;
               }
+              ++m_commandsDone;
               fail(failure);
               m_commandWaitingRefresh = true;
               m_stateBusy = false;
@@ -647,6 +653,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             m_commandBusy = false;
+            ++m_commandsDone;
             if (action == "radio" && m_unresolved.remove(station))
               emit unresolvedChanged();
             if (!active) {
@@ -692,7 +699,10 @@ void MusicCatalog::syncProviderPin(const QString &providerId,
 // another command is in flight the mirror waits for it (Codex review of
 // #836); a station that stopped playing drops it.
 void MusicCatalog::mirrorPin() {
-  if (!m_pinMirror)
+  // While a command is in flight, and until the session is read again after
+  // it, the active state may describe the session before the command: Stop
+  // or a new station (Codex review of #836).
+  if (!m_pinMirror || m_commandBusy || m_activeSeen < m_commandsDone)
     return;
   const auto station = m_active.value(QStringLiteral("station")).toMap();
   if (m_activeId != m_pinMirror->provider ||
@@ -703,8 +713,6 @@ void MusicCatalog::mirrorPin() {
     m_pinMirror.reset();
     return;
   }
-  if (m_commandBusy)
-    return;
   const auto stationId = m_pinMirror->station;
   m_pinMirror.reset();
   transport(QStringLiteral("pin"), stationId);

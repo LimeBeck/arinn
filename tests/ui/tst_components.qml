@@ -12,6 +12,30 @@ TestCase {
     visible: true
     when: windowShown
     Component { id: buttonFactory; Ui.ActionButton { x: 150; y: 150; text: "Continue" } }
+    Component {
+        id: iconBoardFactory
+        Rectangle {
+            property alias name: boardIcon.name
+            width: 96; height: 96; color: "black"
+            Ui.LineIcon { id: boardIcon; anchors.fill: parent; color: "white" }
+        }
+    }
+    // #837: Canvas angles run clockwise from +x; the power ring opens at the
+    // top, around its stem, and is closed at the bottom.
+    function test_power_icon_opens_at_the_top() {
+        const board = createTemporaryObject(iconBoardFactory, suite, {name: "power"});
+        // 24-unit glyph at 96 px: 4 px per unit; ring centre (12, 13.5), r 7.2.
+        function at(degrees) {
+            const a = degrees * Math.PI / 180;
+            return {x: Math.round(4 * (12 + 7.2 * Math.cos(a))), y: Math.round(4 * (13.5 + 7.2 * Math.sin(a)))};
+        }
+        tryVerify(() => {
+            const pixels = grabImage(board);
+            const bottom = at(90), left = at(180), right = at(0), gap = at(-70);
+            return pixels.red(bottom.x, bottom.y) > 128 && pixels.red(left.x, left.y) > 128
+                && pixels.red(right.x, right.y) > 128 && pixels.red(gap.x, gap.y) < 64;
+        }, 2000, "power ring: closed at the bottom, open at the top");
+    }
     Component { id: cardFactory; Ui.ContentCard { x: 150; y: 150; text: "Content" } }
     Component { id: tileFactory; Ui.AppTile { x: 150; y: 150; text: "Library"; monogram: "L" } }
     Component { id: paneFactory; Ui.StatusPane { x: 150; y: 150; title: "Status"; actionText: "Retry" } }
@@ -90,18 +114,21 @@ TestCase {
         const card = createTemporaryObject(cardFactory, suite);
         card.forceActiveFocus();
         tryCompare(card, "activeFocus", true);
-        tryCompare(card, "scale", Ui.Theme.contentFocusScale);
-        compare(card.lift, Ui.Theme.contentFocusLift);
-        compare(card.transformOrigin, Item.Bottom);
+        // Only the image lifts, from its bottom edge; the card and its
+        // caption stay (#837).
+        tryCompare(card, "imageScale", Ui.Theme.contentFocusScale);
+        compare(card.imageLift, Ui.Theme.contentFocusLift);
+        compare(card.scale, 1);
+        compare(card.lift, 0);
         const ring = findChild(card, "focusRing");
         verify(ring.z > card.contentItem.z);
         tryCompare(ring, "opacity", 1);
         card.pointerMode = true;
-        tryCompare(card, "scale", 1.02);
-        compare(card.lift, -2);
+        tryCompare(card, "imageScale", 1.02);
+        compare(card.imageLift, -2);
         keyPress(Qt.Key_Space);
         tryCompare(card, "down", true);
-        tryVerify(() => card.scale < 1.02);
+        tryVerify(() => card.scale < 1);
         keyRelease(Qt.Key_Space);
     }
     function test_artwork_loading() {

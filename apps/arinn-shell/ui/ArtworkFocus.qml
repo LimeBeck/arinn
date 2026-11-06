@@ -11,6 +11,8 @@ Item {
     id: artFocus
     property bool shown: false
     property real artworkRadius: Theme.stillRadius
+    // The warm bounce belongs to artwork; a flat plate takes none (#837).
+    property bool bounce: true
     anchors.fill: parent
     z: 30
 
@@ -37,7 +39,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         height: 28
-        opacity: artFocus.shown ? 1 : 0
+        opacity: artFocus.shown && artFocus.bounce ? 1 : 0
         z: 2
         gradient: Gradient {
             GradientStop { position: 0; color: "#00000000" }

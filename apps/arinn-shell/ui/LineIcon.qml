@@ -280,7 +280,9 @@ Canvas {
             ctx.fill();
             break;
         case "power":
-            ctx.arc(12, 13.5, 7.2, Math.PI * 0.72, Math.PI * 2.28);
+            // Canvas angles run clockwise from +x: the ring opens at the top,
+            // around the stem (#837).
+            ctx.arc(12, 13.5, 7.2, -Math.PI * 0.28, Math.PI * 1.28);
             ctx.moveTo(12, 3); ctx.lineTo(12, 12);
             ctx.stroke();
             break;

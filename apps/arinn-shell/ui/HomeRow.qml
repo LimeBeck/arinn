@@ -23,7 +23,6 @@ FocusScope {
     property bool identityLight: false
     property string shapeRole: variant === "app" ? "object" : variant === "shelf" ? "container" : "content"
     // Pool hue for the cast under a focused image. NaN uses the hearth hue.
-    property real castHue: Theme.hearthHue
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
     // A row Home has faded out of the header band (#659) takes no pointer
@@ -85,9 +84,9 @@ FocusScope {
     signal focusLost()
     signal scrolled()
     signal dpadRequested()
-    // The shelf is 125 px so Home can keep 94 px of the New poster on screen
-    // while Continue is focused (#725). Its 88 px names sit under the label.
-    height: shelf ? 125 : cellHeight + 74
+    // Items sit far enough under the label that a focused one, lifted and
+    // ringed, stays clear of it (#837): cards 58 px down, shelf names 20.
+    height: shelf ? 137 : cellHeight + 84
 
     function available(index) {
         return index >= 0 && index < count && shown[index].enabled !== false;
@@ -183,13 +182,13 @@ FocusScope {
             }
         } else edge(event.key, autoRepeat);
     }
-    UiText { width: parent.width; text: root.title; role: "section"; maximumLineCount: 1; elide: Text.ElideRight }
+    UiText { objectName: root.objectName + "Label"; width: parent.width; text: root.title; role: "section"; maximumLineCount: 1; elide: Text.ElideRight }
     Flickable {
         id: viewport
         objectName: root.objectName + "Viewport"
         x: -root.leftBleed; y: root.shelf ? 29 : 10
         width: parent.width + root.leftBleed + root.rightBleed
-        height: root.shelf ? root.height - y : root.cellHeight + 104
+        height: root.shelf ? root.height - y : root.cellHeight + 114
         clip: true
         contentWidth: cardsRow.width + root.leftBleed + root.rightBleed
         contentHeight: height
@@ -198,7 +197,7 @@ FocusScope {
         onContentXChanged: root.scrolled()
         Row {
             id: cardsRow
-            x: root.leftBleed; y: root.shelf ? 8 : 48
+            x: root.leftBleed; y: root.shelf ? 20 : 58
             spacing: root.gap
             Repeater {
                 id: cards
@@ -391,7 +390,9 @@ FocusScope {
                                     objectName: "entry-" + entryLoader.modelData.id
                                     width: entryLoader.width; height: entryLoader.height
                                     artworkHeight: root.artworkHeight
-                                    castHue: root.castHue
+                                    // At the row's start the image grows from its left
+                                    // edge, so its rim stays inside the safe area (#837).
+                                    alignStart: Math.abs(slot.safeLeft) < 1
                                     rowBrightness: activeFocus ? 1
                                             : root.activeFocus ? Theme.rowLitBrightness : Theme.rowDimBrightness
                                     text: entryLoader.modelData.title
@@ -405,7 +406,9 @@ FocusScope {
                                     artwork: entryLoader.modelData.artwork || ""
                                     stack: entryLoader.modelData.stack || []
                                     running: entryLoader.modelData.running || false
-                                    showProgress: entryLoader.modelData.progress !== undefined
+                                    // New lists what is new; a poster with a few seconds
+                                    // watched showed a sliver of Ember line (#837).
+                                    showProgress: entryLoader.modelData.progress !== undefined && root.variant !== "poster"
                                     progress: entryLoader.modelData.progress || 0
                                     musicState: entryLoader.modelData.musicState || ""
                                     musicSourceIcon: entryLoader.modelData.sourceIcon || "music_note"
@@ -427,6 +430,16 @@ FocusScope {
                                     id: posterCard
                                     objectName: "entry-" + entryLoader.modelData.id
                                     shapeRole: "content"
+                                    // Only the plate lifts and the caption stays, as on
+                                    // ContentCard; at the row's start it grows from its
+                                    // left edge (#837).
+                                    focusScale: 1
+                                    focusLift: 0
+                                    property real imageFocus: activeFocus ? 1 : 0
+                                    Behavior on imageFocus {
+                                        NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing }
+                                    }
+                                    readonly property bool alignStart: Math.abs(slot.safeLeft) < 1
                                     width: entryLoader.width; height: entryLoader.height
                                     cornerRadius: Theme.posterRadius
                                     text: entryLoader.modelData.title || ""
@@ -443,8 +456,21 @@ FocusScope {
                                     contentItem: Item {
                                         Item {
                                             id: titleFrame
+                                            objectName: "cardFrame"
                                             width: parent.width
                                             height: root.artworkHeight
+                                            transform: [
+                                                Scale {
+                                                    origin.x: posterCard.alignStart ? 0 : titleFrame.width / 2
+                                                    origin.y: titleFrame.height
+                                                    xScale: 1 + (posterCard.pointerMode ? (Theme.contentFocusScale - 1) / 2 : Theme.contentFocusScale - 1) * posterCard.imageFocus
+                                                    yScale: xScale
+                                                },
+                                                Translate {
+                                                    x: posterCard.alignStart ? (Theme.matThickness + Theme.rimThickness) * (1 + (Theme.contentFocusScale - 1) * posterCard.imageFocus) * posterCard.imageFocus : 0
+                                                    y: (posterCard.pointerMode ? -2 : Theme.contentFocusLift) * posterCard.imageFocus
+                                                }
+                                            ]
                                             Rectangle {
                                                 anchors.fill: parent
                                                 radius: posterCard.cornerRadius
@@ -478,19 +504,13 @@ FocusScope {
                                                 opacity: Math.max(0, 1 - posterCard.rowBrightness)
                                                 z: 8
                                             }
+                                            // A title card is a flat plate: no bounce, and no
+                                            // cast between it and its caption (#837).
                                             ArtworkFocus {
                                                 shown: posterCard.activeFocus
+                                                bounce: false
                                                 artworkRadius: posterCard.cornerRadius
                                             }
-                                        }
-                                        CastLight {
-                                            objectName: "castLight"
-                                            shown: posterCard.activeFocus
-                                            hue: root.castHue
-                                            width: titleFrame.width * Theme.castWidthRatio
-                                            anchors.horizontalCenter: titleFrame.horizontalCenter
-                                            anchors.top: titleFrame.bottom
-                                            anchors.topMargin: -Math.round(Theme.castHeight * 0.4)
                                         }
                                         Column {
                                             objectName: "cardCaption"

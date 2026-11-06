@@ -84,6 +84,9 @@ pub struct Local {
     /// The library station's next tracks: the library shuffled, dealt in
     /// order and shuffled again once used up.
     deck: tokio::sync::Mutex<Vec<Track>>,
+    /// The rest of a seed group that did not fit the station's first batch;
+    /// refills take it before the shuffled library (review of #815).
+    seed_rest: tokio::sync::Mutex<std::collections::VecDeque<Track>>,
 }
 struct LocalResolver(Arc<RwLock<View>>);
 impl Resolver for LocalResolver {
@@ -158,6 +161,7 @@ impl Local {
             shutdown: Arc::new(AtomicBool::new(false)),
             assets: Arc::new(tokio::sync::Semaphore::new(2)),
             deck: tokio::sync::Mutex::new(Vec::new()),
+            seed_rest: tokio::sync::Mutex::new(std::collections::VecDeque::new()),
         });
         // The library station never runs dry: like a service's station it
         // tops up its queue while it plays.
@@ -199,6 +203,10 @@ impl Local {
             return vec![];
         }
         let mut deck = self.deck.lock().await;
+        // A rescan may have removed tracks the deck still holds (review of
+        // #815): deal only what the published catalogue can still play.
+        let current: HashSet<&str> = available.iter().map(|t| t.id.as_str()).collect();
+        deck.retain(|t| current.contains(t.id.as_str()));
         while deck.len() < count {
             let mut round = available.clone();
             shuffle(&mut round, uuid::Uuid::new_v4().as_u64_pair().0);
@@ -217,21 +225,34 @@ impl Local {
                 .await
                 .into_iter()
                 .filter(|t| t.available)
-                .take(32)
                 .collect();
             if tracks.is_empty() {
                 return Err(ErrorCode::NotFound);
             }
             tracks
         };
+        // The whole seed group plays first: what does not fit the first
+        // batch waits for the refills (review of #815).
+        let rest: std::collections::VecDeque<Track> = if first.len() > 64 {
+            first.split_off(64).into()
+        } else {
+            Default::default()
+        };
         self.deck.lock().await.clear();
         // The seed plays first and is not dealt again right after it.
-        let seeded: HashSet<String> = first.iter().map(|t| t.id.clone()).collect();
-        let dealt = self.deal(64 - first.len()).await;
-        first.extend(dealt.into_iter().filter(|t| !seeded.contains(&t.id)));
+        let seeded: HashSet<String> = first
+            .iter()
+            .chain(rest.iter())
+            .map(|t| t.id.clone())
+            .collect();
+        if first.len() < 64 {
+            let dealt = self.deal(64 - first.len()).await;
+            first.extend(dealt.into_iter().filter(|t| !seeded.contains(&t.id)));
+        }
         if first.is_empty() {
             return Err(ErrorCode::NotFound);
         }
+        *self.seed_rest.lock().await = rest;
         self.playback
             .radio(
                 first,
@@ -242,8 +263,30 @@ impl Local {
         Ok(())
     }
     async fn refill_station(&self) -> Result<(), ErrorCode> {
+        // Never take more than the queue holds: what it cannot take would be
+        // lost from the seed or the deck.
+        let room = 64usize
+            .saturating_sub(self.playback.state().await.upcoming.len())
+            .min(32);
         let request = self.playback.begin_radio_refill(false).await?;
-        let tracks = self.deal(32).await;
+        let mut tracks: Vec<Track> = {
+            let current: HashSet<String> = self
+                .view
+                .read()
+                .await
+                .tracks
+                .iter()
+                .filter(|t| t.available)
+                .map(|t| t.id.clone())
+                .collect();
+            let mut rest = self.seed_rest.lock().await;
+            rest.retain(|t| current.contains(&t.id));
+            let count = rest.len().min(room);
+            rest.drain(..count).collect()
+        };
+        if tracks.len() < room {
+            tracks.extend(self.deal(room - tracks.len()).await);
+        }
         self.playback
             .apply_radio_refill(request, tracks, uuid::Uuid::new_v4().to_string())
             .await
@@ -522,6 +565,11 @@ impl MusicHandler for LocalService {
                         .station
                         .is_some_and(|s| s.id == LIBRARY_STATION) =>
                 {
+                    // A retry from an earlier session refills nothing
+                    // (review of #815), as Playback::command checks.
+                    if command.session != self.playback.state().await.session {
+                        return Err(ErrorCode::Conflict);
+                    }
                     self.refill_station().await?;
                 }
                 "save_playlist" | "delete_playlist" => self.playlist(&command).await?,
@@ -914,6 +962,111 @@ mod tests {
             service.command(radio("track:missing")).await.err(),
             Some(ErrorCode::NotFound)
         );
+        drop(service);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    fn command(action: &str, session: &str, entity: &str) -> Command {
+        Command {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            action: action.into(),
+            session: session.into(),
+            entity: entity.into(),
+            occurrence: String::new(),
+            position_us: 0,
+            replaces_provider: String::new(),
+            replaces_session: String::new(),
+            text: String::new(),
+        }
+    }
+    /// Review of #815: a seed group longer than the first batch was cut to
+    /// 32 tracks; a rescan left removed tracks in the deck; a retry from an
+    /// earlier session refilled the current one.
+    #[tokio::test]
+    async fn the_library_station_keeps_its_seed_and_the_published_catalogue() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-seed-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        // Synthetic tracks share one album, so the album is an 80-track seed.
+        let files: Vec<String> = (0..80).map(|i| format!("track-{i:02}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root.clone()],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let album = format!("album:{}", local.view.read().await.tracks[0].album_id);
+        let seed: Vec<String> = local
+            .selected(&album)
+            .await
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        assert_eq!(seed.len(), 80);
+        let service = LocalService(local.clone());
+        let state = service.command(command("radio", "", &album)).await.unwrap();
+        let order = |state: &State| -> Vec<String> {
+            state
+                .current
+                .iter()
+                .chain(state.upcoming.iter())
+                .map(|e| e.track.id.clone())
+                .collect()
+        };
+        assert_eq!(order(&state), seed[..order(&state).len()]);
+        let first = order(&state).len();
+        // The rest of the seed comes next, in order, before the library, and
+        // what the full queue cannot take yet stays for the next refill.
+        local.refill_station().await.unwrap();
+        let after = local.playback.state().await;
+        let added = order(&after).len() - first;
+        assert!(added >= 1);
+        assert_eq!(order(&after)[first..], seed[first..first + added]);
+        let waiting: Vec<String> = local
+            .seed_rest
+            .lock()
+            .await
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        assert_eq!(waiting, seed[first + added..]);
+        // A stale retry is refused.
+        assert_eq!(
+            service
+                .command(command("retry", "earlier-session", ""))
+                .await
+                .err(),
+            Some(ErrorCode::Conflict)
+        );
+        // A rescan removes tracks: the deck deals only what is left.
+        for file in &files[40..] {
+            std::fs::remove_file(root.join(file)).unwrap();
+        }
+        rescanned(&local).await;
+        let left: HashSet<String> = local
+            .view
+            .read()
+            .await
+            .tracks
+            .iter()
+            .filter(|t| t.available)
+            .map(|t| t.id.clone())
+            .collect();
+        assert_eq!(left.len(), 40);
+        local
+            .deck
+            .lock()
+            .await
+            .extend(local.view.read().await.tracks.iter().cloned());
+        let dealt = local.deal(40).await;
+        assert!(dealt.iter().all(|t| left.contains(&t.id)));
         drop(service);
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();

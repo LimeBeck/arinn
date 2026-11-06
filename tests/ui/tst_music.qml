@@ -447,18 +447,29 @@ TestCase {
     // a working control holds focus and hands it back (#756 M13).
     function test_play_pause_is_the_default_focus() {
         const catalog=createTemporaryObject(catalogFactory,suite);
-        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","stop","next","seek"],upcoming:[]};
+        const playing={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","stop","next","seek"],upcoming:[]};
+        const loading=Object.assign({},playing,{playback:"loading",actions:["stop","next","seek"]});
+        catalog.activeState=playing;
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
         view.openPlayer();const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
-        // A command in flight disables the transport: Queue holds focus.
-        view.mode="catalogue";catalog.busy=true;wait(0);view.openPlayer();
-        const queue=findChild(view,"musicQueue");tryCompare(queue,"activeFocus",true);
-        catalog.busy=false;tryCompare(play,"activeFocus",true);
+        // Review of #798: a command in flight keeps Play/Pause and its
+        // focus; a press meanwhile sends nothing.
+        catalog.busy=true;wait(0);compare(play.activeFocus,true);compare(play.enabled,true);
+        keyClick(Qt.Key_Return);compare(catalog.commands,[]);
+        catalog.busy=false;
+        // A track loading disables it under focus: Stop holds focus and
+        // hands it back once Play/Pause works again.
+        const stop=findChild(view,"musicStop");
+        catalog.activeState=loading;tryCompare(stop,"activeFocus",true);
+        catalog.activeState=playing;tryCompare(play,"activeFocus",true);
+        // Opened while loading, the same.
+        view.mode="catalogue";catalog.activeState=loading;wait(0);view.openPlayer();
+        tryCompare(stop,"activeFocus",true);
+        catalog.activeState=playing;tryCompare(play,"activeFocus",true);
         // A control the user chose keeps focus.
-        catalog.busy=true;view.mode="catalogue";wait(0);view.openPlayer();
-        tryCompare(queue,"activeFocus",true);keyClick(Qt.Key_Up);
+        catalog.activeState=loading;tryCompare(stop,"activeFocus",true);keyClick(Qt.Key_Up);
         const seek=findChild(view,"musicSeek");tryCompare(seek,"activeFocus",true);
-        catalog.busy=false;wait(50);compare(seek.activeFocus,true);
+        catalog.activeState=playing;wait(50);compare(seek.activeFocus,true);
     }
     // Down no longer moves sideways inside the one control row, and every
     // control reaches the seek bar with Up (#756 M15).
@@ -487,7 +498,8 @@ TestCase {
         keyClick(Qt.Key_Return);compare(view.parentId,"album:3");
         catalog.entries=[{id:"t1",kind:"track",title:"Inside",available:true}];wait(0);
         keyClick(Qt.Key_Escape);compare(view.parentId,"");
-        catalog.entries=[];wait(0);catalog.entries=albums;
+        // As the catalogue does: the list clears while the page is in flight.
+        catalog.busy=true;catalog.entries=[];wait(0);catalog.busy=false;catalog.entries=albums;
         tryCompare(list,"currentIndex",2);tryCompare(list,"activeFocus",true);
         view.openPlayer();wait(0);const queue=findChild(view,"musicQueue");Ui.Focus.take(queue);keyClick(Qt.Key_Return);
         compare(view.mode,"queue");keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
@@ -552,5 +564,8 @@ TestCase {
         catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
         const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
         compare(facet.activeFocus,true);compare(view.restoreEntity,"");
+        // Review of #798: an empty final page ends it as well.
+        view.parentId="album:9";view.back();compare(view.restoreEntity,"album:9");
+        catalog.more=false;catalog.entries=[];tryCompare(view,"restoreEntity","");
     }
 }

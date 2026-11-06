@@ -101,8 +101,8 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
 QString MusicCatalog::sectionTitle() const { return tr("Music"); }
-// "Source · Station · Playing": the station tells a continuous station from an album
-// or a playlist on the Home card (music brief, #756 M24).
+// "Source · Station · Playing": the station tells a continuous station from an
+// album or a playlist on the Home card (music brief, #756 M24).
 QString MusicCatalog::statusText(const QString &status) const {
   const auto station = m_active.value(QStringLiteral("station"))
                            .toMap()

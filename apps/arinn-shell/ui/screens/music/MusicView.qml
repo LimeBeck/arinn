@@ -54,6 +54,8 @@ FocusScope {
                 root.rememberedFocus = item;
             if (item !== root.fallbackFocus)
                 root.fallbackFocus = null;
+            if (item && item !== root && root.containsFocusItem(item))
+                root.playButtonFocused = item === playButton;
         }
     }
     Connections {
@@ -163,10 +165,13 @@ FocusScope {
     // The control row is the last row: Down leaves it only for the failure's
     // Retry, never sideways inside the row (#756 M15).
     readonly property Item belowControls: retryPlaybackButton.visible ? retryPlaybackButton : null
-    // Play/Pause first (#756 M13). While it is disabled (a command in
-    // flight, a track loading) the nearest working control holds focus,
-    // and Play/Pause takes it back once it works, unless the user moved on.
+    // Play/Pause first (#756 M13). While it is disabled (a track loading)
+    // the nearest working control holds focus, and Play/Pause takes it back
+    // once it works, unless the user moved on.
     property Item fallbackFocus: null
+    // Play/Pause had focus last in the view; Qt drops focus from an item
+    // as it is disabled, so this remembers it for the hand-off.
+    property bool playButtonFocused: false
     function playerFocus() {
         if (playButton.enabled)
             return playButton;
@@ -191,6 +196,15 @@ FocusScope {
             if (playButton.enabled && root.fallbackFocus && root.fallbackFocus.activeFocus) {
                 root.fallbackFocus = null;
                 Ui.Focus.take(playButton);
+            } else if (!playButton.enabled && root.playButtonFocused) {
+                // A track loading disables Play/Pause under focus: the
+                // nearest working control holds it and hands it back
+                // (review of #798).
+                Qt.callLater(() => {
+                    const target = root.playerFocus();
+                    root.fallbackFocus = target;
+                    Ui.Focus.take(target);
+                });
             }
         }
     }
@@ -229,8 +243,15 @@ FocusScope {
     onCatalogueErrorChanged: if (catalogueError.length)
         cancelRestore()
     function restoreOpener() {
-        if (!restoreEntity.length || !catalog.entries.length)
+        if (!restoreEntity.length)
             return;
+        // An empty list with no page in flight and none to follow cannot
+        // hold the opener (review of #798).
+        if (!catalog.entries.length) {
+            if (!catalog.busy && !catalog.more)
+                cancelRestore();
+            return;
+        }
         const index = catalog.entries.findIndex(entry => entry.id === restoreEntity);
         if (index < 0 && catalog.more && restorePages < restorePageLimit) {
             restorePages++;
@@ -1058,8 +1079,11 @@ FocusScope {
                     height: 96
                     iconName: root.playing ? "pause" : "play"
                     text: root.playing ? qsTr("Pause") : qsTr("Play")
-                    enabled: !root.transportBusy
-                        && (root.supported("pause") || root.supported("resume")
+                    // A command in flight keeps the button and its focus;
+                    // a press meanwhile is ignored (Surface.busy), as on
+                    // Home's card (review of #798).
+                    busy: root.transportBusy
+                    enabled: (root.supported("pause") || root.supported("resume")
                             || (!root.player.continuous && ["stopped", "ended"].includes(root.player.playback)
                                 && !!root.current.id))
                     onActivated: root.catalog.transport(root.playing ? "pause"

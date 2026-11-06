@@ -608,7 +608,10 @@ FocusScope {
         onListenRequested: root.requestPlay(root.parentId)
         onRadioRequested: root.requestRadio(root.parentId)
         rightNeighbour: playlistRow.beside ? playlistRow.first : null
-        onDownRequested: Ui.Focus.take(playlistRow.below ? playlistRow.first : tracks.count ? tracks : root.detailAction())
+        onDownRequested: {
+            if (!(playlistRow.below && playlistRow.first && Ui.Focus.take(playlistRow.first)))
+                Ui.Focus.take(tracks.count ? tracks : root.detailAction());
+        }
     }
     // An album, artist or playlist is content: its title is Playfair Display
     // (ADR-0137, #756 M24); screen titles stay Onest.
@@ -870,12 +873,15 @@ FocusScope {
         // line would pass the safe area (long translations), it takes its
         // own line under the pills (Codex review of #819).
         readonly property bool hasActions: saveGroup.visible || removeGroup.visible
-        readonly property Item first: saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : null
+        // The first action that can take focus: Save is disabled while the
+        // catalogue is busy (delta review of #819).
+        readonly property Item first: saveGroup.visible && saveGroup.enabled ? saveGroup
+            : removeGroup.visible ? removeGroup : null
         readonly property bool beside: !root.detailView
             || detailHeader.pillsEnd + 24 + implicitWidth <= Ui.Theme.canvasWidth - Ui.Theme.safeRight
         readonly property bool below: root.detailView && visible && hasActions && !beside
         y: root.detailView ? (beside ? detailHeader.pillsY : detailHeader.contentBottom + 24) : 880
-        x: root.detailView ? (beside ? detailHeader.pillsEnd + 24 : 600) : 120
+        x: root.detailView ? (beside && detailHeader.lastPill ? detailHeader.pillsEnd + 24 : 600) : 120
         spacing: 24
         visible: root.mode === "catalogue" && root.parentId.length > 0
         Ui.ActionButton {
@@ -912,7 +918,10 @@ FocusScope {
         x: 120
         // In a detail the tracks start below the pills and end above the
         // status line (review of #819).
-        y: root.detailView ? (playlistRow.below ? playlistRow.y + playlistRow.height : detailHeader.contentBottom) + 40 : 385
+        // The list starts below the pills and the playlist actions, also when
+        // only the actions show (Codex review of #819).
+        y: root.detailView ? Math.max(detailHeader.contentBottom,
+            playlistRow.visible && playlistRow.hasActions ? playlistRow.y + playlistRow.height : 0) + 40 : 385
         width: 1680
         height: root.detailView ? 960 - y : 450
         clip: true
@@ -921,7 +930,7 @@ FocusScope {
         enabled: !root.pendingPlay
         Keys.onUpPressed: event => {
             if (currentIndex <= 0 && root.detailView)
-                Ui.Focus.take(playlistRow.below ? playlistRow.first : detailHeader.firstPill || root.detailAction());
+                Ui.Focus.take(playlistRow.below && playlistRow.first ? playlistRow.first : detailHeader.firstPill || root.detailAction());
             else if (currentIndex <= 0)
                 Ui.Focus.take(search);
             else

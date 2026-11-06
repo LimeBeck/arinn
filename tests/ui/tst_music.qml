@@ -1010,6 +1010,12 @@ TestCase {
         Ui.Focus.take(listing);listing.currentIndex=0;keyClick(Qt.Key_Up);tryCompare(save,"activeFocus",true);
         save.text="Save playlist";
         tryCompare(actions,"y",header.pillsY);verify(actions.beside);
+        // Codex review of #819: with the actions alone, the tracks start
+        // below them.
+        catalog.state={account:"connected",facets:["albums"],actions:["save_playlist"]};
+        tryVerify(()=>!findChild(header,"musicDetailListen").visible);wait(100);
+        verify(listing.y>=actions.y+actions.height);verify(actions.x===600);
+        catalog.state={account:"connected",facets:["albums"],actions:["play","radio","save_playlist"]};
         catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
         // Review of #819: nothing overlaps the tracks, also under a title on
         // three lines, and the status line stays below them.
@@ -1019,7 +1025,9 @@ TestCase {
         const shortEntry=view.detailEntry;
         view.detailEntry=Object.assign({},shortEntry,{title:"An extended synthetic title from the fixture album that runs over three whole lines of the detail"});
         const meta=findChild(header,"musicDetailMeta");
-        tryVerify(()=>radio.mapToItem(view,0,0).y>=meta.mapToItem(view,0,meta.height).y);
+        // The title lays out again first (delta review of #819).
+        tryCompare(findChild(header,"musicDetailTitle"),"lineCount",3);wait(100);
+        verify(radio.mapToItem(view,0,0).y>=meta.mapToItem(view,0,meta.height).y);
         verify(rows.y>=radio.mapToItem(view,0,radio.height).y);
         verify(rows.y+rows.height<=notice.y);
         view.detailEntry=shortEntry;
@@ -1072,10 +1080,23 @@ TestCase {
         const found=room.searchShelves[0];
         room.searchShelves=[found,{id:"tracks",title:"Tracks",kind:"track",entries:[room.card("local","track:9","track","Nine")]}];
         keyClick(Qt.Key_Down);const trackShelf=findChild(view,"musicSearchShelf-tracks");tryVerify(()=>trackShelf.activeFocus);
-        keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","track:9");
+        // The dialog takes focus first (delta review of #819); both Back and
+        // its Cancel return to the result.
+        const keepQueue=findChild(view,"musicKeepQueue");
+        keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","track:9");tryCompare(keepQueue,"activeFocus",true);
         keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
         tryVerify(()=>trackShelf.activeFocus);compare(trackShelf.focusedEntry.key,"local\ntrack:9");
+        keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","track:9");tryCompare(keepQueue,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.pendingPlay,"");
+        tryVerify(()=>trackShelf.activeFocus);compare(trackShelf.focusedEntry.key,"local\ntrack:9");
         compare(view.mode,"search");
+        // Codex review of #819: a shelf without an All tile that loses its
+        // focused last card keeps focus on its new last card.
+        const two={id:"tracks",title:"Tracks",kind:"track",entries:[room.card("local","track:9","track","Nine"),room.card("local","track:10","track","Ten")]};
+        room.searchShelves=[found,two];tryVerify(()=>trackShelf.count===2);
+        Ui.Focus.take(trackShelf);keyClick(Qt.Key_Right);compare(trackShelf.focusedEntry.key,"local\ntrack:10");
+        room.searchShelves=[found,{id:"tracks",title:"Tracks",kind:"track",entries:[two.entries[0]]}];
+        tryVerify(()=>trackShelf.count===1);verify(trackShelf.focusedEntry);compare(trackShelf.focusedEntry.key,"local\ntrack:9");
         Ui.Focus.take(results);room.searchShelves=[found];
         // Codex review of #819: a focused shelf that leaves hands focus to
         // the shelf in its place, and the last one to the field.

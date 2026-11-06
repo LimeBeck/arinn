@@ -41,11 +41,13 @@ FocusScope {
         shown = next;
         let at = key ? next.findIndex(entry => entry.key === key) : -1;
         // The All tile stays the All tile when cards join (review of #812);
-        // a card that left hands focus to its nearest neighbour.
-        if (!key && onAll)
+        // a card that left hands focus to its nearest neighbour, the last
+        // card when a shelf without the tile loses its last one (Codex
+        // review of #819).
+        if (!key && onAll && showAll)
             at = next.length;
         else if (at < 0)
-            at = Math.max(0, Math.min(index, next.length));
+            at = Math.max(0, Math.min(index, showAll ? next.length : next.length - 1));
         list.currentIndex = at;
         list.positionViewAtIndex(at, ListView.Contain);
     }

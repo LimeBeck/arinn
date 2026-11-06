@@ -453,6 +453,41 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   that start at *All*; it pages on while focus is near the end, also when a
   page adds no card of its kind and orders by
   the shelf order (labelled *By date* only once entries carry dates) or *A–Z*.
-- Until the search over every source (#801), *Find* opens the browsed source's
-  search. Back from a detail, the player or the *All* list returns to the room
+- *Find* searches every browsable source (#801, MH-10): `MusicRoom.search`
+  reads the `artists`, `albums` and `tracks` facets with the query from each
+  source, one page at a time per source, and the result shelves take each
+  source's results in their own order, sources in turn, unmerged. Sources
+  still answering are named under the field; late results never move focus.
+  A page the source refuses (its two materialisation slots busy with the
+  room's and the catalogue's reads) is read again after the source's other
+  pages, up to three attempts.
+  A source that joins, leaves or restarts during a search is searched again
+  alone, and the others' results stay; a result shelf that leaves with focus
+  hands it to the shelf in its place, or to the field. A query beyond the
+  protocol's 1024 bytes finds nothing rather than keeping older results.
+  Back closes the keyboard first, then returns to the room.
+- An album, playlist or artist opened from the room or a result is the
+  detail (brief mh-02): the blurred cover with a left scrim, the cover, an
+  eyebrow that names the source, the title in Playfair Display (104, 80 on
+  three lines), creator and length, and *Listen* and *Radio from …* by
+  capability; there is no Shuffle (no protocol action). Rows carry their
+  number and duration, the playing mark on the row of the session that plays,
+  and the artist only where it differs from the album's. An artist detail
+  lists its tracks; the protocol pages no releases for an artist, so that
+  shelf is absent. Opening never plays; Back returns to the room or the
+  results with focus on the entry it was opened from. The pills move down
+  under a title on three lines, and the tracks start below them and end above
+  the status line; the playlist actions join the pills' line for the D-pad
+  (Right from the last pill, Down to the tracks), or take their own line under
+  the pills when the line would pass the safe area (Down from the pills, Up
+  from the first track). A detail opened from a
+  detail's row never takes the Find text as a filter.
+- Back from Find returns to the *Find* button. A Find query typed just
+  before a result opens is still searched; a catalogue filter typed in
+  another mode is dropped.
+- A resume that fails keeps its target and the shown entries, and its retry
+  resumes, reading its tokens afresh; a retry started from a source's chain of
+  first pages goes on with that chain, so every failed facet is read again. A
+  provider that repeats a token ends the resume with what it read, never with
+  fewer entries than are shown. Back from a detail, the player or the *All* list returns to the room
   with focus on the card it was opened from.

@@ -15,6 +15,8 @@ FocusScope {
     // The key of the entry that plays, for the playing chip.
     property string playingKey: ""
     property real rowBrightness: 0.62
+    // The All tile ends a room shelf; search results have none.
+    property bool showAll: true
     readonly property string shelfId: shelf.id || ""
     readonly property bool wide: shelfId === "stations"
     readonly property bool round: shelfId === "artists"
@@ -39,11 +41,13 @@ FocusScope {
         shown = next;
         let at = key ? next.findIndex(entry => entry.key === key) : -1;
         // The All tile stays the All tile when cards join (review of #812);
-        // a card that left hands focus to its nearest neighbour.
-        if (!key && onAll)
+        // a card that left hands focus to its nearest neighbour, the last
+        // card when a shelf without the tile loses its last one (Codex
+        // review of #819).
+        if (!key && onAll && showAll)
             at = next.length;
         else if (at < 0)
-            at = Math.max(0, Math.min(index, next.length));
+            at = Math.max(0, Math.min(index, showAll ? next.length : next.length - 1));
         list.currentIndex = at;
         list.positionViewAtIndex(at, ListView.Contain);
     }
@@ -84,7 +88,7 @@ FocusScope {
         preferredHighlightBegin: 0
         preferredHighlightEnd: width - root.cardWidth - Ui.Theme.safeRight
         highlightRangeMode: ListView.ApplyRange
-        model: root.shown.length + 1
+        model: root.shown.length + (root.showAll ? 1 : 0)
         delegate: FocusScope {
             id: slot
             required property int index

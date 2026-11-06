@@ -38,6 +38,13 @@ class MusicRoom : public QObject {
   Q_PROPERTY(bool settled READ settled NOTIFY sourcesChanged)
   // The room polls only while it is shown.
   Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+  // Find over every source (MH-10, #801): result shelves Artists, Albums
+  // and Tracks, each source's results in its own relevance order, sources
+  // in turn; nothing merged.
+  Q_PROPERTY(QVariantList searchShelves READ searchShelves NOTIFY searchChanged)
+  // Names of the sources still answering the current search.
+  Q_PROPERTY(QStringList searchPending READ searchPending NOTIFY searchChanged)
+  Q_PROPERTY(QString searchQuery READ searchQuery NOTIFY searchChanged)
 public:
   explicit MusicRoom(QObject *parent = nullptr);
   QObject *catalog() const { return m_catalog; }
@@ -50,6 +57,13 @@ public:
   bool settled() const;
   bool active() const { return m_timer.isActive(); }
   void setActive(bool active);
+  QVariantList searchShelves() const { return m_searchShelves; }
+  QStringList searchPending() const;
+  QString searchQuery() const { return m_searchQuery; }
+  // Search every browsable source; an empty query clears the results.
+  Q_INVOKABLE void search(const QString &query);
+  // Each list's entries in its own order, one list after another in turn.
+  static QVariantList alternate(const QList<QVariantList> &lists);
   // The full list behind a shelf's All tile, over every page read so far:
   // every source, or one source (MH-10), in the shelf order or by title.
   Q_INVOKABLE QVariantList list(const QString &shelf,
@@ -77,6 +91,7 @@ public:
 signals:
   void catalogChanged();
   void activeChanged();
+  void searchChanged();
   void sourcesChanged();
   void shelvesChanged();
   void loadingChanged();
@@ -123,8 +138,34 @@ private:
   };
   void readState(const QString &id);
   void readNext(const QString &id);
-  void readPage(const QString &id, const QString &facet, bool append);
+  // `chained`: the read came from the source's chain of first pages, which
+  // goes on once this facet's read (or its resume) ends.
+  void readPage(const QString &id, const QString &facet, bool append,
+                bool chained = false);
   void rebuild();
+  void startSearch(const QString &id);
+  void readSearch(const QString &id);
+  void continueSearch(const QString &id);
+  void rebuildSearch();
+  struct Search {
+    std::map<QString, QVariantList> facets;
+    QStringList pending;
+    bool busy = false;
+    // Replies to an earlier run of this source's search are dropped.
+    quint64 ticket = 0;
+    // A page refused while the provider's slots are busy is read again
+    // once the others have answered, a few times (Codex review of #819).
+    QStringList retry;
+    std::map<QString, int> attempts;
+  };
+  std::map<QString, Search> m_search;
+  QString m_searchQuery;
+  // The browsable sources, by id, with the generation the search ran over.
+  std::map<QString, QString> m_searchSources;
+  std::map<QString, QString> searchSources() const;
+  void reconcileSearch();
+  quint64 m_searchTicket = 0;
+  QVariantList m_searchShelves;
   void publishSources();
   void publishLoading();
   QVariantList gather(const QString &shelf, const QString &source,

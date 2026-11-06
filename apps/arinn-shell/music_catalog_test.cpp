@@ -52,6 +52,10 @@ public:
   // next `conflicts` continuations fail as an expired lease does.
   int pageSize = 0;
   int conflicts = 0;
+  // A continuation token that fails as Unavailable this many times, and one
+  // whose page names itself as the next token, as a looping provider does.
+  QHash<QString, int> tokenFailures;
+  QString stuckToken;
   QStringList commands;
   QString commandError;
   QString pageError;
@@ -120,6 +124,12 @@ public:
                                           QStringLiteral("Conflict")));
         return true;
       }
+      if (!token.isEmpty() && tokenFailures.value(token) > 0) {
+        --tokenFailures[token];
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"),
+                                          QStringLiteral("Unavailable")));
+        return true;
+      }
       const auto own = pages.find(id + QLatin1Char('/') + facet);
       auto entries = own != pages.end() ? *own
                      : QJsonArray{QJsonObject{{"id", "t1"},
@@ -135,6 +145,8 @@ public:
         if (offset + pageSize < entries.size())
           next = QStringLiteral("p%1").arg(offset / pageSize + 1);
         entries = slice;
+        if (!stuckToken.isEmpty() && token == stuckToken)
+          next = stuckToken;
       }
       QJsonObject page{{"generation", message.arguments().value(0).toString()},
                        {"revision", 1},
@@ -190,6 +202,8 @@ private slots:
     daemon.pages.clear();
     daemon.pageSize = 0;
     daemon.conflicts = 0;
+    daemon.tokenFailures.clear();
+    daemon.stuckToken.clear();
     daemon.commands.clear();
     daemon.active = QStringLiteral("null");
   }
@@ -454,6 +468,221 @@ private slots:
     QTRY_VERIFY(room.connected());
     QTRY_VERIFY(!room.loading());
     QVERIFY(room.dated());
+  }
+  // #801 (MH-10): Find searches every browsable source; each shelf takes
+  // the sources' results in turn, in their own order, unmerged; the sources
+  // still answering are named; an empty query clears the results.
+  void roomSearchesEverySource() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums", "tracks"});
+    daemon.states["account"] = state({"albums", "artists"}, "connected");
+    auto album = [](const char *id) {
+      return QJsonObject{{"id", id}, {"kind", "album"}, {"title", id}, {"available", true},
+                         {"added_at", 1700000000}};
+    };
+    daemon.pages["local/albums"] = QJsonArray{album("album:a"), album("album:b")};
+    daemon.pages["account/albums"] = QJsonArray{album("album:a"), album("album:z")};
+    daemon.pages["local/tracks"] = QJsonArray{};
+    daemon.pages["account/artists"] = QJsonArray{};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.search(QStringLiteral("fixture"));
+    QCOMPARE(room.searchQuery(), QStringLiteral("fixture"));
+    QVERIFY(!room.searchPending().isEmpty());
+    QTRY_VERIFY(room.searchPending().isEmpty());
+    const auto shelves = room.searchShelves();
+    QCOMPARE(shelves.size(), 1);
+    QStringList keys;
+    for (const auto &entry : shelves.first().toMap().value("entries").toList())
+      keys.append(entry.toMap().value("key").toString());
+    QCOMPARE(keys, (QStringList{"local\nalbum:a", "account\nalbum:a", "local\nalbum:b",
+                                "account\nalbum:z"}));
+    // Codex review of #819: a source that leaves during a search takes its
+    // results along; one that joins is searched too. The results of the
+    // source that stays never leave meanwhile, so focus on them stays.
+    qsizetype least = 4;
+    const auto watch = connect(&room, &MusicRoom::searchChanged, this, [&] {
+      const auto now = room.searchShelves();
+      least = std::min<qsizetype>(
+          least, now.isEmpty() ? 0 : now.first().toMap().value("entries").toList().size());
+    });
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    catalog.refresh();
+    QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 2);
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    catalog.refresh();
+    QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 4);
+    QTRY_VERIFY(room.searchPending().isEmpty());
+    disconnect(watch);
+    QCOMPARE(least, 2);
+    // A query beyond the protocol's 1024 bytes finds nothing: the results
+    // of the shorter query do not stay (Codex review of #819).
+    const QString tooLong(1025, QLatin1Char('x'));
+    room.search(tooLong);
+    QCOMPARE(room.searchQuery(), tooLong);
+    QVERIFY(room.searchShelves().isEmpty());
+    QVERIFY(room.searchPending().isEmpty());
+    room.search(QString());
+    QVERIFY(room.searchShelves().isEmpty());
+  }
+  // Codex review of #819: a search page refused while the provider's slots
+  // are busy is read again, so the source still contributes its results.
+  void roomRetriesARefusedSearchPage() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    daemon.states["account"] = state({"albums"}, "connected");
+    daemon.pages["account/albums"] =
+        QJsonArray{QJsonObject{{"id", "album:a"}, {"kind", "album"}, {"title", "A"},
+                               {"available", true}}};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    const auto before = daemon.pageReads.value("account");
+    daemon.pageError = QStringLiteral("Unavailable");
+    room.search(QStringLiteral("fixture"));
+    QTRY_VERIFY(daemon.pageReads.value("account") > before);
+    QTest::qWait(100);
+    daemon.pageError.clear();
+    QVERIFY(!room.searchPending().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(room.searchShelves().size(), 1, 10000);
+    QTRY_VERIFY(room.searchPending().isEmpty());
+  }
+  // Follow-up of #812 (in #801): a resume whose catch-up page fails keeps
+  // the shown entries and its target, and the retry resumes to them instead
+  // of showing only the first page.
+  void roomKeepsAListsPlaceWhenACatchUpFails() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    auto account = state({"albums"}, "connected");
+    account["actions"] = QJsonArray{"play"};
+    daemon.states["account"] = account;
+    QJsonArray albums;
+    for (int i = 0; i < 9; ++i)
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 3;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.loadMore("albums");
+    QTRY_COMPARE(room.list("albums").size(), 6);
+    int least = 6;
+    const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+      least = std::min<int>(least, room.list("albums").size());
+    });
+    // The continuation fails, then the resume's catch-up page fails too.
+    daemon.conflicts = 2;
+    room.loadMore("albums");
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 9, 20000);
+    disconnect(watch);
+    QCOMPARE(least, 6);
+  }
+  // Review of #819: a resume retried from the source's chain of first
+  // pages goes on with the chain, so a second failed facet is read again too.
+  void roomRetriesEveryFacetAfterFailedResumes() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    daemon.states["account"] = state({"albums", "tracks"}, "connected");
+    QJsonArray albums, tracks;
+    for (int i = 0; i < 9; ++i) {
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+      tracks.append(QJsonObject{{"id", QStringLiteral("track:%1").arg(i)}, {"kind", "track"},
+                                {"title", QStringLiteral("Track %1").arg(i)}, {"available", true}});
+    }
+    daemon.pages["account/albums"] = albums;
+    daemon.pages["account/tracks"] = tracks;
+    daemon.pageSize = 3;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.loadMore("albums");
+    room.loadMore("recent");
+    QTRY_COMPARE(room.list("albums").size(), 6);
+    QTRY_COMPARE(room.list("recent").size(), 6);
+    // Both continuations fail, and so do both resumes.
+    daemon.pageError = QStringLiteral("Unavailable");
+    room.loadMore("albums");
+    room.loadMore("recent");
+    QTRY_VERIFY(daemon.pageReads.value("account") >= 8);
+    QTest::qWait(200);
+    daemon.pageError.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 9, 20000);
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("recent").size(), 9, 20000);
+  }
+  // Review of #819: a retried resume reads its tokens afresh, so a token
+  // read before the failure does not end it at the first page.
+  void roomRetriedResumeReadsItsTokensAgain() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    daemon.states["account"] = state({"albums"}, "connected");
+    QJsonArray albums;
+    for (int i = 0; i < 9; ++i)
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 3;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.loadMore("albums");
+    QTRY_COMPARE(room.list("albums").size(), 6);
+    int least = 6;
+    const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+      least = std::min<int>(least, room.list("albums").size());
+    });
+    // The continuation fails; the resume reads p1, then fails on p2.
+    daemon.tokenFailures["p2"] = 2;
+    room.loadMore("albums");
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 9, 20000);
+    disconnect(watch);
+    QCOMPARE(least, 6);
+  }
+  // Follow-up of #812, review of #819: a provider that repeats a token
+  // ends the resume, and a shorter read never replaces what is shown.
+  void roomEndsAResumeOnARepeatedToken() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    daemon.states["account"] = state({"albums"}, "connected");
+    QJsonArray albums;
+    for (int i = 0; i < 12; ++i)
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 3;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.loadMore("albums");
+    QTRY_COMPARE(room.list("albums").size(), 6);
+    room.loadMore("albums");
+    QTRY_COMPARE(room.list("albums").size(), 9);
+    int least = 9;
+    const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+      least = std::min<int>(least, room.list("albums").size());
+    });
+    // The lease expires, and on the resume the provider loops on p1.
+    daemon.conflicts = 1;
+    daemon.stuckToken = QStringLiteral("p1");
+    const auto before = daemon.pageReads.value("account");
+    room.loadMore("albums");
+    QTRY_VERIFY(!room.more("albums"));
+    const auto reads = daemon.pageReads.value("account");
+    QVERIFY(reads > before);
+    QTest::qWait(500);
+    QCOMPARE(daemon.pageReads.value("account"), reads);
+    disconnect(watch);
+    QCOMPARE(least, 9);
+    QCOMPARE(room.list("albums").size(), 9);
   }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.

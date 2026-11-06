@@ -10,3 +10,5 @@ MusicCard 1.0 MusicCard.qml
 MusicSourcesSheet 1.0 MusicSourcesSheet.qml
 MusicSourceMark 1.0 MusicSourceMark.qml
 MusicAllView 1.0 MusicAllView.qml
+MusicDetailHeader 1.0 MusicDetailHeader.qml
+MusicSearchView 1.0 MusicSearchView.qml

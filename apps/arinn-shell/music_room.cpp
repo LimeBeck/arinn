@@ -14,6 +14,8 @@
 
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
+// The longest search the protocol takes, in UTF-8 bytes (music.md).
+constexpr int maxQuery = 1024;
 QJsonObject object(const QDBusMessage &reply) {
   if (reply.type() == QDBusMessage::ErrorMessage ||
       reply.signature() != QStringLiteral("s") || reply.arguments().size() != 1)
@@ -69,6 +71,10 @@ constexpr qint64 leaseMs = 25000;
 // A first page that failed is read again after this long, doubling with
 // each failure up to a minute.
 constexpr qint64 retryMs = 3000;
+// A search page refused (the provider's two materialisation slots busy with
+// the room's and the catalogue's reads) is read again this often.
+constexpr int searchAttempts = 3;
+constexpr int searchRetryMs = 1500;
 qint64 retryDelay(int retries) {
   return std::min<qint64>(retryMs << std::min(retries, 5), 60000);
 }
@@ -170,6 +176,7 @@ bool MusicRoom::settled() const {
 // The Sources sheet and the first use read these rows; the state polled
 // during playback changes every time (position_us), the rows do not.
 void MusicRoom::publishSources() {
+  reconcileSearch();
   const auto rows = sources();
   if (rows == m_sourceRows)
     return;
@@ -300,21 +307,48 @@ void MusicRoom::readNext(const QString &id) {
   auto found = m_sources.find(id);
   if (found == m_sources.end() || found->second.pending.isEmpty())
     return;
-  readPage(id, found->second.pending.takeFirst(), false);
+  readPage(id, found->second.pending.takeFirst(), false, true);
 }
 
 void MusicRoom::readPage(const QString &id, const QString &facetId,
-                         bool append) {
+                         bool append, bool chained) {
   auto found = m_sources.find(id);
   if (found == m_sources.end())
     return;
   auto &source = found->second;
   auto &facet = source.facets[facetId];
-  if (facet.busy || (append && facet.next.isEmpty()))
+  if (facet.busy || (append && facet.next.isEmpty())) {
+    if (chained)
+      readNext(id);
     return;
+  }
   const auto token = append ? facet.next : QString();
-  if (!token.isEmpty() && facet.tokens.contains(token))
+  if (!token.isEmpty() && facet.tokens.contains(token)) {
+    // A provider that repeats a token ends the resume with what it read,
+    // instead of leaving the facet resuming (follow-up of #812); a shorter
+    // read never replaces what is shown (review of #819).
+    if (facet.resumeTo > 0) {
+      if (facet.buffer.size() >= facet.entries.size())
+        facet.entries = facet.buffer;
+      facet.buffer.clear();
+      facet.resumeTo = 0;
+      facet.next.clear();
+      facet.failed = false;
+      facet.retries = 0;
+      facet.loaded = true;
+      facet.stale = false;
+      rebuild();
+    }
+    if (chained)
+      readNext(id);
     return;
+  }
+  // Every first page of a resume, a retried one too, starts its tokens and
+  // its buffer afresh (review of #819).
+  if (!append && facet.resumeTo > 0) {
+    facet.tokens.clear();
+    facet.buffer.clear();
+  }
   facet.busy = true;
   const auto ticket = source.ticket;
   auto message = QDBusMessage::createMethodCall(service, source.path,
@@ -330,7 +364,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
       QDBusConnection::sessionBus().asyncCall(message, 5500), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, id, facetId, ticket, append, token](auto *watch) {
+      [this, id, facetId, ticket, append, chained, token](auto *watch) {
         const auto reply = watch->reply();
         watch->deleteLater();
         auto found = m_sources.find(id);
@@ -356,22 +390,28 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
             facet.resumeTo = facet.entries.size() + 1;
             facet.buffer.clear();
             facet.tokens.clear();
-            readPage(id, facetId, false);
+            readPage(id, facetId, false, chained);
             return;
           }
-          facet.resumeTo = 0;
+          // A resume that fails (a catch-up page, or its first page refused
+          // while the provider's slots are busy) keeps its target: the shown
+          // entries stay, and the retry resumes instead of showing only the
+          // first page (follow-ups of #812).
           facet.buffer.clear();
+          if (!resuming)
+            facet.resumeTo = 0;
           // A failed facet is left out; the others still fill their shelves,
           // and a later state poll reads its first page again.
           facet.failed = true;
           facet.failedAt = now();
-          if (!append && !resuming)
-            ++facet.retries;
+          ++facet.retries;
           facet.loaded = true;
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.
           facet.stale = false;
-          if (!append && !resuming)
+          // The chain goes on also after a resume that ends here (review
+          // of #819): facets queued behind it are read too.
+          if (chained)
             readNext(id);
           rebuild();
           return;
@@ -409,7 +449,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         if (resuming) {
           facet.buffer = entries;
           if (entries.size() < facet.resumeTo && !facet.next.isEmpty()) {
-            readPage(id, facetId, true);
+            readPage(id, facetId, true, chained);
             return;
           }
           facet.buffer.clear();
@@ -420,8 +460,9 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         facet.retries = 0;
         facet.loaded = true;
         facet.stale = false;
-        // Only the first pages chain: a further page is the All list's own.
-        if (!append && !resuming)
+        // Only the first pages chain: a further page is the All list's own,
+        // unless it belongs to a resume the chain started.
+        if (chained)
           readNext(id);
         rebuild();
       });
@@ -775,4 +816,231 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
             // The confirmed state, catalogue included, is read again.
             readState(id);
           });
+}
+
+QVariantList MusicRoom::alternate(const QList<QVariantList> &lists) {
+  QVariantList result;
+  for (int index = 0;; ++index) {
+    bool any = false;
+    for (const auto &list : lists)
+      if (index < list.size()) {
+        result.append(list.at(index));
+        any = true;
+      }
+    if (!any)
+      return result;
+  }
+}
+
+QStringList MusicRoom::searchPending() const {
+  QStringList names;
+  for (const auto &id : m_order) {
+    const auto found = m_search.find(id);
+    const auto source = m_sources.find(id);
+    if (found != m_search.end() && source != m_sources.end() &&
+        (found->second.busy || !found->second.pending.isEmpty() ||
+         !found->second.retry.isEmpty()))
+      names.append(source->second.state.value("account").toString() ==
+                           QLatin1String("local")
+                       ? tr("This computer")
+                       : source->second.name);
+  }
+  return names;
+}
+
+std::map<QString, QString> MusicRoom::searchSources() const {
+  std::map<QString, QString> sources;
+  for (const auto &id : m_order) {
+    const auto found = m_sources.find(id);
+    if (found != m_sources.end() && !found->second.stateFailed &&
+        browsable(found->second.state))
+      sources[id] = found->second.generation;
+  }
+  return sources;
+}
+
+// A source that connects, leaves or restarts during a search: only that
+// source searches again, and the results of the others stay where they are,
+// so the focused result does not leave (Codex review of #819).
+void MusicRoom::reconcileSearch() {
+  if (m_searchQuery.isEmpty() || m_searchQuery.toUtf8().size() > maxQuery)
+    return;
+  const auto now = searchSources();
+  if (now == m_searchSources)
+    return;
+  for (auto it = m_search.begin(); it != m_search.end();) {
+    const auto source = now.find(it->first);
+    const auto before = m_searchSources.find(it->first);
+    if (source == now.end() || before == m_searchSources.end() ||
+        before->second != source->second)
+      it = m_search.erase(it);
+    else
+      ++it;
+  }
+  m_searchSources = now;
+  for (const auto &[id, generation] : now)
+    if (m_search.find(id) == m_search.end())
+      startSearch(id);
+  rebuildSearch();
+}
+
+void MusicRoom::search(const QString &raw) {
+  const auto query = raw.trimmed();
+  if (query == m_searchQuery)
+    return;
+  m_searchQuery = query;
+  m_searchSources = searchSources();
+  m_search.clear();
+  // A query beyond the protocol's limit finds nothing: the results of the
+  // shorter query it grew from do not stay (Codex review of #819).
+  if (!query.isEmpty() && query.toUtf8().size() <= maxQuery)
+    for (const auto &[id, generation] : m_searchSources)
+      startSearch(id);
+  rebuildSearch();
+}
+
+void MusicRoom::startSearch(const QString &id) {
+  const auto found = m_sources.find(id);
+  if (found == m_sources.end())
+    return;
+  const auto facets = found->second.state.value("facets").toStringList();
+  auto &search = m_search[id];
+  search = Search{};
+  search.ticket = ++m_searchTicket;
+  for (const auto *facet : {"artists", "albums", "tracks"})
+    if (facets.contains(QLatin1String(facet)))
+      search.pending.append(QLatin1String(facet));
+  readSearch(id);
+}
+
+// One search page at a time per source, as the first pages: a source's
+// facets share one materialisation slot.
+void MusicRoom::readSearch(const QString &id) {
+  auto found = m_search.find(id);
+  const auto source = m_sources.find(id);
+  if (found == m_search.end() || source == m_sources.end() ||
+      found->second.busy || found->second.pending.isEmpty())
+    return;
+  auto &search = found->second;
+  const auto facet = search.pending.takeFirst();
+  const auto ticket = search.ticket;
+  search.busy = true;
+  auto message = QDBusMessage::createMethodCall(
+      service, source->second.path, "org.arinn.Music1", "GetPage");
+  const QJsonObject query{{"facet", facet},
+                          {"parent", QString()},
+                          {"search", m_searchQuery},
+                          {"token", QString()}};
+  message << source->second.generation
+          << QString::fromUtf8(
+                 QJsonDocument(query).toJson(QJsonDocument::Compact));
+  const auto generation = source->second.generation;
+  auto *pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 5500), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id, facet, ticket, generation](auto *watch) {
+            const auto reply = watch->reply();
+            watch->deleteLater();
+            auto found = m_search.find(id);
+            const auto source = m_sources.find(id);
+            if (found == m_search.end() || found->second.ticket != ticket ||
+                source == m_sources.end() ||
+                source->second.generation != generation)
+              return;
+            auto &search = found->second;
+            search.busy = false;
+            const auto json = object(reply);
+            const bool answered =
+                json.value("generation").toString() == generation &&
+                json.value("entries").isArray();
+            // A refused page is read again after the source's other pages
+            // (Codex review of #819); after the last attempt that shelf goes
+            // without this source.
+            if (!answered && ++search.attempts[facet] < searchAttempts) {
+              search.retry.append(facet);
+              continueSearch(id);
+              return;
+            }
+            QVariantList entries;
+            const bool local = source->second.state.value("account").toString() ==
+                               QLatin1String("local");
+            if (answered)
+              for (const auto &item : json.value("entries").toArray()) {
+                auto row = item.toObject().toVariantMap();
+                const auto entity = row.value("id").toString();
+                if (entity.isEmpty() || entries.size() >= 100)
+                  continue;
+                row.insert("provider", id);
+                row.insert("providerName", source->second.name);
+                row.insert("local", local);
+                row.insert("key", id + QLatin1Char('\n') + entity);
+                row.insert("image", AssetImages::imageUrl(
+                                        id, source->second.path, generation,
+                                        row.value("artwork").toString()));
+                entries.append(row);
+              }
+            search.facets[facet] = entries;
+            continueSearch(id);
+            rebuildSearch();
+          });
+}
+
+// The next page of a source's search; refused pages wait until the others
+// have answered, then are read again after a pause.
+void MusicRoom::continueSearch(const QString &id) {
+  auto found = m_search.find(id);
+  if (found == m_search.end())
+    return;
+  auto &search = found->second;
+  if (!search.pending.isEmpty()) {
+    readSearch(id);
+    return;
+  }
+  if (search.busy || search.retry.isEmpty())
+    return;
+  const auto ticket = search.ticket;
+  QTimer::singleShot(searchRetryMs, this, [this, id, ticket] {
+    auto found = m_search.find(id);
+    if (found == m_search.end() || found->second.ticket != ticket ||
+        found->second.busy)
+      return;
+    found->second.pending.append(found->second.retry);
+    found->second.retry.clear();
+    readSearch(id);
+  });
+}
+
+void MusicRoom::rebuildSearch() {
+  QVariantList shelves;
+  const std::pair<const char *, const char *> kinds[] = {
+      {"artists", "artist"}, {"albums", "album"}, {"tracks", "track"}};
+  for (const auto &[facet, kind] : kinds) {
+    QList<QVariantList> lists;
+    for (const auto &id : m_order) {
+      const auto found = m_search.find(id);
+      if (found == m_search.end())
+        continue;
+      const auto entries = found->second.facets.find(QLatin1String(facet));
+      if (entries == found->second.facets.end())
+        continue;
+      QVariantList own;
+      for (const auto &entry : entries->second)
+        if (entry.toMap().value("kind").toString() == QLatin1String(kind))
+          own.append(entry);
+      lists.append(own);
+    }
+    const auto entries = alternate(lists);
+    if (entries.isEmpty())
+      continue;
+    const QString id = QLatin1String(facet);
+    shelves.append(QVariantMap{
+        {"id", id},
+        {"title", id == QLatin1String("artists")  ? tr("Artists")
+                  : id == QLatin1String("albums") ? tr("Albums")
+                                                  : tr("Tracks")},
+        {"kind", QLatin1String(kind)},
+        {"entries", entries}});
+  }
+  m_searchShelves = shelves;
+  emit searchChanged();
 }

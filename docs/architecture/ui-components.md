@@ -196,8 +196,10 @@ music card's variant 1 (#803, ADR-0142 MH-2): `ContentCard.musicState` draws
 the cover blurred by 28 px under a 30–55 % Charcoal shade, the cover centred
 at the frame height minus 44 with a hairline and a cast shadow, the playing
 chip (56 × 42 at 16 px, three Ember bars that move while playing and stand
-still in `text-3` on pause) and the Ember progress line. Without a cover,
-the station's is used, then the music note in a neutral chip. The caption is
+still in `text-3` on pause) and the Ember progress line. The backdrop is masked
+to the card's rounded outline, and the card has no transport button of its own. Without a cover,
+the station's is used, then the source's mark (`screen` or `public`) in a
+neutral chip. The caption is
 the track over "artist · station or album"; the hero reads "station ·
 playing" or "Paused" and names the keys. OK opens *Now playing*, Back
 returns to the card, and Play/Pause on Home acts on the music session

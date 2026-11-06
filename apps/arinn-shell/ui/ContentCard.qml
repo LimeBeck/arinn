@@ -185,6 +185,16 @@ Surface {
                 objectName: "musicCardFace"
                 anchors.fill: parent
                 visible: root.musicFace
+                // The card's rounded outline masks the blurred backdrop, so no
+                // artwork shows past its corners (Codex review of #827).
+                Item {
+                    id: backdropMask
+                    objectName: "musicCardBackdropMask"
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: root.musicFace
+                    Rectangle { anchors.fill: parent; radius: root.cornerRadius; color: "white" }
+                }
                 MultiEffect {
                     objectName: "musicCardBackdrop"
                     anchors.fill: parent
@@ -193,6 +203,8 @@ Surface {
                     blurEnabled: true
                     blurMax: 28
                     blur: 1
+                    maskEnabled: true
+                    maskSource: backdropMask
                 }
                 Rectangle {
                     objectName: "musicCardShade"
@@ -352,7 +364,9 @@ Surface {
             id: secondaryAction; objectName: "cardSecondaryAction"
             x: parent.width - width - 20; y: root.frameHeight - height - 20; z: 3
             width: 72; height: 72; cornerRadius: 36
-            visible: root.secondaryIcon.length > 0
+            // The music card's variant 1 has only the playing chip: Play/Pause
+            // on Home acts on the session (Codex review of #827).
+            visible: root.secondaryIcon.length > 0 && !root.musicFace
             focusedColor: Theme.textPrimary
             enabled: root.secondaryEnabled || activeFocus
             opacity: root.busy ? 0.6 : 1

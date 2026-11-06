@@ -1024,11 +1024,20 @@ TestCase {
         compare(chip.x, 16); compare(chip.y, 16); compare(chip.width, 56); compare(chip.height, 42);
         const bar = findChild(card, "musicCardBar");
         verify(Qt.colorEqual(bar.color, Ui.Theme.ember)); verify(bar.moving);
+        // Codex review of #827: no legacy transport button on variant 1, and
+        // the blurred backdrop is masked to the card's rounded outline.
+        compare(findChild(card, "cardSecondaryAction").visible, false);
+        const backdrop = findChild(card, "musicCardBackdrop");
+        verify(backdrop.maskEnabled); compare(backdrop.maskSource, findChild(card, "musicCardBackdropMask"));
+        compare(findChild(findChild(card, "musicCardBackdropMask"), "").radius, card.cornerRadius);
         const progress = findChild(card, "cardProgress");
         verify(progress.visible); compare(progress.value, 0.25);
         compare(findChild(card, "cardSubtitle").text, "Fixture artist · Fixture wave");
         // The ordinary caption and live dot give way to the chip.
         compare(card.statusText.length === 0 || !findChild(card, "cardChip").visible, true);
+        card.forceActiveFocus(); focused("entry-arinn-music-session");
+        // Right goes on to the next card, not into a hidden button.
+        keyClick(Qt.Key_Right); focused("entry-b");
         card.forceActiveFocus(); focused("entry-arinn-music-session");
         compare(child("heroEyebrow").text, "Fixture wave · playing");
         compare(child("heroMeta").text, "OK — open player · ⏯ — pause");

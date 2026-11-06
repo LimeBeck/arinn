@@ -1612,6 +1612,14 @@
         <source>Restart it to finish. Navigation remains available.</source>
         <translation>Перезапустите его, чтобы завершить обновление. Навигация остаётся доступной.</translation>
     </message>
+    <message>
+        <source>Music source not connected</source>
+        <translation>Источник музыки не подключён</translation>
+    </message>
+    <message>
+        <source>This station is no longer available</source>
+        <translation>Эта станция больше недоступна</translation>
+    </message>
 </context>
 <context>
     <name>MediaCatalog</name>

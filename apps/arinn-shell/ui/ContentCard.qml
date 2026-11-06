@@ -191,6 +191,7 @@ Surface {
             }
             // The chip, or the stack of chips, always sits top-left (#837).
             Row {
+                id: chipStack
                 objectName: "cardStack"
                 x: 24; y: 24
                 spacing: -18
@@ -225,6 +226,7 @@ Surface {
                 }
             }
             Rectangle {
+                id: fallbackChip
                 visible: !root.artworkReady && root.stack.length === 0 && !root.musicFace
                 x: 24; y: 24
                 width: 60; height: 60; radius: 18
@@ -417,8 +419,14 @@ Surface {
         // No cast light under a captioned card: between the image and its
         // caption it read as a coloured bar, and the floor pool already
         // lights the focused card (#837).
+        // Status text starts after the top-left chip or chip stack, never
+        // across it (Codex review of #852).
         UiText {
-            x: 24; y: 20; width: parent.width - 120
+            readonly property real markRight: chipStack.visible ? chipStack.x + chipStack.width
+                : fallbackChip.visible ? fallbackChip.x + fallbackChip.width : 0
+            x: markRight > 0 ? markRight + 16 : 24
+            y: markRight > 0 ? 24 + (60 - height) / 2 : 20
+            width: parent.width - x - 96
             objectName: "cardStatus"
             text: root.statusText; visible: text.length > 0 && !root.musicFace
             role: "caption"; textFormat: Text.PlainText; z: 2

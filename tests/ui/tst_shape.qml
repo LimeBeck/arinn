@@ -74,6 +74,18 @@ TestCase {
         compare(findChild(card, "rowShade").opacity, 0);
     }
 
+    // Codex review of #852: status text on a card without artwork starts
+    // after the top-left chip, not across it.
+    function test_status_text_clears_the_chip() {
+        const card = createTemporaryObject(cardFactory, suite, {statusText: "Loading…"});
+        const chip = findChild(card, "cardChip");
+        const status = findChild(card, "cardStatus");
+        verify(chip.visible && status.visible);
+        const chipRect = chip.mapToItem(card, Qt.rect(0, 0, chip.width, chip.height));
+        const statusRect = status.mapToItem(card, Qt.rect(0, 0, status.width, status.height));
+        verify(statusRect.x >= chipRect.x + chipRect.width,
+               "status at " + statusRect.x + " overlaps the chip ending at " + (chipRect.x + chipRect.width));
+    }
     function test_action_plates() {
         const button = createTemporaryObject(buttonFactory, suite);
         verify(Qt.colorEqual(button.background.color, Ui.Theme.plateAction));

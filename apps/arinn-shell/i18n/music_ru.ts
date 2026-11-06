@@ -93,6 +93,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicView</name>
     <message>
+      <source>Another command is in progress.</source>
+      <translation>Выполняется другая команда.</translation>
+    </message>
+    <message>
       <source>Album</source>
       <translation>Альбом</translation>
     </message>

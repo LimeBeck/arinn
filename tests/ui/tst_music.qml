@@ -572,9 +572,13 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
         const like=findChild(view,"musicLike"),icon=findChild(like,"musicPillIcon");
         compare(like.text,"Like");compare(icon.name,"favorite");compare(like.Accessible.checked,false);compare(like.Accessible.checkable,true);
+        // Codex review of #821: another command in flight makes Like busy
+        // too, and says so.
+        catalog.busy=true;tryCompare(like,"busy",true);compare(like.Accessible.description,"Another command is in progress.");
+        catalog.busy=false;tryCompare(like,"busy",false);compare(like.Accessible.description,"");
         catalog.busyOnTransport=true;
         Ui.Focus.take(like);keyClick(Qt.Key_Return);
-        compare(catalog.commands,["like"]);tryCompare(like,"text","Saving…");
+        compare(catalog.commands,["like"]);tryCompare(like,"text","Saving…");compare(like.Accessible.description,"Saving…");
         // The provider refuses it.
         catalog.errorText="The source could not do that. Try again.";catalog.busy=false;
         tryCompare(like,"text","Not saved");verify(like.Accessible.description.length>0);

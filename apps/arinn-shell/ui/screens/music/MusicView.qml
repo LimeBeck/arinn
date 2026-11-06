@@ -1599,7 +1599,9 @@ FocusScope {
                     anchors.verticalCenter: parent.verticalCenter
                     readonly property bool liked: root.player.feedback === "liked"
                     selected: liked
-                    busy: root.likePending
+                    // Busy for its own command and for any other in flight:
+                    // like() refuses then (Codex review of #821).
+                    busy: root.likePending || root.transportBusy
                     visible: root.supported("like")
                     iconName: liked ? "favorite_fill" : "favorite"
                     // One width for every state, so Queue and More never move
@@ -1612,7 +1614,10 @@ FocusScope {
                     Accessible.name: qsTr("Like")
                     Accessible.checkable: true
                     Accessible.checked: liked
-                    Accessible.description: root.likeFailed ? qsTr("The like was not saved. Try again.") : ""
+                    // The state is said, not only shown (Codex review of #821).
+                    Accessible.description: root.likePending ? qsTr("Saving…")
+                        : root.likeFailed ? qsTr("The like was not saved. Try again.")
+                        : root.transportBusy ? qsTr("Another command is in progress.") : ""
                     KeyNavigation.left: nextButton
                     KeyNavigation.right: queueButton
                     KeyNavigation.up: seek

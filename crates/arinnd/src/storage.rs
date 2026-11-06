@@ -217,8 +217,17 @@ pub fn music_disabled_sources(text: &str) -> Result<Vec<String>, ErrorCode> {
     check_music_disabled_sources(&ids)?;
     Ok(ids)
 }
+/// The longest list text: the settings contract's string limit (#842).
+pub const MUSIC_DISABLED_SOURCES_TEXT_MAX: usize = 4096;
 fn check_music_disabled_sources(ids: &[String]) -> Result<(), ErrorCode> {
     if ids.len() > MUSIC_DISABLED_SOURCES_MAX {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    // The list as the setting carries it must fit the string the schema
+    // allows, so the daemon and the shell agree on what can be stored
+    // (Codex review of #851).
+    let text = serde_json::to_string(ids).map_err(|_| ErrorCode::InvalidArgument)?;
+    if text.chars().count() > MUSIC_DISABLED_SOURCES_TEXT_MAX {
         return Err(ErrorCode::InvalidArgument);
     }
     for (index, id) in ids.iter().enumerate() {

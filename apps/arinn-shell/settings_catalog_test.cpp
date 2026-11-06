@@ -743,6 +743,13 @@ private slots:
                  QStringLiteral("boolean"), QStringLiteral("true"),
                  QStringLiteral("{}"), true)});
     daemon.holdOperation = true;
+    // Codex review of #851: before the daemon answers, a change could not be
+    // stored and would overwrite a list not read yet: nothing changes.
+    {
+      SettingsCatalog early;
+      early.setMusicSourceEnabled(QStringLiteral("b"), false);
+      QVERIFY(early.musicDisabledSources().isEmpty());
+    }
     QVERIFY(registerBus(daemon));
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));

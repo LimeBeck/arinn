@@ -89,7 +89,10 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         description: "The music sources turned off in the Sources sheet, as a JSON array of provider IDs".into(),
         kind: settings::KIND_STRING.into(),
         value: "\"\"".into(),
-        constraints: r#"{"max_length":4096}"#.into(),
+        constraints: serde_json::json!({
+            "max_length": crate::storage::MUSIC_DISABLED_SOURCES_TEXT_MAX
+        })
+        .to_string(),
         enabled: true,
     }];
     if let Some(first) = engines.first() {

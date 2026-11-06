@@ -37,9 +37,11 @@ reads as its default, with one warning line and no value in the log.
 `music_disabled_sources` (#842) holds the music sources turned off in the
 music *Sources* sheet. It is a string with a JSON array of provider ids,
 stored in `config.toml` as a list. The daemon refuses a value that is not a
-list of distinct ids, and a hand-edited invalid list reads as none.
+list of distinct ids, at most 64, whose text fits the setting's 4096
+characters; a hand-edited invalid list reads as none.
 - This screen leaves the row out, because the *Sources* sheet sets it.
-- `SettingsCatalog.musicDisabledSources` shows a change at once.
+- `SettingsCatalog.musicDisabledSources` shows a change at once. Before the
+  daemon's settings are read, or while it is away, a change is refused.
 - `setMusicSourceEnabled` writes it one write at a time; a change made while
   a write is in flight is written after it, and a refused write shows the
   stored list again.

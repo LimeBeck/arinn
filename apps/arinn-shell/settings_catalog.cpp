@@ -354,6 +354,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
           [this](const QString &, const QString &, const QString &) {
             ++m_epoch;
             m_pending.clear();
+            // A write lost with the old daemon is written again.
+            m_musicDisabledSent.reset();
             m_deferred.clear();
             m_errors.clear();
             m_deferredGeneration.clear();
@@ -827,7 +829,10 @@ void SettingsCatalog::readPreferences() {
 }
 void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
                                             bool enabled) {
-  if (providerId.isEmpty())
+  // Not known yet, or the daemon is away: the change could not be stored
+  // and would overwrite a list not read yet, so nothing changes (Codex
+  // review of #851).
+  if (providerId.isEmpty() || !m_loaded || m_unreachable)
     return;
   auto wanted = musicDisabledSources();
   if (enabled)
@@ -852,13 +857,15 @@ void SettingsCatalog::writeMusicDisabled() {
   if (m_pending.contains(key) || m_musicDisabledWanted == m_musicDisabled ||
       m_musicDisabledSent == m_musicDisabledWanted)
     return;
-  m_musicDisabledSent = m_musicDisabledWanted;
   const auto text = m_musicDisabledWanted.isEmpty()
                         ? QString()
                         : QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(
                                                               m_musicDisabledWanted))
                                                 .toJson(QJsonDocument::Compact));
   setValue(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources), text);
+  // Sent only once the write is in flight (Codex review of #851).
+  if (m_pending.contains(key))
+    m_musicDisabledSent = m_musicDisabledWanted;
 }
 void SettingsCatalog::publish() {
   syncDeferred();

@@ -249,8 +249,8 @@ ambient is a screensaver, not sleep.
   (`MusicArtwork`, with its neutral fallback), three Ember equaliser bars and
   the track at 30/600, and below them "artist · station" (the album when there
   is no station) at 26. On pause the line dims to 60 %, the bars stand still in
-  the date colour and the second line reads "Paused · …". When the music stops,
-  the line goes. A faint second glow in the artwork's colour lies at the lower
+  the date colour and the second line reads "Paused · …". A track with an empty
+  title reads "Untitled". When the music stops, the line goes. A faint second glow in the artwork's colour lies at the lower
   left: the mean colour of a 24 × 24 decode of the cover, in an ellipse 40 % ×
   34 % of the screen centred at (30 %, 115 %), at 30 %. The text uses the
   current ambient colours (#7F8083, #545557); the Hearth light restyle of

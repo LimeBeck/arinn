@@ -56,8 +56,10 @@ FocusScope {
     property var music: ({})
     readonly property var musicTrack: music && music.current && music.current.track ? music.current.track : ({})
     readonly property string musicPlayback: music && music.playback ? String(music.playback) : ""
+    // A current track is enough: an empty title is valid, and the line then
+    // reads "Untitled" as the Quick menu does (review of #817).
     readonly property bool musicShown: (musicPlayback === "playing" || musicPlayback === "paused")
-                                       && String(musicTrack.title || "").length > 0
+                                       && !!(music && music.current && music.current.track)
     readonly property bool musicPaused: musicPlayback === "paused"
     // "artist · station", the album when there is no station.
     readonly property string musicSubline: {
@@ -300,7 +302,7 @@ FocusScope {
                         elide: Text.ElideRight
                         width: Math.min(implicitWidth, 900)
                         color: root.clockColor
-                        text: String(root.musicTrack.title || "")
+                        text: String(root.musicTrack.title || "") || qsTr("Untitled")
                     }
                 }
                 Ui.UiText {

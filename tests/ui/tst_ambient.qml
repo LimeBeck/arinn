@@ -323,6 +323,15 @@ TestCase {
         verify(!line.visible);
         ambient.music = ({});
         verify(!line.visible);
+        // Review of #817: an untitled track still shows, as "Untitled",
+        // and Play/Pause still goes to the music.
+        const untitled = music("playing");
+        untitled.current.track.title = "";
+        ambient.music = untitled;
+        verify(line.visible);
+        compare(findChild(ambient, "ambientMusicTitle").text, "Untitled");
+        compare(findChild(ambient, "ambientMusicSubline").text, "Northline · Night Wave");
+        verify(ambient.musicKey(Qt.Key_MediaTogglePlayPause, true));
         // Without a station, the album.
         const noStation = music("playing");
         delete noStation.station;

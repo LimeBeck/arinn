@@ -177,6 +177,10 @@
         <source>Paused</source>
         <translation>Пауза</translation>
     </message>
+    <message>
+        <source>Untitled</source>
+        <translation>Без названия</translation>
+    </message>
 </context>
 <context>
     <name>AppTile</name>

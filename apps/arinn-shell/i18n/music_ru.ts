@@ -634,6 +634,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Музыка из этого источника остановится.</translation>
     </message>
     <message>
+      <source>The music could not be stopped, so the source stays on.</source>
+      <translation>Не удалось остановить музыку, поэтому источник остаётся включённым.</translation>
+    </message>
+    <message>
       <source>Connect</source>
       <translation>Подключить</translation>
     </message>

@@ -530,6 +530,9 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.
   - Turning off the source whose session plays or is paused asks first, with
     Cancel focused, then sends `stop` (or `pause` without it).
+  - The source turns off only once its session no longer plays (Codex review
+    of #851). A refused command, a session that offers neither command, or
+    one still playing after 10 s keeps it on, and its row says why.
 - A source whose state cannot be read leaves the shelves, and the *Sources*
   sheet says why. The sheet shows each source's state and its `connect`,
   `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by

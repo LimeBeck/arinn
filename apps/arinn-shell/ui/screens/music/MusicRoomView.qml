@@ -405,12 +405,7 @@ FocusScope {
         // The source whose session plays or is paused: turning it off asks
         // first, then stops the music (#842).
         playingSource: ["playing", "paused", "loading"].includes(root.player.playback) ? root.activeSource : ""
-        onStopRequested: {
-            if (!root.catalog)
-                return;
-            const actions = root.player.actions || [];
-            root.catalog.transport(actions.includes("stop") ? "stop" : "pause");
-        }
+        catalog: root.catalog
         onClosed: Ui.Focus.take(sourcesButton.visible && !root.firstUse ? sourcesButton : connectFirst)
     }
 }

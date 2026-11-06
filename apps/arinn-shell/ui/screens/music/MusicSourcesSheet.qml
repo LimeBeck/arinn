@@ -15,7 +15,71 @@ FocusScope {
     property var room: null
     // The source whose session plays or is paused, if any.
     property string playingSource: ""
-    signal stopRequested()
+    // The music catalogue, to stop that session.
+    property var catalog: null
+    // The playing source being stopped before it turns off: it turns off
+    // only once its session no longer plays (Codex review of #851). A
+    // failed stop keeps it on and says so on its row.
+    property string stopping: ""
+    property string stopFailed: ""
+    property bool stopSent: false
+    function stopThenTurnOff(id) {
+        stopping = id;
+        stopFailed = "";
+        stopSent = false;
+        stopWatch.elapsed = 0;
+        stopWatch.restart();
+    }
+    function failStop() {
+        stopWatch.stop();
+        stopFailed = stopping;
+        stopping = "";
+    }
+    Timer {
+        id: stopWatch
+        interval: 100
+        repeat: true
+        property int elapsed: 0
+        onTriggered: {
+            elapsed += interval;
+            const music = root.catalog;
+            if (!music || elapsed > 10000) {
+                root.failStop();
+                return;
+            }
+            if (music.transportBusy)
+                return;
+            const state = music.activeState || ({});
+            const live = music.activeSourceId === root.stopping
+                && ["playing", "loading"].includes(state.playback);
+            if (!root.stopSent) {
+                if (!live) {
+                    stop();
+                    root.setEnabled(root.stopping, false);
+                    root.stopping = "";
+                    return;
+                }
+                const actions = state.actions || [];
+                const action = actions.includes("stop") ? "stop" : actions.includes("pause") ? "pause" : "";
+                if (!action) {
+                    root.failStop();
+                    return;
+                }
+                music.transport(action);
+                root.stopSent = true;
+                return;
+            }
+            if ((music.errorText || "").length) {
+                root.failStop();
+                return;
+            }
+            if (!live) {
+                stop();
+                root.setEnabled(root.stopping, false);
+                root.stopping = "";
+            }
+        }
+    }
     readonly property var sources: room ? room.sources : []
     // Rows are keyed by source id and read their source by id, so a state
     // change (a command in flight, a new state) never recreates the focused
@@ -60,6 +124,7 @@ FocusScope {
     function open() {
         disconnecting = "";
         turningOff = "";
+        stopFailed = "";
         visible = true;
         Qt.callLater(focusFirst);
     }
@@ -116,6 +181,7 @@ FocusScope {
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
         } else if (action === "off" || action === "on") {
+            stopFailed = "";
             setEnabled(source.id, action === "on");
         } else if (room) {
             room.sourceCommand(source.id, action);
@@ -270,7 +336,9 @@ FocusScope {
                         color: Ui.Theme.textSecondary
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
-                        text: sourceRow.modelData.error || ""
+                        text: sourceRow.modelData.id === root.stopFailed
+                            ? qsTr("The music could not be stopped, so the source stays on.")
+                            : (sourceRow.modelData.error || "")
                     }
                     // A pending sign-in shows where to confirm and its code.
                     Ui.UiText {
@@ -297,6 +365,7 @@ FocusScope {
                                 objectName: "musicSourceAction-" + modelData
                                 text: root.label(modelData)
                                 busy: sourceRow.modelData.busy === true
+                                    || (pillAction === "off" && root.stopping === sourceRow.modelData.id)
                                 KeyNavigation.left: index > 0 ? pills.itemAt(index - 1) : null
                                 KeyNavigation.right: index + 1 < pills.count ? pills.itemAt(index + 1) : null
                                 // Rows without an action are skipped both ways
@@ -350,8 +419,7 @@ FocusScope {
             onActivated: {
                 const id = root.turningOff;
                 root.turningOff = "";
-                root.stopRequested();
-                root.setEnabled(id, false);
+                root.stopThenTurnOff(id);
                 Qt.callLater(root.focusFirst);
             }
         }

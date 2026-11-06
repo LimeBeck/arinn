@@ -6,6 +6,11 @@ import QtQuick.Window
 import "../.." as Ui
 FocusScope {
     id: root
+    // The logical canvas, as every section screen: without a size the
+    // background, the dialog scrims and the keyboard panel anchored to the
+    // bottom collapsed to nothing in the shell (#756 M6, M7).
+    width: Ui.Theme.canvasWidth
+    height: Ui.Theme.canvasHeight
     required property var catalog
     property string mode: "catalogue"
     property string facet: ""
@@ -57,10 +62,20 @@ FocusScope {
     readonly property var actions: player.actions || []
     readonly property bool transportBusy: catalog.transportBusy===true
     readonly property bool playing: player.playback === "playing"
+    // The state, not the failure: the cause and Retry sit under the
+    // controls (#756 M8).
     readonly property string playerHeading: playing ? qsTr("Now playing")
         : player.playback === "loading" ? qsTr("Loading music…")
         : player.playback === "paused" ? qsTr("Paused")
-        : player.error ? qsTr("Playback failed") : qsTr("Stopped")
+        : qsTr("Stopped")
+    readonly property string playbackProblem: catalog.playbackProblem || ""
+    // Retry plays the failed track again, or asks a station for more.
+    readonly property bool canRetryPlayback: playbackProblem.length > 0 && !transportBusy
+        && (supported("retry") || (!player.continuous && !!current.id))
+    function retryPlayback() {
+        if (supported("retry")) catalog.transport("retry");
+        else catalog.transport("play", current.id || "");
+    }
     signal backRequested()
     signal settingsRequested()
     function catalogueAction() {
@@ -132,7 +147,16 @@ FocusScope {
     }
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
     Ui.UiText { objectName:"musicHeading"; x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
-    Ui.UiText { x: 120; y: 975; width: 1680; text: catalog.errorText || (root.selected.account === "restricted" ? qsTr("Music access was denied") : (root.selected.error || root.player.error) ? qsTr("Unavailable") : ""); role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText; visible: text.length > 0 && !root.selected.catalogue_loading }
+    // One status line with its reason; it clears once playback recovers
+    // (#756 M5). The player shows a failure with Retry instead.
+    Ui.UiText {
+        objectName: "musicNotice"; x: 120; y: 975; width: 1680
+        text: root.catalog.notice || ""
+        role: "caption"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText
+        maximumLineCount: 1; elide: Text.ElideRight
+        visible: text.length > 0 && !root.selected.catalogue_loading
+                 && !(root.mode === "player" && root.playbackProblem.length > 0)
+    }
     Row {
         x: 120; y: 180; spacing: 20; enabled: !root.pendingPlay; visible: root.mode === "catalogue"
         Ui.ActionButton {
@@ -203,7 +227,13 @@ FocusScope {
                 Column {
                     width: 1400; anchors.verticalCenter: parent.verticalCenter
                     Ui.UiText { width: parent.width; text: entry.text; textFormat: Text.PlainText; role: "body"; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textPrimary }
-                    Ui.UiText { width: parent.width; text: entry.modelData.available ? (entry.modelData.artist || entry.modelData.album || "") : qsTr("Unavailable"); textFormat: Text.PlainText; role: "caption"; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
+                    Ui.UiText { width: parent.width; text: {
+                        const line = entry.modelData.artist || entry.modelData.album || "";
+                        if (entry.modelData.available) return line;
+                        // Readable with its reason, not a bare "Unavailable" (#756 M5).
+                        const reason = qsTr("This source cannot play it");
+                        return line.length ? qsTr("%1 · %2").arg(line).arg(reason) : reason;
+                    } textFormat: Text.PlainText; role: "caption"; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textSecondary }
                 }
               }
             }
@@ -265,7 +295,7 @@ FocusScope {
             Row {
                 x: 330; spacing: 24
                 MusicButton { id: previousButton; KeyNavigation.left: dislikeButton; KeyNavigation.right: playButton; KeyNavigation.down: stopButton; KeyNavigation.up: seek; iconName: "previous"; text: qsTr("Previous"); enabled: root.supported("previous") && !root.transportBusy; onActivated: root.catalog.transport("previous") }
-                MusicButton { id: playButton; KeyNavigation.left: previousButton; KeyNavigation.right: nextButton; KeyNavigation.up: seek; KeyNavigation.down: stopButton; objectName: "musicPlayPause"; width: 96; height: 96; iconName: root.playing ? "pause" : "play"; text: root.playing ? qsTr("Pause") : qsTr("Play"); enabled: !root.transportBusy && (root.supported("pause") || root.supported("resume") || (!root.player.continuous && ["stopped","ended"].includes(root.player.playback) && !!root.current.id)); onActivated: root.catalog.transport(root.playing ? "pause" : root.player.playback === "paused" ? "resume" : "play", root.current.id || "") }
+                MusicButton { id: playButton; KeyNavigation.left: previousButton; KeyNavigation.right: nextButton; KeyNavigation.up: seek; KeyNavigation.down: retryPlaybackButton.visible ? retryPlaybackButton : stopButton; objectName: "musicPlayPause"; width: 96; height: 96; iconName: root.playing ? "pause" : "play"; text: root.playing ? qsTr("Pause") : qsTr("Play"); enabled: !root.transportBusy && (root.supported("pause") || root.supported("resume") || (!root.player.continuous && ["stopped","ended"].includes(root.player.playback) && !!root.current.id)); onActivated: root.catalog.transport(root.playing ? "pause" : root.player.playback === "paused" ? "resume" : "play", root.current.id || "") }
                 MusicButton { id: nextButton; objectName:"musicNext"; KeyNavigation.left: playButton; KeyNavigation.right: queueButton; KeyNavigation.up: seek; KeyNavigation.down: stopButton; iconName: "next"; text: qsTr("Next"); enabled: root.supported("next") && !root.transportBusy; onActivated: root.catalog.transport("next") }
             }
             Row {
@@ -278,9 +308,31 @@ FocusScope {
                 MusicButton {id:retryButton;width:64;height:64;iconName:"retry";visible:root.supported("retry");text:qsTr("Retry loading tracks");enabled:!root.transportBusy;onActivated:root.catalog.transport("retry");KeyNavigation.left:pinButton.visible ? pinButton : radioButton;KeyNavigation.up:seek}
             }
         }
+        // Why playback stopped, and Retry (#756 M8).
+        Row {
+            objectName: "musicPlaybackFailure"
+            x: 580; y: 640; spacing: 32
+            visible: root.playbackProblem.length > 0
+            Ui.UiText {
+                objectName: "musicPlaybackProblem"
+                width: retryPlaybackButton.visible ? 1100 - retryPlaybackButton.width - 32 : 1100
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Playback failed. %1").arg(root.playbackProblem)
+                role: "body"; color: Ui.Theme.textSecondary; textFormat: Text.PlainText
+                wrapMode: Text.WordWrap; maximumLineCount: 2; elide: Text.ElideRight
+            }
+            Ui.ActionButton {
+                id: retryPlaybackButton
+                objectName: "musicRetryPlayback"
+                visible: root.canRetryPlayback
+                text: qsTr("Retry")
+                KeyNavigation.up: playButton
+                onActivated: root.retryPlayback()
+            }
+        }
     }
     Ui.ActionButton {id:saveQueue;objectName:"musicSaveQueue";x:1460;y:80;width:340;height:76;visible:root.mode==="queue" && root.supported("save_playlist");text:qsTr("Save queue");enabled:!root.transportBusy;onActivated:root.namePlaylist("",true);KeyNavigation.down:queueList}
-    Ui.UiText {x:700;y:900;width:1100;visible:root.mode==="player" && root.player.continuous===true;role:"caption";color:Ui.Theme.textSecondary;maximumLineCount:1;elide:Text.ElideRight;text:root.player.refill==="loading" ? qsTr("Loading upcoming tracks…") : root.player.refill==="failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.") : root.player.refill==="exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.") : qsTr("Upcoming tracks continue automatically")}
+    Ui.UiText {x:700;y:900;width:1100;visible:root.mode==="player" && root.player.continuous===true && !root.playbackProblem.length;role:"caption";color:Ui.Theme.textSecondary;maximumLineCount:1;elide:Text.ElideRight;text:root.player.refill==="loading" ? qsTr("Loading upcoming tracks…") : root.player.refill==="failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.") : root.player.refill==="exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.") : qsTr("Upcoming tracks continue automatically")}
     ListView {
         id: queueList; objectName:"musicQueueEntries"; enabled: !root.pendingPlay; x: 120; y: 230; width: 1680; height: 680; clip: true; spacing: 12; visible: root.mode === "queue"; keyNavigationEnabled: true
         Keys.onUpPressed: event => {if(currentIndex<=0 && saveQueue.visible)Ui.Focus.take(saveQueue);else event.accepted=false;}
@@ -293,25 +345,22 @@ FocusScope {
             onActivated: if(root.supported("remove")){root.queueOccurrence=modelData.occurrence;Qt.callLater(()=>Ui.Focus.take(queueKeep));}
         }
     }
-    Rectangle {anchors.fill:parent;visible:root.queueOccurrence.length>0;color:"#df131416";z:30
-        MouseArea {anchors.fill:parent;acceptedButtons:Qt.AllButtons}
-        Column {x:480;y:360;width:960;spacing:36
-            Ui.UiText {text:qsTr("Remove this occurrence from the queue?");role:"section"}
-            Row {spacing:24
-                Ui.ActionButton {id:queueKeep;objectName:"musicKeepOccurrence";text:qsTr("Cancel");onActivated:root.back()}
-                Ui.ActionButton {id:queueRemove;objectName:"musicRemoveOccurrence";text:qsTr("Remove");onActivated:{root.catalog.transport("remove","",root.queueOccurrence);root.back();}}
-            }
-        }
+    MusicDialog {
+        objectName: "musicRemoveDialog"
+        visible: root.queueOccurrence.length > 0; z: 30
+        title: qsTr("Remove this occurrence from the queue?")
+        onDismissed: root.back()
+        Ui.ActionButton {id:queueKeep;objectName:"musicKeepOccurrence";text:qsTr("Cancel");onActivated:root.back()}
+        Ui.ActionButton {id:queueRemove;objectName:"musicRemoveOccurrence";text:qsTr("Remove");onActivated:{root.catalog.transport("remove","",root.queueOccurrence);root.back();}}
     }
-    Rectangle {anchors.fill:parent;visible:root.deletingPlaylist;color:"#df131416";z:30
-        MouseArea {anchors.fill:parent;acceptedButtons:Qt.AllButtons}
-        Column {x:480;y:360;width:960;spacing:36
-            Ui.UiText {text:qsTr("Delete this playlist? Audio files are kept.");role:"section"}
-            Row {spacing:24
-                Ui.ActionButton {id:keepPlaylist;text:qsTr("Cancel");onActivated:root.back()}
-                Ui.ActionButton {id:deletePlaylist;text:qsTr("Delete playlist");destructive:true;onActivated:{root.catalog.command("delete_playlist",root.parentId);root.deletingPlaylist=false;root.parentId="";root.parentTitle="";root.catalog.browse("playlists","","");root.focusInitial();}}
-            }
-        }
+    MusicDialog {
+        objectName: "musicDeleteDialog"
+        visible: root.deletingPlaylist; z: 30
+        title: qsTr("Delete this playlist?")
+        body: qsTr("Audio files are kept.")
+        onDismissed: root.back()
+        Ui.ActionButton {id:keepPlaylist;text:qsTr("Cancel");onActivated:root.back()}
+        Ui.ActionButton {id:deletePlaylist;text:qsTr("Delete playlist");destructive:true;onActivated:{root.catalog.command("delete_playlist",root.parentId);root.deletingPlaylist=false;root.parentId="";root.parentTitle="";root.catalog.browse("playlists","","");root.focusInitial();}}
     }
     Rectangle {anchors.fill:parent;visible:root.namingPlaylist;color:"#df131416";z:30
         MouseArea {anchors.fill:parent;acceptedButtons:Qt.AllButtons}
@@ -330,7 +379,7 @@ FocusScope {
     Rectangle {
         x:0;y:root.height-height;width:root.width;height:searchKeyboard.implicitHeight
         color:Ui.Theme.background;visible:root.typing;enabled:visible;z:40
-        Ui.OnScreenKeyboard {id:searchKeyboard;anchors.fill:parent;target:root.typingTarget;memoryKey:root.namingPlaylist ? "music-playlist-name" : "music-search";maxCharacters:256;onSubmitted:root.finishTyping();onHideRequested:root.finishTyping();onLeaveUp:Ui.Focus.take(root.namingPlaylist ? playlistKeyboard : searchKeyboardButton)}
+        Ui.OnScreenKeyboard {id:searchKeyboard;objectName:"musicOnScreenKeyboard";anchors.fill:parent;target:root.typingTarget;memoryKey:root.namingPlaylist ? "music-playlist-name" : "music-search";maxCharacters:256;onSubmitted:root.finishTyping();onHideRequested:root.finishTyping();onLeaveUp:Ui.Focus.take(root.namingPlaylist ? playlistKeyboard : searchKeyboardButton)}
     }
     Rectangle {
         anchors.fill:parent;color:"#99131416";visible:root.pickingSource;z:25
@@ -343,16 +392,14 @@ FocusScope {
             }
         }
     }
-    Rectangle {
-        anchors.fill: parent; color: "#df131416"; visible: root.pendingPlay.length > 0; z: 20
-        MouseArea {anchors.fill: parent;acceptedButtons:Qt.AllButtons}
-        Column {
-            x: 480; y: 360; width: 960; spacing: 40
-            Ui.UiText { width: parent.width; role: "title"; text: qsTr("Replace the current queue?") }
-            Row { spacing: 30
-                Ui.ActionButton { id: cancelReplace; objectName:"musicKeepQueue"; text: qsTr("Cancel"); onActivated: { root.pendingPlay = ""; root.focusInitial(); } }
-                Ui.ActionButton { id: confirmReplace; objectName:"musicReplaceQueue"; text: qsTr("Replace and play"); onActivated: { const id = root.pendingPlay; root.pendingPlay = ""; root.startCommand(root.pendingAction,id,root.pendingActive); root.openPlayer(); } }
-            }
-        }
+    // The standard confirm dialog over a scrim (#756 M6).
+    MusicDialog {
+        objectName: "musicReplaceDialog"
+        visible: root.pendingPlay.length > 0; z: 20
+        title: qsTr("Replace the current queue?")
+        body: qsTr("The music that plays now stops, and its queue is replaced.")
+        onDismissed: root.back()
+        Ui.ActionButton { id: cancelReplace; objectName:"musicKeepQueue"; text: qsTr("Cancel"); onActivated: { root.pendingPlay = ""; root.focusInitial(); } }
+        Ui.ActionButton { id: confirmReplace; objectName:"musicReplaceQueue"; text: qsTr("Replace and play"); onActivated: { const id = root.pendingPlay; root.pendingPlay = ""; root.startCommand(root.pendingAction,id,root.pendingActive); root.openPlayer(); } }
     }
 }

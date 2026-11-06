@@ -57,6 +57,38 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>%1 · %2</source>
       <translation>%1 · %2</translation>
     </message>
+    <message>
+      <source>The track was not found in this source.</source>
+      <translation>Трек не найден в этом источнике.</translation>
+    </message>
+    <message>
+      <source>This source no longer allows playing the track. Sign in again in Settings.</source>
+      <translation>Источник больше не разрешает воспроизводить трек. Войдите снова в настройках.</translation>
+    </message>
+    <message>
+      <source>The music source did not respond in time.</source>
+      <translation>Источник музыки не ответил вовремя.</translation>
+    </message>
+    <message>
+      <source>This track cannot be played here.</source>
+      <translation>Этот трек нельзя воспроизвести здесь.</translation>
+    </message>
+    <message>
+      <source>The track could not be played.</source>
+      <translation>Не удалось воспроизвести трек.</translation>
+    </message>
+    <message>
+      <source>Music access was denied.</source>
+      <translation>Доступ к музыке запрещён.</translation>
+    </message>
+    <message>
+      <source>Playback stopped. %1</source>
+      <translation>Воспроизведение остановлено. %1</translation>
+    </message>
+    <message>
+      <source>Part of this source is unavailable. Refresh to try again.</source>
+      <translation>Часть источника недоступна. Обновите, чтобы попробовать ещё раз.</translation>
+    </message>
   </context>
   <context>
     <name>MusicView</name>
@@ -197,20 +229,12 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Треки</translation>
     </message>
     <message>
-      <source>Playback failed</source>
-      <translation>Ошибка воспроизведения</translation>
-    </message>
-    <message>
       <source>Paused</source>
       <translation>Пауза</translation>
     </message>
     <message>
       <source>Stopped</source>
       <translation>Остановлено</translation>
-    </message>
-    <message>
-      <source>Unavailable</source>
-      <translation>Недоступно</translation>
     </message>
     <message>
       <source>Untitled</source>
@@ -243,10 +267,6 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Delete playlist</source>
       <translation>Удалить плейлист</translation>
-    </message>
-    <message>
-      <source>Delete this playlist? Audio files are kept.</source>
-      <translation>Удалить плейлист? Аудиофайлы сохранятся.</translation>
     </message>
     <message>
       <source>Loading music…</source>
@@ -335,6 +355,34 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>%1 of %2</source>
       <translation>%1 из %2</translation>
+    </message>
+    <message>
+      <source>This source cannot play it</source>
+      <translation>Источник не может это воспроизвести</translation>
+    </message>
+    <message>
+      <source>%1 · %2</source>
+      <translation>%1 · %2</translation>
+    </message>
+    <message>
+      <source>Playback failed. %1</source>
+      <translation>Не удалось воспроизвести. %1</translation>
+    </message>
+    <message>
+      <source>Retry</source>
+      <translation>Повторить</translation>
+    </message>
+    <message>
+      <source>Delete this playlist?</source>
+      <translation>Удалить этот плейлист?</translation>
+    </message>
+    <message>
+      <source>Audio files are kept.</source>
+      <translation>Аудиофайлы сохранятся.</translation>
+    </message>
+    <message>
+      <source>The music that plays now stops, and its queue is replaced.</source>
+      <translation>Текущая музыка остановится, а её очередь будет заменена.</translation>
     </message>
   </context>
 </TS>

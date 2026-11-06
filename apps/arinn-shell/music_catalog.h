@@ -20,6 +20,15 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(bool more READ more NOTIFY statusChanged)
   Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY activeChanged)
   Q_PROPERTY(QString sectionTitle READ sectionTitle CONSTANT)
+  // The active session as the Quick menu's Now playing row reads it
+  // ({id, title, subtitle, state, playPause}), or an empty map.
+  Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
+  // Why the active session stopped, while it stays stopped; empty while it
+  // plays, is paused or loads again (#756 M5, M8).
+  Q_PROPERTY(QString playbackProblem READ playbackProblem NOTIFY problemsChanged)
+  // The one status line under the music screens: a failed request, a
+  // denied account, a degraded source or a stopped session, with a reason.
+  Q_PROPERTY(QString notice READ notice NOTIFY problemsChanged)
 public:
   explicit MusicCatalog(QObject *parent=nullptr);
   QVariantList sources() const{return m_sources;}
@@ -34,6 +43,13 @@ public:
   bool more() const{return !m_next.isEmpty();}
   QString sectionTitle() const;
   QVariantList homeEntries() const;
+  QVariantMap nowPlaying() const;
+  QString playbackProblem() const;
+  QString notice() const;
+  // The id of the active session in Home's Continue row and the Quick menu.
+  static QString sessionEntryId();
+  // Play/Pause from Home's card and the Quick menu.
+  Q_INVOKABLE void togglePlayback();
   Q_INVOKABLE void choose(const QString &id);
   Q_INVOKABLE void browse(const QString &facet,const QString &parent=QString(),const QString &search=QString());
   Q_INVOKABLE void loadMore();
@@ -45,6 +61,7 @@ signals:
   // The browse position (album, artist or playlist) no longer applies: the
   // source or its generation changed.
   void browseReset();
+  void problemsChanged();
 private:
   void providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens);
   void readState();void readActive();void readPage(bool append);void fail(const QString &code);

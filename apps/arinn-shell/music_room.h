@@ -33,6 +33,11 @@ class MusicRoom : public QObject {
   Q_PROPERTY(bool loading READ loading NOTIFY shelvesChanged)
   // Some entry carries a date, so the default order is a date order.
   Q_PROPERTY(bool dated READ dated NOTIFY shelvesChanged)
+  // Every source has answered its state once, or failed to: until then the
+  // room does not claim to be the first use.
+  Q_PROPERTY(bool settled READ settled NOTIFY sourcesChanged)
+  // The room polls only while it is shown.
+  Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
 public:
   explicit MusicRoom(QObject *parent = nullptr);
   QObject *catalog() const { return m_catalog; }
@@ -42,6 +47,9 @@ public:
   bool connected() const;
   bool loading() const;
   bool dated() const { return m_dated; }
+  bool settled() const;
+  bool active() const { return m_timer.isActive(); }
+  void setActive(bool active);
   // The full list behind a shelf's All tile, over every page read so far:
   // every source, or one source (MH-10), in the shelf order or by title.
   Q_INVOKABLE QVariantList list(const QString &shelf,
@@ -68,6 +76,7 @@ public:
                                          const QVariantList &desired);
 signals:
   void catalogChanged();
+  void activeChanged();
   void sourcesChanged();
   void shelvesChanged();
   // Some page arrived or a source left: lists read again.
@@ -82,13 +91,17 @@ private:
     QString next;
     quint64 revision = 0;
     bool busy = false, loaded = false, failed = false;
+    // A new catalogue revision: the entries stay until the new first page
+    // replaces them, so cards never leave and return (late sources rule).
+    bool stale = false;
     QSet<QString> tokens;
   };
   struct Source {
     QString id, name, path, generation;
     bool ready = false;
     QVariantMap state;
-    bool stateBusy = false, stateFailed = false, commandBusy = false;
+    bool stateBusy = false, stateFailed = false, commandBusy = false,
+         answered = false;
     QString stateError;
     quint64 catalogueRevision = 0, ticket = 0;
     std::map<QString, Facet> facets;
@@ -98,12 +111,13 @@ private:
   void readNext(const QString &id);
   void readPage(const QString &id, const QString &facet, bool append);
   void rebuild();
+  void publishSources();
   QVariantList gather(const QString &shelf, const QString &source,
                       int limit) const;
   QPointer<QObject> m_catalog;
   QStringList m_order;
   std::map<QString, Source> m_sources;
-  QVariantList m_shelves;
+  QVariantList m_shelves, m_sourceRows;
   bool m_dated = false;
   QTimer m_timer;
 };

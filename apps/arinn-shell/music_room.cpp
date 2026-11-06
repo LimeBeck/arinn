@@ -107,15 +107,45 @@ void MusicRoom::follow() {
       source.pending.clear();
       source.catalogueRevision = 0;
       source.stateBusy = source.commandBusy = false;
+      source.answered = false;
     }
   }
   // A source that left takes its entries along (brief: a source drops out).
   for (auto it = m_sources.begin(); it != m_sources.end();)
     it = order.contains(it->first) ? std::next(it) : m_sources.erase(it);
   m_order = order;
-  emit sourcesChanged();
+  publishSources();
   rebuild();
   refresh();
+}
+
+void MusicRoom::setActive(bool active) {
+  if (active == m_timer.isActive())
+    return;
+  if (active) {
+    m_timer.start();
+    refresh();
+  } else {
+    m_timer.stop();
+  }
+  emit activeChanged();
+}
+
+bool MusicRoom::settled() const {
+  for (const auto &[id, source] : m_sources)
+    if (!source.answered && source.ready)
+      return false;
+  return true;
+}
+
+// The Sources sheet and the first use read these rows; the state polled
+// during playback changes every time (position_us), the rows do not.
+void MusicRoom::publishSources() {
+  const auto rows = sources();
+  if (rows == m_sourceRows)
+    return;
+  m_sourceRows = rows;
+  emit sourcesChanged();
 }
 
 void MusicRoom::refresh() {
@@ -151,20 +181,22 @@ void MusicRoom::readState(const QString &id) {
             if (json.isEmpty() || !json.value("actions").isArray()) {
               // The source stops answering: its entries leave the shelves and
               // the Sources sheet says why.
-              const bool had = !source.facets.empty() || !source.stateFailed;
+              const bool had = !source.facets.empty();
+              source.answered = true;
               source.stateFailed = true;
               source.stateError = reply.errorName().section('.', -1);
+              // Replies still in flight belong to the catalogue that left.
+              ++source.ticket;
               source.facets.clear();
               source.pending.clear();
               source.catalogueRevision = 0;
-              if (had) {
-                emit sourcesChanged();
+              publishSources();
+              if (had)
                 rebuild();
-              }
               return;
             }
             const auto state = json.toVariantMap();
-            const bool changed = source.stateFailed || source.state != state;
+            source.answered = true;
             source.stateFailed = false;
             source.stateError.clear();
             source.state = state;
@@ -172,6 +204,7 @@ void MusicRoom::readState(const QString &id) {
                 json.value("catalogue_revision").toVariant().toULongLong();
             if (!browsable(state)) {
               if (!source.facets.empty()) {
+                ++source.ticket;
                 source.facets.clear();
                 source.pending.clear();
                 rebuild();
@@ -181,20 +214,27 @@ void MusicRoom::readState(const QString &id) {
                        source.facets.empty()) {
               source.catalogueRevision = revision;
               ++source.ticket;
-              source.facets.clear();
               source.pending.clear();
               const auto facets = state.value("facets").toStringList();
+              // A facet the source no longer offers leaves; the others keep
+              // their entries until their new first page arrives.
+              for (auto it = source.facets.begin(); it != source.facets.end();)
+                it = facets.contains(it->first) ? std::next(it)
+                                                : source.facets.erase(it);
               for (const auto *facet :
                    {"selections", "playlists", "albums", "artists", "tracks"})
                 if (facets.contains(QLatin1String(facet))) {
-                  source.facets[QLatin1String(facet)];
+                  auto &entry = source.facets[QLatin1String(facet)];
+                  entry.busy = false;
+                  entry.stale = true;
+                  entry.next.clear();
+                  entry.tokens.clear();
                   source.pending.append(QLatin1String(facet));
                 }
               readNext(id);
               rebuild();
             }
-            if (changed)
-              emit sourcesChanged();
+            publishSources();
           });
 }
 
@@ -241,7 +281,10 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         if (found == m_sources.end() || found->second.ticket != ticket)
           return;
         auto &source = found->second;
-        auto &facet = source.facets[facetId];
+        const auto entry = source.facets.find(facetId);
+        if (entry == source.facets.end())
+          return;
+        auto &facet = entry->second;
         facet.busy = false;
         const auto json = object(reply);
         const auto revision = json.value("revision").toVariant().toULongLong();
@@ -254,7 +297,10 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
           facet.failed = true;
           facet.loaded = true;
           facet.next.clear();
-          readNext(id);
+          // A failed new first page leaves the previous entries in place.
+          facet.stale = false;
+          if (!append)
+            readNext(id);
           rebuild();
           return;
         }
@@ -286,9 +332,12 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         facet.next = json.value("next_token").toString();
         facet.failed = false;
         facet.loaded = true;
+        facet.stale = false;
         if (!token.isEmpty())
           facet.tokens.insert(token);
-        readNext(id);
+        // Only the first pages chain: a further page is the All list's own.
+        if (!append)
+          readNext(id);
         rebuild();
       });
 }
@@ -544,7 +593,8 @@ QVariantList MusicRoom::sources() const {
                             {"reason", reason},
                             {"actions", actions},
                             {"prompt", source.state.value("prompt")},
-                            {"busy", source.commandBusy}});
+                            {"busy", source.commandBusy},
+                            {"answered", source.answered}});
   }
   return rows;
 }
@@ -560,7 +610,7 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
       !source.state.value("actions").toStringList().contains(action))
     return;
   source.commandBusy = true;
-  emit sourcesChanged();
+  publishSources();
   const auto generation = source.generation;
   const QJsonObject payload{
       {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
@@ -587,7 +637,7 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
                 found->second.generation != generation)
               return;
             found->second.commandBusy = false;
-            emit sourcesChanged();
+            publishSources();
             // The confirmed state, catalogue included, is read again.
             readState(id);
           });

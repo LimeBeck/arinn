@@ -32,13 +32,17 @@ FocusScope {
         const desired = shelf.entries || [];
         const key = focusedEntry ? focusedEntry.key : "";
         const index = list.currentIndex;
+        const onAll = index >= shown.length;
         const next = activeFocus && room ? room.stable(shown, desired) : desired;
         if (JSON.stringify(next) === JSON.stringify(shown))
             return;
         shown = next;
         let at = key ? next.findIndex(entry => entry.key === key) : -1;
-        // A card that left hands focus to its nearest neighbour.
-        if (at < 0)
+        // The All tile stays the All tile when cards join (review of #812);
+        // a card that left hands focus to its nearest neighbour.
+        if (!key && onAll)
+            at = next.length;
+        else if (at < 0)
             at = Math.max(0, Math.min(index, next.length));
         list.currentIndex = at;
         list.positionViewAtIndex(at, ListView.Contain);
@@ -50,7 +54,7 @@ FocusScope {
             return false;
         list.currentIndex = at;
         list.positionViewAtIndex(at, ListView.Contain);
-        list.forceActiveFocus();
+        Ui.Focus.take(list);
         return true;
     }
     onShelfChanged: sync()

@@ -404,9 +404,14 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
 - `MusicRoom` follows `MusicCatalog.sources` and reads every source on its own:
   its `GetState`, then the first page of `selections`, `playlists`, `albums`,
   `artists` and `tracks` one after another, again when the catalogue
-  revision changes. Browsing never calls `MusicCatalog.choose`; only opening a
-  card does, for that card's source. A detail, the player and the queue stay
-  `MusicCatalog`'s.
+  revision changes. A new revision keeps each facet's entries until its new
+  first page replaces them, so no card leaves and returns. Only first pages
+  chain; further pages are the *All* list's. The room polls every 2 s while
+  the Music section is shown (`active`) and announces `sources` only when a
+  row changes. Browsing never calls `MusicCatalog.choose`; only opening a card
+  does, for that card's source: a station starts with `radio`, anything else
+  with `play`, by that source's own capabilities. A detail, the player and the
+  queue stay `MusicCatalog`'s.
 - Shelves, in the brief's order: *Stations* (`station` entries of
   `selections`), *For you* (playlists), *Albums*, *Artists*, *Recent tracks*.
   On each, the source's personal entries from `selections` come first, sources
@@ -419,7 +424,8 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
 - Entries carry `provider`, `providerName`, `local` and a `key` of provider and
   entity id, so the same id from two sources stays two cards (no merging).
   The source mark draws `screen` for a source whose account is `local` and
-  `public` otherwise; no provider has its own icon yet.
+  `public` otherwise; no provider has its own icon yet, so a service's card
+  also names the service after the mark.
 - Late entries never move focus: a shelf holding focus keeps the cards it
   shows in place and appends new ones (`MusicRoom.stable`), and shelves are
   keyed by id, so a shelf is not recreated when another changes. A card or
@@ -430,6 +436,10 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
   with Cancel focused. The catalogue screen no longer shows the source switch,
   *Refresh*, *Disconnect* or the account panel while a room is present.
+- The room is the first use only once every source has answered: with none
+  connected it offers *Connect a source*; when every source is unreachable it
+  says why and offers *Sources*. The shell's status area hides while the
+  *Sources* sheet or a confirm dialog covers the screen.
 - The *All* list filters by source with tabs that start at *All* and orders by
   the shelf order (labelled *By date* only once entries carry dates) or *A–Z*.
 - Until the search over every source (#801), *Find* opens the browsed source's

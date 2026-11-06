@@ -10,6 +10,28 @@ FocusScope {
     id: root
     property var room: null
     readonly property var sources: room ? room.sources : []
+    // Rows are keyed by source id and read their source by id, so a state
+    // change (a command in flight, a new state) never recreates the focused
+    // pill (review of #812).
+    ListModel { id: rowModel }
+    function syncRows() {
+        const ids = sources.map(source => source.id);
+        for (let i = rowModel.count - 1; i >= 0; --i)
+            if (!ids.includes(rowModel.get(i).sourceKey))
+                rowModel.remove(i);
+        for (let i = 0; i < ids.length; ++i) {
+            let at = -1;
+            for (let j = i; j < rowModel.count && at < 0; ++j)
+                if (rowModel.get(j).sourceKey === ids[i])
+                    at = j;
+            if (at < 0)
+                rowModel.insert(i, {sourceKey: ids[i]});
+            else if (at !== i)
+                rowModel.move(at, i, 1);
+        }
+    }
+    onSourcesChanged: syncRows()
+    Component.onCompleted: syncRows()
     // The source whose Disconnect waits for confirmation.
     property string disconnecting: ""
     signal closed()
@@ -33,7 +55,7 @@ FocusScope {
                 return;
             }
         }
-        root.forceActiveFocus();
+        Ui.Focus.take(root);
     }
     function label(action) {
         return action === "connect" ? qsTr("Connect")
@@ -99,11 +121,35 @@ FocusScope {
             spacing: 40
             Repeater {
                 id: rows
-                model: root.sources
+                model: rowModel
                 Column {
                     id: sourceRow
-                    required property var modelData
+                    required property string sourceKey
                     required property int index
+                    readonly property var modelData: root.sources.find(source => source.id === sourceKey) || ({})
+                    // The pills change only when the actions do; focus then
+                    // stays on the same action, or the row's first one.
+                    property var actionList: []
+                    onModelDataChanged: {
+                        const next = modelData.actions || [];
+                        if (JSON.stringify(next) === JSON.stringify(actionList))
+                            return;
+                        let focused = "";
+                        for (let i = 0; i < pills.count; ++i)
+                            if (pills.itemAt(i) && pills.itemAt(i).activeFocus)
+                                focused = pills.itemAt(i).pillAction;
+                        actionList = next;
+                        if (focused.length)
+                            Qt.callLater(() => {
+                                for (let i = 0; i < pills.count; ++i)
+                                    if (pills.itemAt(i).pillAction === focused) {
+                                        Ui.Focus.take(pills.itemAt(i));
+                                        return;
+                                    }
+                                root.focusFirst();
+                            });
+                    }
+                    Component.onCompleted: actionList = modelData.actions || []
                     objectName: "musicSourceRow"
                     width: parent.width
                     spacing: 16
@@ -154,10 +200,11 @@ FocusScope {
                         spacing: 16
                         Repeater {
                             id: pills
-                            model: sourceRow.modelData.actions || []
+                            model: sourceRow.actionList
                             Ui.ActionButton {
                                 required property var modelData
                                 required property int index
+                                readonly property string pillAction: modelData
                                 objectName: "musicSourceAction-" + modelData
                                 text: root.label(modelData)
                                 busy: sourceRow.modelData.busy === true

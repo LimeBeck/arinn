@@ -465,6 +465,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoomView</name>
     <message>
+      <source>Music is unavailable</source>
+      <translation>Музыка недоступна</translation>
+    </message>
+    <message>
       <source>Station</source>
       <translation>Станция</translation>
     </message>

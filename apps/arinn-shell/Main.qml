@@ -949,7 +949,7 @@ Window {
         Keys.onPressed: event => root.unhandledKey(event)
         MusicCatalog { id: musicCatalog; objectName: "musicCatalog" }
         // The Music root over every source (#800).
-        MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog }
+        MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog; active: musicView.visible }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45
         // (Hearth light brief, *Global navigation*; #756 C17). Not on the
@@ -976,7 +976,7 @@ Window {
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
                 || downloadsView.visible || browserView.visible || runningView.visible
-                || (musicView.visible && ["root", "all"].includes(musicView.mode)))
+                || (musicView.visible && ["root", "all"].includes(musicView.mode) && !musicView.overlayOpen))
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress

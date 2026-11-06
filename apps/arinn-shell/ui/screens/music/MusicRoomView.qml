@@ -13,7 +13,13 @@ FocusScope {
     // The music catalogue, for the session that plays.
     property var catalog: null
     readonly property var shelves: room ? room.shelves : []
-    readonly property bool firstUse: !!room && !room.connected && !room.loading
+    // No source connected once every source has answered (brief: first use).
+    readonly property bool firstUse: !!room && !room.connected && !room.loading && room.settled !== false
+    // Every source is there but none can be reached: say why instead of
+    // asking to connect (review of #812).
+    readonly property var unreachable: room ? room.sources.filter(source => source.status === "unavailable") : []
+    readonly property bool allUnreachable: firstUse && unreachable.length > 0
+        && unreachable.length === (room ? room.sources.length : 0)
     readonly property bool sheetOpen: sourcesSheet.visible
     // The shelf and entry under focus.
     property Item focusedShelf: null
@@ -148,7 +154,8 @@ FocusScope {
             role: "hero"
             fitSteps: [[96, 1], [68, 2]]
             textFormat: Text.PlainText
-            text: root.firstUse ? qsTr("Connect a source")
+            text: root.allUnreachable ? qsTr("Music is unavailable")
+                : root.firstUse ? qsTr("Connect a source")
                 : root.focusedEntry ? (root.focusedEntry.title || "") : qsTr("Music")
         }
         Ui.UiText {
@@ -162,6 +169,8 @@ FocusScope {
             maximumLineCount: 1
             elide: Text.ElideRight
             text: {
+                if (root.allUnreachable)
+                    return root.unreachable[0].reason || "";
                 if (root.firstUse)
                     return qsTr("Connect a music service or add folders with music in Settings.");
                 const entry = root.focusedEntry;
@@ -183,7 +192,7 @@ FocusScope {
             y: 190
             visible: root.firstUse
             primary: true
-            text: qsTr("Connect a source")
+            text: root.allUnreachable ? qsTr("Sources") : qsTr("Connect a source")
             onActivated: root.openSources()
         }
     }

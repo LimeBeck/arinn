@@ -278,6 +278,24 @@ private slots:
     room.sourceCommand("account", "scan");
     room.sourceCommand("account", "disconnect");
     QTRY_COMPARE(daemon.commands, QStringList{"disconnect"});
+    // Review of #812: a new catalogue revision keeps the source's cards
+    // until its new first pages replace them, so none leave and return.
+    {
+      bool emptied = false;
+      const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+        if (room.list("albums", "local").isEmpty())
+          emptied = true;
+      });
+      const auto reads = daemon.pageReads.value("local");
+      local["catalogue_revision"] = 2;
+      daemon.states["local"] = local;
+      room.refresh();
+      QTRY_VERIFY(daemon.pageReads.value("local") >= reads + 3);
+      QTRY_VERIFY(!room.loading());
+      disconnect(watch);
+      QVERIFY(!emptied);
+      QCOMPARE(room.list("albums", "local").size(), 2);
+    }
     // A source that stops answering leaves the shelves, and the sheet says why.
     daemon.stateErrors["account"] = QStringLiteral("Timeout");
     room.refresh();

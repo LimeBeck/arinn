@@ -110,9 +110,12 @@ Ui.Surface {
                     anchors.verticalCenter: parent.verticalCenter
                     role: "caption"
                     color: Ui.Theme.textHint
-                    text: root.entry.available === false ? qsTr("Unavailable in this source")
-                        : root.kind === "album" || root.kind === "track" ? (root.entry.artist || "")
-                        : ""
+                    // A service is named after its mark, so two services and
+                    // their unmerged duplicates stay apart (brief, MH-10).
+                    text: [root.entry.local === true ? "" : (root.entry.providerName || ""),
+                           root.entry.available === false ? qsTr("Unavailable in this source")
+                           : root.kind === "album" || root.kind === "track" ? (root.entry.artist || "") : ""]
+                        .filter(part => part.length).join(" · ")
                     textFormat: Text.PlainText
                     maximumLineCount: 1
                     elide: Text.ElideRight

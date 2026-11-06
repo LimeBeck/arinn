@@ -16,6 +16,9 @@ FocusScope {
     // The Music root over every source (#800, ADR-0142 MH-1). Without it the
     // view opens on the catalogue of the browsed source, as before.
     property var room: null
+    // A sheet or a dialog covers the screen: the shell's status area hides.
+    readonly property bool overlayOpen: (room && roomView.sheetOpen) || pendingPlay.length > 0
+        || queueOccurrence.length > 0 || deletingPlaylist
     property string mode: "catalogue"
     // The room entry a detail, the All list or the player was opened from:
     // Back returns to the room with focus on it (brief, M16).
@@ -32,6 +35,12 @@ FocusScope {
     function openRoom() {
         mode = "root";
         fromAll = false;
+        roomPlay = null;
+        // The detail behind a player opened from it is left too, so the
+        // next Back leaves Music (review of #812).
+        parentId = "";
+        parentTitle = "";
+        parentKind = "";
         const key = roomKey, shelf = roomShelf;
         Qt.callLater(() => {
             if (!(key.length && roomView.focusEntry(key)) && !roomView.focusShelf(shelf))
@@ -62,13 +71,21 @@ FocusScope {
     }
     function startRoomPlay() {
         const entry = roomPlay;
-        // The card's own source must offer play; supported() reads the
-        // session that plays, which may be another source.
-        if (!entry || catalog.sourceId !== entry.provider
-                || !((selected.actions || []).includes("play")))
+        if (!entry || catalog.sourceId !== entry.provider)
             return;
+        // A station starts as radio, as in the catalogue list; anything else
+        // plays. The card's own source must offer it: supported() reads the
+        // session that plays, which may be another source (review of #812).
+        const action = entry.kind === "station" ? "radio" : "play";
+        const offered = selected.actions || [];
+        if (!offered.includes(action)) {
+            // The source answered without it: nothing starts later.
+            if (offered.length)
+                roomPlay = null;
+            return;
+        }
         roomPlay = null;
-        pendingAction = "play";
+        pendingAction = action;
         pendingActive = false;
         requestStart(entry.id);
     }
@@ -261,6 +278,18 @@ FocusScope {
             .find(item => item.visible && item.enabled) || queueButton;
     }
     function focusInitial() {
+        // The room and its All lists keep their own focus (review of #812).
+        if (mode === "root" && room) {
+            if (!(roomKey.length && roomView.focusEntry(roomKey))
+                    && !roomView.focusShelf(roomShelf))
+                roomView.focusInitial();
+            return;
+        }
+        if (mode === "all" && room) {
+            if (!(roomKey.length && allView.focusKey(roomKey)))
+                allView.focusInitial();
+            return;
+        }
         if (mode === "player") {
             const target = playerFocus();
             fallbackFocus = target === playButton ? null : target;
@@ -1638,7 +1667,8 @@ FocusScope {
     MusicRoomView {
         id: roomView
         objectName: "musicRoom"
-        z: 20
+        // Under the confirm dialogs (z 20 and above), over the catalogue.
+        z: 15
         visible: root.mode === "root" && !!root.room
         focus: visible
         room: root.room
@@ -1661,7 +1691,7 @@ FocusScope {
     MusicAllView {
         id: allView
         objectName: "musicAll"
-        z: 20
+        z: 15
         visible: root.mode === "all" && !!root.room
         focus: visible
         room: root.room

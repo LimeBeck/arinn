@@ -79,8 +79,10 @@ FocusScope {
         const action = entry.kind === "station" ? "radio" : "play";
         const offered = selected.actions || [];
         if (!offered.includes(action)) {
-            // The source answered without it: nothing starts later.
-            if (offered.length)
+            // The source answered (its state has a revision) without it:
+            // nothing starts later, also when it offers no action at all
+            // (Codex review of #812).
+            if (offered.length || selected.revision !== undefined)
                 roomPlay = null;
             return;
         }

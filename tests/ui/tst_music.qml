@@ -932,4 +932,17 @@ TestCase {
         tryVerify(()=>shelf.y>0);
         tryVerify(()=>shelf.activeFocus && shelf.y>=area.contentY && shelf.y+shelf.height<=area.contentY+area.height);
     }
+    // Codex review of #812: a source that answers with no actions ends a
+    // pending room play; a later state with play does not start it.
+    function test_room_play_ends_when_the_source_offers_nothing() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.state={};
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();tryVerify(()=>findChild(view,"musicShelf-stations").activeFocus);
+        keyClick(Qt.Key_Return);compare(catalog.sourceId,"account");
+        catalog.state={revision:1,account:"connected",facets:["selections"],actions:[]};
+        wait(20);verify(view.roomPlay===null);
+        catalog.state={revision:2,account:"connected",facets:["selections"],actions:["play","radio"]};
+        wait(20);compare(view.pendingPlay,"");compare(catalog.commands,[]);
+    }
 }

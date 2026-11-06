@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
+import QtQuick.Effects
 import "artwork.js" as Artwork
 
 Surface {
@@ -26,6 +27,14 @@ Surface {
     // top-left corner instead of this card's own monogram (handoff H-1).
     property var stack: []
     // Hue of the cast under the image. Home passes the pool hue.
+    // A playing or paused music session (variant 1 of the music card, brief
+    // *Presence*, MH-2, #803): the blurred cover behind the centred cover,
+    // the playing chip and the Ember line. Empty for any other card.
+    property string musicState: ""
+    readonly property bool musicFace: musicState.length > 0
+    // The bars move only while playing; the shell has no reduced-motion
+    // setting yet, and one would stop them here.
+    property bool motionEnabled: true
     property real castHue: Theme.hearthHue
     property bool castEnabled: true
     // Set by a row so the image stays 16:9 (or a poster) and the caption
@@ -151,7 +160,7 @@ Surface {
                 }
             }
             Rectangle {
-                visible: !root.artworkReady && root.stack.length === 0
+                visible: !root.artworkReady && root.stack.length === 0 && !root.musicFace
                 anchors.right: parent.right; anchors.top: parent.top
                 anchors.margins: 24
                 width: 60; height: 60; radius: 18
@@ -163,7 +172,135 @@ Surface {
             }
             Rectangle {
                 x: 24; y: 24; width: 12; height: 12; radius: 6
-                color: Theme.ember; visible: root.running && !root.busy
+                color: Theme.ember; visible: root.running && !root.busy && !root.musicFace
+            }
+            // Variant 1 of the music card (mh-04, mh-05): the cover blurred
+            // by 28 px with a 30–55 % Charcoal shade, the cover centred at
+            // full height minus 22 px with a hairline and a cast shadow, the
+            // playing chip at 16 px.
+            Item {
+                id: musicFaceItem
+                objectName: "musicCardFace"
+                anchors.fill: parent
+                visible: root.musicFace
+                MultiEffect {
+                    objectName: "musicCardBackdrop"
+                    anchors.fill: parent
+                    source: picture
+                    visible: root.artworkReady
+                    blurEnabled: true
+                    blurMax: 28
+                    blur: 1
+                }
+                Rectangle {
+                    objectName: "musicCardShade"
+                    anchors.fill: parent
+                    radius: root.cornerRadius
+                    gradient: Gradient {
+                        GradientStop { position: 0; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.3) }
+                        GradientStop { position: 1; color: Qt.rgba(Theme.background.r, Theme.background.g, Theme.background.b, 0.55) }
+                    }
+                }
+                Rectangle {
+                    // The cast shadow under the cover.
+                    x: musicCover.x + 4; y: musicCover.y + 10
+                    width: musicCover.width; height: musicCover.height
+                    radius: 8
+                    color: "black"
+                    opacity: 0.35
+                }
+                Canvas {
+                    id: musicCover
+                    objectName: "musicCardCover"
+                    width: parent.height - 44; height: width
+                    x: (parent.width - width) / 2; y: 22
+                    property string loadedSource: ""
+                    function syncSource() {
+                        const next = root.musicFace && picture.status === Image.Ready ? picture.source.toString() : "";
+                        if (loadedSource !== next) {
+                            if (loadedSource.length)
+                                unloadImage(loadedSource);
+                            loadedSource = next;
+                        }
+                        if (available && next.length && !isImageLoaded(next) && !isImageLoading(next) && !isImageError(next))
+                            Artwork.loadCopy(musicCover, picture);
+                        requestPaint();
+                    }
+                    Connections {
+                        target: picture
+                        function onStatusChanged() { musicCover.syncSource(); }
+                    }
+                    Connections {
+                        target: root
+                        function onMusicFaceChanged() { musicCover.syncSource(); }
+                    }
+                    Component.onCompleted: syncSource()
+                    onAvailableChanged: syncSource()
+                    onImageLoaded: requestPaint()
+                    onPaint: {
+                        const ctx = getContext("2d");
+                        ctx.reset();
+                        if (!loadedSource.length || !isImageLoaded(loadedSource))
+                            return;
+                        Artwork.clipRounded(ctx, width, height, 8);
+                        Artwork.drawCover(ctx, loadedSource, picture.implicitWidth, picture.implicitHeight, width, height);
+                    }
+                }
+                // Without a cover (the station's included): the music note in
+                // a neutral chip.
+                Rectangle {
+                    objectName: "musicCardFallback"
+                    anchors.centerIn: musicCover
+                    visible: !root.artworkReady
+                    width: 96; height: 96; radius: 24
+                    color: Theme.chip
+                    border.width: 1; border.color: Theme.chipLine
+                    LineIcon { anchors.centerIn: parent; width: 48; height: 48; name: "music_note"; color: Theme.textSecondary }
+                }
+                Rectangle {
+                    objectName: "musicCardHairline"
+                    anchors.fill: musicCover
+                    visible: root.artworkReady
+                    radius: 8
+                    color: "transparent"
+                    border.width: 1
+                    border.color: Qt.rgba(1, 1, 1, 0.14)
+                }
+                // The playing chip: three Ember bars that move while playing,
+                // and stand still in text-3 on pause.
+                Rectangle {
+                    objectName: "musicCardChip"
+                    x: 16; y: 16
+                    width: 56; height: 42; radius: 14
+                    color: Theme.chip
+                    border.width: 1; border.color: Theme.chipLine
+                    Row {
+                        anchors.centerIn: parent
+                        spacing: 4
+                        height: 20
+                        Repeater {
+                            objectName: "musicCardBars"
+                            model: [{rest: 12, period: 1100}, {rest: 18, period: 900}, {rest: 9, period: 1300}]
+                            delegate: Rectangle {
+                                required property var modelData
+                                objectName: "musicCardBar"
+                                width: 5; radius: 2
+                                anchors.bottom: parent.bottom
+                                color: root.musicState === "playing" ? Theme.ember : Theme.textHint
+                                height: modelData.rest
+                                readonly property bool moving: barMotion.running
+                                SequentialAnimation on height {
+                                    id: barMotion
+                                    running: root.musicState === "playing" && root.motionEnabled && root.visible
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 20; duration: modelData.period / 2; easing.type: Easing.InOutQuad }
+                                    NumberAnimation { to: 6; duration: modelData.period / 2; easing.type: Easing.InOutQuad }
+                                    onStopped: height = modelData.rest
+                                }
+                            }
+                        }
+                    }
+                }
             }
             ProgressTrack {
                 objectName: "cardProgress"
@@ -203,7 +340,7 @@ Surface {
         }
         UiText {
             x: 24; y: 20; width: parent.width - 120
-            text: root.statusText; visible: text.length > 0
+            text: root.statusText; visible: text.length > 0 && !root.musicFace
             role: "caption"; textFormat: Text.PlainText; z: 2
         }
         Surface {

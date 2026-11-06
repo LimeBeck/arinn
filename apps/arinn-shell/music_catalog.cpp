@@ -8,6 +8,7 @@
 #include <QQmlEngine>
 #include <QUuid>
 #include <QtDBus>
+#include <algorithm>
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
 QDBusMessage call(const QString &path, const char *interface,
@@ -126,18 +127,50 @@ QVariantList MusicCatalog::homeEntries() const {
                       : paused                                ? tr("Paused")
                       : playback == QStringLiteral("loading") ? tr("Loading…")
                                                               : tr("Stopped");
-  return {QVariantMap{{"id", sessionEntryId()},
-                      {"kind", QStringLiteral("music")},
-                      {"title", track.value("title")},
-                      {"subtitle", track.value("artist")},
-                      {"artwork", track.value("image")},
-                      {"statusText", statusText(status)},
-                      {"secondaryIcon", playing ? QStringLiteral("pause")
-                                                : QStringLiteral("play")},
-                      {"secondaryText", playing ? tr("Pause") : tr("Play")},
-                      {"secondaryEnabled", playing || paused},
-                      {"live", playing || paused},
-                      {"busy", m_commandBusy}}};
+  // The Continue card's variant 1 (brief *Presence*, MH-2, #803): the
+  // caption names the artist and the station or album; a missing cover takes
+  // the station's; the Ember line shows the position.
+  const auto station = m_active.value("station").toMap();
+  const auto context = !station.value("title").toString().isEmpty()
+                      ? station.value("title").toString()
+                      : track.value("album").toString();
+  QStringList subtitle;
+  for (const auto &part : {track.value("artist").toString(), context})
+    if (!part.isEmpty())
+      subtitle.append(part);
+  auto artwork = track.value("image").toString();
+  if (track.value("artwork").toString().isEmpty() &&
+      !station.value("artwork").toString().isEmpty()) {
+    for (const auto &row : m_sources) {
+      const auto source = row.toMap();
+      if (source.value("id").toString() == m_activeId)
+        artwork = AssetImages::imageUrl(
+            m_activeId, source.value("path").toString(), m_activeGeneration,
+            station.value("artwork").toString());
+    }
+  }
+  const auto duration = track.value("duration_us").toDouble();
+  const auto position = m_active.value("position_us").toDouble();
+  QVariantMap entry{{"id", sessionEntryId()},
+                    {"kind", QStringLiteral("music")},
+                    {"title", track.value("title")},
+                    {"subtitle", subtitle.join(QStringLiteral(" · "))},
+                    {"artist", track.value("artist")},
+                    {"station", station.value("title")},
+                    {"musicState", playing  ? QStringLiteral("playing")
+                                   : paused ? QStringLiteral("paused")
+                                            : QString()},
+                    {"artwork", artwork},
+                    {"statusText", statusText(status)},
+                    {"secondaryIcon", playing ? QStringLiteral("pause")
+                                              : QStringLiteral("play")},
+                    {"secondaryText", playing ? tr("Pause") : tr("Play")},
+                    {"secondaryEnabled", playing || paused},
+                    {"live", playing || paused},
+                    {"busy", m_commandBusy}};
+  if ((playing || paused) && duration > 0)
+    entry.insert("progress", std::clamp(position / duration, 0.0, 1.0));
+  return {entry};
 }
 void MusicCatalog::fail(const QString &value) {
   if (value == QStringLiteral("Conflict"))

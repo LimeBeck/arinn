@@ -985,6 +985,7 @@ Window {
             wifiLevel: home.wifiLevel
             network: home.network
             clockText: home.clockText
+            musicLine: home.musicStatusLine
         }
         Ui.HomeView {
             id: home
@@ -1036,6 +1037,14 @@ Window {
             newEntries: libraryCatalog.newEntries
             onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayerFromHome();}
             onMusicTransportRequested: musicCatalog.togglePlayback()
+            // Music presence on Home (#803, MH-4): the status line while it
+            // plays, and Play/Pause without moving focus.
+            musicStatusLine: musicCatalog.nowPlaying.state === "playing"
+                ? [musicCatalog.nowPlaying.title || "", musicCatalog.nowPlaying.subtitle || ""].filter(part => part.length).join(" · ") : ""
+            onMusicKeyRequested: action => {
+                if (action === "toggle") musicCatalog.togglePlayback();
+                else musicCatalog.transport(action === "play" ? "resume" : "pause");
+            }
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows

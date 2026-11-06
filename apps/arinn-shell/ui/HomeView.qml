@@ -286,6 +286,11 @@ FocusScope {
     readonly property var routes: ["home", "library"].concat(musicTitle.length ? ["music"] : []).concat(["downloads", "applications", "settings"])
     signal musicRequested()
     signal musicTransportRequested()
+    // Play/Pause on Home for the music session, without moving focus
+    // (brief *Presence*, M3, #803): "toggle", "play" or "pause".
+    signal musicKeyRequested(string action)
+    // "track · artist" while music plays, for the status area (MH-4).
+    property string musicStatusLine: ""
     signal libraryEntryRequested(string entryId)
     signal libraryResumeRequested(string entryId)
     signal entryRequested(string entryId)
@@ -462,6 +467,15 @@ FocusScope {
         }
         if (entry.kind === "more")
             return {eyebrow: qsTr("Open services"), title: entry.title, meta: entry.names || entry.subtitle, live: false};
+        // The music card's hero (mh-04, mh-05): "station · playing" or
+        // "Paused", and the keys it answers.
+        if (entry.kind === "music" && entry.musicState) {
+            const playing = entry.musicState === "playing";
+            return {eyebrow: playing ? (entry.station ? qsTr("%1 · playing").arg(entry.station) : qsTr("Playing")) : qsTr("Paused"),
+                    title: entry.title || "",
+                    meta: playing ? qsTr("OK — open player · ⏯ — pause") : qsTr("OK — open player · ⏯ — play"),
+                    live: playing};
+        }
         if (entry.kind === "close")
             return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: qsTr("Close %1").arg(entry.title || ""), live: true};
@@ -493,6 +507,25 @@ FocusScope {
         return (pool || []).find(entry => entry && entry.id === focusedEntry.id) || focusedEntry;
     }
     readonly property var hero: describe(homeRow, heroEntry)
+    // Play/pause on a card linked to a media session goes to it. Dedicated
+    // Play and Pause keep their meaning; only the toggle key toggles.
+    // Otherwise it acts on a playing or paused music session, wherever focus
+    // is on Home, and focus stays (M3, #803). True when it was handled.
+    function mediaKey(key) {
+        if (screen !== "home" || navOpen)
+            return false;
+        if (heroEntry && heroEntry.mediaId) {
+            mediaActionRequested(heroEntry.mediaId, key === Qt.Key_MediaPlay ? "play"
+                                 : key === Qt.Key_MediaPause ? "pause" : "playPause");
+            return true;
+        }
+        if (musicSessionLive) {
+            musicKeyRequested(key === Qt.Key_MediaPlay ? "play" : key === Qt.Key_MediaPause ? "pause" : "toggle");
+            return true;
+        }
+        return false;
+    }
+    readonly property bool musicSessionLive: (continueEntries || []).some(entry => entry && entry.kind === "music" && entry.live === true)
     // The pool takes the focused content item. The open-services summary has
     // no single hue. Applications use the focused tile.
     readonly property var lightEntry: {
@@ -754,17 +787,8 @@ FocusScope {
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) InputMode.keyPressed();
         if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
-        else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
-            // Play/pause on a card linked to a media session goes to it.
-            // Dedicated Play and Pause keep their meaning; only the toggle
-            // key toggles.
-            if (screen === "home" && !navOpen && heroEntry && heroEntry.mediaId) {
-                const action = event.key === Qt.Key_MediaPlay ? "play"
-                             : event.key === Qt.Key_MediaPause ? "pause" : "playPause";
-                mediaActionRequested(heroEntry.mediaId, action);
-                event.accepted = true;
-            }
-        }
+        else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key))
+            event.accepted = mediaKey(event.key);
         else if (event.key === Qt.Key_Menu) {
             menuKey();
             event.accepted = true;
@@ -880,6 +904,7 @@ FocusScope {
             wifiLevel: root.wifiLevel
             network: root.network
             clockText: root.clockText
+            musicLine: root.musicStatusLine
         }
         Item {
             anchors.fill: parent

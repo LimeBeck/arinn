@@ -985,6 +985,97 @@ TestCase {
         compare(entries.count, 0);
         tabRequests.target = null;
     }
+    // #803 (brief *Presence*, MH-2): a playing or paused music session leads
+    // Continue as variant 1: the blurred cover behind the centred cover, the
+    // playing chip and the Ember line; its hero names the state and the keys.
+    SignalSpy { id: musicOpens; signalName: "musicRequested" }
+    SignalSpy { id: musicKeys; signalName: "musicKeyRequested" }
+    function musicEntry(state, extra) {
+        return Object.assign({id: "arinn-music-session", kind: "music", live: state === "playing" || state === "paused",
+                              musicState: state, title: "Fixture song", subtitle: "Fixture artist · Fixture wave",
+                              station: "Fixture wave", artwork: Qt.resolvedUrl("fixture-glow.svg"), progress: 0.25,
+                              secondaryIcon: state === "playing" ? "pause" : "play", secondaryText: "Pause"}, extra || {});
+    }
+    function test_music_card_is_variant_one() {
+        musicOpens.target = home; musicOpens.clear();
+        musicKeys.target = home; musicKeys.clear();
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, {id: "b", title: "Saved", kind: "media"},
+                                musicEntry("playing")];
+        compare(home.continuePresentation.map(entry => entry.id).slice(0, 2).join(","), "a,arinn-music-session");
+        const card = child("entry-arinn-music-session");
+        verify(findChild(card, "musicCardFace").visible);
+        tryVerify(() => card.artworkReady);
+        const cover = findChild(card, "musicCardCover");
+        // Full height minus 22 px top and bottom (208 on the 448 × 252 card).
+        compare(cover.width, card.frameHeight - 44); compare(cover.height, card.frameHeight - 44); compare(cover.y, 22);
+        compare(cover.x + cover.width / 2, card.width / 2);
+        verify(findChild(card, "musicCardHairline").visible);
+        compare(findChild(card, "musicCardFallback").visible, false);
+        const chip = findChild(card, "musicCardChip");
+        compare(chip.x, 16); compare(chip.y, 16); compare(chip.width, 56); compare(chip.height, 42);
+        const bar = findChild(card, "musicCardBar");
+        verify(Qt.colorEqual(bar.color, Ui.Theme.ember)); verify(bar.moving);
+        const progress = findChild(card, "cardProgress");
+        verify(progress.visible); compare(progress.value, 0.25);
+        compare(findChild(card, "cardSubtitle").text, "Fixture artist · Fixture wave");
+        // The ordinary caption and live dot give way to the chip.
+        compare(card.statusText.length === 0 || !findChild(card, "cardChip").visible, true);
+        card.forceActiveFocus(); focused("entry-arinn-music-session");
+        compare(child("heroEyebrow").text, "Fixture wave · playing");
+        compare(child("heroMeta").text, "OK — open player · ⏯ — pause");
+        verify(child("heroLiveDot").visible);
+        // Play/Pause acts on music and focus stays (M3). The key handler's
+        // function: QtTest cannot synthesise media keys in this Qt build.
+        verify(home.mediaKey(Qt.Key_MediaTogglePlayPause));
+        compare(musicKeys.count, 1); compare(musicKeys.signalArguments[0][0], "toggle");
+        focused("entry-arinn-music-session");
+        // From another card too, and dedicated Pause stays pause.
+        child("entry-a").forceActiveFocus(); focused("entry-a");
+        verify(home.mediaKey(Qt.Key_MediaPause));
+        compare(musicKeys.count, 2); compare(musicKeys.signalArguments[1][0], "pause");
+        focused("entry-a");
+        // Paused: the bars stand still in text-3.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("paused")];
+        tryCompare(bar, "moving", false); verify(Qt.colorEqual(bar.color, Ui.Theme.textHint));
+        card.forceActiveFocus(); focused("entry-arinn-music-session");
+        compare(child("heroEyebrow").text, "Paused");
+        compare(child("heroMeta").text, "OK — open player · ⏯ — play");
+        // A missing cover: the music note in a neutral chip.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing", {artwork: ""})];
+        tryVerify(() => findChild(card, "musicCardFallback").visible);
+        compare(findChild(card, "musicCardHairline").visible, false);
+        // OK opens Now playing; Back from it returns to the card.
+        keyClick(Qt.Key_Return);
+        compare(musicOpens.count, 1);
+        home.screen = "music";
+        home.back();
+        focused("entry-arinn-music-session");
+        // A stopped session is an ordinary card.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("", {live: false})];
+        tryCompare(findChild(card, "musicCardFace"), "visible", false);
+        musicOpens.target = null; musicKeys.target = null;
+    }
+    // #803 (MH-4): while music plays, an Ember dot and "track · artist" sit
+    // left of the network icon and the clock, at most 420 px.
+    function test_status_area_music_line() {
+        home.clockText = "20:42";
+        home.wifi = true;
+        const music = child("musicStatus"), line = child("musicStatusLine");
+        compare(music.visible, false);
+        home.musicStatusLine = "Fixture song · Fixture artist";
+        verify(music.visible);
+        compare(line.text, "Fixture song · Fixture artist");
+        verify(Qt.colorEqual(child("musicStatusDot").color, Ui.Theme.ember));
+        compare(line.font.pixelSize, 24); compare(line.font.weight, 500); // text-2 (the theme's tones shift with the time of day, so near enough).
+        for (const part of ["r", "g", "b"]) verify(Math.abs(line.color[part] - Ui.Theme.textSecondary[part]) < 0.02, part);
+        const wifi = child("wifiIcon"), clock = child("clock");
+        tryVerify(() => music.x + music.width <= wifi.x && wifi.x < clock.x);
+        home.musicStatusLine = "A very long synthetic track title that goes on and on · An equally long synthetic artist name";
+        tryVerify(() => line.width <= 420); verify(line.truncated);
+        home.musicStatusLine = "";
+        compare(music.visible, false);
+        home.wifi = false;
+    }
     // #367: the download chip shows only while something downloads.
     function test_status_area_download_chip() {
         home.clockText = "20:42";

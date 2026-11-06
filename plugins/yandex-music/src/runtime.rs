@@ -102,6 +102,8 @@ fn error(error: crate::Error) -> ErrorCode {
     match error {
         crate::Error::InvalidInput => ErrorCode::InvalidArgument,
         crate::Error::Authentication | crate::Error::Forbidden => ErrorCode::PermissionDenied,
+        // A pinned station the service no longer knows (#811).
+        crate::Error::NotFound => ErrorCode::NotFound,
         _ => ErrorCode::Unavailable,
     }
 }
@@ -1383,5 +1385,19 @@ mod tests {
         // A station started again from its stored ID resolves to the same ID.
         assert_eq!(seed("station:wave").unwrap(), "user:onyourwave");
         assert_eq!(seed("station:track:123").unwrap(), "track:123");
+    }
+    /// Review of #815: a stored station the service no longer knows must
+    /// fail as NotFound, not as a transient outage.
+    #[tokio::test]
+    async fn a_vanished_station_fails_as_not_found() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![(404, "{}".into())]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let api = fixture.runtime.source.read().await.clone().unwrap();
+        assert_eq!(
+            fixture.runtime.start_radio(&api, "station:track:123").await,
+            Err(ErrorCode::NotFound)
+        );
+        mock.finish();
     }
 }

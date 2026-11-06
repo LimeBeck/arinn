@@ -32,6 +32,8 @@ const MAX_RESPONSE: usize = 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidInput,
+    /// HTTP 404: the service does not know the requested item (#811).
+    NotFound,
     Authentication,
     Forbidden,
     RateLimited,
@@ -188,6 +190,7 @@ impl Api {
                 return Err(Error::Authentication);
             }
             StatusCode::FORBIDDEN => return Err(Error::Forbidden),
+            StatusCode::NOT_FOUND => return Err(Error::NotFound),
             StatusCode::TOO_MANY_REQUESTS => return Err(Error::RateLimited),
             status if status.is_redirection() || !status.is_success() => {
                 return Err(Error::Unavailable);

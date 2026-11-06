@@ -161,6 +161,7 @@ async fn authentication_rate_limit_and_response_limits_are_not_empty_catalogues(
         (401, Error::Authentication),
         (403, Error::Forbidden),
         (429, Error::RateLimited),
+        (404, Error::NotFound),
         (302, Error::Unavailable),
     ] {
         let mock = Mock::new(vec![(status, "{}".into())]);

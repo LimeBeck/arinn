@@ -53,8 +53,10 @@ MH-6). It promises that the station's `id` stays valid across provider restarts
 and generations, is never reused for another station, and that `radio` with that
 `id` as `entity` starts this station. Only a station may carry it; it is optional
 and omitted when false. The shell may store a pinnable station and start it
-later; a stored ID the provider no longer offers fails with NotFound and is never
-silently replaced. Yandex stations derive their IDs from the service's station
+later. Starting a stored ID the provider no longer offers fails with NotFound
+where the provider can tell (Yandex maps an HTTP 404 to it), otherwise with
+Unavailable; it is never silently replaced by another station, and the shell
+marks such a pin unavailable either way. Yandex stations derive their IDs from the service's station
 keys (`station:wave` for `user:onyourwave`, `station:track:<id>`). Local music
 offers one station, `station:library` ("All my music, shuffled"), in its
 `selections` facet.

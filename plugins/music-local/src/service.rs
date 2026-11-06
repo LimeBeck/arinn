@@ -323,6 +323,17 @@ impl Local {
     /// replaced by those still playable, in order, topped up from the deck.
     async fn reconcile_station(&self) -> Result<(), ErrorCode> {
         let _station = self.station.lock().await;
+        self.reconcile_locked().await
+    }
+    /// Publishes a scan under the station lock: a station starting now
+    /// takes its seed from the catalogue it will play from (review of #815),
+    /// and the queue is reconciled before anyone else sees the new view.
+    async fn publish_scan(&self, view: View) {
+        let _station = self.station.lock().await;
+        self.publish(view).await;
+        let _ = self.reconcile_locked().await;
+    }
+    async fn reconcile_locked(&self) -> Result<(), ErrorCode> {
         let state = self.playback.state().await;
         if !state
             .station
@@ -402,8 +413,7 @@ impl Local {
             if let Ok(Ok(view)) = result
                 && !owner.shutdown.load(Ordering::Acquire)
             {
-                owner.publish(view).await;
-                let _ = owner.reconcile_station().await;
+                owner.publish_scan(view).await;
             } else if !owner.shutdown.load(Ordering::Acquire) {
                 owner.view.write().await.degraded = true;
             }
@@ -1395,6 +1405,50 @@ mod tests {
         let upcoming: Vec<String> = state.upcoming.iter().map(|e| e.track.id.clone()).collect();
         let expected: Vec<String> = seed[60..].to_vec();
         assert_eq!(upcoming[..expected.len()], expected[..]);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: a scan published while a station started could
+    /// remove its seed in between; publication waits for the station.
+    #[tokio::test]
+    async fn a_scan_is_published_between_station_starts_not_during_one() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-publish-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let root = scanned(&directory, &["one.wav", "two.wav"]);
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let mut next = {
+            let view = local.view.read().await;
+            View {
+                degraded: false,
+                revision: view.revision + 1,
+                tracks: view.tracks.clone(),
+                playlists: view.playlists.clone(),
+                catalogue: view.catalogue.clone(),
+            }
+        };
+        next.tracks[0].available = false;
+        let held = local.station.lock().await;
+        let publisher = {
+            let local = local.clone();
+            tokio::spawn(async move { local.publish_scan(next).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            local.view.read().await.tracks[0].available,
+            "published during a start"
+        );
+        drop(held);
+        publisher.await.unwrap();
+        assert!(!local.view.read().await.tracks[0].available);
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();
     }

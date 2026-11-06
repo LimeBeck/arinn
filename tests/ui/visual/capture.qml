@@ -351,7 +351,14 @@ TestCase {
     function quickMenuProps(overActivity) {
         return {
             overActivity: overActivity,
-            nowPlaying: {id: "song", title: "Low Tide", subtitle: "Harbor Radio", state: "playing", playPause: true},
+            // The media card and the second session (#805, mh-06).
+            sessions: [
+                {id: "song", kind: "music", title: "Low Tide", subtitle: "Harbor Radio", state: "playing",
+                 playPause: true, previous: true, next: true, open: true, eyebrow: "Night Wave · Fixture music",
+                 artwork: art(), positionUs: 72e6, durationUs: 214e6},
+                {id: "film", kind: "media", title: "The Quiet Harbor", subtitle: "S1 E4", state: "paused",
+                 playPause: true, open: true, artwork: art()}
+            ],
             audio: "unmuted", volumeControl: true, volumeKnown: true, volumeLevel: 40,
             network: "wifi", wifiLevel: 3
         };

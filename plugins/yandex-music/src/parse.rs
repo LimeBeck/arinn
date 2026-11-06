@@ -17,6 +17,53 @@ pub struct Collection {
     /// When the playlist joined the user's library (its `created` date), in
     /// Unix seconds; 0 when the API does not report it (ADR-0142 MH-9).
     pub added_at: u64,
+    /// Whether the API names an image for it (#825).
+    pub cover: bool,
+}
+
+/// An artwork ID this provider hands out (ADR-0134, #825): the cover of a
+/// track, an album, an artist or one of the account's playlists. The shell
+/// sees only the opaque ID, never a URL.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Cover {
+    Track(String),
+    Album(String),
+    Artist(String),
+    Playlist { uid: String, kind: String },
+}
+/// The artwork ID as `Entity.artwork` carries it: no `/`, at most 256 bytes
+/// (the music contract's artwork rules); anything else is not this
+/// provider's.
+pub(crate) fn cover(id: &str) -> Option<Cover> {
+    if id.len() > 256 || id.contains('/') {
+        return None;
+    }
+    if let Some(track) = id.strip_prefix("cover:") {
+        return track_id(track).then(|| Cover::Track(track.into()));
+    }
+    if let Some(album) = id.strip_prefix("album-cover:") {
+        return digits(album).then(|| Cover::Album(album.into()));
+    }
+    if let Some(artist) = id.strip_prefix("artist-cover:") {
+        return digits(artist).then(|| Cover::Artist(artist.into()));
+    }
+    let (uid, kind) = id.strip_prefix("playlist-cover:")?.split_once(':')?;
+    (digits(uid) && digits(kind)).then(|| Cover::Playlist {
+        uid: uid.into(),
+        kind: kind.into(),
+    })
+}
+/// The image an API object names: its `coverUri`, its `cover.uri`, or its
+/// `ogImage`, in that order; `None` when it names none (#825).
+pub(crate) fn cover_reference(value: &Value) -> Option<&str> {
+    [
+        &value["coverUri"],
+        &value["cover"]["uri"],
+        &value["ogImage"],
+    ]
+    .into_iter()
+    .filter_map(Value::as_str)
+    .find(|reference| !reference.is_empty())
 }
 
 /// A library date from the API ("2024-05-01T12:00:00+00:00", optionally
@@ -272,6 +319,7 @@ pub(crate) fn collections(value: &Value) -> Result<Vec<Collection>, Error> {
                     .and_then(|v| v.try_into().ok())
                     .ok_or(Error::InvalidResponse)?,
                 added_at: timestamp(v.get("created")),
+                cover: cover_reference(v).is_some(),
             })
         })
         .collect()
@@ -405,6 +453,70 @@ mod tests {
         .unwrap();
         assert_eq!(parsed[0].added_at, 1_714_564_800);
         assert_eq!(parsed[1].added_at, 0);
+    }
+    /// #825: artwork IDs are validated strictly, and a cover is read from
+    /// `coverUri`, `cover.uri` or `ogImage`.
+    #[test]
+    fn cover_ids_are_strict_and_read_every_reference() {
+        assert_eq!(cover("cover:12:34"), Some(Cover::Track("12:34".into())));
+        assert_eq!(cover("album-cover:7"), Some(Cover::Album("7".into())));
+        assert_eq!(cover("artist-cover:8"), Some(Cover::Artist("8".into())));
+        assert_eq!(
+            cover("playlist-cover:5:3"),
+            Some(Cover::Playlist {
+                uid: "5".into(),
+                kind: "3".into()
+            })
+        );
+        for bad in [
+            "",
+            "cover:",
+            "cover:a",
+            "album-cover:",
+            "album-cover:7:8",
+            "album-cover:7/8",
+            "artist-cover:x",
+            "playlist-cover:5",
+            "playlist-cover:5:",
+            "playlist-cover:5:3:1",
+            "playlist-cover:5/3",
+            "station:wave",
+            "https://avatars.yandex.net/get-music-content/1/x/%%",
+        ] {
+            assert_eq!(cover(bad), None, "{bad}");
+        }
+        let long = format!("album-cover:{}", "1".repeat(64));
+        assert_eq!(long.len(), 76);
+        assert!(cover(&long).is_some());
+        assert_eq!(cover(&format!("album-cover:{}", "1".repeat(65))), None);
+        assert_eq!(cover(&"cover:1".repeat(40)), None);
+        let reference = |value| cover_reference(&value).map(str::to_owned);
+        assert_eq!(
+            reference(json!({"coverUri": "a/%%", "ogImage": "b/%%"})),
+            Some("a/%%".into())
+        );
+        assert_eq!(
+            reference(json!({"cover": {"type": "pic", "uri": "c/%%"}, "ogImage": "d/%%"})),
+            Some("c/%%".into())
+        );
+        assert_eq!(
+            reference(json!({"coverUri": "", "cover": {"type": "mosaic"}, "ogImage": "e/%%"})),
+            Some("e/%%".into())
+        );
+        assert_eq!(reference(json!({"cover": {"type": "mosaic"}})), None);
+        assert_eq!(reference(json!({"coverUri": 5})), None);
+    }
+    /// #825: a playlist records whether the API names an image for it.
+    #[test]
+    fn playlists_record_whether_they_have_a_cover() {
+        let parsed = collections(&json!([
+            {"kind": 3, "title": "Pictured", "trackCount": 2, "cover": {"type": "pic", "uri": "a/%%"}},
+            {"kind": 4, "title": "Shared", "trackCount": 1, "ogImage": "b/%%"},
+            {"kind": 5, "title": "Bare", "trackCount": 1, "cover": {"type": "mosaic", "itemsUri": []}}
+        ]))
+        .unwrap();
+        let covers: Vec<bool> = parsed.iter().map(|p| p.cover).collect();
+        assert_eq!(covers, [true, true, false]);
     }
     /// Review of #710: one entry with a non-numeric ID failed a whole search
     /// page or radio batch.

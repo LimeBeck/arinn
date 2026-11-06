@@ -285,6 +285,8 @@ FocusScope {
     readonly property var sections: [qsTr("Home"), qsTr("Library")].concat(musicTitle.length ? [musicTitle] : []).concat([qsTr("Downloads"), qsTr("Applications"), qsTr("Settings")])
     readonly property var routes: ["home", "library"].concat(musicTitle.length ? ["music"] : []).concat(["downloads", "applications", "settings"])
     signal musicRequested()
+    // A pinned station on Favourites (ADR-0142 MH-6, #804).
+    signal musicStationRequested(string providerId, string stationId, string title)
     signal musicTransportRequested()
     signal libraryEntryRequested(string entryId)
     signal libraryResumeRequested(string entryId)
@@ -708,6 +710,7 @@ FocusScope {
         if (entry && entry.resumeContentId) { libraryResumeRequested(entry.resumeContentId); return; }
         if (newEntries.some(item => item.id === entryId)) { libraryEntryRequested(entryId); return; }
         if (entry && entry.launchable === false) { openTileActions(entryId); return; }
+        if (entry && entry.musicStation) { musicStationRequested(entry.providerId, entry.stationId, entry.title); return; }
         if (entry && entry.kind === "more") { openServicesRequested(); return; }
         if (entry && entry.kind === "close") { closeRequested(entry.windowId || ""); return; }
         if (entry && entry.kind === "service") { serviceRequested(entry.serviceId || ""); return; }

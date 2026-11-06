@@ -1,0 +1,1 @@
+- Yandex Music albums, playlists and artists show their covers: grouped albums take their first track's cover, and search results, playlists and artists load their own image through the avatars CDN with the same checks as track covers; one without an image keeps the neutral placeholder ([#825](https://github.com/LimeBeck/arinn/issues/825)).

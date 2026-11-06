@@ -12,6 +12,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 RU = {
+    # Pinned music stations on Favourites (#804)
+    "Music source not connected": "Источник музыки не подключён",
+    "This station is no longer available": "Эта станция больше недоступна",
     # Offline library navigation (#629)
     'Folder': 'Папка',
     'Up one level': 'На уровень выше',
@@ -426,6 +429,8 @@ RU = {
     "Connected": "Подключено",
     "Untitled": "Без названия",
     "Nothing is playing": "Ничего не воспроизводится",
+    # Quick menu media card (#805, mh-06): as on the music screens.
+    "Open player": "Открыть плеер",
     "Not available": "Недоступно",
     "Cannot be paused from Arinn": "Arinn не может поставить на паузу",
     "Cannot be resumed from Arinn": "Arinn не может продолжить воспроизведение",

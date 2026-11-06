@@ -1124,6 +1124,47 @@ private slots:
     QCOMPARE(offered.value(QStringLiteral("resumable")), true);
     QCOMPARE(offered.value(QStringLiteral("stuck")), false);
   }
+  // #805 (Codex review of #826): the quick menu's card offers previous and
+  // next only for a session that advertises them, and sends them to that
+  // session without changing the selection.
+  void previousAndNextFollowTheSessionsActions() {
+    MediaDaemon daemon;
+    const auto now = monotonicUs();
+    daemon.page1 = {
+        session(QStringLiteral("skips"), QStringLiteral("Skips"), QStringLiteral("playing"),
+                1000000, now, 8000000,
+                {QStringLiteral("pause"), QStringLiteral("previous"), QStringLiteral("next")}),
+        session(QStringLiteral("plain"), QStringLiteral("Plain"), QStringLiteral("paused"),
+                1000000, now, 8000000, {QStringLiteral("play")}),
+    };
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    MediaCatalog catalog;
+    QTRY_COMPARE(catalog.continueEntries().size(), 2);
+    QMap<QString, QVariantMap> entries;
+    for (const auto &entry : catalog.continueEntries())
+      entries.insert(entry.toMap().value(QStringLiteral("title")).toString(), entry.toMap());
+    const auto skips = entries.value(QStringLiteral("Skips"));
+    const auto plain = entries.value(QStringLiteral("Plain"));
+    QCOMPARE(skips.value(QStringLiteral("previous")).toBool(), true);
+    QCOMPARE(skips.value(QStringLiteral("next")).toBool(), true);
+    QCOMPARE(plain.value(QStringLiteral("previous")).toBool(), false);
+    QCOMPARE(plain.value(QStringLiteral("next")).toBool(), false);
+    const auto selectedBefore = catalog.selectedId();
+    catalog.sessionAction(skips.value(QStringLiteral("id")).toString(), QStringLiteral("next"));
+    QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("Next")});
+    QCOMPARE(daemon.lastLocal, QStringLiteral("skips"));
+    catalog.sessionAction(skips.value(QStringLiteral("id")).toString(), QStringLiteral("previous"));
+    QTRY_COMPARE(daemon.commands.size(), 2);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("Previous"));
+    // A session without them sends nothing.
+    catalog.sessionAction(plain.value(QStringLiteral("id")).toString(), QStringLiteral("next"));
+    QTest::qWait(200);
+    QCOMPARE(daemon.commands.size(), 2);
+    QCOMPARE(catalog.selectedId(), selectedBefore);
+  }
   // #448 (owner decision 2026-11-01), widened on #756 (owner decision
   // 2026-11-04): a session without a title that is not playing is neither
   // resumable content nor the current activity, so Continue omits it. An
@@ -2067,10 +2108,10 @@ private slots:
     QVERIFY(!player->isVisible());
     QVERIFY(!home->isVisible());
     QCOMPARE(window->color(), QColor(Qt::transparent));
-    // Now playing is the managed session.
-    auto media = window->findChild<QQuickItem *>(QStringLiteral("quickMenuMediaLabel"));
+    // Now playing is the managed session, on the media card (#805).
+    auto media = window->findChild<QQuickItem *>(QStringLiteral("quickMenuCardTitle"));
     QVERIFY(media);
-    QCOMPARE(media->property("text").toString(), QStringLiteral("Piece"));
+    QTRY_COMPARE(media->property("text").toString(), QStringLiteral("Piece"));
     QTest::keyClick(window, Qt::Key_Escape);
     QTRY_COMPARE(backend.backs, 1);
     QVERIFY(!menu->isVisible());
@@ -2086,6 +2127,67 @@ private slots:
     QTest::qWait(3200);
     QVERIFY(player->isVisible());
     QVERIFY(!home->isVisible());
+  }
+  // #805 (Codex review of #826): Open player on the managed session the
+  // sheet is over returns to its player as Back does; Back from that player
+  // then returns to the sheet, and playback goes on: no Stop is sent.
+  void openPlayerOverManagedPlaybackAndBackReturnToTheSheet() {
+    MediaDaemon daemon;
+    daemon.features = {QStringLiteral("MediaWindow1")};
+    daemon.page1 = {session(QStringLiteral("live"), QStringLiteral("Piece"),
+                            QStringLiteral("playing"), 4000000, monotonicUs(),
+                            9000000,
+                            {QStringLiteral("play"), QStringLiteral("pause"),
+                             QStringLiteral("stop")})};
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/org/arinn"), &daemon,
+                                      QDBusConnection::SubPath));
+    ShellStandIn backend;
+    backend.m_connected = true;
+    backend.m_return = QStringLiteral("player-window");
+    SessionGuardStandIn guard;
+    QQmlApplicationEngine engine;
+    installAssetImageProvider(&engine);
+    InterfaceSounds interfaceSounds;
+
+    installMainQmlContextProperties(&engine, &backend, &guard, &interfaceSounds);
+    engine.load(QUrl::fromLocalFile(QStringLiteral(ARINN_MAIN_QML)));
+    auto window = qobject_cast<QQuickWindow *>(engine.rootObjects().value(0));
+    QVERIFY(window);
+    window->show();
+    window->requestActivate();
+    auto catalog = window->findChild<MediaCatalog *>(QStringLiteral("mediaCatalog"));
+    auto player = window->findChild<QQuickItem *>(QStringLiteral("productionPlayer"));
+    auto menu = window->findChild<QQuickItem *>(QStringLiteral("quickMenu"));
+    QVERIFY(catalog && player && menu);
+    QTRY_VERIFY(catalog->playerSession());
+    const auto entryId =
+        catalog->continueEntries().at(0).toMap().value(QStringLiteral("id")).toString();
+    QVERIFY(QMetaObject::invokeMethod(window, "openSession", Q_ARG(QVariant, entryId),
+                                      Q_ARG(QVariant, false)));
+    QTRY_COMPARE(catalog->presentationState(), QStringLiteral("active"));
+    QTRY_COMPARE(player->property("activeFocus").toBool(), true);
+    backend.m_home = false;
+    emit backend.changed();
+    emit backend.quickMenuRequested(QStringLiteral("player-window"));
+    backend.m_home = true;
+    emit backend.changed();
+    QTRY_VERIFY(menu->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(menu, "openPlayerRequested", Q_ARG(QString, entryId)));
+    QTRY_COMPARE(backend.backs, 1);
+    QVERIFY(!menu->isVisible());
+    backend.m_home = false;
+    emit backend.changed();
+    QTRY_VERIFY_WITH_TIMEOUT(player->isVisible(), 1000);
+    QTRY_VERIFY(player->property("activeFocus").toBool());
+    QVERIFY(window->property("playerFromQuickMenu").toBool());
+    // Back from the player (Leave): the sheet again, playback goes on.
+    QVERIFY(QMetaObject::invokeMethod(player, "leave"));
+    QTRY_VERIFY(menu->isVisible());
+    QTest::qWait(200);
+    QVERIFY(!daemon.commands.contains(QStringLiteral("Stop")));
+    QVERIFY(!window->property("playerFromQuickMenu").toBool());
   }
   // #507 (Codex on #502): Back pressed before the Status refresh that
   // follows the request still returns to the player. Until Status reports

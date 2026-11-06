@@ -1350,4 +1350,18 @@ TestCase {
         keyClick(Qt.Key_Escape);compare(view.mode,"root");compare(room.searchQuery,"");
         tryCompare(findChild(view,"musicFind"),"activeFocus",true);
     }
+
+    // #804: a pinned station on Favourites starts its station; one whose
+    // source is away opens the tile actions instead of starting anything.
+    function test_a_pinned_station_starts_from_favourites() {
+        const pin={id:"pin-1",title:"Fixture station",musicStation:true,providerId:"fixture.music",
+                   stationId:"station:library",launchable:true,pinned:true,monogram:"F"};
+        const away=Object.assign({},pin,{id:"pin-2",launchable:false,unavailable:true,subtitle:"Music source not connected"});
+        const home=createTemporaryObject(homeFactory,suite,{favoriteEntries:[pin,away],actionsEnabled:true});verify(home);
+        const started=[];home.musicStationRequested.connect((provider,station,title)=>started.push([provider,station,title]));
+        home.activate("pin-1");
+        compare(started,[["fixture.music","station:library","Fixture station"]]);
+        home.activate("pin-2");
+        compare(started.length,1);compare(home.tileActionsOpen,true);
+    }
 }

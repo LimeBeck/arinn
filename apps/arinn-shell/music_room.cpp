@@ -267,7 +267,9 @@ void MusicRoom::readState(const QString &id) {
                 busy = busy || facet.busy;
               if (!busy)
                 for (auto &[name, facet] : source.facets)
-                  if (facet.failed && facet.entries.isEmpty() &&
+                  // Also a refresh that failed after a new revision, whose
+                  // previous entries stay shown meanwhile (Codex review).
+                  if (facet.failed &&
                       now() - facet.failedAt > retryDelay(facet.retries - 1))
                     source.pending.append(name);
               // A retried facet stays `loaded`: the room is not loading

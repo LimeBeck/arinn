@@ -403,6 +403,21 @@ private slots:
     QVERIFY2(!seen.contains(true), "a retry raised loading");
     daemon.pageError.clear();
     QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 1, 20000);
+    // A refresh for a new revision that fails keeps the old entries shown
+    // and is read again, not left stale until the next revision.
+    daemon.pages["local/albums"].append(
+        QJsonObject{{"id", "album:2"}, {"kind", "album"}, {"title", "Two"}, {"available", true}});
+    auto local = state({"albums"});
+    local["catalogue_revision"] = 2;
+    daemon.states["local"] = local;
+    daemon.pageError = QStringLiteral("Timeout");
+    const auto reads = daemon.pageReads.value("local");
+    room.refresh();
+    QTRY_VERIFY(daemon.pageReads.value("local") > reads);
+    QTest::qWait(200);
+    QCOMPARE(room.list("albums").size(), 1);
+    daemon.pageError.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 2, 20000);
   }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.

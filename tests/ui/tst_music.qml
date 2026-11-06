@@ -381,9 +381,13 @@ TestCase {
         for(let i=0;i<5;i++)saved.push({id:"saved-"+i,kind:"media",title:"Saved "+i,libraryEntryId:"l"+i});
         const home=createTemporaryObject(homeFactory,suite,{
             continueEntries:[{id:"activity",title:"Fixture application",running:true}].concat(saved)
-                .concat([{id:"arinn-music-session",kind:"music",title:"Fixture song",subtitle:"Fixture artist"}])});
+                .concat([{id:"arinn-music-session",kind:"music",live:true,title:"Fixture song",subtitle:"Fixture artist"}])});
         verify(home);
         const ids=home.continuePresentation.map(entry=>entry.id);
         compare(ids[0],"activity");compare(ids[1],"arinn-music-session");compare(ids.length,5);
+        // Review of #797: a stopped session does not displace saved
+        // positions (spec §5.1).
+        home.continueEntries=home.continueEntries.map(entry=>entry.kind==="music" ? Object.assign({},entry,{live:false}) : entry);
+        compare(home.continuePresentation.map(entry=>entry.id).indexOf("arinn-music-session"),-1);
     }
 }

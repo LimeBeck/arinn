@@ -321,6 +321,7 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
+    QVERIFY(catalog.homeEntries().first().toMap().value("live").toBool());
   }
   // The stale "Unavailable" under every music screen (#756 M5, M8): a
   // provider keeps its last error after it skipped to the next track. The

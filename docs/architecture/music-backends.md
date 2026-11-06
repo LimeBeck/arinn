@@ -37,8 +37,9 @@ MPRIS, which the native providers do not publish (#756 M1–M8, #794):
 - `nowPlaying` is the Quick menu's Now playing row when no managed or MPRIS
   session plays; its OK pauses or resumes through `togglePlayback()`, as the
   Home card's action does.
-- Home's Continue row keeps the music card ahead of saved positions, so it is
-  never pushed past the four further cards.
+- Home's Continue row keeps a playing or paused music card ahead of saved
+  positions, so it is never pushed past the four further cards; a stopped
+  session keeps its place (spec §5.1).
 - `playbackProblem` turns the session's error code into a reason while the
   session stays stopped or ended. A provider may keep its last error after it
   skipped to the next track, so the reason clears once the session plays, is

@@ -44,7 +44,7 @@ QVariantList MusicCatalog::homeEntries()const {
   const auto track=current.value("track").toMap();const auto playback=m_active.value("playback").toString();
   const bool playing=playback==QStringLiteral("playing"),paused=playback==QStringLiteral("paused");
   const auto status=playing?tr("Playing"):paused?tr("Paused"):playback==QStringLiteral("loading")?tr("Loading…"):tr("Stopped");
-  return {QVariantMap{{"id",sessionEntryId()},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"artwork",track.value("image")},{"statusText",activeSourceName().isEmpty()?tr("Music · %1").arg(status):tr("%1 · %2").arg(activeSourceName(),status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"busy",m_commandBusy}}};
+  return {QVariantMap{{"id",sessionEntryId()},{"kind",QStringLiteral("music")},{"title",track.value("title")},{"subtitle",track.value("artist")},{"artwork",track.value("image")},{"statusText",activeSourceName().isEmpty()?tr("Music · %1").arg(status):tr("%1 · %2").arg(activeSourceName(),status)},{"secondaryIcon",playing?QStringLiteral("pause"):QStringLiteral("play")},{"secondaryText",playing?tr("Pause"):tr("Play")},{"secondaryEnabled",playing||paused},{"live",playing||paused},{"busy",m_commandBusy}}};
 }
 void MusicCatalog::fail(const QString &value){
   if(value==QStringLiteral("Conflict"))m_error=tr("The music source changed. Try again.");

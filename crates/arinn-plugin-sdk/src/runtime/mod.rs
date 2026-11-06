@@ -796,6 +796,7 @@ impl Endpoint for BrowserService {
 mod assets;
 mod download;
 mod library;
+mod localization;
 mod media;
 mod music;
 pub use music::{MusicCatalogue, MusicHandler, MusicService, run_music_on};
@@ -808,6 +809,7 @@ pub use library::{
     LibraryExtensions, LibraryHandler, LibraryImportHandler, LibraryMetadata, LibraryResumeHandler,
     LibraryService, run_library, run_library_on,
 };
+pub use localization::{TextSnapshot, TextsHandler, serve_texts};
 pub use media::{
     MediaAction, MediaExtensions, MediaHandler, MediaOpenHandler, MediaService,
     MediaTimelineHandler, MediaTracksHandler, MediaWindowHandler, run_media, run_media_on,
@@ -932,5 +934,91 @@ mod unchanged_revision_tests {
         assert_eq!(sent(&mut updates), Some((generation, 2)));
         service.replace(vec![], "degraded").await.unwrap();
         assert_eq!(sent(&mut updates), None);
+    }
+
+    #[tokio::test]
+    async fn download_text_snapshot_tracks_publication_and_registration() {
+        let service = DownloadService::new(Idle, vec![], "available").unwrap();
+        assert!(service.text_snapshot().await.is_none());
+        service.running().store(true, Ordering::Release);
+        service.set_daemon_owner(":1.20".into()).await;
+        let (generation, _) = registered(&service).await;
+        let before = service.text_snapshot().await.unwrap();
+        assert_eq!((before.generation, before.revision), (generation, 1));
+        assert!(before.entries.is_empty());
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(service.text_snapshot().await.unwrap().revision, 2);
+        service.clear().await;
+        assert!(service.text_snapshot().await.is_none());
+        let (generation, _) = registered(&service).await;
+        service.set_daemon_owner(":1.21".into()).await;
+        assert_eq!(
+            service.text_snapshot().await.unwrap().generation,
+            generation
+        );
+        service.running().store(false, Ordering::Release);
+        assert!(service.text_snapshot().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn identical_text_provenance_changes_expire_cached_download_references() {
+        use arinn_protocol::download::{Job, STATE_ERROR};
+        let job = Job {
+            id: "job-1".into(),
+            title: "Content".into(),
+            state: STATE_ERROR.into(),
+            completed_bytes: 0,
+            has_total: false,
+            total_bytes: 0,
+            rate_bytes_per_second: 0,
+            eta_seconds: -1,
+            has_progress: false,
+            progress: 0.0,
+            actions: vec![],
+            error_code: "Unavailable".into(),
+            error_message: "The download stopped.".into(),
+            outputs: vec![],
+        };
+        let service = DownloadService::new(Idle, vec![job.clone()], "available").unwrap();
+        assert_eq!(service.touch().await, Err(ErrorCode::Unavailable));
+        service.running().store(true, Ordering::Release);
+        service.set_daemon_owner(":1.20".into()).await;
+        let (generation, mut updates) = registered(&service).await;
+        // A client resolved this publication while the error was fixed text.
+        let cached = service.text_snapshot().await.unwrap();
+        // The provider now knows this is content with identical visible text.
+        // Its provenance lock encloses replace plus touch before release.
+        service.replace(vec![job], "available").await.unwrap();
+        assert_eq!(
+            service.text_snapshot().await.unwrap().revision,
+            cached.revision
+        );
+        assert_eq!(sent(&mut updates), None);
+        service.touch().await.unwrap();
+        let current = service.text_snapshot().await.unwrap();
+        assert_eq!(current.entries, cached.entries);
+        assert_eq!(current.generation, cached.generation);
+        assert_ne!(current.revision, cached.revision);
+        assert_eq!(sent(&mut updates), Some((generation, current.revision)));
+        service.clear().await;
+        assert_eq!(service.touch().await, Err(ErrorCode::Unavailable));
+    }
+
+    #[tokio::test]
+    async fn media_text_snapshot_tracks_publication_and_registration() {
+        let service = MediaService::new(Idle, vec![], "available").unwrap();
+        assert!(service.text_snapshot().await.is_none());
+        service.running().store(true, Ordering::Release);
+        service.set_daemon_owner(":1.20".into()).await;
+        let (generation, _) = registered(&service).await;
+        let before = service.text_snapshot().await.unwrap();
+        assert_eq!((before.generation, before.revision), (generation, 1));
+        assert!(before.entries.is_empty());
+        service.replace(vec![], "degraded").await.unwrap();
+        assert_eq!(service.text_snapshot().await.unwrap().revision, 2);
+        service.set_daemon_owner(String::new()).await;
+        assert!(service.text_snapshot().await.is_none());
+        service.clear().await;
+        assert!(service.text_snapshot().await.is_none());
     }
 }

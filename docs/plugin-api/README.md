@@ -41,6 +41,8 @@ capability, but **has not been released as a stable Plugin API**. Requirements:
 | `org.arinn.Downloads1` | Daemon-owned provider path of a `download` provider; [downloads1.xml](downloads1.xml) ([ADR-0067](../adr/0067-download-wire-contract.md)). Daemon export is not implemented yet ([#144](https://github.com/LimeBeck/arinn/issues/144)) |
 | `org.arinn.Browse1` | Daemon, `/org/arinn/Daemon1`; [browse1.xml](browse1.xml) ([ADR-0066](../adr/0066-address-and-search-contract.md)) |
 | `org.arinn.ProviderSettings1` | Optional interface of any provider; [provider-settings1.xml](provider-settings1.xml) ([ADR-0065](../adr/0065-provider-settings-contract.md); translations of its texts with `GetTranslations`, [ADR-0129](../adr/0129-provider-setting-translations.md)) |
+| `org.arinn.ProviderTexts1` | Optional fixed provider text, [provider-texts1.xml](provider-texts1.xml), [contract](provider-texts.md). SDK export implemented; does not change existing records |
+| `org.arinn.Texts1` | Daemon-root localization routing, [texts1.xml](texts1.xml), [contract](provider-texts.md). Contract only; daemon and shell implementation follows separately |
 | `org.arinn.Settings1` | Daemon, `/org/arinn/Daemon1`; [settings1.xml](settings1.xml). Exported by the daemon ([ADR-0065](../adr/0065-provider-settings-contract.md), [ADR-0129](../adr/0129-provider-setting-translations.md)) |
 | `org.arinn.Folders1` | Daemon, `/org/arinn/Daemon1`; [folders1.xml](folders1.xml) ([ADR-0071](../adr/0071-settings-editor-contract.md)). Exported by the daemon |
 | `org.arinn.AssetProvider1` | Optional interface of `media` and `library` providers; [asset-provider1.xml](asset-provider1.xml) ([ADR-0062](../adr/0062-asset-contract.md)) |

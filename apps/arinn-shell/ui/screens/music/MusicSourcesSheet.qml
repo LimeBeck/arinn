@@ -23,6 +23,7 @@ FocusScope {
     property string stopping: ""
     property string stopFailed: ""
     property bool stopSent: false
+    property string stopAction: ""
     function stopThenTurnOff(id) {
         stopping = id;
         stopFailed = "";
@@ -50,30 +51,35 @@ FocusScope {
             if (music.transportBusy)
                 return;
             const state = music.activeState || ({});
-            const live = music.activeSourceId === root.stopping
-                && ["playing", "loading"].includes(state.playback);
+            const mine = music.activeSourceId === root.stopping;
+            const sounding = mine && ["playing", "loading"].includes(state.playback);
+            const active = mine && (sounding || state.playback === "paused");
             if (!root.stopSent) {
-                if (!live) {
-                    stop();
-                    root.setEnabled(root.stopping, false);
-                    root.stopping = "";
-                    return;
-                }
+                // Stop ends a playing or a paused session; without it, Pause
+                // silences a playing one, and a paused one is silent already
+                // (Codex review of #851).
                 const actions = state.actions || [];
-                const action = actions.includes("stop") ? "stop" : actions.includes("pause") ? "pause" : "";
-                if (!action) {
+                root.stopAction = !active ? "" : actions.includes("stop") ? "stop"
+                    : sounding && actions.includes("pause") ? "pause" : sounding ? "none" : "";
+                if (root.stopAction === "none") {
                     root.failStop();
                     return;
                 }
-                music.transport(action);
-                root.stopSent = true;
+                if (root.stopAction.length) {
+                    music.transport(root.stopAction);
+                    root.stopSent = true;
+                    return;
+                }
+                stop();
+                root.setEnabled(root.stopping, false);
+                root.stopping = "";
                 return;
             }
             if ((music.errorText || "").length) {
                 root.failStop();
                 return;
             }
-            if (!live) {
+            if (root.stopAction === "stop" ? !active : !sounding) {
                 stop();
                 root.setEnabled(root.stopping, false);
                 root.stopping = "";

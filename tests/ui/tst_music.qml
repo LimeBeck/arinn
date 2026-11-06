@@ -1171,6 +1171,15 @@ TestCase {
         const errors=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceError"&&c.visible)out.push(c.text);walk(c);}};walk(sheet);return out;};
         tryVerify(()=>errors().includes("The music could not be stopped, so the source stays on."));
         compare(room.commands[room.commands.length-1],"local:on");catalog.errorText="";
+        // Codex review of #851: a paused session is stopped too, and the
+        // source turns off only once it has.
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"paused"});
+        localOff().activated();tryCompare(keep,"activeFocus",true);
+        keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        tryCompare(catalog,"commands",["stop"]);wait(300);
+        compare(room.commands[room.commands.length-1],"local:on");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});
+        tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

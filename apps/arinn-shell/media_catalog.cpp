@@ -564,13 +564,20 @@ void MediaCatalog::publish() {
       abandonPresentation(QStringLiteral("session_invalidated"));
   }
   QVariantList entries;
+  QVariantList sessions;
   entries.reserve(m_sessions.size());
   for (const auto &row : m_sessions) {
     // A session without a title that is not playing is neither resumable
     // content nor the current activity (spec §5.1): Continue omits it, while
     // the player screen still sees it (owner decision on #448). An idle
     // player that only announced itself left a blank card (#756 A3).
-    if (row.state != QLatin1String("playing") && row.title.trimmed().isEmpty())
+    // The quick menu still shows it while it is paused (§5.7, Codex review
+    // of #826).
+    const bool resumable =
+        row.state == QLatin1String("playing") || !row.title.trimmed().isEmpty();
+    const bool active = row.state == QLatin1String("playing") ||
+                        row.state == QLatin1String("paused");
+    if (!resumable && !active)
       continue;
     QVariantMap entry{
         {QStringLiteral("id"), row.id},
@@ -614,11 +621,18 @@ void MediaCatalog::publish() {
         break;
       }
     }
-    entries.append(entry);
+    if (active)
+      sessions.append(entry);
+    if (resumable)
+      entries.append(entry);
   }
   if (m_continue != entries) {
     m_continue = entries;
     emit continueEntriesChanged();
+  }
+  if (m_sessionEntries != sessions) {
+    m_sessionEntries = sessions;
+    emit sessionEntriesChanged();
   }
   emit sessionChanged();
   emit positionChanged();

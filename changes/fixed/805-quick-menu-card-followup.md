@@ -1,0 +1,1 @@
+- The Quick menu card also shows a paused session that reports no title, and Back from a session screen opened with *Open player* returns to the Quick menu instead of Home ([#805](https://github.com/LimeBeck/arinn/issues/805)).

@@ -743,7 +743,10 @@ FocusScope {
             event.accepted = true;
             return;
         }
-        if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key) && !search.activeFocus) {
+        // Back and Esc always act, also from the search field; only
+        // Backspace stays the field's own, to delete (#829, as BrowseView).
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back
+                || (event.key === Qt.Key_Backspace && !search.activeFocus)) {
             back();
             event.accepted = true;
         } else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
@@ -920,7 +923,9 @@ FocusScope {
                 searchDelay.restart();
             }
             Keys.onDownPressed: root.belowSearch()
-            Keys.onUpPressed: Ui.Focus.take(sourcePicker)
+            // Up never targets a hidden item: Find has no source picker (#829).
+            Keys.onUpPressed: if (sourcePicker.visible)
+                Ui.Focus.take(sourcePicker)
             Keys.onEscapePressed: root.back()
             Keys.onRightPressed: event => {
                 if (cursorPosition === length)

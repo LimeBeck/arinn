@@ -1263,6 +1263,31 @@ TestCase {
     // #801 Find (MH-10): one field over every source, results as shelves with
     // source marks, a quiet line for a source still searching; a result opens
     // its detail, and Back returns to the results, then to the room.
+    // #829: Find could not be left from its field with the remote's Back;
+    // Up went to a hidden source picker.
+    function test_find_is_left_with_back_from_its_field() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        const find=findChild(view,"musicFind"),field=findChild(view,"musicSearch");
+        const enter=()=>{Ui.Focus.take(find);keyClick(Qt.Key_Return);compare(view.mode,"search");tryCompare(field,"activeFocus",true);};
+        // The empty field with no results: Back returns to the room.
+        enter();compare(room.searchShelves.length,0);
+        keyClick(Qt.Key_Back);compare(view.mode,"root");tryCompare(find,"activeFocus",true);
+        // Esc from the field leaves Find too.
+        enter();keyClick(Qt.Key_Escape);compare(view.mode,"root");
+        // Backspace in the field with text deletes and stays.
+        enter();field.text="fix";field.cursorPosition=3;keyClick(Qt.Key_Backspace);
+        compare(field.text,"fi");compare(view.mode,"search");verify(field.activeFocus);
+        // Up never moves focus to a hidden item.
+        keyClick(Qt.Key_Up);verify(field.activeFocus);compare(view.mode,"search");
+        // With the keyboard panel open, Back closes it first; the next Back
+        // leaves Find.
+        keyClick(Qt.Key_Return);tryCompare(view,"typing",true);
+        keyClick(Qt.Key_Back);tryCompare(view,"typing",false);compare(view.mode,"search");
+        tryCompare(field,"activeFocus",true);
+        keyClick(Qt.Key_Back);compare(view.mode,"root");compare(room.searchQuery,"");
+    }
     function test_find_searches_every_source() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
         const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);

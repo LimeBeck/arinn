@@ -42,7 +42,17 @@ pub struct Entity {
     pub artwork: String,
     pub duration_us: u64,
     pub available: bool,
+    /// When the entry joined the user's library, in Unix seconds; 0 when
+    /// the provider does not know. Optional on the wire (ADR-0142 MH-9):
+    /// shared shelves order ordinary entries by it, newest first.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub added_at: u64,
 }
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+/// 9999-12-31T23:59:59Z: a later date is a provider bug, not a library date.
+pub const MAX_ADDED_AT: u64 = 253_402_300_799;
 impl Entity {
     pub fn validate(&self) -> Result<(), ErrorCode> {
         validation::id(&self.id)?;
@@ -63,7 +73,7 @@ impl Entity {
         {
             return Err(ErrorCode::InvalidArgument);
         }
-        if self.duration_us > 31_536_000_000_000 {
+        if self.duration_us > 31_536_000_000_000 || self.added_at > MAX_ADDED_AT {
             return Err(ErrorCode::InvalidArgument);
         }
         Ok(())
@@ -433,5 +443,32 @@ mod tests {
         ] {
             assert!(entity(bad).validate().is_err(), "{bad}");
         }
+    }
+    /// #806: the date is optional on the wire, so JSON without it stays
+    /// valid, an unknown date is not sent, and an absurd one is rejected.
+    #[test]
+    fn added_at_is_optional_and_bounded() {
+        let old = r#"{"id":"track","kind":"track","title":"","artist":"","album":"","artwork":"","duration_us":0,"available":true}"#;
+        let entity: Entity = decode(old).unwrap();
+        assert_eq!(entity.added_at, 0);
+        assert!(!serde_json::to_string(&entity).unwrap().contains("added_at"));
+        let dated = Entity {
+            added_at: 1_762_400_000,
+            ..entity.clone()
+        };
+        let json = serde_json::to_string(&dated).unwrap();
+        assert!(json.contains(r#""added_at":1762400000"#));
+        assert!(decode::<Entity>(&json).unwrap() == dated);
+        assert!(dated.validate().is_ok());
+        let max = Entity {
+            added_at: MAX_ADDED_AT,
+            ..entity.clone()
+        };
+        assert!(max.validate().is_ok());
+        let late = Entity {
+            added_at: MAX_ADDED_AT + 1,
+            ..entity
+        };
+        assert!(late.validate().is_err());
     }
 }

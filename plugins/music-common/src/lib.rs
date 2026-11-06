@@ -25,6 +25,10 @@ pub struct Track {
     pub duration_us: u64,
     pub available: bool,
     pub embedded_artwork: bool,
+    /// When the track joined the library, in Unix seconds; 0 when unknown
+    /// (#806). Album and artist groups take their newest track's date.
+    #[serde(default)]
+    pub added_at: u64,
 }
 
 /// Keep provider metadata bounded and single-line even before wire validation.

@@ -105,6 +105,10 @@ struct StoredRecord {
     v: bool,
     #[serde(default, skip_serializing_if = "no")]
     w: bool,
+    /// First discovery, Unix seconds (#806). Older catalogues lack it; the
+    /// file's mtime is the best estimate for them.
+    #[serde(default, skip_serializing_if = "zero64")]
+    s: u64,
 }
 
 impl Serialize for Catalogue {
@@ -130,6 +134,7 @@ impl Serialize for Catalogue {
                         u: t.duration_us,
                         v: t.available,
                         w: t.embedded_artwork,
+                        s: t.added_at,
                     },
                 )
             })
@@ -162,6 +167,11 @@ impl<'de> Deserialize<'de> for Catalogue {
                     duration_us: r.u,
                     available: r.v,
                     embedded_artwork: r.w,
+                    added_at: if r.s == 0 {
+                        u64::try_from(r.f.1).unwrap_or(0)
+                    } else {
+                        r.s
+                    },
                     ..Track::default()
                 };
                 track.album_id = album_id(&r.r, &r.p, &track);
@@ -461,6 +471,14 @@ impl Catalogue {
                         };
                         track.id = id.clone();
                         track.album_id = album_id(&root.id, relative, &track);
+                        // A changed file keeps the date it was first found;
+                        // a new one is found now (#806).
+                        track.added_at = self
+                            .records
+                            .get(&id)
+                            .map(|r| r.track.added_at)
+                            .filter(|at| *at != 0)
+                            .unwrap_or_else(now);
                         self.records.insert(
                             id,
                             Record {
@@ -483,6 +501,12 @@ impl Catalogue {
         }
         Some(statuses)
     }
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 fn opaque(parts: &[&str]) -> String {
@@ -615,6 +639,52 @@ mod tests {
         assert_eq!(catalogue.tracks()[0].id, id);
         assert!(catalogue.tracks()[0].available);
     }
+    /// #806: a track keeps the date it was first found. A rescan and a
+    /// changed file keep it; a new file is dated at its discovery.
+    #[test]
+    fn first_discovery_date_survives_rescans_and_file_changes() {
+        let fixture = Fixture::new();
+        fs::write(fixture.path.join("a.flac"), b"one").unwrap();
+        let roots = [Root {
+            id: "root".into(),
+            path: fixture.path.clone(),
+        }];
+        let probe = FakeProbe(Cell::new(0));
+        let mut catalogue = Catalogue::default();
+        let before = now();
+        catalogue.scan(&roots, &probe);
+        let id = catalogue.tracks()[0].id.clone();
+        assert!(catalogue.tracks()[0].added_at >= before);
+        // Pretend it was found long ago, then rescan and change the file.
+        catalogue.records.get_mut(&id).unwrap().track.added_at = 1_700_000_000;
+        catalogue.scan(&roots, &probe);
+        assert_eq!(catalogue.tracks()[0].added_at, 1_700_000_000);
+        fs::write(fixture.path.join("a.flac"), b"changed, longer").unwrap();
+        catalogue.scan(&roots, &probe);
+        let changed = catalogue.tracks().into_iter().find(|t| t.id == id).unwrap();
+        assert_eq!(changed.added_at, 1_700_000_000);
+        fs::write(fixture.path.join("b.flac"), b"two").unwrap();
+        catalogue.scan(&roots, &probe);
+        let new = catalogue.tracks().into_iter().find(|t| t.id != id).unwrap();
+        assert!(new.added_at >= before);
+        // The date is persisted and read back.
+        let json = serde_json::to_string(&catalogue).unwrap();
+        let loaded: Catalogue = serde_json::from_str(&json).unwrap();
+        let reloaded = loaded.tracks().into_iter().find(|t| t.id == id).unwrap();
+        assert_eq!(reloaded.added_at, 1_700_000_000);
+    }
+    /// #806: a catalogue stored before the date existed dates each track by
+    /// its file's mtime instead of making every track new at once.
+    #[test]
+    fn a_catalogue_without_dates_uses_the_file_mtime() {
+        let (id, record) = synthetic(7);
+        let mut catalogue = Catalogue::default();
+        catalogue.records.insert(id.clone(), record);
+        let mut value = serde_json::to_value(&catalogue).unwrap();
+        value["records"][&id].as_object_mut().unwrap().remove("s");
+        let loaded: Catalogue = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.tracks()[0].added_at, 1_761_998_400);
+    }
     #[test]
     fn links_do_not_escape_roots_and_disc_folders_group_without_merging_other_albums() {
         let fixture = Fixture::new();
@@ -662,6 +732,7 @@ mod tests {
             number: (i % 12 + 1) as u32,
             duration_us: 241_000_000,
             available: true,
+            added_at: 1_762_400_000,
             ..Track::default()
         };
         let root = "2b0f6f0e-5d0c-4a59-9a3b-1c1e8d7f6a52".to_owned();

@@ -14,8 +14,8 @@ How the Music section and the music player fit the Hearth light concept. Issue [
 
 | File | Content |
 | --- | --- |
-| [`frames.html`](frames.html) | The nine frames of this brief, drawn on the 1920 × 1080 canvas. Add `#only=<frame id>` to the address to render one frame at full size. Fonts load from the network. |
-| [`screenshots/`](screenshots/) | 1920 × 1080 renders of the frames (`mh-*.png`; `mh-05` is 1920 × 700). |
+| [`frames.html`](frames.html) | The eleven frames of this brief, drawn on the 1920 × 1080 canvas. Add `#only=<frame id>` to the address to render one frame at full size. Fonts load from the network. |
+| [`screenshots/`](screenshots/) | 1920 × 1080 renders of the frames (`mh-*.png`; `mh-05` is 1920 × 700). `mh-01`, `mh-10` and `mh-11` show one room over two sources. |
 
 The frames are illustrations. Where a frame and the text below differ, the text applies. All track, artist, album and station names and all artwork are synthetic. The UI strings are Russian, as on the TV.
 
@@ -41,17 +41,19 @@ Music is not a service inside Arinn. It is what keeps burning in the room while 
 
 ## Owner decisions
 
-Given on 2026-11-06 in the Claude session of [#756](https://github.com/LimeBeck/arinn/issues/756). The comparison of directions A, B and C was shown to the owner as a review page; the frames of B and C are kept as `mh-08` and `mh-09`.
+Given on 2026-11-06 in the Claude session of [#756](https://github.com/LimeBeck/arinn/issues/756). The comparison of directions A, B and C was shown to the owner as a review page; the frames of B and C are kept as `mh-08` and `mh-09`. Later the same day, the owner found that a source switch still splits the room into modes. They chose one room over all sources (MH-1, MH-5, MH-9, MH-10) from a second review page.
 
 | ID | Decision |
 | --- | --- |
-| MH-1 | **Direction A, shelves.** The Music root is a Home-like room with a hero and shelves. Rejected: B (the section opens on the player, with the catalogue as a shelf below) and C (the current list restyled to the roles). |
+| MH-1 | **Direction A, shelves, one room for all sources.** The Music root is a Home-like room with a hero and shelves. The shelves gather entries from every connected source at once, and each entry shows where it comes from with a small source mark. Rejected:<br>• B, where the section opens on the player and the catalogue is a shelf below;<br>• C, the current list restyled to the roles;<br>• shelves labelled per source;<br>• music only as shelves on Home. |
 | MH-2 | **Continue card, variant 1.** A centred cover over its own blurred backdrop, a playing equaliser in a neutral chip and an Ember progress line. Rejected: a mini-player (cover on the left, time on the right) and a full-bleed cover, which crops a square cover by 44 %. |
 | MH-3 | **Player row.** Previous, play/pause and next, then the labelled pills *Like* and *Queue* and a *More* button. Dislike, *Radio from this track*, *Pin station* and *Stop* move to the *More* sheet. This replaces the layout B row selected on 2026-11-01. |
 | MH-4 | **Status area.** While music plays, an Ember dot and "track · artist" appear left of the clock. |
-| MH-5 | **Source.** One header control with a sheet. *Refresh* and *Disconnect* leave the browsing surface and move into that sheet. The decision first named *Settings › Music*. Settings has no such category, and its rows hold typed values, not actions (§5.6, [ADR-0065](../../../adr/0065-provider-settings-contract.md)). So the review of #799 moved the actions to the source sheet. The intent, no housekeeping on the browsing surface, is unchanged. |
+| MH-5 | **No source switch.** Browsing never selects a source. A *Sources* pill in the header opens a sheet with each source's state and its *Connect*, *Refresh* and *Disconnect* actions, off the browsing surface. Settings is not used: it has no Music category, and its rows hold typed values, not actions (§5.6, [ADR-0065](../../../adr/0065-provider-settings-contract.md)). |
 | MH-6 | **Stations on Favourites.** Stations can be pinned to the Favourites shelf on Home. |
 | MH-7 | **Quick menu.** While media plays, the *Now playing* row becomes a media card with transport and *Open player*. |
+| MH-9 | **Order on shared shelves.** Personal selections come first: entries a streaming source offers as made for the user, such as My Wave or a personal mix, ahead of ordinary entries. This holds for every source that offers them, current and future. The ordinary entries follow by date, newest first. |
+| MH-10 | **Search and lists cover every source.** *Find* searches all connected sources at once. In the full *All* lists, the source is a filter ("All · This computer · <service>"), not a mode. It starts at *All* every time. Identical items from two sources are **not** merged in this version: each keeps its own card and mark. |
 | MH-8 | **Ambient during music.** Automatic Ambient may start while music plays, and it shows the current track. It still does not start while video or other media plays. This changes [specification §5.7](../../../specifications/arinn-specification.md#57-system-ui-power-and-ambient). Until now the rule was violated by accident (M4). |
 
 ## Screens
@@ -64,19 +66,31 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
 - **Hero** (x 120, y 150, fixed height 240), as on Home. It describes the focused item and never repeats the row label.
   - The eyebrow names the kind: "Station", "Album · 2024", "Playlist · 42 tracks" or "Artist". An Ember dot plus "playing" is added when the item is the one that plays.
   - Below it come the title in Playfair Display 96 (68 on two lines) and a meta line of 28.
-- **Header controls** on the right of the hero line: the source control (MH-5) and a *Find* pill.
-  - The source control is an action pill with the source name and a chevron. It opens a right-hand sheet that lists the sources with their connection state and a check on the current one (M11).
-  - Each source row in the sheet holds that source's housekeeping as pills, by capability: *Connect*, *Refresh* and *Disconnect* (MH-5). *Disconnect* asks for confirmation, with Cancel as the initial focus. A provider's typed settings, such as local music folders, stay in their Settings category.
-  - *Find* opens the music search screen, laid out like *Site or search*.
-- **Shelves**, in this order. A shelf the source cannot supply is absent, not empty.
-  1. *Stations*: My Wave, mixes and pinned stations as 16:9 cards 448 × 252. The playing station shows the playing chip (see *Continue card*).
+- **Header controls** on the right of the hero line: a *Sources* pill and a *Find* pill (MH-5).
+  - *Sources* opens a right-hand sheet 720 wide that lists every music source: its name, its icon in the neutral chip and its state (connected, needs sign-in, scanning, unavailable with a reason) (M11).
+  - Each row holds that source's housekeeping as pills, by capability: *Connect*, *Refresh* and *Disconnect*. *Disconnect* asks for confirmation, with Cancel as the initial focus.
+  - The sheet never filters what the room shows. A provider's typed settings, such as local music folders, stay in their Settings category.
+  - *Find* opens the music search screen (`mh-10`).
+- **Shelves** gather entries from every connected source (MH-1), in this order. A shelf no source can supply is absent, not empty.
+  1. *Stations*: personal stations and mixes, pinned stations, and a source's station over the user's own music (for local music, "All my music, shuffled"), as 16:9 cards 448 × 252. The playing station shows the playing chip (see *Continue card*).
   2. *For you*: personal playlists, square covers 240 × 240, r12.
   3. *Albums*: square covers 240 × 240.
   4. *Artists*: round portraits 240, with a neutral chip and initial when there is no portrait.
   5. *Recent tracks*: a short shelf of square covers. Selecting one plays it in the context it came from.
-- **Each shelf ends with an *All* tile.** It opens the full list or grid for that facet: the former facet screens, now in container rows.
+- **Source mark.** Every caption starts its subtitle with the source's line icon, 22 px in `text-3`: a cloud for a streaming service, a drive for this computer. The detail and *Now playing* name the source in words in their eyebrow. With only one connected source the mark is still shown, so the meaning does not change when a second source is added.
+- **Order (MH-9).** On every shelf:
+  - personal entries come first: what a provider returns in its `selections` facet, in that provider's own order. With several such providers, the providers follow the order of the *Sources* sheet;
+  - ordinary entries follow by date, newest first.
+  - The protocol's `Entity` has no date yet. Adding an optional date is a separate `contract-change` task. Until it lands, ordinary entries keep each provider's own order, and the shelf takes one entry from each provider in turn.
+- **Late sources.** A source that answers later adds its entries without moving focus. Entries arrive before the focused one only while the shelf has no focus.
+- **No merging (MH-10).** An album or artist present in two sources appears twice, each with its own mark. Playing always uses the source of the card: a queue never mixes sources.
+- **Each shelf ends with an *All* tile.** It opens the full grid or list for that facet (`mh-11`).
+  - The view has text tabs "All · This computer · <each connected service>". The selected tab carries the Ember dot. It starts at *All* each time.
+  - It offers *By date* and *A–Z* order.
+  - Lists use container rows; grids use the shelf covers.
 - **Light.** Rows follow the Hearth light rules: the focused row at 0.82, other rows at 0.62, the floor light on, the pool keyed to the focused artwork.
-- **First use.** With no connected source, the hero explains the next step ("Connect a source") and offers that one action. The shelves stay absent. Arinn never shows an empty connected library.
+- **First use.** With no connected source, the hero explains the next step ("Connect a source") and offers that one action, which opens the *Sources* sheet. The shelves stay absent. Arinn never shows an empty connected library.
+- **A source drops out.** Its entries leave the shelves; focus moves to the nearest surviving entry. The *Sources* sheet says why. A playing session is not interrupted by browsing.
 
 ### Album, playlist and artist detail (`mh-02`)
 
@@ -92,7 +106,16 @@ Tracks are container rows r20 with the number, the title, the artist when it dif
 - The row that plays carries the playing equaliser in place of its number.
 - An unavailable track stays readable and says why.
 
-An artist detail uses the same frame: a round portrait, then shelves of releases and tracks. A shelf the source cannot supply is absent.
+An artist detail uses the same frame: a round portrait, then shelves of releases and tracks. A shelf the source cannot supply is absent. The eyebrow names the source in words ("Album · 2024 · This computer").
+
+### Search (`mh-10`)
+
+- **One field for every connected source** (MH-10), laid out like *Site or search*: the rim in focus, Onest text and an Ember caret (M9). A line under the field says where it searches: "Searching everywhere: this computer and <service>".
+- **Results** come as shelves *Artists*, *Albums* and *Tracks*, each entry with its source mark.
+  - Results are not merged. Within a shelf, they are ordered by the source's own relevance, one source after another in turn.
+  - A source that is still answering adds a quiet line, "<service> is still searching…", not a full-screen spinner.
+  - Late results never move focus.
+- **Back** closes the keyboard first, then returns to the root with the focused entry restored.
 
 Back restores the opening entity on the root or in the list (M16).
 
@@ -184,6 +207,11 @@ A right-hand sheet 720 wide.
 - **Open player** opens *Now playing* for music, or the video player for video. Back from there returns to the sheet.
 - **Video.** The same card shows a video session: the poster in place of the cover, the episode in place of the artist.
 - **Without a session** the existing single row stays. The card is fed by the music session as well as by media sessions (M2).
+- **Two sessions at once.** A media session (a browser tab, a video player) and the music session can both exist.
+  - The card shows the one that plays. If both play or both are paused, it shows the one whose playback state changed last.
+  - Its transport and *Open player* act only on the session it shows.
+  - The other session is a compact container row under the card, 624 × 88: its artwork 56, title, state and its own play/pause. OK on the row toggles that session. When that session becomes the one that changed last, the two swap places.
+  - No product or provider is preferred.
 
 **Ambient (`mh-07`; MH-8).** It follows the Ambient section of the Hearth light brief:
 - black, the clock in Playfair Display 220 at the lower left, the date in Onest 30, the block drifting against burn-in.
@@ -206,9 +234,9 @@ The Music item in global navigation uses a music note line icon (`music_note`), 
 | M2, M3 | *Presence*: Quick menu and Continue card |
 | M4 | MH-8: dropped as a bug; Ambient during music is intended |
 | M5, M6, M8, M19 | *Dialogs and states* |
-| M9 | The search screen, laid out like *Site or search*: the rim on the field, Onest text and an Ember caret |
+| M9 | *Search* |
 | M10, M13, M14, M15, M18 | *Now playing* |
-| M11 | The source control and its sheet |
+| M11 | The *Sources* sheet (MH-5) |
 | M12, M17 | Container rows in the detail and the Queue |
 | M16 | Back rules in the detail, Queue and *More* |
 | M20 | Top bar and screen chrome on the Music root |
@@ -219,7 +247,10 @@ M1, M7 and M22–M27 are implementation defects that this brief does not change.
 ## What is not changing
 
 - **Behaviour.** Sources, capabilities, the provider-owned playback and credentials, the queue replacement confirmation and the privacy rules of the earlier [music brief](../../music-design-brief.md) and [§5.3.1](../../../specifications/arinn-specification.md#531-native-music-owner-requested-extension) stay.
-- **Contract.** The music protocol ([`docs/plugin-api/music.md`](../../../plugin-api/music.md)) is not changed by this brief. A field that a screen needs and the protocol lacks is a separate `contract-change` task.
+- **Contract.** The music protocol ([`docs/plugin-api/music.md`](../../../plugin-api/music.md)) is not changed by this brief.
+  - The shell gathers the shelves and search results by asking each provider with `GetPage`.
+  - Personal entries come from the existing `selections` facet.
+  - One optional field is needed later: a date on `Entity` for MH-9. It is a separate `contract-change` task, and so is any other field a screen needs that the protocol lacks.
 - **Video.** The video player and its OSD are out of scope.
 
 ## Verification

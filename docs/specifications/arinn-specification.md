@@ -209,9 +209,12 @@ No online metadata source is selected by this increment.
 
 The music extension provides one native interface with provider selection,
 track/album/artist/playlist browsing, search and an independent background audio
-session. The Music section is laid out like Home: a hero over shelves of
-stations, personal playlists, albums, artists and recent tracks, with the source
-as one header control. The player row holds previous, play/pause and next, plus
+session. The Music section is one room for all connected sources, laid out like
+Home: a hero over shelves of stations, personal playlists, albums, artists and
+recent tracks. Each entry shows its source with a small mark. Browsing never
+selects a source: personal selections of every source come first, then the rest
+by date, and search covers every connected source. Identical items from two
+sources are not merged, and a queue never mixes sources. The player row holds previous, play/pause and next, plus
 Like, Queue and More; More opens a sheet with the other actions. Owner decision on 2026-11-06
 ([ADR-0142](../adr/0142-music-in-hearth-light.md)), replacing the single-row
 layout B selected in #707/#710. Browsing
@@ -289,7 +292,7 @@ current Activity, without the fullscreen Home. Its keys are `quick_menu_shortcut
 in `config.toml` and the remote's Menu key, owned by the platform layer like the
 Home keys ([§6.2](#62-keys)). The sheet holds, in this order:
 
-- **Now playing:** the current media session (`Media1`) or native music session (§5.3.1) with play/pause. While one plays or is paused, the row is a media card with the artwork, the title, progress, previous, play/pause, next and *Open player*, focus on play/pause (owner decision on 2026-11-06, [ADR-0142](../adr/0142-music-in-hearth-light.md));
+- **Now playing:** the current media session (`Media1`) or native music session (§5.3.1) with play/pause. While one plays or is paused, the row is a media card with the artwork, the title, progress, previous, play/pause, next and *Open player*, focus on play/pause. When both a media session and the music session exist, the card shows the one that plays; if both play or both are paused, the one whose playback state changed last. The card's transport and *Open player* always act on the session it shows. The other session appears as one compact row under the card, with its title, state and its own play/pause. No product or provider is preferred (owner decision on 2026-11-06, [ADR-0142](../adr/0142-music-in-hearth-light.md));
 - **volume and mute** of the default audio output, executed by the platform layer;
 - **network status** (`SystemStatus1`);
 - **Sleep** and the **power menu**, as described under *Power* below;

@@ -17,7 +17,7 @@ When the owner reviewed the running Music section on the TV on 2026-11-06, they 
 - The player row has ten unlabelled icons.
 - Music is invisible outside the section, although it is the one activity that keeps playing while the user moves around Arinn.
 
-The owner compared three directions on a review page: A, shelves; B, the player first; C, a restyle of the current list. They chose A, then settled the remaining points.
+The owner compared three directions on a review page: A, shelves; B, the player first; C, a restyle of the current list. They chose A, then settled the remaining points. A source switch in the header still made sources into modes. A second review page compared four variants: one room with source marks; shelves labelled per source; one card per item, with duplicates merged across sources; and music only as shelves on Home. The owner chose the first, without merging, as the simplest step.
 
 One finding, M4, turned out to be a product question rather than a bug. Automatic Ambient starts while music plays. Specification §5.7 forbids that, but it is how music is usually listened to on a TV.
 
@@ -27,13 +27,15 @@ The [music Hearth light brief](../design/briefs/music-hearth-light/README.md) an
 
 | ID | Decision |
 | --- | --- |
-| MH-1 | The Music root is a Home-like room: a hero describing the focused item, then shelves of Stations, For you, Albums, Artists and Recent tracks. Album, playlist and artist detail is built like the movie detail. |
+| MH-1 | The Music root is one Home-like room for all connected sources: a hero describing the focused item, then shelves of Stations, For you, Albums, Artists and Recent tracks. Every entry carries a small source mark. Album, playlist and artist detail is built like the movie detail. |
 | MH-2 | The music Continue card shows a centred cover over its own blurred backdrop, a playing equaliser in a neutral chip and an Ember progress line. |
 | MH-3 | The player row is previous, play/pause (the default focus) and next, then the labelled pills *Like* and *Queue* and a *More* button that opens a sheet with the other actions. The Menu key keeps its meaning (§6.2). This replaces layout B. |
 | MH-4 | While music plays, the status area shows an Ember dot and "track · artist". |
-| MH-5 | The source is one header control with a sheet. *Refresh*, *Connect* and *Disconnect* live in that sheet, off the browsing surface. Settings has no Music category and holds no actions (§5.6, [ADR-0065](0065-provider-settings-contract.md)). |
+| MH-5 | Browsing never selects a source; there is no source switch. A *Sources* pill opens a sheet with each source's state and its *Connect*, *Refresh* and *Disconnect* actions. Settings has no Music category and holds no actions (§5.6, [ADR-0065](0065-provider-settings-contract.md)). |
 | MH-6 | Stations can be pinned to the Favourites shelf on Home. |
-| MH-7 | While media plays or is paused, the Quick menu's *Now playing* row is a media card with previous, play/pause, next and *Open player*. It is fed by the music session as well as by media sessions. |
+| MH-7 | While media plays or is paused, the Quick menu's *Now playing* row is a media card with previous, play/pause, next and *Open player*. It is fed by the music session as well as by media sessions. When both exist, the card shows the one that plays, otherwise the one whose state changed last. Its controls act only on the session it shows. The other session is a compact row under it with its own play/pause. No product is preferred. |
+| MH-9 | On shared shelves, personal selections come first, from every streaming source that offers them (what a provider returns in its `selections` facet, such as My Wave). Ordinary entries follow by date, newest first. The date needs an optional `Entity` field: a separate `contract-change` task. Until then, each provider's own order is kept and providers alternate. |
+| MH-10 | *Find* searches every connected source at once. Full lists filter by source ("All · This computer · <service>") without making it a mode. Identical items from two sources are not merged in this version, and a queue never mixes sources. |
 | MH-8 | Automatic Ambient may start while music plays, and Ambient shows the current track. It still must not start while video or other media plays, or while an external Activity is in the foreground. |
 
 Music uses the existing Hearth light tokens, light, focus and shape roles, and introduces no visual language of its own. The playing equaliser is the one new mark: three Ember bars, still under reduced motion. It is a status mark like the Ember dot, never a focus mark.
@@ -46,6 +48,7 @@ Music uses the existing Hearth light tokens, light, focus and shape roles, and i
   - §5.7 changes the Quick menu row and the Ambient rule.
   - §15 lists the brief in the design contract.
 - **Shell.**
+  - The shell gathers shelves and search results from every connected provider (`GetPage` per provider), orders them by MH-9 and never moves focus when a late source answers.
   - The shell needs a music Continue projection, a status-area binding, a Quick menu media card that reads both catalogues, an Ambient track line and pinned station items on the Favourites shelf.
   - The Music section is rebuilt around shelves.
 - **Owner-gated pieces.** Pins need persistent storage. Whether that is a shell preference or a provider capability is a technical choice for its task. If it needs a protocol field, it is a separate `contract-change` task.
@@ -57,6 +60,10 @@ Music uses the existing Hearth light tokens, light, focus and shape roles, and i
 - **B, the player first.** The section opens on *Now playing*, with the catalogue as a shelf below. It suits station listening, but it starts from an empty player when nothing plays and handles large catalogues poorly.
 - **C, restyle the current structure.** It is cheap and compatible with the queued fixes, but the section keeps reading as a service's catalogue.
 - **Continue card variants.** A mini-player with the cover on the left and the time on the right was rejected because its right half stays half empty. A full-bleed cover was rejected because it crops a square cover by 44 %.
+- **A source switch (the first version of MH-5).** It turns each source into a mode the user has to choose before browsing.
+- **Shelves labelled per source.** The room is still split by source, only vertically, and grows with every source.
+- **Merging identical items across sources.** Matching by metadata fails on remasters and editions, and an album drawn from two sources would need a mixed queue, which the protocol does not support. It stays a possible later step.
+- **Music only as shelves on Home.** Home would no longer fit one screen (§5.1).
 - **Keeping the §5.7 ban on Ambient during music.** It would make the owner's usual listening setup impossible without a manual start every time.
 
 ## Verification

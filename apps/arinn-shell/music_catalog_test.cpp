@@ -1288,6 +1288,11 @@ private slots:
     catalog.transport("stop");
     QVERIFY(catalog.transportBusy());
     catalog.syncProviderPin("local", "station:wave", true);
+    // A malformed answer is not the session after Stop: still no pin
+    // (Codex review of #836).
+    daemon.active = QStringLiteral("{}");
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 3);
     daemon.active = QStringLiteral("null");
     QTRY_VERIFY(catalog.activeState().isEmpty());
     QTest::qWait(100);

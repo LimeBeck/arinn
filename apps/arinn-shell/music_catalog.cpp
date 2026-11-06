@@ -554,11 +554,14 @@ void MusicCatalog::readActive() {
           m_commandBusy = m_commandWaitingRefresh = false;
           emit statusChanged();
         }
-        m_activeSeen = std::max(m_activeSeen, commandsDone);
+        // Only a valid answer, a session or none, counts as the session after
+        // the command; a malformed one leaves the mirror waiting (Codex
+        // review of #836).
         if (reply.arguments().first().toString() == QStringLiteral("null")) {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
+          m_activeSeen = std::max(m_activeSeen, commandsDone);
           emit activeChanged();
           return;
         }
@@ -568,6 +571,7 @@ void MusicCatalog::readActive() {
         m_active = json.value("state").toObject().toVariantMap();
         m_activeId = json.value("provider_id").toString();
         m_activeGeneration = json.value("generation").toString();
+        m_activeSeen = std::max(m_activeSeen, commandsDone);
         QString path;
         for (const auto &row : m_sources) {
           const auto source = row.toMap();

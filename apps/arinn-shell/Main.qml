@@ -793,6 +793,13 @@ Window {
     // A pinned station whose source is not connected, or which the source
     // no longer knows, stays on the shelf, unavailable with the reason; it
     // never starts another station (music brief, Favourites; #804).
+    // The [provider, station] pairs Home holds, from the stored targets: a
+    // pin whose MusicPins1 record is not read yet, or failed, is a
+    // placeholder row that still carries them (Codex review of #836).
+    function pinnedMusicStations(favorites) {
+        return favorites.filter(entry => entry.capability === "music-station")
+                        .map(entry => [entry.providerId, entry.localId]);
+    }
     // The music room polls its sources' states while the music screen shows,
     // and while Home shows a pinned station, whose availability follows the
     // account (#804).
@@ -1371,8 +1378,7 @@ Window {
             catalog: musicCatalog
             room: musicRoom
             objectName: "productionMusic"
-            pinnedStations: backend.favorites.filter(entry => entry.musicStation)
-                                              .map(entry => [entry.providerId, entry.stationId])
+            pinnedStations: root.pinnedMusicStations(backend.favorites)
             pinsWritable: backend.favoritesReady === true && backend.favoriteSaving !== true
             onStationPinRequested: (providerId, stationId, title, artwork, pinned) => {
                 if (pinned) backend.pinMusicStation(providerId, stationId, title, artwork);

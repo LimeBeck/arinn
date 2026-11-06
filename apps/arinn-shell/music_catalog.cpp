@@ -740,6 +740,13 @@ QString MusicCatalog::artworkUrl(const QString &providerId,
 }
 void MusicCatalog::syncProviderPin(const QString &providerId,
                                    const QString &stationId, bool pinned) {
+  // Only the playing station's change is kept: one favorites read may
+  // report several stations, and another station's must not replace a
+  // mirror still waiting (Codex review of #836).
+  if (m_activeId != providerId ||
+      m_active.value(QStringLiteral("station")).toMap().value(QStringLiteral("id")).toString() !=
+          stationId)
+    return;
   m_pinMirror = PinMirror{providerId, stationId, pinned};
   mirrorPin();
 }

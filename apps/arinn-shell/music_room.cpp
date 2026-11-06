@@ -221,6 +221,7 @@ void MusicRoom::readState(const QString &id) {
               publishSources();
               if (had)
                 rebuild();
+              publishLoading();
               return;
             }
             const auto state = json.toVariantMap();
@@ -283,6 +284,7 @@ void MusicRoom::readState(const QString &id) {
               readNext(id);
             }
             publishSources();
+            publishLoading();
           });
 }
 
@@ -537,9 +539,11 @@ void MusicRoom::rebuild() {
   QVariantList shelves;
   bool dated = false;
   for (const auto &shelf : shelfDefs) {
-    const auto entries = gather(QLatin1String(shelf.id), QString(), shelf.limit);
-    for (const auto &entry : entries)
+    // Dates count over everything read, not only the shelf preview: the All
+    // list orders those too (Codex review of #812).
+    for (const auto &entry : gather(QLatin1String(shelf.id), QString(), 0))
       dated = dated || entry.toMap().value("added_at").toULongLong() > 0;
+    const auto entries = gather(QLatin1String(shelf.id), QString(), shelf.limit);
     if (entries.isEmpty())
       continue;
     shelves.append(QVariantMap{{"id", QLatin1String(shelf.id)},
@@ -552,14 +556,18 @@ void MusicRoom::rebuild() {
   m_dated = dated;
   if (changed)
     emit shelvesChanged();
-  // The empty states follow `loading`; it changes with pages that leave
-  // the shelves as they were (review of #812).
+  publishLoading();
+  emit listChanged();
+}
+
+// The empty states follow `loading`; it changes with pages that leave the
+// shelves as they were, and with state answers (reviews of #812).
+void MusicRoom::publishLoading() {
   const bool loading = this->loading();
   if (loading != m_loading) {
     m_loading = loading;
     emit loadingChanged();
   }
-  emit listChanged();
 }
 
 QVariantList MusicRoom::list(const QString &shelf, const QString &source,
@@ -636,10 +644,15 @@ bool MusicRoom::connected() const {
 // First pages not read yet. A facet that is read again (a new revision, a
 // retry) stays loaded, so the room does not go back to its placeholders.
 bool MusicRoom::loading() const {
-  for (const auto &[id, source] : m_sources)
+  for (const auto &[id, source] : m_sources) {
+    // A source that has not answered its state yet is still loading, so the
+    // room shows its placeholders, not a blank screen (Codex review).
+    if (source.ready && !source.answered)
+      return true;
     for (const auto &[name, facet] : source.facets)
       if (!facet.loaded)
         return true;
+  }
   return false;
 }
 
@@ -689,6 +702,7 @@ QVariantList MusicRoom::sources() const {
                             {"account", account},
                             {"status", status},
                             {"reason", reason},
+                            {"error", source.commandError},
                             {"actions", actions},
                             {"prompt", source.state.value("prompt")},
                             {"busy", source.commandBusy},
@@ -711,6 +725,7 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
       !source.state.value("actions").toStringList().contains(action))
     return;
   source.commandBusy = true;
+  source.commandError.clear();
   publishSources();
   const auto generation = source.generation;
   const QJsonObject payload{
@@ -738,6 +753,15 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
                 found->second.generation != generation)
               return;
             found->second.commandBusy = false;
+            // A refused command says so in the Sources sheet (Codex review).
+            const auto reply = watch->reply();
+            const auto failure = reply.errorName().section('.', -1);
+            found->second.commandError =
+                object(reply).isEmpty()
+                    ? (failure == QLatin1String("Timeout")
+                           ? tr("The source did not respond. Try again.")
+                           : tr("The source could not do that. Try again."))
+                    : QString();
             publishSources();
             // The confirmed state, catalogue included, is read again.
             readState(id);

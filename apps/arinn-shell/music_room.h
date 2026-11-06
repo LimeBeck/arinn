@@ -115,6 +115,8 @@ private:
     bool stateBusy = false, stateFailed = false, commandBusy = false,
          answered = false;
     QString stateError;
+    // Why the last housekeeping command failed; cleared by the next one.
+    QString commandError;
     quint64 catalogueRevision = 0, ticket = 0;
     std::map<QString, Facet> facets;
     QStringList pending;
@@ -124,6 +126,7 @@ private:
   void readPage(const QString &id, const QString &facet, bool append);
   void rebuild();
   void publishSources();
+  void publishLoading();
   QVariantList gather(const QString &shelf, const QString &source,
                       int limit) const;
   QPointer<QObject> m_catalog;

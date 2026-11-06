@@ -426,6 +426,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoom</name>
     <message>
+      <source>The source did not respond. Try again.</source>
+      <translation>Источник не ответил. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+      <source>The source could not do that. Try again.</source>
+      <translation>Источник не смог выполнить действие. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
       <source>Stations</source>
       <translation>Станции</translation>
     </message>

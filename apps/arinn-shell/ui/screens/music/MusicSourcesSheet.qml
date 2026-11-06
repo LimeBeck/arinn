@@ -218,6 +218,17 @@ FocusScope {
                             }
                         }
                     }
+                    // A command the source refused says so (Codex review).
+                    Ui.UiText {
+                        objectName: "musicSourceError"
+                        width: parent.width
+                        visible: text.length > 0
+                        role: "meta"
+                        color: Ui.Theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        textFormat: Text.PlainText
+                        text: sourceRow.modelData.error || ""
+                    }
                     // A pending sign-in shows where to confirm and its code.
                     Ui.UiText {
                         objectName: "musicSourcePrompt"

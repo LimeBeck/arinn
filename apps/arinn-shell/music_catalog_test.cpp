@@ -303,6 +303,13 @@ private slots:
     room.sourceCommand("account", "scan");
     room.sourceCommand("account", "disconnect");
     QTRY_COMPARE(daemon.commands, QStringList{"disconnect"});
+    QTRY_VERIFY(!room.sources().at(1).toMap().value("busy").toBool());
+    QVERIFY(room.sources().at(1).toMap().value("error").toString().isEmpty());
+    // Codex review of #812: a refused command says so in the sheet.
+    daemon.commandError = QStringLiteral("Unavailable");
+    room.sourceCommand("account", "disconnect");
+    QTRY_VERIFY(!room.sources().at(1).toMap().value("error").toString().isEmpty());
+    daemon.commandError.clear();
     // Review of #812: a new catalogue revision keeps the source's cards
     // until its new first pages replace them, so none leave and return.
     {
@@ -418,6 +425,35 @@ private slots:
     QCOMPARE(room.list("albums").size(), 1);
     daemon.pageError.clear();
     QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 2, 20000);
+  }
+  // Codex review of #812: a source that has not answered its state counts
+  // as loading, and `dated` sees dates past a shelf's preview.
+  void roomLoadsUntilStatesAnswerAndSeesDatesBeyondThePreview() {
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    daemon.states["local"] = state({"selections", "albums"});
+    QJsonArray mine;
+    for (int i = 0; i < 30; ++i)
+      mine.append(QJsonObject{{"id", QStringLiteral("album:mine%1").arg(i)}, {"kind", "album"},
+                              {"title", QStringLiteral("Mine %1").arg(i)}, {"available", true}});
+    daemon.pages["local/selections"] = mine;
+    daemon.pages["local/albums"] = QJsonArray{QJsonObject{
+        {"id", "album:dated"}, {"kind", "album"}, {"title", "Dated"}, {"available", true},
+        {"added_at", 1700000000}}};
+    MusicCatalog catalog;
+    MusicRoom room;
+    // The moment the source is known, before its state answers, the room is
+    // loading.
+    int seen = -1;
+    connect(&room, &MusicRoom::sourcesChanged, this, [&] {
+      if (seen < 0 && !room.sources().isEmpty())
+        seen = room.loading() ? 1 : 0;
+    });
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(seen >= 0);
+    QCOMPARE(seen, 1);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QVERIFY(room.dated());
   }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.

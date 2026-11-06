@@ -173,6 +173,12 @@ impl Api {
                 entries.push(Entity {
                     id: format!("{kind}:{id}"),
                     kind: kind.into(),
+                    // Its own image, when the result names one (#825).
+                    artwork: if parse::cover_reference(item).is_some() {
+                        format!("{kind}-cover:{id}")
+                    } else {
+                        String::new()
+                    },
                     title: arinn_music_common::text(
                         item[if kind == "artist" { "name" } else { "title" }]
                             .as_str()

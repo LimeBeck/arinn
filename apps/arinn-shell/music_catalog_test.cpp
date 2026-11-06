@@ -325,6 +325,7 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
+    QVERIFY(catalog.homeEntries().first().toMap().value("live").toBool());
   }
   // A station tells a continuous station from an album on the Home card
   // (#756 M24).

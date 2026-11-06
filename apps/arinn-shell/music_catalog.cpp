@@ -136,6 +136,7 @@ QVariantList MusicCatalog::homeEntries() const {
                                                 : QStringLiteral("play")},
                       {"secondaryText", playing ? tr("Pause") : tr("Play")},
                       {"secondaryEnabled", playing || paused},
+                      {"live", playing || paused},
                       {"busy", m_commandBusy}}};
 }
 void MusicCatalog::fail(const QString &value) {

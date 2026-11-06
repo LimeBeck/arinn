@@ -528,8 +528,9 @@ impl Playback {
         }
     }
     async fn load_current(self: &Arc<Self>, mut token: u64) {
-        // A station may skip its loaded window, never loop indefinitely if
-        // a provider keeps refilling it with tracks that cannot be loaded.
+        // Bound immediate resolve/load-command retries so refills cannot
+        // create a synchronous hot loop. Deferred native errors are handled
+        // by the paced session poll, which may continue through later batches.
         for attempt in 0..=crate::queue::MAX_UPCOMING {
             let Some(next) = self
                 .load_current_once(token, attempt < crate::queue::MAX_UPCOMING)
@@ -625,6 +626,10 @@ impl Playback {
         next
     }
     fn advance_after_failure(&self, d: &mut Data, can_skip: bool) -> Option<u64> {
+        if let Some(skipped) = event(d, EventKind::Skipped) {
+            let _ = self.events.send(skipped);
+            d.started = None;
+        }
         d.loaded = false;
         d.status = "stopped".into();
         d.waiting_end = d.station.is_some();
@@ -1393,6 +1398,9 @@ for line in stream:
   stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"error"}\n')
  if loaded and not failed and not ready and (root/'ready').exists():
   ready=True;stream.write(b'{"event":"file-loaded"}\n')
+ if ready and not failed and (root/'reject-after-ready').exists():
+  (root/'reject-after-ready').unlink();failed=True
+  stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"error"}\n')
  if ready and not ended and (root/'end').exists():
   ended=True;stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"eof"}\n')
  if command[0]=='get_property':
@@ -1653,6 +1661,83 @@ for line in stream:
         fixture.close().await;
     }
 
+    #[tokio::test]
+    async fn a_ready_track_that_fails_emits_one_skip_with_played_time() {
+        for (command, exhausted) in [(false, false), (true, false), (false, true), (true, true)] {
+            let fixture = LoadFixture::new(Arc::new(FixtureResolver));
+            fixture.flag("ready");
+            let mut events = fixture.playback.subscribe();
+            let ids: &[&str] = if exhausted {
+                &["bad"]
+            } else {
+                &["bad", "good"]
+            };
+            let initial = fixture.start(true, ids).await;
+            fixture.wait(|state| state.playback == "playing").await;
+            let started = events.recv().await.unwrap();
+            assert_eq!(started.kind, EventKind::Started);
+            assert_eq!(started.track, "bad");
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            if command {
+                fixture.flag("reject-on-command");
+                fixture
+                    .playback
+                    .command(&radio_command("pause", &initial.session))
+                    .await
+                    .unwrap();
+            } else {
+                fixture.flag("reject-after-ready");
+            }
+            let after = fixture
+                .wait(|state| {
+                    if exhausted {
+                        state.playback == "stopped" && state.error.is_some()
+                    } else {
+                        state.playback == "playing"
+                            && state.current.as_ref().is_some_and(|e| e.track.id == "good")
+                    }
+                })
+                .await;
+            let skipped = tokio::time::timeout(std::time::Duration::from_secs(2), events.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(skipped.kind, EventKind::Skipped);
+            assert_eq!(skipped.occurrence, started.occurrence);
+            assert_eq!(skipped.batch, started.batch);
+            assert_eq!(skipped.track, "bad");
+            assert!(skipped.played_us > 0);
+            if exhausted {
+                let request = fixture.playback.begin_radio_refill(false).await.unwrap();
+                fixture
+                    .playback
+                    .apply_radio_refill(
+                        request,
+                        vec![Track {
+                            id: "good".into(),
+                            available: true,
+                            ..Track::default()
+                        }],
+                        "refill-batch".into(),
+                    )
+                    .await
+                    .unwrap();
+                fixture.wait(|state| state.playback == "playing").await;
+            } else {
+                assert_eq!(after.error, None);
+            }
+            let recovered = events.recv().await.unwrap();
+            assert_eq!(recovered.kind, EventKind::Started);
+            assert_eq!(recovered.track, "good");
+            assert_eq!(
+                recovered.batch,
+                if exhausted { "refill-batch" } else { "batch" }
+            );
+            assert!(events.try_recv().is_err());
+            fixture.close().await;
+        }
+    }
+
     struct SlowAfterFailure {
         started: tokio::sync::Notify,
         dropped: Arc<std::sync::atomic::AtomicBool>,
@@ -1761,7 +1846,7 @@ for line in stream:
         }
     }
     #[tokio::test]
-    async fn a_station_bounds_failed_loads_even_if_the_provider_keeps_refilling() {
+    async fn a_station_bounds_immediate_failed_loads_even_if_the_provider_keeps_refilling() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         let resolver = Arc::new(RefillingFailure {
             playback: std::sync::Mutex::new(Weak::new()),

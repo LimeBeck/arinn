@@ -98,6 +98,56 @@ TestCase {
         verify(child("entry-b") === b, "a changed entry updated its card");
     }
 
+    // #833: Right enters an inline control once, then reaches the row again.
+    SignalSpy { id: rowEdges; signalName: "edge" }
+    function test_secondary_action_does_not_trap_dpad_focus() {
+        row.entries = [
+            {id: "music", kind: "music", title: "Fixture track", secondaryIcon: "pause", secondaryText: "Pause"},
+            {id: "disabled", title: "Unavailable", enabled: false},
+            {id: "next", title: "Next card", secondaryIcon: "play", secondaryText: "Play"}
+        ];
+        tryCompare(row, "count", 3);
+        const music = child("entry-music");
+        const pause = findChild(music, "cardSecondaryAction");
+        const next = child("entry-next");
+        const play = findChild(next, "cardSecondaryAction");
+        rowEdges.target = row;
+        rowEdges.clear();
+
+        music.forceActiveFocus();
+        tryCompare(music, "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        tryCompare(pause, "activeFocus", true);
+        compare(row.selectedId, "music");
+        keyClick(Qt.Key_Left);
+        tryCompare(music, "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        tryCompare(pause, "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        tryCompare(next, "activeFocus", true);
+        compare(row.selectedId, "next");
+        compare(rowEdges.count, 0);
+
+        // The final inline control reaches the normal right edge.
+        keyClick(Qt.Key_Right);
+        tryCompare(play, "activeFocus", true);
+        keyClick(Qt.Key_Right);
+        compare(rowEdges.count, 1);
+        compare(rowEdges.signalArguments[0][0], Qt.Key_Right);
+        compare(play.activeFocus, true);
+
+        keyClick(Qt.Key_Left);
+        tryCompare(next, "activeFocus", true);
+        keyClick(Qt.Key_Left);
+        tryCompare(music, "activeFocus", true);
+        compare(row.selectedId, "music");
+        keyClick(Qt.Key_Left);
+        compare(rowEdges.count, 2);
+        compare(rowEdges.signalArguments[1][0], Qt.Key_Left);
+        compare(music.activeFocus, true);
+        rowEdges.target = null;
+    }
+
     function test_focus_survives_an_update() {
         child("entry-b").forceActiveFocus();
         tryCompare(child("entry-b"), "activeFocus", true);

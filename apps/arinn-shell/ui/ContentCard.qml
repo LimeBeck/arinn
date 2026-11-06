@@ -15,7 +15,7 @@ Surface {
     property bool secondaryEnabled: true
     signal secondaryActivated()
     Keys.onRightPressed: event => {
-        if (secondaryAction.visible && secondaryAction.enabled) Focus.take(secondaryAction);
+        if (root.activeFocus && secondaryAction.visible && secondaryAction.enabled) Focus.take(secondaryAction);
         else event.accepted = false;
     }
     property url artwork: ""

@@ -1,0 +1,1 @@
+- Let Right leave a Continue card's inline Play/Pause control for the next enabled card, preserving Left navigation and row-edge behaviour ([#833](https://github.com/LimeBeck/arinn/issues/833)).

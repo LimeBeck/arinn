@@ -213,7 +213,9 @@ session. The Music section is one room for all connected sources, laid out like
 Home: a hero over shelves of stations, personal playlists, albums, artists and
 recent tracks. Each entry shows its source with a small mark. Browsing never
 selects a source: personal selections of every source come first, then the rest
-by date, and search covers every connected source. Identical items from two
+by date, newest first, once entries carry a date (#806); until then the rest
+keeps each provider's own order, taking one entry from each provider in turn.
+Search covers every connected source. Identical items from two
 sources are not merged, and a queue never mixes sources. The player row holds previous, play/pause and next, plus
 Like, Queue and More; More opens a sheet with the other actions. Owner decision on 2026-11-06
 ([ADR-0142](../adr/0142-music-in-hearth-light.md)), replacing the single-row

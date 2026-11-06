@@ -498,6 +498,13 @@ TestCase {
         catalog.more=false;catalog.entries=page(0).concat(page(100));
         const list=findChild(view,"musicEntries");
         tryCompare(list,"currentIndex",150);tryCompare(list,"activeFocus",true);compare(view.restoreEntity,"");
+        // Review of #798: an interrupted search left its page count behind
+        // and cut the next search short. Each Back starts a full budget.
+        view.parentId="album:150";view.back();catalog.more=true;catalog.entries=page(0);
+        tryCompare(catalog,"loads",2);view.visible=false;view.visible=true;
+        compare(view.restorePages,0);
+        view.restorePages=view.restorePageLimit;view.parentId="album:150";view.back();
+        compare(view.restorePages,0);
     }
     // Review of #798: replacing the queue from a player opened on Home
     // reopened it as an ordinary player, so Back went to the catalogue.

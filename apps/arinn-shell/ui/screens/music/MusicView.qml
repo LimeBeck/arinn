@@ -91,6 +91,7 @@ FocusScope {
     onVisibleChanged: if (!visible) {
         playerFromHome = false;
         restoreEntity = "";
+        restorePages = 0;
         searchKeyboard.finish();
         typing = false;
         namingPlaylist = false;
@@ -323,6 +324,7 @@ FocusScope {
             Qt.callLater(focusInitial);
         } else if (parentId) {
             restoreEntity = parentId;
+            restorePages = 0;
             parentId = "";
             parentTitle = "";
             parentKind = "";

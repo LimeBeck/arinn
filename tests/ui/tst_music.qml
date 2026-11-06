@@ -35,7 +35,9 @@ TestCase {
             function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
             property var positions: []
             property var occurrences: []
-            function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);}
+            // As the catalogue: a command it sends makes it busy (#802).
+            property bool busyOnTransport: false
+            function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);if(busyOnTransport)busy=true;}
         }
     }
     // The Music root over every source (#800), as MusicRoom presents it.
@@ -95,7 +97,12 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
         compare(findChild(view,"musicListPosition").text,"1 of 1");
         catalog.activeState={playback:"playing",position_us:65000000,current:{track:{duration_us:185000000}},actions:[]};
-        view.openPlayer();tryCompare(findChild(view,"musicElapsed"),"text","1:05 / 3:05");
+        view.openPlayer();tryCompare(findChild(view,"musicElapsed"),"text","1:05");
+        compare(findChild(view,"musicDuration").text,"3:05");
+        // #802 (M25): a track longer than an hour carries hours, elapsed too.
+        catalog.activeState={playback:"playing",position_us:65000000,current:{track:{duration_us:4503000000}},actions:[]};
+        tryCompare(findChild(view,"musicElapsed"),"text","0:01:05");
+        compare(findChild(view,"musicDuration").text,"1:15:03");
     }
     function test_long_title_fits_two_lines_without_colliding_with_controls() {
         const catalog=createTemporaryObject(catalogFactory,suite);
@@ -157,12 +164,22 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
         view.openPlayer();wait(0);
         const controls=findChild(view,"musicControlsB"),button=findChild(view,"musicPlayPause");verify(controls);verify(button);
-        const stop=findChild(view,"musicStop");verify(stop);compare(stop.iconName,"stop");compare(stop.mapToItem(controls,0,0).y,button.parent.mapToItem(controls,0,0).y);compare(button.iconName,"pause");verify(button.x+button.width<=button.parent.width);
-        verify(controls.x+controls.width<=controls.parent.width);
+        // #802 (MH-3): previous 96, play/pause 120, next 96, the pills and
+        // More in one vertically centred row; no Stop in the row.
+        compare(findChild(view,"musicStop"),null);
+        const previous=findChild(view,"musicPrevious"),next=findChild(view,"musicNext"),queue=findChild(view,"musicQueue"),more=findChild(view,"musicMore");
+        compare(previous.width,96);compare(button.width,120);compare(next.width,96);compare(more.width,96);compare(more.iconName,"more_horiz");
+        // Layout centres, before the focus lift.
+        const centre=item=>item.parent.mapToItem(controls,0,item.y+item.height/2).y;
+        for(const item of [previous,next,queue,more]) compare(centre(item),centre(button));
+        compare(button.iconName,"pause");
+        verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight);
         Ui.Focus.take(button);keyClick(Qt.Key_Right);
-        tryCompare(findChild(view,"musicNext"),"activeFocus",true);
-        keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicQueue"),"activeFocus",true);
-        keyClick(Qt.Key_Left);keyClick(Qt.Key_Left);tryCompare(button,"activeFocus",true);
+        tryCompare(next,"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(queue,"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(more,"activeFocus",true);
+        keyClick(Qt.Key_Right);compare(more.activeFocus,true);
+        keyClick(Qt.Key_Left);keyClick(Qt.Key_Left);keyClick(Qt.Key_Left);tryCompare(button,"activeFocus",true);
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"pause");
     }
     function test_home_transport_focus_survives_metadata_refresh() {
@@ -263,6 +280,8 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
         view.mode="queue";wait(0);view.focusInitial();
         tryCompare(findChild(view,"musicQueueEntries"),"activeFocus",true);
+        // #802: the current entry comes first and is not removable.
+        keyClick(Qt.Key_Return);compare(view.queueOccurrence,"");keyClick(Qt.Key_Down);
         keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
         const keep=findChild(view,"musicKeepOccurrence"),remove=findChild(view,"musicRemoveOccurrence");
         tryCompare(keep,"activeFocus",true);keyClick(Qt.Key_Return);compare(catalog.commands.length,0);
@@ -311,8 +330,12 @@ TestCase {
         view.requestPlay("track-1");compare(view.pendingPlay,"track-1");compare(catalog.commands.length,0);
         tryCompare(findChild(view,"musicKeepQueue"),"activeFocus",true);
         keyClick(Qt.Key_Escape);view.openPlayer();wait(0);
-        tryCompare(findChild(view,"musicStop"),"activeFocus",true);
-        keyClick(Qt.Key_Return);compare(catalog.commands[0],"stop");
+        // #802: Stop is in More, which lists only what the session offers.
+        const more=findChild(view,"musicMore");Ui.Focus.take(more);keyClick(Qt.Key_Return);compare(view.moreOpen,true);
+        const stop=findChild(view,"musicMore-stop");tryCompare(stop,"activeFocus",true);
+        compare(findChild(view,"musicMoreActions").count,1);
+        keyClick(Qt.Key_Return);compare(catalog.commands[0],"stop");compare(view.moreOpen,false);
+        tryCompare(more,"activeFocus",true);
     }
 
     function test_oauth_success_with_music_denied_is_not_an_empty_connected_library() {
@@ -451,7 +474,8 @@ TestCase {
         verify(glyph);compare(glyph.name,"pause");
         verify(glyph.toString().indexOf("LineIcon")>=0,glyph.toString());
         compare(iconOf(findChild(view,"musicNext")).name,"skip_next");
-        compare(iconOf(findChild(view,"musicQueue")).name,"queue_music");
+        compare(findChild(findChild(view,"musicQueue"),"musicPillIcon").name,"queue_music");
+        compare(iconOf(findChild(view,"musicMore")).name,"more_horiz");
         view.mode="catalogue";wait(0);
         const plate=findChild(view,"musicSearch").parent;compare(plate.radius,Ui.Theme.containerRadius);
         view.requestPlay("track-1");
@@ -502,9 +526,9 @@ TestCase {
         catalog.busy=true;wait(0);compare(play.activeFocus,true);compare(play.enabled,true);
         keyClick(Qt.Key_Return);compare(catalog.commands,[]);
         catalog.busy=false;
-        // A track loading disables it under focus: Stop holds focus and
-        // hands it back once Play/Pause works again.
-        const stop=findChild(view,"musicStop");
+        // A track loading disables it under focus: Next holds focus and
+        // hands it back once Play/Pause works again (Stop is in More, #802).
+        const stop=findChild(view,"musicNext");
         catalog.activeState=loading;tryCompare(stop,"activeFocus",true);
         catalog.activeState=playing;tryCompare(play,"activeFocus",true);
         // Opened while loading, the same.
@@ -524,11 +548,118 @@ TestCase {
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
         const play=findChild(view,"musicPlayPause"),seek=findChild(view,"musicSeek");
         tryCompare(play,"activeFocus",true);
-        for(const name of ["musicLike","musicDislike","musicPrevious","musicPlayPause","musicNext","musicQueue","musicSeekButton","musicStop","musicRadio"]) {
+        for(const name of ["musicPrevious","musicPlayPause","musicNext","musicLike","musicQueue","musicMore"]) {
             const button=findChild(view,name);verify(button,name);Ui.Focus.take(button);tryCompare(button,"activeFocus",true);
             keyClick(Qt.Key_Down);compare(button.activeFocus,true,name+": Down stays in place");
             keyClick(Qt.Key_Up);tryCompare(seek,"activeFocus",true);
         }
+        // #802 (M15): Down from the seek line returns to play/pause, and
+        // Left and Right stop at the row's ends.
+        keyClick(Qt.Key_Down);tryCompare(play,"activeFocus",true);
+        const previous=findChild(view,"musicPrevious"),more=findChild(view,"musicMore");
+        Ui.Focus.take(previous);keyClick(Qt.Key_Left);compare(previous.activeFocus,true);
+        Ui.Focus.take(more);keyClick(Qt.Key_Right);compare(more.activeFocus,true);
+        for(const name of ["musicDislike","musicStop","musicRadio","musicSeekButton"]) compare(findChild(view,name),null,name);
+    }
+    // #802 (brief mh-03, M18): Like shows a filled heart and "Liked", with
+    // pending and failure states, and says so to accessibility.
+    function test_like_shows_its_state() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","like"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const like=findChild(view,"musicLike"),icon=findChild(like,"musicPillIcon");
+        compare(like.text,"Like");compare(icon.name,"favorite");compare(like.Accessible.checked,false);compare(like.Accessible.checkable,true);
+        catalog.busyOnTransport=true;
+        Ui.Focus.take(like);keyClick(Qt.Key_Return);
+        compare(catalog.commands,["like"]);tryCompare(like,"text","Saving…");
+        // The provider refuses it.
+        catalog.errorText="The source could not do that. Try again.";catalog.busy=false;
+        tryCompare(like,"text","Not saved");verify(like.Accessible.description.length>0);
+        // A confirmed like.
+        catalog.errorText="";keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
+        catalog.activeState=Object.assign({},catalog.activeState,{feedback:"liked"});catalog.busy=false;
+        tryCompare(like,"text","Liked");compare(icon.name,"favorite_fill");compare(like.Accessible.checked,true);compare(like.selected,true);
+    }
+    // #802 (brief *More sheet*): More lists only what the session supports,
+    // in the brief's order; Back closes it and restores focus to More; the
+    // Menu key never opens it.
+    function test_more_sheet_lists_supported_actions() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},station:{id:"station:wave",title:"Fixture wave"},continuous:true,
+            actions:["pause","dislike","radio","pin","retry","stop"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const more=findChild(view,"musicMore");Ui.Focus.take(more);
+        keyClick(Qt.Key_Menu);compare(view.moreOpen,false);
+        keyClick(Qt.Key_Return);compare(view.moreOpen,true);verify(view.overlayOpen);
+        const list=findChild(view,"musicMoreActions");tryCompare(list,"activeFocus",true);
+        const ids=[];for(let i=0;i<list.count;i++)ids.push(list.itemAtIndex(i).actionKey);
+        compare(ids,["dislike","radio","pin","retry","stop"]);
+        compare(list.itemAtIndex(0).text,"Dislike");compare(list.itemAtIndex(2).text,"Pin station");
+        // A state poll keeps the focused row.
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);compare(list.currentIndex,2);
+        catalog.activeState=Object.assign({},catalog.activeState,{position_us:1000000});wait(0);
+        compare(list.currentIndex,2);verify(list.itemAtIndex(2).activeFocus);
+        keyClick(Qt.Key_Left);keyClick(Qt.Key_Right);verify(list.itemAtIndex(2).activeFocus);
+        keyClick(Qt.Key_Escape);compare(view.moreOpen,false);tryCompare(more,"activeFocus",true);
+        // Pin sends the station, and the sheet closes.
+        keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Return);compare(catalog.commands,["pin"]);compare(view.moreOpen,false);tryCompare(more,"activeFocus",true);
+        // Radio from this track asks before replacing the queue.
+        keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Return);
+        compare(view.moreOpen,false);compare(view.pendingPlay,"t");
+        keyClick(Qt.Key_Escape);compare(view.pendingPlay,"");
+        // With nothing more to offer, the sheet says so.
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause"],upcoming:[]};
+        Ui.Focus.take(more);keyClick(Qt.Key_Return);
+        tryCompare(findChild(view,"musicMoreEmpty"),"visible",true);compare(list.count,0);
+        keyClick(Qt.Key_Escape);compare(view.moreOpen,false);tryCompare(more,"activeFocus",true);
+    }
+    // #802 (brief *Queue*): the current entry first, with the playing mark
+    // and the initial focus; the station names the sheet; a continuous queue
+    // ends with a closing line, never a total; an empty queue says so.
+    function test_queue_sheet() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",continuous:true,station:{id:"station:wave",title:"Fixture wave"},
+            current:{occurrence:"c",track:{id:"t0",title:"Now",artist:"Fixture artist",duration_us:185000000}},actions:["pause"],
+            upcoming:[{occurrence:"u1",track:{id:"t1",title:"Next one",artist:"Other",duration_us:60000000}},{occurrence:"u2",track:{id:"t2",title:"Next two"}}]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const queue=findChild(view,"musicQueue");Ui.Focus.take(queue);keyClick(Qt.Key_Return);compare(view.mode,"queue");verify(view.overlayOpen);
+        const list=findChild(view,"musicQueueEntries");tryCompare(list,"activeFocus",true);
+        compare(list.currentIndex,0);compare(list.currentItem.objectName,"musicQueueCurrent");
+        verify(findChild(list.currentItem,"musicQueuePlaying").visible);
+        compare(findChild(view,"musicQueueTitle").text,"Fixture wave");
+        const footer=findChild(view,"musicQueueFooter");verify(footer.visible);compare(footer.text,"More tracks will follow");
+        compare(findChild(list.itemAtIndex(1),"musicQueueDuration").text,"1:00");
+        // A state poll keeps the focused row.
+        keyClick(Qt.Key_Down);compare(list.currentIndex,1);
+        catalog.activeState=Object.assign({},catalog.activeState,{position_us:2000000});wait(0);
+        compare(list.currentIndex,1);verify(list.currentItem.activeFocus);
+        keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
+        // A finite queue has no closing line; an empty one says so.
+        catalog.activeState={session:"s",playback:"stopped",actions:[],upcoming:[]};
+        keyClick(Qt.Key_Return);compare(view.mode,"queue");
+        tryCompare(findChild(view,"musicQueueEmpty"),"visible",true);compare(list.count,0);
+        compare(findChild(view,"musicQueueEmpty").text,"The queue is empty");
+        keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
+    }
+    // #802 (brief mh-03): the artwork is 560 with the light in its hue, the
+    // eyebrow names the context, and the seek knob shows only in focus.
+    function test_now_playing_copy_and_seek_line() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",position_us:30000000,station:{id:"station:wave",title:"Fixture wave"},
+            current:{track:{id:"t",title:"T",artist:"Fixture artist",album:"Fixture album",duration_us:60000000}},actions:["pause","seek"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const art=findChild(view,"musicPlayerArtwork");compare(art.width,560);compare(art.height,560);
+        verify(findChild(view,"musicPlayerGlow"));
+        compare(findChild(view,"musicPlayerContext").text,"Fixture wave · Fixture music");
+        compare(findChild(view,"musicPlayerArtist").font.pixelSize,32);compare(findChild(view,"musicPlayerAlbum").font.pixelSize,28);
+        compare(findChild(view,"musicTrackTitle").font.family,Ui.Theme.contentFontFamily);
+        const seek=findChild(view,"musicSeek"),knob=findChild(view,"musicSeekKnob"),fill=findChild(view,"musicSeekFill");
+        compare(fill.color,Ui.Theme.ember);compare(knob.visible,false);
+        Ui.Focus.take(seek);tryCompare(knob,"visible",true);
+        keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicPlayPause"),"activeFocus",true);compare(knob.visible,false);
+        catalog.activeState=Object.assign({},catalog.activeState,{station:null});
+        tryCompare(findChild(view,"musicPlayerContext"),"text","Album · Fixture music");
     }
     // Back restores focus: the queue to Queue, a detail to the entity it
     // was opened from, a player opened from Home to Home (#756 M16).

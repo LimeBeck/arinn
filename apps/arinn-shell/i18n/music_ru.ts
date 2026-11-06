@@ -93,6 +93,38 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicView</name>
     <message>
+      <source>Album</source>
+      <translation>Альбом</translation>
+    </message>
+    <message>
+      <source>Disliked</source>
+      <translation>Не понравилось</translation>
+    </message>
+    <message>
+      <source>Dislike</source>
+      <translation>Не нравится</translation>
+    </message>
+    <message>
+      <source>Saving…</source>
+      <translation>Сохраняем…</translation>
+    </message>
+    <message>
+      <source>Not saved</source>
+      <translation>Не сохранено</translation>
+    </message>
+    <message>
+      <source>Liked</source>
+      <translation>Понравилось</translation>
+    </message>
+    <message>
+      <source>The like was not saved. Try again.</source>
+      <translation>Отметка не сохранилась. Попробуйте ещё раз.</translation>
+    </message>
+    <message>
+      <source>More</source>
+      <translation>Ещё</translation>
+    </message>
+    <message>
       <source>Add music folders in Settings, then rescan.</source>
       <translation>Добавьте папки с музыкой в настройках и обновите медиатеку.</translation>
     </message>
@@ -147,10 +179,6 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Next</source>
       <translation>Следующий</translation>
-    </message>
-    <message>
-      <source>Not for me</source>
-      <translation>Не для меня</translation>
     </message>
     <message>
       <source>Nothing found</source>
@@ -209,10 +237,6 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Поиск в источнике</translation>
     </message>
     <message>
-      <source>Seek</source>
-      <translation>Перемотка</translation>
-    </message>
-    <message>
       <source>Settings</source>
       <translation>Настройки</translation>
     </message>
@@ -239,14 +263,6 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Untitled</source>
       <translation>Без названия</translation>
-    </message>
-    <message>
-      <source>Upcoming</source>
-      <translation>Далее</translation>
-    </message>
-    <message>
-      <source>Upcoming · continues automatically</source>
-      <translation>Далее · пополняется автоматически</translation>
     </message>
     <message>
       <source>Account connected. Playback is not available yet.</source>
@@ -311,10 +327,6 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Save playlist</source>
       <translation>Сохранить плейлист</translation>
-    </message>
-    <message>
-      <source>Save queue</source>
-      <translation>Сохранить очередь</translation>
     </message>
     <message>
       <source>Unpin station</source>
@@ -710,6 +722,44 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Nothing found.</source>
       <translation>Ничего не найдено.</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicMoreSheet</name>
+    <message>
+      <source>More</source>
+      <translation>Ещё</translation>
+    </message>
+    <message>
+      <source>Nothing more for this track.</source>
+      <translation>Для этого трека больше ничего нет.</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicQueueSheet</name>
+    <message>
+      <source>Queue</source>
+      <translation>Очередь</translation>
+    </message>
+    <message>
+      <source>Up next</source>
+      <translation>Далее</translation>
+    </message>
+    <message>
+      <source>Save queue</source>
+      <translation>Сохранить очередь</translation>
+    </message>
+    <message>
+      <source>The queue is empty</source>
+      <translation>Очередь пуста</translation>
+    </message>
+    <message>
+      <source>More tracks will follow</source>
+      <translation>Дальше будут ещё треки</translation>
+    </message>
+    <message>
+      <source>Untitled</source>
+      <translation>Без названия</translation>
     </message>
   </context>
 </TS>

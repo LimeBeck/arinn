@@ -612,26 +612,8 @@ impl Playback {
                 None
             }
             Err(error) => {
-                d.loaded = false;
-                d.status = "stopped".into();
                 d.error = Some(error);
-                d.waiting_end = d.station.is_some();
-                if d.station.is_some() && can_skip && d.queue.advance().is_ok() {
-                    d.token += 1;
-                    self.load_changes.send_replace(d.token);
-                    d.started = None;
-                    d.played_us = 0;
-                    d.clock = tokio::time::Instant::now();
-                    d.waiting_end = false;
-                    d.position = 0;
-                    d.duration = 0;
-                    d.seek_end = None;
-                    d.status = "loading".into();
-                    prune_radio(&mut d);
-                    Some(d.token)
-                } else {
-                    None
-                }
+                self.advance_after_failure(&mut d, can_skip)
             }
         };
         d.revision += 1;
@@ -641,6 +623,26 @@ impl Playback {
             self.prepare_next().await;
         }
         next
+    }
+    fn advance_after_failure(&self, d: &mut Data, can_skip: bool) -> Option<u64> {
+        d.loaded = false;
+        d.status = "stopped".into();
+        d.waiting_end = d.station.is_some();
+        if d.station.is_none() || !can_skip || d.queue.advance().is_err() {
+            return None;
+        }
+        d.token += 1;
+        self.load_changes.send_replace(d.token);
+        d.started = None;
+        d.played_us = 0;
+        d.clock = tokio::time::Instant::now();
+        d.waiting_end = false;
+        d.position = 0;
+        d.duration = 0;
+        d.seek_end = None;
+        d.status = "loading".into();
+        prune_radio(d);
+        Some(d.token)
     }
     pub async fn stop(&self) -> Result<State, ErrorCode> {
         let token = {
@@ -767,10 +769,6 @@ impl Playback {
                 }
                 stamp(&mut d);
                 d.position = snapshot.position_us;
-                if snapshot.failed {
-                    d.error = Some(ErrorCode::Unavailable);
-                    d.loaded = false;
-                }
                 if snapshot.duration_us > 0 {
                     d.duration = snapshot.duration_us;
                 }
@@ -789,7 +787,21 @@ impl Playback {
                 if command.action == "seek" {
                     d.seek_end = seek_end;
                 }
+                let next = if snapshot.failed {
+                    d.error = Some(ErrorCode::Unavailable);
+                    self.advance_after_failure(&mut d, true)
+                } else {
+                    None
+                };
                 d.revision += 1;
+                drop(d);
+                drop(_io);
+                if let Some(token) = next {
+                    let owner = self.clone();
+                    tokio::spawn(async move {
+                        owner.load_current(token).await;
+                    });
+                }
             }
             _ => return Err(ErrorCode::Unsupported),
         }
@@ -828,10 +840,6 @@ impl Playback {
                     }
                     stamp(&mut d);
                     d.position = snapshot.position_us;
-                    if snapshot.failed {
-                        d.error = Some(ErrorCode::Unavailable);
-                        d.loaded = false;
-                    }
                     if snapshot.duration_us > 0 {
                         d.duration = snapshot.duration_us;
                     }
@@ -864,7 +872,11 @@ impl Playback {
                             let _ = this.events.send(event);
                         }
                     }
-                    if let Some(eof) = snapshot.eof {
+                    if snapshot.failed {
+                        d.error = Some(ErrorCode::Unavailable);
+                        advance = this.advance_after_failure(&mut d, true).is_some();
+                        d.revision += 1;
+                    } else if let Some(eof) = snapshot.eof {
                         acknowledge = Some(eof);
                         d.loaded = false;
                         if d.seek_end.is_none() {
@@ -1364,7 +1376,7 @@ root=pathlib.Path(__file__).parent
 path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
 server=socket.socket(socket.AF_UNIX);server.bind(path);server.listen(1)
 connection,_=server.accept();stream=connection.makefile('rwb',buffering=0)
-loaded=False;ready=False;ended=False
+loaded=False;ready=False;ended=False;failed=False
 for line in stream:
  request=json.loads(line);command=request['command'];data=None;error='success'
  if command[0]=='loadfile':
@@ -1373,14 +1385,20 @@ for line in stream:
   else:
    loaded=True
    stream.write(b'{"event":"start-file","playlist_entry_id":7}\n')
- if loaded and not ready and (root/'ready').exists():
+   if (root/'reject-async-once').exists() or (root/'reject-async-always').exists():
+    (root/'reject-async-once').unlink(missing_ok=True);failed=True
+    stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"error"}\n')
+ if loaded and command[:3]==['set_property','pause',True] and (root/'reject-on-command').exists():
+  (root/'reject-on-command').unlink();failed=True
+  stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"error"}\n')
+ if loaded and not failed and not ready and (root/'ready').exists():
   ready=True;stream.write(b'{"event":"file-loaded"}\n')
  if ready and not ended and (root/'end').exists():
   ended=True;stream.write(b'{"event":"end-file","playlist_entry_id":7,"reason":"eof"}\n')
  if command[0]=='get_property':
   prop=command[1]
   if prop=='playlist/0/id':data=7
-  elif prop=='idle-active':data=ended
+  elif prop=='idle-active':data=ended or failed
   elif prop=='pause':data=False
   elif prop=='time-pos':data=0
   elif prop=='duration':data=10
@@ -1448,15 +1466,17 @@ for line in stream:
     // clears them once native readiness confirms recovery, including at EOF.
     #[tokio::test]
     async fn a_station_skips_failed_tracks_until_native_recovery() {
-        for fail_load in [false, true] {
-            let resolver: Arc<dyn Resolver> = if fail_load {
-                Arc::new(FixtureResolver)
-            } else {
+        for failure in ["resolve", "load", "native"] {
+            let resolver: Arc<dyn Resolver> = if failure == "resolve" {
                 Arc::new(FailingResolver)
+            } else {
+                Arc::new(FixtureResolver)
             };
             let fixture = LoadFixture::new(resolver);
-            if fail_load {
+            if failure == "load" {
                 fixture.flag("reject-once");
+            } else if failure == "native" {
+                fixture.flag("reject-async-once");
             }
             let mut events = fixture.playback.subscribe();
             let started = fixture.start(true, &["bad", "good"]).await;
@@ -1499,15 +1519,17 @@ for line in stream:
 
     #[tokio::test]
     async fn a_finite_queue_still_stops_on_resolve_or_load_failure() {
-        for fail_load in [false, true] {
-            let resolver: Arc<dyn Resolver> = if fail_load {
-                Arc::new(FixtureResolver)
-            } else {
+        for failure in ["resolve", "load", "native"] {
+            let resolver: Arc<dyn Resolver> = if failure == "resolve" {
                 Arc::new(FailingResolver)
+            } else {
+                Arc::new(FixtureResolver)
             };
             let fixture = LoadFixture::new(resolver);
-            if fail_load {
+            if failure == "load" {
                 fixture.flag("reject-once");
+            } else if failure == "native" {
+                fixture.flag("reject-async-once");
             }
             fixture.start(false, &["bad", "good"]).await;
             let state = fixture
@@ -1559,9 +1581,82 @@ for line in stream:
         fixture.close().await;
     }
 
+    #[tokio::test]
+    async fn native_failures_exhaust_a_station_without_feedback_then_allow_refill() {
+        let fixture = LoadFixture::new(Arc::new(FixtureResolver));
+        fixture.flag("reject-async-always");
+        let mut events = fixture.playback.subscribe();
+        fixture.start(true, &["one", "two", "three"]).await;
+        let request = fixture.playback.begin_radio_refill(false).await.unwrap();
+        let failed = fixture
+            .wait(|state| state.playback == "stopped" && state.upcoming.is_empty())
+            .await;
+        assert_eq!(failed.current.unwrap().track.id, "three");
+        assert_eq!(failed.history.len(), 2);
+        assert_eq!(failed.error, Some(ErrorCode::Unavailable));
+        assert!(events.try_recv().is_err());
+
+        std::fs::remove_file(fixture.directory.join("reject-async-always")).unwrap();
+        fixture.flag("ready");
+        fixture
+            .playback
+            .apply_radio_refill(
+                request,
+                vec![Track {
+                    id: "good".into(),
+                    available: true,
+                    ..Track::default()
+                }],
+                "refill-batch".into(),
+            )
+            .await
+            .unwrap();
+        let playing = fixture.wait(|state| state.playback == "playing").await;
+        assert_eq!(playing.current.unwrap().track.id, "good");
+        assert_eq!(playing.error, None);
+        let event = events.recv().await.unwrap();
+        assert_eq!(event.kind, EventKind::Started);
+        assert_eq!(event.track, "good");
+        assert_eq!(event.batch, "refill-batch");
+        fixture.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_native_failure_observed_by_a_transport_command_also_advances() {
+        let fixture = LoadFixture::new(Arc::new(FixtureResolver));
+        let mut events = fixture.playback.subscribe();
+        let initial = fixture.start(true, &["bad", "good"]).await;
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while !fixture.playback.data.lock().await.loaded {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        fixture.flag("reject-on-command");
+        fixture
+            .playback
+            .command(&radio_command("pause", &initial.session))
+            .await
+            .unwrap();
+        let next = fixture
+            .wait(|state| state.current.as_ref().is_some_and(|e| e.track.id == "good"))
+            .await;
+        assert_eq!(next.session, initial.session);
+        assert_eq!(next.error, Some(ErrorCode::Unavailable));
+        assert_eq!(next.history[0].track.id, "bad");
+        assert!(events.try_recv().is_err());
+        fixture.flag("ready");
+        let playing = fixture.wait(|state| state.playback == "playing").await;
+        assert_eq!(playing.error, None);
+        assert_eq!(playing.current.unwrap().track.id, "good");
+        fixture.close().await;
+    }
+
     struct SlowAfterFailure {
         started: tokio::sync::Notify,
         dropped: Arc<std::sync::atomic::AtomicBool>,
+        fail_resolve: bool,
     }
     impl Resolver for SlowAfterFailure {
         fn resolve(
@@ -1573,8 +1668,10 @@ for line in stream:
                     let _drop = PrefetchDrop(self.dropped.clone());
                     self.started.notify_one();
                     std::future::pending().await
-                } else {
+                } else if self.fail_resolve {
                     FailingResolver.resolve(id).await
+                } else {
+                    FixtureResolver.resolve(id).await
                 }
             })
         }
@@ -1582,13 +1679,17 @@ for line in stream:
     #[tokio::test]
     async fn stop_or_replacement_cancels_a_pending_station_skip() {
         use std::sync::atomic::{AtomicBool, Ordering};
-        for replace in [false, true] {
+        for (replace, native) in [(false, false), (true, false), (false, true), (true, true)] {
             let resolver = Arc::new(SlowAfterFailure {
                 started: tokio::sync::Notify::new(),
                 dropped: Arc::new(AtomicBool::new(false)),
+                fail_resolve: !native,
             });
             let fixture = LoadFixture::new(resolver.clone());
             fixture.flag("ready");
+            if native {
+                fixture.flag("reject-async-once");
+            }
             let old = fixture.start(true, &["bad", "slow", "never"]).await;
             tokio::time::timeout(
                 std::time::Duration::from_secs(2),
@@ -1596,7 +1697,9 @@ for line in stream:
             )
             .await
             .unwrap();
-            let loading = fixture.playback.state().await;
+            let loading = fixture
+                .wait(|state| state.current.as_ref().is_some_and(|e| e.track.id == "slow"))
+                .await;
             assert_eq!(loading.current.unwrap().track.id, "slow");
             assert_eq!(loading.error, Some(ErrorCode::Unavailable));
             if replace {

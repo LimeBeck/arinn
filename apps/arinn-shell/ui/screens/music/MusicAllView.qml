@@ -14,6 +14,9 @@ FocusScope {
     property string shelfId: ""
     property string title: ""
     property string playingKey: ""
+    // The cover of the track that plays, for a playing station without its
+    // own (#843, Codex review of #848).
+    property string playingImage: ""
     property string source: ""
     property bool alphabetical: false
     // Bumped when a page arrives, so the list is read again.
@@ -260,6 +263,7 @@ FocusScope {
                 artworkHeight: root.cardHeight
                 round: root.round
                 playing: entry.key === root.playingKey
+                playingImage: root.playingImage
                 onActivated: root.entryActivated(entry)
             }
         }

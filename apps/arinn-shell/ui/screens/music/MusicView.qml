@@ -258,8 +258,13 @@ FocusScope {
         }
         const index = catalog.entries.findIndex(entry => entry.id === restoreEntity);
         if (index < 0 && catalog.more && restorePages < restorePageLimit) {
-            restorePages++;
-            catalog.loadMore();
+            // A page in flight (or any other busy work) is waited for, not
+            // counted: loadMore() does nothing meanwhile, and the status
+            // change at its end runs this again (review of #798).
+            if (!catalog.busy) {
+                restorePages++;
+                catalog.loadMore();
+            }
             return;
         }
         restoreEntity = "";

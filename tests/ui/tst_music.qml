@@ -27,7 +27,9 @@ TestCase {
             property var played: []
             function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
             property int loads: 0
-            function loadMore() {loads++;}
+            // As the catalogue: a page in flight makes it busy.
+            property bool busyOnLoad: false
+            function loadMore() {if(busy)return;loads++;if(busyOnLoad)busy=true;}
             function command(action,id,occurrence,position) {commands=commands.concat([action]);played=played.concat([id||""]);}
             property var positions: []
             property var occurrences: []
@@ -509,6 +511,27 @@ TestCase {
     }
     // Review of #798: an entity from a later page was not found on the
     // first page after Back, and focus landed on an unrelated row.
+    // Review of #798: status changes while a page loaded each spent one of
+    // the ten loads, so an opener a few pages deep was never reached.
+    function test_a_slow_page_does_not_spend_the_opener_budget() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};catalog.busyOnLoad=true;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:550",parentKind:"album",parentTitle:"Deep"});
+        verify(view);wait(0);
+        const page=from=>{const rows=[];for(let i=from;i<from+100;i++)rows.push({id:"album:"+i,kind:"album",title:"A"+i,available:true});return rows;};
+        view.back();catalog.more=true;
+        let shown=page(0);catalog.entries=shown;
+        for(let p=1;p<=5;p++) {
+            tryCompare(catalog,"loads",p);compare(catalog.busy,true);
+            // Status polls while the page loads.
+            for(let i=0;i<3;i++)view.restoreOpener();
+            compare(catalog.loads,p);compare(view.restorePages,p);
+            shown=shown.concat(page(p*100));catalog.more=p<5;catalog.entries=shown;catalog.busy=false;
+        }
+        const list=findChild(view,"musicEntries");
+        tryCompare(list,"currentIndex",550);tryCompare(list,"activeFocus",true);
+        compare(catalog.loads,5);compare(view.restoreEntity,"");
+    }
     function test_back_finds_an_opener_on_a_later_page() {
         const catalog=createTemporaryObject(catalogFactory,suite);
         catalog.state={account:"local",facets:["albums"],actions:["play"]};

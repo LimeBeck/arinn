@@ -219,10 +219,10 @@ void MusicCatalog::togglePlayback() {
 QString MusicCatalog::playbackProblem() const {
   const auto error = m_active.value(QStringLiteral("error")).toString();
   const auto playback = m_active.value(QStringLiteral("playback")).toString();
-  // A provider keeps its last error after it skipped to the next track: a
-  // session that plays, is paused or loads again has recovered.
-  if (error.isEmpty() || QStringList{QStringLiteral("playing"), QStringLiteral("paused"),
-                                     QStringLiteral("loading")}.contains(playback))
+  // A provider keeps its last error after it skipped to the next track: only
+  // a stopped session failed. One that plays, is paused, loads or ended
+  // naturally has recovered (reviews of #797; provider side #810).
+  if (error.isEmpty() || playback != QStringLiteral("stopped"))
     return {};
   if (error == QStringLiteral("NotFound"))
     return tr("The track was not found in this source.");

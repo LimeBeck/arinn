@@ -384,5 +384,9 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <source>The music that plays now stops, and its queue is replaced.</source>
       <translation>Текущая музыка остановится, а её очередь будет заменена.</translation>
     </message>
+    <message>
+      <source>Play next</source>
+      <translation>Следующий трек</translation>
+    </message>
   </context>
 </TS>

@@ -84,6 +84,10 @@ Surface {
                 id: frameCanvas
                 objectName: "cardArtworkCanvas"
                 anchors.fill: parent
+                // Under the music face the blurred backdrop replaces the sharp
+                // cover; the software renderer draws no shader effect, so it
+                // keeps the sharp one (review of #827).
+                visible: !root.musicFace || GraphicsInfo.api === GraphicsInfo.Software
                 // The URL the canvas holds decoded. A card lives across row
                 // updates (#441), so the previous artwork is released when the
                 // card shows another one.
@@ -203,6 +207,10 @@ Surface {
                     blurEnabled: true
                     blurMax: 28
                     blur: 1
+                    // No padding: the blur, its source and the r12 mask share
+                    // the frame's rectangle, so nothing spills past the card
+                    // (review of #827).
+                    autoPaddingEnabled: false
                     maskEnabled: true
                     maskSource: backdropMask
                 }
@@ -357,6 +365,7 @@ Surface {
         }
         UiText {
             x: 24; y: 20; width: parent.width - 120
+            objectName: "cardStatus"
             text: root.statusText; visible: text.length > 0 && !root.musicFace
             role: "caption"; textFormat: Text.PlainText; z: 2
         }

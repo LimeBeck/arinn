@@ -1011,8 +1011,10 @@ TestCase {
         compare(cover.x + cover.width / 2, card.width / 2);
         verify(findChild(card, "musicCardHairline").visible);
         compare(findChild(card, "musicCardFallback").visible, false);
-        // Codex review of #827: a new cover that is already cached (no status
-        // change) reaches the centred cover too.
+        // Codex review of #827: a new cover reaches the centred cover. The
+        // resync on a source change also guards a cached cover that stays
+        // Ready; this Qt build changes status on every switch, so the test
+        // shows the result, not that path.
         const firstCover = cover.loadedSource;
         home.continueEntries = [{id: "a", title: "Activity", running: true}, {id: "b", title: "Saved", kind: "media"},
                                 musicEntry("playing", {artwork: Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg")})];
@@ -1029,12 +1031,17 @@ TestCase {
         compare(findChild(card, "cardSecondaryAction").visible, false);
         const backdrop = findChild(card, "musicCardBackdrop");
         verify(backdrop.maskEnabled); compare(backdrop.maskSource, findChild(card, "musicCardBackdropMask"));
+        // Review of #827: no padding past the frame, and the sharp cover gives
+        // way to the backdrop wherever shader effects draw.
+        compare(backdrop.autoPaddingEnabled, false);
+        compare(findChild(card, "cardArtworkCanvas").visible, card.GraphicsInfo.api === GraphicsInfo.Software);
         compare(findChild(findChild(card, "musicCardBackdropMask"), "").radius, card.cornerRadius);
         const progress = findChild(card, "cardProgress");
         verify(progress.visible); compare(progress.value, 0.25);
         compare(findChild(card, "cardSubtitle").text, "Fixture artist · Fixture wave");
-        // The ordinary caption and live dot give way to the chip.
-        compare(card.statusText.length === 0 || !findChild(card, "cardChip").visible, true);
+        // The ordinary status caption gives way to the chip.
+        card.statusText = "Fixture source · Playing";
+        compare(findChild(card, "cardStatus").visible, false);
         card.forceActiveFocus(); focused("entry-arinn-music-session");
         // Right goes on to the next card, not into a hidden button.
         keyClick(Qt.Key_Right); focused("entry-b");

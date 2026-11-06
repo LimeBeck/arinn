@@ -1039,8 +1039,7 @@ Window {
             onMusicTransportRequested: musicCatalog.togglePlayback()
             // Music presence on Home (#803, MH-4): the status line while it
             // plays, and Play/Pause without moving focus.
-            musicStatusLine: musicCatalog.nowPlaying.state === "playing"
-                ? [musicCatalog.nowPlaying.title || "", musicCatalog.nowPlaying.subtitle || ""].filter(part => part.length).join(" · ") : ""
+            musicStatusLine: musicCatalog.statusLine
             onMusicKeyRequested: action => {
                 if (action === "toggle") musicCatalog.togglePlayback();
                 else musicCatalog.transport(action === "play" ? "resume" : "pause");

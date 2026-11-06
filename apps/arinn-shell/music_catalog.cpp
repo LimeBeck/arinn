@@ -143,7 +143,10 @@ QVariantList MusicCatalog::homeEntries() const {
       !station.value("artwork").toString().isEmpty()) {
     for (const auto &row : m_sources) {
       const auto source = row.toMap();
-      if (source.value("id").toString() == m_activeId)
+      // Only the session's own generation: a stale one would name a cover
+      // that cannot load (review of #827).
+      if (source.value("id").toString() == m_activeId &&
+          source.value("generation").toString() == m_activeGeneration)
         artwork = AssetImages::imageUrl(
             m_activeId, source.value("path").toString(), m_activeGeneration,
             station.value("artwork").toString());
@@ -695,6 +698,19 @@ QVariantMap MusicCatalog::nowPlaying() const {
           {QStringLiteral("playPause"),
            actions.contains(playing ? QStringLiteral("pause")
                                     : QStringLiteral("resume"))}};
+}
+
+QString MusicCatalog::statusLine() const {
+  const auto session = nowPlaying();
+  if (session.value(QStringLiteral("state")).toString() != QStringLiteral("playing"))
+    return {};
+  QStringList parts;
+  for (const auto &key : {"title", "subtitle"}) {
+    const auto part = session.value(QLatin1String(key)).toString();
+    if (!part.isEmpty())
+      parts.append(part);
+  }
+  return parts.join(QStringLiteral(" · "));
 }
 
 void MusicCatalog::togglePlayback() {

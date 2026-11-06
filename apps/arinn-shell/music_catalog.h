@@ -27,6 +27,9 @@ class MusicCatalog : public QObject {
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
+  // "track · artist" for the status area while the session plays; empty on
+  // pause and without a session (brief *Presence*, MH-4, #803).
+  Q_PROPERTY(QString statusLine READ statusLine NOTIFY problemsChanged)
   // The active session plays or is loading its next track: interface sounds
   // stay quiet (spec §5.6, #756 M26).
   Q_PROPERTY(bool audible READ audible NOTIFY activeChanged)
@@ -56,6 +59,7 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
+  QString statusLine() const;
   bool audible() const;
   QString playbackProblem() const;
   QString notice() const;

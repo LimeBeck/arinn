@@ -197,7 +197,10 @@ the cover blurred by 28 px under a 30–55 % Charcoal shade, the cover centred
 at the frame height minus 44 with a hairline and a cast shadow, the playing
 chip (56 × 42 at 16 px, three Ember bars that move while playing and stand
 still in `text-3` on pause) and the Ember progress line. The backdrop is masked
-to the card's rounded outline, and the card has no transport button of its own. Without a cover,
+to the card's rounded outline without padding (`autoPaddingEnabled: false`),
+so it never spills past the card, and it replaces the sharp cover wherever
+shader effects draw; the software renderer keeps the sharp cover. The card has
+no transport button of its own. Without a cover,
 the station's is used, then the source's mark (`screen` or `public`) in a
 neutral chip. The caption is
 the track over "artist · station or album"; the hero reads "station ·
@@ -337,7 +340,7 @@ Fixes from the TV design review [#756](https://github.com/LimeBeck/arinn/issues/
   browser-unavailable chip, the download chip, the music line, mute, Wi-Fi or
   cable or no network, and the clock. While music plays, `musicLine` shows an
   Ember dot and "track · artist" (24/500, `text-2`, at most 420 px, elided);
-  on pause it goes. `Main.qml` binds it from `MusicCatalog.nowPlaying` to
+  on pause it goes. `Main.qml` binds it from `MusicCatalog.statusLine` to
   Home's and the screens' areas; the video player and Ambient show no status
   area (#803, ADR-0142 MH-4). Home uses it next to its lockup; `Main.qml` draws one
   more (`screenStatusArea`) at the same place over Library, Settings,

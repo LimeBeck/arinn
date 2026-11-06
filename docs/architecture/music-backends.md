@@ -50,6 +50,24 @@ MPRIS, which the native providers do not publish (#756 M1–M8, #794):
   dialogs (the close flow's scrim and centred 900 × r48 plate) and the
   bottom-anchored keyboard panel are drawn on screen.
 
+Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
+
+- Play/Pause is the player's first focus. While it is disabled (a command in
+  flight, a track loading) the nearest working control holds focus and hands
+  it back once Play/Pause works, unless the user moved on.
+- The player's control row is its last row: Up from any control reaches the
+  seek bar, and Down leaves the row only for a failure's Retry.
+- Back returns from the queue to *Queue*, from a detail to the album, artist
+  or playlist it was opened from, and from a player opened on Home's card to
+  Home.
+- Scrims, dialog plates and radii are theme tokens (`Theme.scrim`,
+  `dialogSurface`, `dialogRadius`, the shape-role radii). Icons are
+  `LineIcon` glyphs. An album or playlist title is Playfair Display
+  (ADR-0137). Track times show hours from an hour on. A facet the shell has
+  no label for is left out. Button widths follow their labels.
+- `audible` (playing or loading) keeps interface sounds quiet, so none lands
+  on the first note of a loading track. The Home card names the station.
+
 Local settings apply on provider restart through the existing settings contract
 (#704/#683). Scan publishes an immutable view; secure playback reopening does
 not wait for a scan lock. Shutdown cancels further scan work between files;

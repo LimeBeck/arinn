@@ -298,6 +298,10 @@ private slots:
     };
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     publish("paused");QTRY_VERIFY(!policy->property("mediaActive").toBool());
+    // A track loading is about to sound: no interface sound over its first
+    // note (#756 M26).
+    publish("loading");QTRY_VERIFY(policy->property("mediaActive").toBool());
+    publish("paused");QTRY_VERIFY(!policy->property("mediaActive").toBool());
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     daemon.active="null";catalog.refresh();QTRY_VERIFY(!policy->property("mediaActive").toBool());
   }
@@ -321,6 +325,30 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
+  }
+  // A station tells My Wave from an album on the Home card (#756 M24).
+  void theHomeCardNamesTheStation() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    daemon.active = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {"provider_id", "local"},
+        {"generation", "g1"},
+        {"state", QJsonObject{{"revision", 1},
+                              {"session", "s"},
+                              {"playback", "paused"},
+                              {"continuous", true},
+                              {"station", QJsonObject{{"id", "station:wave"},
+                                                      {"kind", "station"},
+                                                      {"title", "Synthetic wave"}}},
+                              {"actions", QJsonArray{"resume"}},
+                              {"current", QJsonObject{{"occurrence", "o"},
+                                                      {"track", QJsonObject{{"id", "t1"},
+                                                                            {"kind", "track"},
+                                                                            {"title", "Synthetic"}}}}}}}})
+                                          .toJson(QJsonDocument::Compact));
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.homeEntries().value(0).toMap().value("statusText").toString(),
+                 QStringLiteral("Local music · Synthetic wave · Paused"));
   }
   // The stale "Unavailable" under every music screen (#756 M5, M8): a
   // provider keeps its last error after it skipped to the next track. The

@@ -136,6 +136,12 @@ QtObject {
     readonly property real poolLightness: 0.50
     readonly property real poolChromaWarm: 0.10
     readonly property real poolChromaCool: 0.065
+    // The confirm dialog over a screen (handoff confirm layout, as the close
+    // flow draws it): a black scrim and a raised plate, radius 48.
+    readonly property color scrim: Qt.rgba(0, 0, 0, 0.58)
+    readonly property color dialogSurface: Qt.rgba(0.161, 0.165, 0.188, 0.94)
+    readonly property color dialogLine: Qt.rgba(1, 1, 1, 0.10)
+    readonly property int dialogRadius: 48
     readonly property color ink: "#131417"
     readonly property color ember: "#FF8A3D"
     readonly property color error: "#E8474F"

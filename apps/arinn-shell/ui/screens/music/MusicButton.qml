@@ -13,7 +13,7 @@ Ui.Surface {
     focusedColor: Ui.Theme.textPrimary
     Ui.UiText {anchors.top:parent.bottom;anchors.topMargin:14;anchors.horizontalCenter:parent.horizontalCenter;width:260;visible:root.activeFocus;text:root.text;role:"caption";horizontalAlignment:Text.AlignHCenter;maximumLineCount:1;elide:Text.ElideRight}
     contentItem: Item {
-        MusicIcon {
+        Ui.LineIcon {
             anchors.centerIn: parent
             width: root.width >= 96 ? 48 : 32; height: width
             name: root.iconName

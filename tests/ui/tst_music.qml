@@ -381,4 +381,106 @@ TestCase {
         const ids=home.continuePresentation.map(entry=>entry.id);
         compare(ids[0],"activity");compare(ids[1],"arinn-music-session");compare(ids.length,5);
     }
+
+    function iconOf(button) {
+        for(const child of button.contentItem.children) if(child.name!==undefined) return child;
+        return null;
+    }
+    // One icon set: the music buttons and the artwork placeholder draw
+    // LineIcon glyphs (#756 M23); scrims and radii are theme tokens (M22).
+    function test_music_uses_line_icons_and_theme_tokens() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T"}},actions:["pause","like","dislike","next","previous","seek","stop","radio","pin","retry"],upcoming:[],station:{id:"st",title:"Station"}};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause");const glyph=iconOf(play);
+        verify(glyph);compare(glyph.name,"pause");
+        verify(glyph.toString().indexOf("LineIcon")>=0,glyph.toString());
+        compare(iconOf(findChild(view,"musicNext")).name,"skip_next");
+        compare(iconOf(findChild(view,"musicQueue")).name,"queue_music");
+        view.mode="catalogue";wait(0);
+        const plate=findChild(view,"musicSearch").parent;compare(plate.radius,Ui.Theme.containerRadius);
+        view.requestPlay("track-1");
+        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogScrim").color,Ui.Theme.scrim);
+        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogPlate").radius,Ui.Theme.dialogRadius);
+        const art=createTemporaryObject(artworkFactory,suite);compare(art.radius,Ui.Theme.stillRadius);
+    }
+    // An album or playlist title is content: Playfair Display (ADR-0137,
+    // #756 M24). The section title stays Onest.
+    function test_detail_heading_is_a_content_title() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        const heading=findChild(view,"musicHeading");
+        compare(heading.font.family,Ui.Theme.fontFamily);
+        view.parentId="album:1";view.parentTitle="Fixture album";
+        compare(heading.text,"Fixture album");compare(heading.font.family,Ui.Theme.contentFontFamily);
+    }
+    // Hours in long tracks, no raw facet ids, labels that set their widths
+    // (#756 M25).
+    function test_time_facets_and_action_widths() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["tracks","mood","albums"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);
+        compare(view.timeLabel(185000000),"3:05");compare(view.timeLabel(4503000000),"1:15:03");
+        compare(view.timeLabel(3600000000),"1:00:00");
+        const labels=[];for(let i=0;;i++){const button=findChild(view,"musicFacet-"+i);if(!button)break;labels.push(button.text);}
+        compare(labels,["Tracks","Albums"]);
+        const open=findChild(view,"musicOpenPlayer"),settings=findChild(view,"musicSettings");
+        open.text="A much longer translated label for Open player";wait(0);
+        verify(open.width>=open.implicitWidth);
+        const plate=findChild(view,"musicSearch").parent;
+        verify(plate.x+plate.width<=open.mapToItem(view,0,0).x,"the search field leaves room for the actions");
+        verify(settings.mapToItem(view,settings.width,0).x<=1920-Ui.Theme.safeRight,"the actions stay in the safe area");
+    }
+    // Play/Pause is the player's first focus; while it waits for a command
+    // a working control holds focus and hands it back (#756 M13).
+    function test_play_pause_is_the_default_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","stop","next","seek"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.openPlayer();const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        // A command in flight disables the transport: Queue holds focus.
+        view.mode="catalogue";catalog.busy=true;wait(0);view.openPlayer();
+        const queue=findChild(view,"musicQueue");tryCompare(queue,"activeFocus",true);
+        catalog.busy=false;tryCompare(play,"activeFocus",true);
+        // A control the user chose keeps focus.
+        catalog.busy=true;view.mode="catalogue";wait(0);view.openPlayer();
+        tryCompare(queue,"activeFocus",true);keyClick(Qt.Key_Up);
+        const seek=findChild(view,"musicSeek");tryCompare(seek,"activeFocus",true);
+        catalog.busy=false;wait(50);compare(seek.activeFocus,true);
+    }
+    // Down no longer moves sideways inside the one control row, and every
+    // control reaches the seek bar with Up (#756 M15).
+    function test_player_dpad_graph() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState={session:"s",playback:"playing",current:{track:{id:"t",title:"T",duration_us:60000000}},actions:["pause","like","dislike","next","previous","seek","stop","radio"],upcoming:[]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause"),seek=findChild(view,"musicSeek");
+        tryCompare(play,"activeFocus",true);
+        for(const name of ["musicLike","musicDislike","musicPrevious","musicPlayPause","musicNext","musicQueue","musicSeekButton","musicStop","musicRadio"]) {
+            const button=findChild(view,name);verify(button,name);Ui.Focus.take(button);tryCompare(button,"activeFocus",true);
+            keyClick(Qt.Key_Down);compare(button.activeFocus,true,name+": Down stays in place");
+            keyClick(Qt.Key_Up);tryCompare(seek,"activeFocus",true);
+        }
+    }
+    // Back restores focus: the queue to Queue, a detail to the entity it
+    // was opened from, a player opened from Home to Home (#756 M16).
+    function test_back_restores_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums"],actions:["play"]};
+        const albums=[{id:"album:1",kind:"album",title:"One",available:true},{id:"album:2",kind:"album",title:"Two",available:true},{id:"album:3",kind:"album",title:"Three",available:true}];
+        catalog.entries=albums;
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);wait(0);view.focusInitial();
+        const list=findChild(view,"musicEntries");tryCompare(list,"activeFocus",true);
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Down);compare(list.currentIndex,2);
+        keyClick(Qt.Key_Return);compare(view.parentId,"album:3");
+        catalog.entries=[{id:"t1",kind:"track",title:"Inside",available:true}];wait(0);
+        keyClick(Qt.Key_Escape);compare(view.parentId,"");
+        catalog.entries=[];wait(0);catalog.entries=albums;
+        tryCompare(list,"currentIndex",2);tryCompare(list,"activeFocus",true);
+        view.openPlayer();wait(0);const queue=findChild(view,"musicQueue");Ui.Focus.take(queue);keyClick(Qt.Key_Return);
+        compare(view.mode,"queue");keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
+        let backs=0;view.backRequested.connect(()=>backs++);
+        keyClick(Qt.Key_Escape);compare(view.mode,"catalogue");compare(backs,0);
+        view.openPlayerFromHome();wait(0);keyClick(Qt.Key_Escape);compare(backs,1);compare(view.mode,"catalogue");
+    }
 }

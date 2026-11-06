@@ -43,6 +43,7 @@ FocusScope {
         function onActiveFocusItemChanged() {
             const item=root.hostWindow.activeFocusItem;
             if(item && item!==root && root.containsFocusItem(item) && item.visible && item.enabled)root.rememberedFocus=item;
+            if(item !== root.fallbackFocus) root.fallbackFocus = null;
         }
     }
     Connections {
@@ -52,10 +53,11 @@ FocusScope {
         function onStatusChanged(){Qt.callLater(root.recoverFocus);}
         function onBusyChanged(){Qt.callLater(root.recoverFocus);}
         function onTransportBusyChanged(){Qt.callLater(root.recoverFocus);}
+        function onEntriesChanged(){Qt.callLater(root.restoreOpener);}
     }
     function startTyping(target) {typingTarget=target || search;typing=true;Qt.callLater(searchKeyboard.start);}
     function finishTyping() {searchKeyboard.finish();typing=false;Ui.Focus.take(typingTarget);}
-    onVisibleChanged: if(!visible){searchKeyboard.finish();typing=false;namingPlaylist=false;pendingPlay="";pickingSource=false;queueOccurrence="";deletingPlaylist=false;}
+    onVisibleChanged: if(!visible){playerFromHome=false;restoreEntity="";searchKeyboard.finish();typing=false;namingPlaylist=false;pendingPlay="";pickingSource=false;queueOccurrence="";deletingPlaylist=false;}
     readonly property var selected: catalog.state || ({})
     readonly property var player: catalog.activeState || ({})
     readonly property var current: player.current ? player.current.track : ({})
@@ -88,14 +90,60 @@ FocusScope {
     }
     function detailAction() {return saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : catalogueAction();}
     function belowSearch() {Ui.Focus.take(tracks.count && tracks.visible ? tracks : catalogueAction());}
+    // 3:05, or 1:15:03 from an hour on (#756 M25).
     function timeLabel(microseconds) {
-        const seconds=Math.max(0,Math.floor((microseconds || 0)/1000000));
-        return Math.floor(seconds/60)+":"+String(seconds%60).padStart(2,"0");
+        const seconds = Math.max(0, Math.floor((microseconds || 0) / 1000000));
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor(seconds % 3600 / 60);
+        const rest = String(seconds % 60).padStart(2, "0");
+        return hours > 0 ? hours + ":" + String(minutes).padStart(2, "0") + ":" + rest
+                         : minutes + ":" + rest;
     }
     function supported(action) { return actions.includes(action); }
-    function playerFocus() {return playButton.enabled ? playButton : retryButton.visible && retryButton.enabled ? retryButton : stopButton.enabled ? stopButton : queueButton;}
-    function focusInitial() { if (mode === "player") Ui.Focus.take(playerFocus()); else if (mode === "queue") Ui.Focus.take(queueList); else if (tracks.visible && tracks.count) Ui.Focus.take(tracks); else Ui.Focus.take(catalogueAction()); }
-    function openPlayer() { mode = "player"; Qt.callLater(focusInitial); }
+    // The control row is the last row: Down leaves it only for the failure's
+    // Retry, never sideways inside the row (#756 M15).
+    readonly property Item belowControls: retryPlaybackButton.visible ? retryPlaybackButton : null
+    // Play/Pause first (#756 M13). While it is disabled (a command in
+    // flight, a track loading) the nearest working control holds focus,
+    // and Play/Pause takes it back once it works, unless the user moved on.
+    property Item fallbackFocus: null
+    function playerFocus() {
+        if (playButton.enabled) return playButton;
+        return [retryPlaybackButton, retryButton, stopButton, nextButton, previousButton]
+            .find(item => item.visible && item.enabled) || queueButton;
+    }
+    function focusInitial() {
+        if (mode === "player") {
+            const target = playerFocus();
+            fallbackFocus = target === playButton ? null : target;
+            Ui.Focus.take(target);
+        } else if (mode === "queue") Ui.Focus.take(queueList);
+        else if (tracks.visible && tracks.count) Ui.Focus.take(tracks);
+        else Ui.Focus.take(catalogueAction());
+    }
+    Connections {
+        target: playButton
+        function onEnabledChanged() {
+            if (playButton.enabled && root.fallbackFocus && root.fallbackFocus.activeFocus) {
+                root.fallbackFocus = null;
+                Ui.Focus.take(playButton);
+            }
+        }
+    }
+    // Back from a player opened on Home's card returns to Home (#756 M16).
+    property bool playerFromHome: false
+    function openPlayer() { playerFromHome = false; mode = "player"; Qt.callLater(focusInitial); }
+    function openPlayerFromHome() { openPlayer(); playerFromHome = true; }
+    // The album, artist or playlist a detail was opened from; Back focuses
+    // it again once the list is back (#756 M16).
+    property string restoreEntity: ""
+    function restoreOpener() {
+        if (!restoreEntity.length || !catalog.entries.length) return;
+        const index = catalog.entries.findIndex(entry => entry.id === restoreEntity);
+        restoreEntity = "";
+        if (index >= 0) tracks.currentIndex = index;
+        if (tracks.visible) Ui.Focus.take(tracks);
+    }
     property string pendingAction:"play"
     property bool pendingActive:false
     property bool namingPlaylist:false
@@ -105,6 +153,7 @@ FocusScope {
     property string queueOccurrence:""
     property bool deletingPlaylist:false
     property var typingTarget:search
+    readonly property var facetLabels: ({albums: qsTr("Albums"), artists: qsTr("Artists"), playlists: qsTr("Playlists"), tracks: qsTr("Tracks"), selections: qsTr("For you")})
     function startCommand(action,id,active) {if(active)catalog.transport(action,id);else catalog.command(action,id);}
     function namePlaylist(entity,active) {playlistEntity=entity;playlistActive=active;playlistOpener=hostWindow ? hostWindow.activeFocusItem : null;playlistName.text=active ? "" : root.parentTitle;namingPlaylist=true;Qt.callLater(()=>Ui.Focus.take(playlistName));}
     function closePlaylist() {if(typing)finishTyping();namingPlaylist=false;Qt.callLater(()=>{if(!Ui.Focus.take(playlistOpener))focusInitial();});}
@@ -122,9 +171,10 @@ FocusScope {
         else if(deletingPlaylist){deletingPlaylist=false;focusInitial();}
         else if (typing) {finishTyping();}
         else if (pendingPlay) { pendingPlay = ""; focusInitial(); }
-        else if (mode === "queue") { mode = "player"; Qt.callLater(focusInitial); }
+        else if (mode === "queue") { mode = "player"; Qt.callLater(() => { if (!Ui.Focus.take(queueButton)) focusInitial(); }); }
+        else if (mode === "player" && playerFromHome) { playerFromHome = false; mode = "catalogue"; backRequested(); }
         else if (mode === "player") { mode = "catalogue"; Qt.callLater(focusInitial); }
-        else if (parentId) { parentId = ""; parentTitle = ""; catalog.browse(facet, "", search.text); }
+        else if (parentId) { restoreEntity = parentId; parentId = ""; parentTitle = ""; parentKind = ""; catalog.browse(facet, "", search.text); }
         else backRequested();
     }
     Keys.onPressed: event => {
@@ -146,7 +196,9 @@ FocusScope {
         else if (event.key === Qt.Key_MediaTogglePlayPause || event.key === Qt.Key_MediaPlay || event.key === Qt.Key_MediaPause) { catalog.transport(playing ? "pause" : "resume"); event.accepted = true; }
     }
     Rectangle { anchors.fill: parent; color: Ui.Theme.background }
-    Ui.UiText { objectName:"musicHeading"; x: 120; y: 80; width: 1150; role: "title"; text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
+    // An album or playlist is content: its title is Playfair Display
+    // (ADR-0137, #756 M24); screen titles stay Onest.
+    Ui.UiText { objectName:"musicHeading"; x: 120; y: 80; width: 1150; role: "title"; font.family: root.mode === "catalogue" && root.parentId.length ? Ui.Theme.contentFontFamily : Ui.Theme.fontFamily; text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music"); textFormat: Text.PlainText; maximumLineCount: 1; elide: Text.ElideRight }
     // One status line with its reason; it clears once playback recovers
     // (#756 M5). The player shows a failure with Retry instead.
     Ui.UiText {
@@ -169,21 +221,24 @@ FocusScope {
             Keys.onRightPressed: if(facets.count)Ui.Focus.take(facets.itemAt(0))
         }
         Repeater {
-            id: facets; model: root.selected.facets || []
+            // An unknown facet has no label: it is left out, never shown
+            // as its raw id (#756 M25).
+            id: facets; model: (root.selected.facets || []).filter(id => !!root.facetLabels[id])
             Ui.ActionButton {
                 required property string modelData
                 required property int index
+                objectName: "musicFacet-" + index
                 Keys.onDownPressed: Ui.Focus.take(search)
                 Keys.onLeftPressed: Ui.Focus.take(index ? facets.itemAt(index-1) : sourcePicker)
                 Keys.onRightPressed: if(index+1<facets.count) Ui.Focus.take(facets.itemAt(index+1))
-                width: 220; height: 76
-                text: ({albums: qsTr("Albums"), artists: qsTr("Artists"), playlists: qsTr("Playlists"), tracks: qsTr("Tracks"), selections: qsTr("For you")})[modelData] || modelData
+                width: Math.max(220, implicitWidth); height: 76
+                text: root.facetLabels[modelData]
                 onActivated: { root.facet = modelData; root.parentId = ""; root.parentTitle = ""; root.catalog.browse(modelData, "", search.text); }
             }
         }
     }
     Rectangle {
-        enabled: !root.pendingPlay; x: 120; y: 278; width: 1160; height: 76; radius: 24; color: Ui.Theme.plate; visible: root.mode === "catalogue"
+        enabled: !root.pendingPlay; x: 120; y: 278; width: catalogueActions.x - 40 - x; height: 76; radius: Ui.Theme.containerRadius; color: Ui.Theme.plate; visible: root.mode === "catalogue"
         T.TextField {
             id: search; objectName:"musicSearch"; anchors.fill: parent; anchors.margins: 14; anchors.rightMargin: searchKeyboardButton.width + 28; placeholderText: qsTr("Search this source"); font.pixelSize: 28; color: Ui.Theme.textPrimary; placeholderTextColor:Ui.Theme.textHint
             background: Rectangle { color: "transparent" }
@@ -199,9 +254,16 @@ FocusScope {
         }
         Ui.KeyboardButton {id:searchKeyboardButton;objectName:"musicKeyboard";x:parent.width-width-12;anchors.verticalCenter:parent.verticalCenter;height:64;KeyNavigation.right:detailPlay.visible ? detailPlay : openPlayerButton.visible ? openPlayerButton : settingsButton;panelOpen:root.typing;onActivated:root.typing ? root.finishTyping() : root.startTyping();Keys.onDownPressed:root.belowSearch();Keys.onLeftPressed:Ui.Focus.take(search)}
     }
-    Ui.ActionButton { id:openPlayerButton; objectName:"musicOpenPlayer"; KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:root.catalogueAction(); x: 1320; y: 278; width: 240; height: 76; visible: root.mode === "catalogue" && (!!root.player.current || root.player.continuous===true) && !root.parentId; text: qsTr("Open player"); onActivated: root.openPlayer() }
-    Ui.ActionButton {id:detailPlay;objectName:"musicPlayGroup";x:1320;y:278;width:240;height:76;visible:root.mode==="catalogue" && root.parentId.length>0;enabled:!root.catalog.busy && (root.selected.actions || []).includes("play");text:qsTr("Play");onActivated:root.requestPlay(root.parentId);KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:tracks}
-    Ui.ActionButton { id:settingsButton;objectName:"musicSettings";KeyNavigation.left:detailPlay.visible ? detailPlay : openPlayerButton.visible ? openPlayerButton : searchKeyboardButton;KeyNavigation.down:root.catalogueAction()===settingsButton ? sourcePicker : root.catalogueAction(); x: 1580; y: 278; width: 220; height: 76; visible: root.mode === "catalogue"; text: qsTr("Settings"); onActivated: root.settingsRequested() }
+    // Labels set the widths, so longer translations fit (#756 M25); the row
+    // keeps its right edge on the safe area.
+    Row {
+        id: catalogueActions
+        x: Ui.Theme.canvasWidth - Ui.Theme.safeRight - 24 - width; y: 278; spacing: 20
+        visible: root.mode === "catalogue"
+    Ui.ActionButton { id:openPlayerButton; objectName:"musicOpenPlayer"; KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:root.catalogueAction(); width: Math.max(240, implicitWidth); height: 76; visible: root.mode === "catalogue" && (!!root.player.current || root.player.continuous===true) && !root.parentId; text: qsTr("Open player"); onActivated: root.openPlayer() }
+    Ui.ActionButton {id:detailPlay;objectName:"musicPlayGroup";width:Math.max(240, implicitWidth);height:76;visible:root.mode==="catalogue" && root.parentId.length>0;enabled:!root.catalog.busy && (root.selected.actions || []).includes("play");text:qsTr("Play");onActivated:root.requestPlay(root.parentId);KeyNavigation.left:searchKeyboardButton;KeyNavigation.right:settingsButton;KeyNavigation.down:tracks}
+    Ui.ActionButton { id:settingsButton;objectName:"musicSettings";KeyNavigation.left:detailPlay.visible ? detailPlay : openPlayerButton.visible ? openPlayerButton : searchKeyboardButton;KeyNavigation.down:root.catalogueAction()===settingsButton ? sourcePicker : root.catalogueAction(); width: Math.max(220, implicitWidth); height: 76; visible: root.mode === "catalogue"; text: qsTr("Settings"); onActivated: root.settingsRequested() }
+    }
     Ui.ActionButton { id:disconnectButton;objectName:"musicDisconnect";KeyNavigation.up:tracks.count ? tracks : search;KeyNavigation.left:rescanButton.visible ? rescanButton : null;KeyNavigation.right:settingsButton;x: 1500; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("disconnect"); text: qsTr("Disconnect"); onActivated: root.catalog.command("disconnect") }
     Ui.ActionButton { id:rescanButton;objectName:"musicRescan";KeyNavigation.up:tracks.count ? tracks : search;KeyNavigation.right:disconnectButton.visible ? disconnectButton : settingsButton;x: disconnectButton.visible ? 1176 : 1500; y: 880; width: 300; enabled: !root.pendingPlay && !root.catalog.busy; visible: root.mode === "catalogue" && (root.selected.actions || []).includes("scan"); text: root.selected.account==="local" ? qsTr("Rescan") : qsTr("Refresh"); onActivated: root.catalog.command("scan") }
     Row {x:120;y:880;spacing:24;visible:root.mode==="catalogue" && root.parentId.length>0
@@ -223,7 +285,7 @@ FocusScope {
             contentItem: Item {
               Row {
                 x: 24;anchors.verticalCenter:parent.verticalCenter;spacing:24
-                MusicArtwork {width:64;height:64;radius:12;anchors.verticalCenter:parent.verticalCenter;source:entry.modelData.image || ""}
+                MusicArtwork {width:64;height:64;radius:Ui.Theme.stillRadius;anchors.verticalCenter:parent.verticalCenter;source:entry.modelData.image || ""}
                 Column {
                     width: 1400; anchors.verticalCenter: parent.verticalCenter
                     Ui.UiText { width: parent.width; text: entry.text; textFormat: Text.PlainText; role: "body"; maximumLineCount: 1; elide: Text.ElideRight; color: Ui.Theme.textPrimary }
@@ -289,23 +351,23 @@ FocusScope {
             objectName: "musicControlsB"; x: 580; y: 460; width: 1100; height: 112
             Row {
                 x: 0; spacing: 16
-                MusicButton {selected:root.player.feedback==="liked"; id: likeButton; KeyNavigation.right: dislikeButton; KeyNavigation.down: playButton; iconName: "like"; text: qsTr("Like"); visible: root.supported("like"); onActivated: root.catalog.transport("like") }
-                MusicButton {selected:root.player.feedback==="disliked"; id: dislikeButton; KeyNavigation.left: likeButton; KeyNavigation.right: previousButton; KeyNavigation.down: playButton; iconName: "dislike"; text: qsTr("Not for me"); visible: root.supported("dislike"); onActivated: root.catalog.transport("dislike") }
+                MusicButton {selected:root.player.feedback==="liked"; id: likeButton; objectName: "musicLike"; KeyNavigation.right: dislikeButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "thumb_up"; text: qsTr("Like"); visible: root.supported("like"); onActivated: root.catalog.transport("like") }
+                MusicButton {selected:root.player.feedback==="disliked"; id: dislikeButton; objectName: "musicDislike"; KeyNavigation.left: likeButton; KeyNavigation.right: previousButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "thumb_down"; text: qsTr("Not for me"); visible: root.supported("dislike"); onActivated: root.catalog.transport("dislike") }
             }
             Row {
                 x: 330; spacing: 24
-                MusicButton { id: previousButton; KeyNavigation.left: dislikeButton; KeyNavigation.right: playButton; KeyNavigation.down: stopButton; KeyNavigation.up: seek; iconName: "previous"; text: qsTr("Previous"); enabled: root.supported("previous") && !root.transportBusy; onActivated: root.catalog.transport("previous") }
-                MusicButton { id: playButton; KeyNavigation.left: previousButton; KeyNavigation.right: nextButton; KeyNavigation.up: seek; KeyNavigation.down: retryPlaybackButton.visible ? retryPlaybackButton : stopButton; objectName: "musicPlayPause"; width: 96; height: 96; iconName: root.playing ? "pause" : "play"; text: root.playing ? qsTr("Pause") : qsTr("Play"); enabled: !root.transportBusy && (root.supported("pause") || root.supported("resume") || (!root.player.continuous && ["stopped","ended"].includes(root.player.playback) && !!root.current.id)); onActivated: root.catalog.transport(root.playing ? "pause" : root.player.playback === "paused" ? "resume" : "play", root.current.id || "") }
-                MusicButton { id: nextButton; objectName:"musicNext"; KeyNavigation.left: playButton; KeyNavigation.right: queueButton; KeyNavigation.up: seek; KeyNavigation.down: stopButton; iconName: "next"; text: qsTr("Next"); enabled: root.supported("next") && !root.transportBusy; onActivated: root.catalog.transport("next") }
+                MusicButton { id: previousButton; objectName: "musicPrevious"; KeyNavigation.left: dislikeButton; KeyNavigation.right: playButton; KeyNavigation.down: root.belowControls; KeyNavigation.up: seek; iconName: "skip_previous"; text: qsTr("Previous"); enabled: root.supported("previous") && !root.transportBusy; onActivated: root.catalog.transport("previous") }
+                MusicButton { id: playButton; KeyNavigation.left: previousButton; KeyNavigation.right: nextButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; objectName: "musicPlayPause"; width: 96; height: 96; iconName: root.playing ? "pause" : "play"; text: root.playing ? qsTr("Pause") : qsTr("Play"); enabled: !root.transportBusy && (root.supported("pause") || root.supported("resume") || (!root.player.continuous && ["stopped","ended"].includes(root.player.playback) && !!root.current.id)); onActivated: root.catalog.transport(root.playing ? "pause" : root.player.playback === "paused" ? "resume" : "play", root.current.id || "") }
+                MusicButton { id: nextButton; objectName:"musicNext"; KeyNavigation.left: playButton; KeyNavigation.right: queueButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "skip_next"; text: qsTr("Next"); enabled: root.supported("next") && !root.transportBusy; onActivated: root.catalog.transport("next") }
             }
             Row {
                 anchors.right: parent.right; spacing:12
-                MusicButton {width:64;height:64; id: queueButton; objectName:"musicQueue"; KeyNavigation.left: nextButton; KeyNavigation.right: seekButton; KeyNavigation.down: stopButton; iconName: "queue"; text: qsTr("Queue"); onActivated: { root.mode = "queue"; Qt.callLater(root.focusInitial); } }
-                MusicButton {width:64;height:64; id: seekButton; KeyNavigation.left: queueButton; KeyNavigation.right: stopButton; KeyNavigation.down: stopButton; iconName: "seek"; text: qsTr("Seek"); enabled: root.supported("seek"); onActivated: Ui.Focus.take(seek) }
-                MusicButton {width:64;height:64; id: stopButton; objectName:"musicStop";KeyNavigation.left:seekButton;KeyNavigation.right:radioButton;KeyNavigation.up:playButton;iconName:"stop";text:qsTr("Stop");enabled:root.supported("stop") && !root.transportBusy;onActivated:root.catalog.transport("stop") }
-                MusicButton {width:64;height:64; id: radioButton; KeyNavigation.right:pinButton.visible ? pinButton : retryButton; KeyNavigation.left: stopButton; KeyNavigation.down: stopButton; iconName: "radio"; text: qsTr("Radio from this track"); visible: root.supported("radio") && !!root.current.id; onActivated: root.requestRadio(root.current.id || "",true) }
-                MusicButton {id:pinButton;width:64;height:64;iconName:"pin";visible:root.supported("pin");selected:root.player.pinned===true;text:root.player.pinned ? qsTr("Unpin station") : qsTr("Pin station");enabled:!root.transportBusy;onActivated:root.catalog.transport("pin",root.player.station.id);KeyNavigation.left:radioButton;KeyNavigation.right:retryButton}
-                MusicButton {id:retryButton;width:64;height:64;iconName:"retry";visible:root.supported("retry");text:qsTr("Retry loading tracks");enabled:!root.transportBusy;onActivated:root.catalog.transport("retry");KeyNavigation.left:pinButton.visible ? pinButton : radioButton;KeyNavigation.up:seek}
+                MusicButton {width:64;height:64; id: queueButton; objectName:"musicQueue"; KeyNavigation.left: nextButton; KeyNavigation.right: seekButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "queue_music"; text: qsTr("Queue"); onActivated: { root.mode = "queue"; Qt.callLater(root.focusInitial); } }
+                MusicButton {width:64;height:64; id: seekButton; objectName: "musicSeekButton"; KeyNavigation.left: queueButton; KeyNavigation.right: stopButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "schedule"; text: qsTr("Seek"); enabled: root.supported("seek"); onActivated: Ui.Focus.take(seek) }
+                MusicButton {width:64;height:64; id: stopButton; objectName:"musicStop";KeyNavigation.left:seekButton;KeyNavigation.right:radioButton;KeyNavigation.up:seek;KeyNavigation.down:root.belowControls;iconName:"stop";text:qsTr("Stop");enabled:root.supported("stop") && !root.transportBusy;onActivated:root.catalog.transport("stop") }
+                MusicButton {width:64;height:64; id: radioButton; objectName: "musicRadio"; KeyNavigation.right:pinButton.visible ? pinButton : retryButton; KeyNavigation.left: stopButton; KeyNavigation.up: seek; KeyNavigation.down: root.belowControls; iconName: "radio"; text: qsTr("Radio from this track"); visible: root.supported("radio") && !!root.current.id; onActivated: root.requestRadio(root.current.id || "",true) }
+                MusicButton {id:pinButton;width:64;height:64;iconName:"push_pin";visible:root.supported("pin");selected:root.player.pinned===true;text:root.player.pinned ? qsTr("Unpin station") : qsTr("Pin station");enabled:!root.transportBusy;onActivated:root.catalog.transport("pin",root.player.station.id);KeyNavigation.left:radioButton;KeyNavigation.right:retryButton;KeyNavigation.up:seek;KeyNavigation.down:root.belowControls}
+                MusicButton {id:retryButton;width:64;height:64;iconName:"refresh";visible:root.supported("retry");text:qsTr("Retry loading tracks");enabled:!root.transportBusy;onActivated:root.catalog.transport("retry");KeyNavigation.left:pinButton.visible ? pinButton : radioButton;KeyNavigation.up:seek;KeyNavigation.down:root.belowControls}
             }
         }
         // Why playback stopped, and Retry (#756 M8).
@@ -362,11 +424,11 @@ FocusScope {
         Ui.ActionButton {id:keepPlaylist;text:qsTr("Cancel");onActivated:root.back()}
         Ui.ActionButton {id:deletePlaylist;text:qsTr("Delete playlist");destructive:true;onActivated:{root.catalog.command("delete_playlist",root.parentId);root.deletingPlaylist=false;root.parentId="";root.parentTitle="";root.catalog.browse("playlists","","");root.focusInitial();}}
     }
-    Rectangle {anchors.fill:parent;visible:root.namingPlaylist;color:"#df131416";z:30
+    Rectangle {anchors.fill:parent;visible:root.namingPlaylist;color:Ui.Theme.scrim;z:30
         MouseArea {anchors.fill:parent;acceptedButtons:Qt.AllButtons}
         Column {x:360;y:160;width:1200;spacing:36
             Ui.UiText {text:qsTr("Save playlist");role:"title"}
-            Rectangle {width:1200;height:100;radius:24;color:Ui.Theme.plateContainer
+            Rectangle {width:1200;height:100;radius:Ui.Theme.containerRadius;color:Ui.Theme.plateContainer
                 TextInput {id:playlistName;objectName:"musicPlaylistName";x:24;y:20;width:820;height:60;font.family:Ui.Theme.fontFamily;font.pixelSize:36;color:Ui.Theme.textPrimary;clip:true;maximumLength:128;Keys.onReturnPressed:Ui.Focus.take(playlistSave);Keys.onEnterPressed:Ui.Focus.take(playlistSave);Keys.onRightPressed:event=>{if(cursorPosition===length)Ui.Focus.take(playlistKeyboard);else event.accepted=false;}}
                 Ui.KeyboardButton {id:playlistKeyboard;objectName:"musicPlaylistKeyboard";anchors.right:parent.right;anchors.rightMargin:12;anchors.verticalCenter:parent.verticalCenter;onActivated:root.startTyping(playlistName);Keys.onLeftPressed:Ui.Focus.take(playlistName);Keys.onDownPressed:Ui.Focus.take(playlistSave)}
             }
@@ -382,7 +444,7 @@ FocusScope {
         Ui.OnScreenKeyboard {id:searchKeyboard;objectName:"musicOnScreenKeyboard";anchors.fill:parent;target:root.typingTarget;memoryKey:root.namingPlaylist ? "music-playlist-name" : "music-search";maxCharacters:256;onSubmitted:root.finishTyping();onHideRequested:root.finishTyping();onLeaveUp:Ui.Focus.take(root.namingPlaylist ? playlistKeyboard : searchKeyboardButton)}
     }
     Rectangle {
-        anchors.fill:parent;color:"#99131416";visible:root.pickingSource;z:25
+        anchors.fill:parent;color:Ui.Theme.scrim;visible:root.pickingSource;z:25
         MouseArea {anchors.fill:parent;onClicked:{root.pickingSource=false;Ui.Focus.take(sourcePicker);}}
         ListView {
             id:sourceList;objectName:"musicSourceList";x:120;y:180;width:520;height:Math.min(450,count*90);clip:true;spacing:8;keyNavigationEnabled:true;model:root.catalog.sources

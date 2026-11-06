@@ -875,7 +875,9 @@ Window {
     readonly property bool interfaceMediaActive:
         ambientIdle.playing(mediaCatalog.continueEntries, browserCatalog.tabs, false)
         || (playerOpen && playerView.playing)
-        || musicCatalog.activeState.playback === "playing"
+        // A track loading counts too: a sound there would land on its
+        // first note (#756 M26).
+        || musicCatalog.audible
     Binding {
         target: interfaceSounds
         property: "mediaActive"
@@ -1029,7 +1031,7 @@ Window {
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(backend.favorites)
             newEntries: libraryCatalog.newEntries
-            onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayer();}
+            onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayerFromHome();}
             onMusicTransportRequested: musicCatalog.togglePlayback()
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications

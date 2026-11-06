@@ -6,7 +6,7 @@ import "../../artwork.js" as Artwork
 Item {
     id: root
     property url source: ""
-    property real radius: 24
+    property real radius: Ui.Theme.stillRadius
     readonly property bool loaded: picture.status === Image.Ready
     property int retryInterval: 1000
     property int attempts: 0
@@ -32,7 +32,7 @@ Item {
         onStatusChanged:{frame.syncSource();if(status===Image.Error)root.retryAfterFailure();}
         onSourceChanged:Qt.callLater(frame.syncSource)
     }
-    MusicIcon {anchors.centerIn:parent;width:Math.min(root.width,root.height)*0.36;height:width;name:"music";color:Ui.Theme.textHint;visible:picture.status!==Image.Ready}
+    Ui.LineIcon {anchors.centerIn:parent;width:Math.min(root.width,root.height)*0.36;height:width;name:"music_note";color:Ui.Theme.textHint;visible:picture.status!==Image.Ready}
     Canvas {
         id:frame;anchors.fill:parent
         property string loadedSource:""

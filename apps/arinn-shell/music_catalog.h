@@ -23,6 +23,9 @@ class MusicCatalog : public QObject {
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
+  // The active session plays or is loading its next track: interface sounds
+  // stay quiet (spec §5.6, #756 M26).
+  Q_PROPERTY(bool audible READ audible NOTIFY activeChanged)
   // Why the active session stopped, while it stays stopped; empty while it
   // plays, is paused or loads again (#756 M5, M8).
   Q_PROPERTY(QString playbackProblem READ playbackProblem NOTIFY problemsChanged)
@@ -44,6 +47,7 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
+  bool audible() const;
   QString playbackProblem() const;
   QString notice() const;
   // The id of the active session in Home's Continue row and the Quick menu.
@@ -64,6 +68,7 @@ signals:
   void problemsChanged();
 private:
   void providers(const QString &token,quint64 ticket,const QString &snapshot,QVariantList rows,QSet<QString> tokens);
+  QString statusText(const QString &status) const;
   void readState();void readActive();void readPage(bool append);void fail(const QString &code);
   void send(const QString &action,const QString &entity,const QString &occurrence,qint64 positionUs,bool active,const QString &text=QString());
   QVariantList m_sources,m_entries;

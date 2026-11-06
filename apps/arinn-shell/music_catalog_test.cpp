@@ -383,12 +383,26 @@ private slots:
     daemon.pageError = QStringLiteral("Timeout");
     MusicCatalog catalog;
     MusicRoom room;
+    QList<bool> loads;
+    connect(&room, &MusicRoom::loadingChanged, this, [&] { loads.append(room.loading()); });
     room.setCatalog(&catalog);
     QTRY_VERIFY(room.connected());
     QTRY_VERIFY(!room.loading());
+    // The last notification carries false, with the shelves still empty.
+    QTRY_VERIFY(!loads.isEmpty() && !loads.last());
+    QVERIFY(loads.contains(true));
     QVERIFY(room.list("albums").isEmpty());
+    // Review of #812: QML hears `loading` turn false although the shelves
+    // stay empty, and retries do not raise it again.
+    QCOMPARE(room.property("loading").toBool(), false);
+    QList<bool> seen;
+    const auto watch = connect(&room, &MusicRoom::loadingChanged, this,
+                               [&] { seen.append(room.loading()); });
+    QTest::qWait(4500);
+    disconnect(watch);
+    QVERIFY2(!seen.contains(true), "a retry raised loading");
     daemon.pageError.clear();
-    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 1, 12000);
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 1, 20000);
   }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.

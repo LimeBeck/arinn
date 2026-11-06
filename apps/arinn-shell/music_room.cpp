@@ -66,8 +66,12 @@ qint64 now() {
 // The daemon keeps a continuation for 30 s; past this age a page is read
 // again from the start instead.
 constexpr qint64 leaseMs = 25000;
-// A first page that failed is read again after this long.
+// A first page that failed is read again after this long, doubling with
+// each failure up to a minute.
 constexpr qint64 retryMs = 3000;
+qint64 retryDelay(int retries) {
+  return std::min<qint64>(retryMs << std::min(retries, 5), 60000);
+}
 // The facets a shelf pages: its personal entries in `selections`, and its
 // own facet when it has one.
 QStringList pagedFacets(const char *facet) {
@@ -264,8 +268,10 @@ void MusicRoom::readState(const QString &id) {
               if (!busy)
                 for (auto &[name, facet] : source.facets)
                   if (facet.failed && facet.entries.isEmpty() &&
-                      now() - facet.failedAt > retryMs)
+                      now() - facet.failedAt > retryDelay(facet.retries - 1))
                     source.pending.append(name);
+              // A retried facet stays `loaded`: the room is not loading
+              // again, so an empty room keeps its state.
               readNext(id);
             }
             publishSources();
@@ -343,6 +349,8 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
           // and a later state poll reads its first page again.
           facet.failed = true;
           facet.failedAt = now();
+          if (!append && !resuming)
+            ++facet.retries;
           facet.loaded = true;
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.
@@ -393,6 +401,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
         }
         facet.entries = entries;
         facet.failed = false;
+        facet.retries = 0;
         facet.loaded = true;
         facet.stale = false;
         // Only the first pages chain: a further page is the All list's own.
@@ -535,6 +544,13 @@ void MusicRoom::rebuild() {
   m_dated = dated;
   if (changed)
     emit shelvesChanged();
+  // The empty states follow `loading`; it changes with pages that leave
+  // the shelves as they were (review of #812).
+  const bool loading = this->loading();
+  if (loading != m_loading) {
+    m_loading = loading;
+    emit loadingChanged();
+  }
   emit listChanged();
 }
 
@@ -609,14 +625,13 @@ bool MusicRoom::connected() const {
   return false;
 }
 
+// First pages not read yet. A facet that is read again (a new revision, a
+// retry) stays loaded, so the room does not go back to its placeholders.
 bool MusicRoom::loading() const {
-  for (const auto &[id, source] : m_sources) {
-    if (!source.pending.isEmpty())
-      return true;
+  for (const auto &[id, source] : m_sources)
     for (const auto &[name, facet] : source.facets)
       if (!facet.loaded)
         return true;
-  }
   return false;
 }
 

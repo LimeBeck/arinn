@@ -30,7 +30,7 @@ class MusicRoom : public QObject {
   // Some source offers a catalogue; without one the room is the first use.
   Q_PROPERTY(bool connected READ connected NOTIFY sourcesChanged)
   // A source has not answered its first pages yet.
-  Q_PROPERTY(bool loading READ loading NOTIFY shelvesChanged)
+  Q_PROPERTY(bool loading READ loading NOTIFY loadingChanged)
   // Some entry carries a date, so the default order is a date order.
   Q_PROPERTY(bool dated READ dated NOTIFY shelvesChanged)
   // Every source has answered its state once, or failed to: until then the
@@ -79,6 +79,7 @@ signals:
   void activeChanged();
   void sourcesChanged();
   void shelvesChanged();
+  void loadingChanged();
   // Some page arrived or a source left: lists read again.
   void listChanged();
 
@@ -104,6 +105,7 @@ private:
     // A failed first page is read again on a later state poll, at most every
     // few seconds (Codex review of #812).
     qint64 failedAt = 0;
+    int retries = 0;
     QSet<QString> tokens;
   };
   struct Source {
@@ -128,6 +130,6 @@ private:
   QStringList m_order;
   std::map<QString, Source> m_sources;
   QVariantList m_shelves, m_sourceRows;
-  bool m_dated = false;
+  bool m_dated = false, m_loading = false;
   QTimer m_timer;
 };

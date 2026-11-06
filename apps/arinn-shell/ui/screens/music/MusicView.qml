@@ -310,7 +310,13 @@ FocusScope {
     property bool likePending: false
     property bool likeFailed: false
     readonly property string currentId: current.id || ""
-    onCurrentIdChanged: likeFailed = false
+    // A new track ends whatever the last one's like was doing (Codex review
+    // of #821).
+    onCurrentIdChanged: {
+        likeFailed = false;
+        likePending = false;
+        likeAwaitsState = false;
+    }
     function like() {
         if (transportBusy || !supported("like"))
             return;
@@ -361,14 +367,14 @@ FocusScope {
         moreOpen = false
     readonly property var moreActions: {
         const rows = [];
-        // A command in flight blocks the rows that send one, visibly
-        // (Codex review of #821); Radio only asks first.
+        // A command in flight blocks every row, visibly: each sends one,
+        // Radio after its confirmation (Codex review of #821).
         const busy = transportBusy;
         if (supported("dislike"))
             rows.push({id: "dislike", icon: "thumb_down", selected: player.feedback === "disliked", busy: busy,
                        label: player.feedback === "disliked" ? qsTr("Disliked") : qsTr("Dislike")});
         if (supported("radio") && !!current.id)
-            rows.push({id: "radio", icon: "radio", label: qsTr("Radio from this track")});
+            rows.push({id: "radio", icon: "radio", busy: busy, label: qsTr("Radio from this track")});
         if (supported("pin") && player.station && player.station.id)
             rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true, busy: busy,
                        label: player.pinned === true ? qsTr("Unpin station") : qsTr("Pin station")});
@@ -390,7 +396,7 @@ FocusScope {
         });
     }
     function runMore(id) {
-        if (transportBusy && id !== "radio")
+        if (transportBusy)
             return;
         if (id === "radio") {
             moreOpen = false;

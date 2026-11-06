@@ -589,6 +589,13 @@ TestCase {
         catalog.busy=false;wait(50);compare(like.text,"Saving…");
         catalog.activeState=Object.assign({},catalog.activeState,{feedback:""});
         tryCompare(like,"text","Like");compare(labels,["Saving…","Like"]);
+        // Codex review of #821: the track changes while a like is in flight;
+        // its late failure does not mark the new track.
+        keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
+        catalog.activeState=Object.assign({},catalog.activeState,{current:{track:{id:"t2",title:"T2",duration_us:60000000}}});
+        tryCompare(like,"text","Like");
+        catalog.errorText="The source could not do that. Try again.";catalog.busy=false;wait(50);
+        compare(like.text,"Like");catalog.errorText="";
         // Review of #821: one width for every state, so Queue and More stay
         // put, and in Russian the row stays in the safe area.
         // The layout settles after each change before it is read (delta
@@ -633,11 +640,11 @@ TestCase {
         keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);keyClick(Qt.Key_Down);keyClick(Qt.Key_Return);
         tryCompare(findChild(view,"musicKeepQueue"),"activeFocus",true);keyClick(Qt.Key_Return);
         compare(view.pendingPlay,"");tryCompare(more,"activeFocus",true);
-        // Codex review of #821: a command in flight blocks the rows that send
-        // one, visibly; Radio still asks first.
+        // Codex review of #821: a command in flight blocks every row, visibly,
+        // Radio too: its confirmation would send the command at once.
         catalog.busyOnTransport=false;catalog.busy=true;
         Ui.Focus.take(more);keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);
-        const stopRow=findChild(view,"musicMore-stop");verify(stopRow.busy);compare(findChild(view,"musicMore-radio").busy,false);
+        const stopRow=findChild(view,"musicMore-stop");verify(stopRow.busy);verify(findChild(view,"musicMore-radio").busy);
         compare(stopRow.Accessible.description,"Loading");
         list.currentIndex=4;keyClick(Qt.Key_Return);compare(catalog.commands,["pin"]);compare(view.moreOpen,true);
         catalog.busy=false;tryCompare(stopRow,"busy",false);

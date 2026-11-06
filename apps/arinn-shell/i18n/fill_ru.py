@@ -634,6 +634,11 @@ RU["Save or close"] = "Сохранить или закрыть"
 
 # Context-specific overrides: the same English word reads differently.
 CONTEXT = {
+    # Home hero eyebrows name the kind of item, never the row (#837)
+    ("HomeView", "Station"): "Станция",
+    ("HomeView", "Web shortcut"): "Ярлык сайта",
+    ("HomeView", "Application"): "Приложение",
+    ("HomeView", "Service"): "Сервис",
     ("SessionView", "Play"): "Воспроизвести",
     ("SessionView", "Pause"): "Пауза",
     ("SessionView", "Previous"): "Предыдущий",

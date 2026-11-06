@@ -1,0 +1,9 @@
+- Home looks calmer on the TV ([#837](https://github.com/LimeBeck/arinn/issues/837)):
+  - a focused card lifts only its image, so its caption no longer jumps, and it stays inside the screen's safe area and below its row label;
+  - the rows follow the design's spacing;
+  - focusing *New* no longer leaves an empty band;
+  - the hero's small line above the title names the kind of item instead of repeating the row name;
+  - cards without artwork, such as open web services, are tidy identity tiles, with the running dot beside the title;
+  - the bright bar and the coloured line under focused cards are gone, as is the progress sliver on *New* posters;
+  - the Russian "Open services" label fits in the navigation;
+  - the power icon is no longer upside down.

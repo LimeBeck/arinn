@@ -1616,7 +1616,6 @@ void Backend::readFavorites() {
         if (std::any_of(targets.cbegin(), targets.cend(), [](const QVariant &t) {
               return t.toMap().value("capability") == QLatin1String("music-station");
             })) {
-          m_musicPinRetries = 0;
           readMusicPins();
         } else {
           m_musicPins.clear();
@@ -1624,6 +1623,27 @@ void Backend::readFavorites() {
         }
         publishState();
       });
+}
+// MusicPin::validate (ADR-0143): IDs of 1..256 UTF-8 bytes without NUL, a
+// title of 1..256 bytes without control characters, and an opaque artwork ID.
+static bool validMusicPin(const MusicPinWire &pin) {
+  auto id = [](const QString &value) {
+    const auto bytes = value.toUtf8().size();
+    return bytes > 0 && bytes <= 256 && !value.contains(QChar(u'\0'));
+  };
+  if (!id(pin.provider) || !id(pin.station) || pin.title.trimmed().isEmpty() ||
+      pin.title.toUtf8().size() > 256)
+    return false;
+  for (const auto ch : pin.title)
+    if (ch.category() == QChar::Other_Control)
+      return false;
+  if (pin.artwork.size() > 256)
+    return false;
+  for (const auto ch : pin.artwork)
+    if (ch.unicode() > 0x7f ||
+        !(ch.isLetterOrNumber() || QStringLiteral("-_.:").contains(ch)))
+      return false;
+  return true;
 }
 void Backend::readMusicPins() {
   if (!m_connected || !m_daemonOwner.startsWith(':'))
@@ -1642,6 +1662,7 @@ void Backend::readMusicPins() {
             if (epoch != m_connectionEpoch || ticket != m_musicPinTicket)
               return;
             m_musicPinsReading = false;
+            constexpr int kMusicPinRetries = 5;
             // An older daemon or a bad answer: pinned stations show as
             // unavailable favourites, which the user can still remove.
             const auto error = reply.errorName();
@@ -1652,7 +1673,6 @@ void Backend::readMusicPins() {
             if (reply.type() == QDBusMessage::ErrorMessage && !older) {
               // Transient: the titles already read stay, and a later status
               // poll reads again, a bounded number of times (favorites.md).
-              constexpr int kMusicPinRetries = 5;
               m_musicPinsRetry = m_musicPinRetries < kMusicPinRetries;
               ++m_musicPinRetries;
               return;
@@ -1664,24 +1684,45 @@ void Backend::readMusicPins() {
               publishState();
               return;
             }
-            m_musicPinRetries = 0;
             const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().at(0));
             qulonglong revision = 0;
             QHash<QPair<QString, QString>, QVariantMap> pins;
+            bool valid = true;
             arg.beginStructure();
             arg >> revision;
             arg.beginArray();
-            while (!arg.atEnd() && pins.size() < 1024) {
+            while (!arg.atEnd()) {
               MusicPinWire pin;
               arg >> pin;
-              if (pin.provider.isEmpty() || pin.station.isEmpty() ||
-                  pin.title.trimmed().isEmpty())
-                continue;
-              pins.insert({pin.provider, pin.station},
-                          {{"title", pin.title}, {"artwork", pin.artwork}});
+              const QPair<QString, QString> key{pin.provider, pin.station};
+              if (!validMusicPin(pin) || pins.contains(key) || pins.size() >= 1024) {
+                valid = false;
+                break;
+              }
+              pins.insert(key, {{"title", pin.title}, {"artwork", pin.artwork}});
             }
-            arg.endArray();
-            arg.endStructure();
+            if (valid) {
+              arg.endArray();
+              arg.endStructure();
+            }
+            // The whole reply holds MusicPinList's invariants or none of it
+            // is shown: its stations stay removable unavailable favourites.
+            if (!valid || revision == 0) {
+              m_musicPins.clear();
+              publishState();
+              return;
+            }
+            // A list of another favorites revision describes other targets:
+            // favorites are read again, which reads the pins again, within
+            // the same bounded budget as a transient failure.
+            if (revision != m_favoriteRevision) {
+              if (m_musicPinRetries < kMusicPinRetries) {
+                ++m_musicPinRetries;
+                m_favoritesRequested = false;
+              }
+              return;
+            }
+            m_musicPinRetries = 0;
             m_musicPins = pins;
             publishState();
           });

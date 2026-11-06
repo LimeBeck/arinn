@@ -215,8 +215,9 @@ private:
   // string: protocol IDs may hold any character but NUL.
   QHash<QPair<QString, QString>, QVariantMap> m_musicPins;
   quint64 m_musicPinTicket = 0;
-  // A transient MusicPins1.List failure is read again on a later status
-  // poll, at most kMusicPinRetries times per favorites read.
+  // A transient MusicPins1.List failure, or a list of another favorites
+  // revision, is read again on a later status poll, at most five times in
+  // a row.
   bool m_musicPinsReading = false;
   bool m_musicPinsRetry = false;
   int m_musicPinRetries = 0;

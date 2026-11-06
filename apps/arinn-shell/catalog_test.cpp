@@ -5,6 +5,7 @@
 #include "flow_trace_recorder.h"
 #include "build_identity.h"
 #include "web_icon_references.h"
+#include <optional>
 #include <QUuid>
 #include <QtDBus>
 #include <QtTest>
@@ -159,6 +160,11 @@ public:
   // always as an older daemon without the interface.
   int pinListFailures = 0;
   bool pinListUnknown = false;
+  // MusicPins1.List answers with these pins instead, or at a revision this
+  // much ahead of the favorites revision this many times.
+  std::optional<QList<PinWire>> pinListOverride;
+  int pinRevisionSkews = 0;
+  int favoriteLists = 0;
   // BuildInfo: empty fails with NotSupported, "absent" is a daemon older
   // than the method, "self" is this shell's build, anything else is sent.
   QString build;
@@ -308,6 +314,7 @@ public:
         bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
         return true;
       }
+      ++favoriteLists;
       a.beginStructure();
       a << favoriteRevision << favorites;
       a.endStructure();
@@ -330,9 +337,19 @@ public:
         bus.send(m.createErrorReply("org.arinn.Error.Unavailable", "fixture"));
         return true;
       }
-      if (m.member() == "List") {
+      if (m.member() == "List" && pinListOverride) {
         a.beginStructure();
         a << favoriteRevision;
+        a.beginArray(QMetaType::fromType<PinWire>());
+        for (const auto &pin : std::as_const(*pinListOverride))
+          a << pin;
+        a.endArray();
+        a.endStructure();
+      } else if (m.member() == "List") {
+        a.beginStructure();
+        a << favoriteRevision + (pinRevisionSkews > 0 ? 1 : 0);
+        if (pinRevisionSkews > 0)
+          --pinRevisionSkews;
         a.beginArray(QMetaType::fromType<PinWire>());
         for (const auto &target : std::as_const(favorites))
           for (const auto &pin : std::as_const(pins))
@@ -552,6 +569,49 @@ private slots:
                    QString("First"));
       QTRY_COMPARE(backend.favorites().at(1).toMap().value("title").toString(),
                    QString("Second"));
+    }
+    bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
+    bus.unregisterService("org.arinn.Daemon1");
+  }
+  // #804: a MusicPins1.List reply that breaks MusicPinList's invariants is
+  // not shown at all; a list of another favorites revision has favorites
+  // read again until the two agree.
+  void malformedMusicPinListsAreNotShown() {
+    auto bus = QDBusConnection::sessionBus();
+    CatalogDaemon daemon;
+    daemon.mode = "populated";
+    daemon.pins = {{"fixture.music", "station:library", "Fixture station", ""}};
+    daemon.favorites = {{"fixture.music", "music-station", "station:library"}};
+    QVERIFY(bus.registerService("org.arinn.Daemon1"));
+    QVERIFY(bus.registerVirtualObject("/org/arinn", &daemon,
+                                      QDBusConnection::SubPath));
+    const PinWire good{"fixture.music", "station:library", "Fixture station", ""};
+    const QList<QList<PinWire>> malformed{
+        {good, {"fixture.music", "station:library", "Twin", ""}},
+        {good, {"fixture.music", "station:other", "Path", "../cover"}},
+        {good, {"fixture.music", "station:other", "Tab\there", ""}},
+        {good, {"fixture.music", "station:other", QString(257, u'x'), ""}},
+        {good, {"fixture.music", QString(257, u's'), "Long ID", ""}}};
+    for (const auto &list : malformed) {
+      daemon.pinListOverride = list;
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE(daemon.pinCalls.count("List") > 0, true);
+      QTest::qWait(200);
+      QCOMPARE(backend.favorites().size(), 1);
+      QVERIFY(backend.favorites().first().toMap().value("unavailable").toBool());
+      daemon.pinCalls.clear();
+    }
+    daemon.pinListOverride.reset();
+    daemon.pinRevisionSkews = 2;
+    {
+      Backend backend;
+      QTRY_VERIFY(backend.favoritesReady());
+      QTRY_COMPARE_WITH_TIMEOUT(
+          backend.favorites().value(0).toMap().value("title").toString(),
+          QString("Fixture station"), 10000);
+      QCOMPARE(daemon.pinRevisionSkews, 0);
+      QVERIFY(daemon.favoriteLists >= 3);
     }
     bus.unregisterObject("/org/arinn", QDBusConnection::UnregisterTree);
     bus.unregisterService("org.arinn.Daemon1");

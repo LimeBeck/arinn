@@ -1,0 +1,3 @@
+- Music presence on Home ([ADR-0142](docs/adr/0142-music-in-hearth-light.md), [#803](https://github.com/LimeBeck/arinn/issues/803)):
+  - A playing or paused music session leads Continue as a card with its cover over a blurred backdrop, a playing chip with Ember bars that stop on pause, and an Ember progress line. OK opens *Now playing*, and Play/Pause acts on the music without moving focus.
+  - While music plays, the status area shows an Ember dot and "track · artist" on every screen that has it.

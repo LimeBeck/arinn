@@ -1030,7 +1030,7 @@ Window {
             y: 44
             visible: !root.playerOpen && (libraryView.visible || settingsView.visible
                 || downloadsView.visible || browserView.visible || runningView.visible
-                || (musicView.visible && ["root", "all"].includes(musicView.mode) && !musicView.overlayOpen))
+                || (musicView.visible && musicView.screenStatus))
             browserUnavailable: home.browserUnavailable
             downloadActive: home.downloadActive
             downloadProgress: home.downloadProgress
@@ -1039,6 +1039,7 @@ Window {
             wifiLevel: home.wifiLevel
             network: home.network
             clockText: home.clockText
+            musicLine: home.musicStatusLine
         }
         Ui.HomeView {
             id: home
@@ -1105,6 +1106,13 @@ Window {
                 musicView.openFromRoom({provider: providerId, kind: "station", id: stationId, title: title});
             }
             onMusicTransportRequested: musicCatalog.togglePlayback()
+            // Music presence on Home (#803, MH-4): the status line while it
+            // plays, and Play/Pause without moving focus.
+            musicStatusLine: musicCatalog.statusLine
+            onMusicKeyRequested: action => {
+                if (action === "toggle") musicCatalog.togglePlayback();
+                else musicCatalog.transport(action === "play" ? "resume" : "pause");
+            }
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows
@@ -1154,7 +1162,12 @@ Window {
             onRestartRequested: backend.restartArinn()
             // A section picked in the navigation menu, or Home pressed there,
             // replaces an open overlay (#329, §6.3).
-            onSectionRequested: route => root.closeOverlays()
+            onSectionRequested: route => {
+                root.closeOverlays();
+                // The Music entry lands on the room (#840, ADR-0142 MH-1).
+                if (route === "music")
+                    musicView.enterSection();
+            }
             onHomeKeyPressed: root.closeOverlays()
             onOpenServicesRequested: {
                 // From the menu over Browse or a session, Open services
@@ -1276,9 +1289,12 @@ Window {
             onStopRequested: mediaCatalog.stop()
             onVisibleChanged: if (!visible) root.playerFromQuickMenu = false
             onBackRequested: {
+                // Read before the view hides: hiding clears it (Codex review
+                // of #826).
+                const fromQuickMenu = root.playerFromQuickMenu;
+                root.playerFromQuickMenu = false;
                 root.sessionOpen = false;
-                if (root.playerFromQuickMenu) {
-                    root.playerFromQuickMenu = false;
+                if (fromQuickMenu) {
                     Qt.callLater(root.openQuickMenu);
                 } else if (root.sessionFromLibrary) {
                     root.sessionFromLibrary = false;
@@ -1671,7 +1687,8 @@ Window {
             // publishes no MPRIS (#756 M2). The sheet ranks them (#805,
             // ADR-0142 MH-7).
             sessions: {
-                const list = mediaCatalog.continueEntries.map(entry => ({
+                // Every playing or paused session, an untitled one too (§5.7).
+                const list = mediaCatalog.sessionEntries.map(entry => ({
                     id: entry.id, kind: "media", title: entry.title || "", subtitle: entry.subtitle || "",
                     artwork: entry.artwork || "", state: entry.state, playPause: entry.playPause === true,
                     previous: entry.previous === true, next: entry.next === true, open: true, eyebrow: "",

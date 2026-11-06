@@ -21,6 +21,10 @@ Row {
     property int wifiLevel: 0
     property string network: ""
     property string clockText: ""
+    // "track · artist" while music plays (brief *Presence*, MH-4, #803):
+    // an Ember dot and the line, left of the network icon and the clock.
+    // Empty on pause and when no music plays.
+    property string musicLine: ""
     height: 64; spacing: 24
     Row {
         objectName: "browserStatusChip"
@@ -59,6 +63,33 @@ Row {
             text: area.downloadProgress >= 0
                 ? qsTr("%1%").arg(Math.floor(Math.min(1, area.downloadProgress) * 100))
                 : qsTr("Downloading")
+        }
+    }
+    Row {
+        objectName: "musicStatus"
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: 12
+        visible: area.musicLine.length > 0
+        Accessible.role: Accessible.StaticText
+        Accessible.name: area.musicLine
+        Rectangle {
+            objectName: "musicStatusDot"
+            anchors.verticalCenter: parent.verticalCenter
+            width: 10; height: 10; radius: 5
+            color: Theme.ember
+        }
+        UiText {
+            objectName: "musicStatusLine"
+            anchors.verticalCenter: parent.verticalCenter
+            width: Math.min(implicitWidth, 420)
+            text: area.musicLine
+            textFormat: Text.PlainText
+            role: "caption"
+            font.weight: 500
+            color: Theme.textSecondary
+            wrapMode: Text.NoWrap
+            maximumLineCount: 1
+            elide: Text.ElideRight
         }
     }
     Canvas {

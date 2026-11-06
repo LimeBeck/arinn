@@ -20,6 +20,9 @@ FocusScope {
     readonly property bool overlayOpen: (room && roomView.sheetOpen) || pendingPlay.length > 0
         || queueOccurrence.length > 0 || deletingPlaylist || moreOpen || mode === "queue"
     property string mode: "catalogue"
+    // The shell's status area shows over the room, its All lists and Now
+    // playing (frame mh-03, #840), never under a sheet or a dialog.
+    readonly property bool screenStatus: ["root", "all", "player"].includes(mode) && !overlayOpen
     // The room entry a detail, the All list or the player was opened from:
     // Back returns to the room with focus on it (brief, M16).
     property string roomKey: ""
@@ -287,13 +290,32 @@ FocusScope {
     }
     // Times of a track longer than an hour carry hours, elapsed too (M25).
     readonly property bool longTrack: (current.duration_us || 0) >= 3600000000
-    // Now playing's context (brief mh-03): the station, or the album, and
-    // the source.
+    // Now playing's context (brief mh-03): the station, or the album, then
+    // the source while it plays; otherwise the state follows the context, or
+    // the source without one. Now playing has no page title (#840).
     readonly property string playerContext: {
         const source = catalog.activeSourceName || "";
         const station = player.station ? (player.station.title || "") : "";
         const context = station.length ? station : current.album ? qsTr("Album") : "";
-        return [context, source].filter(part => part.length).join(" · ");
+        if (!context.length && !source.length)
+            return playerHeading;
+        const state = player.playback === "paused" ? qsTr("paused")
+            : player.playback === "loading" ? qsTr("loading")
+            : qsTr("stopped");
+        const parts = playing ? [context, source] : [context.length ? context : source, state];
+        return parts.filter(part => part.length).join(" · ");
+    }
+    // Leaving for the Music root: global navigation's Music entry lands on the
+    // room, not on the mode it was left in (#840, ADR-0142 MH-1).
+    function enterSection() {
+        if (!room)
+            return;
+        playerFromHome = false;
+        moreOpen = false;
+        pendingPlay = "";
+        replaceOpener = null;
+        queueOccurrence = "";
+        openRoom();
     }
     // The Queue sheet's rows: the current entry first, then the upcoming
     // ones (brief *Queue*).
@@ -743,8 +765,14 @@ FocusScope {
             event.accepted = true;
             return;
         }
-        if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key) && !search.activeFocus) {
-            back();
+        // Back and Esc always act, also from the search field; only
+        // Backspace stays the field's own, to delete (#829, as BrowseView).
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back
+                || (event.key === Qt.Key_Backspace && !search.activeFocus)) {
+            // One step per press: a held key does not close the keyboard and
+            // leave Find at once (review of #830, as Home and Browse).
+            if (!event.isAutoRepeat)
+                back();
             event.accepted = true;
         } else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
             catalog.transport(playing ? "pause" : "resume");
@@ -797,7 +825,8 @@ FocusScope {
         // Lining figures, as UiText gives the content roles (ADR-0137).
         font.features: contentTitle ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
         // The room and its All lists carry their own titles.
-        visible: root.mode !== "root" && root.mode !== "all" && root.mode !== "search" && !root.detailView
+        // Now playing has no page title: its state is in the eyebrow (#840).
+        visible: !["root", "all", "search", "player", "queue"].includes(root.mode) && !root.detailView
         text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music")
         textFormat: Text.PlainText
         maximumLineCount: 1
@@ -920,7 +949,9 @@ FocusScope {
                 searchDelay.restart();
             }
             Keys.onDownPressed: root.belowSearch()
-            Keys.onUpPressed: Ui.Focus.take(sourcePicker)
+            // Up never targets a hidden item: Find has no source picker (#829).
+            Keys.onUpPressed: if (sourcePicker.visible)
+                Ui.Focus.take(sourcePicker)
             Keys.onEscapePressed: root.back()
             Keys.onRightPressed: event => {
                 if (cursorPosition === length)
@@ -1382,6 +1413,17 @@ FocusScope {
         enabled: !root.pendingPlay
         anchors.fill: parent
         visible: root.mode === "player" || root.mode === "queue"
+        // The top bar as on the other music screens: the lockup; the status
+        // area is the shell's (#840, frame mh-03).
+        Ui.BrandLockup {
+            objectName: "musicPlayerLockup"
+            x: Ui.Theme.safeLeft
+            y: 50
+            height: 40
+            width: implicitWidth
+            markSize: 40
+            textRole: "section"
+        }
         MusicArtwork {
             id: playerArtwork
             objectName: "musicPlayerArtwork"
@@ -1402,8 +1444,11 @@ FocusScope {
             // the source.
             Row {
                 spacing: 14
+                // The dot means playing (brief *Presence*): none otherwise (#840).
                 Rectangle {
+                    objectName: "musicPlayerDot"
                     anchors.verticalCenter: parent.verticalCenter
+                    visible: root.playing
                     width: 12
                     height: 12
                     radius: 6
@@ -1446,6 +1491,10 @@ FocusScope {
             Ui.UiText {
                 objectName: "musicPlayerAlbum"
                 width: parent.width
+                // A single whose album is named as the track says it once
+                // (#840).
+                visible: text.length > 0
+                    && text.toLowerCase() !== String(root.current.title || "").toLowerCase()
                 role: "meta"
                 font.pixelSize: 28
                 text: root.current.album || ""

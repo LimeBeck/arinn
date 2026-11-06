@@ -167,8 +167,11 @@ impl<'de> Deserialize<'de> for Catalogue {
                     duration_us: r.u,
                     available: r.v,
                     embedded_artwork: r.w,
+                    // A future mtime (a wrong clock, an extracted archive)
+                    // must not make a track the newest for years, nor pass
+                    // the protocol's date bound.
                     added_at: if r.s == 0 {
-                        u64::try_from(r.f.1).unwrap_or(0)
+                        u64::try_from(r.f.1).unwrap_or(0).min(now())
                     } else {
                         r.s
                     },
@@ -684,6 +687,16 @@ mod tests {
         value["records"][&id].as_object_mut().unwrap().remove("s");
         let loaded: Catalogue = serde_json::from_value(value).unwrap();
         assert_eq!(loaded.tracks()[0].added_at, 1_761_998_400);
+        // A future or absurd mtime falls back to now, not to that date.
+        for future in [now() as i64 + 86_400 * 365, i64::MAX] {
+            let mut value = serde_json::to_value(&catalogue).unwrap();
+            let record = value["records"][&id].as_object_mut().unwrap();
+            record.remove("s");
+            record["f"][1] = future.into();
+            let loaded: Catalogue = serde_json::from_value(value).unwrap();
+            assert!(loaded.tracks()[0].added_at <= now(), "{future}");
+            assert!(loaded.tracks()[0].added_at > 1_761_998_400, "{future}");
+        }
     }
     #[test]
     fn links_do_not_escape_roots_and_disc_folders_group_without_merging_other_albums() {

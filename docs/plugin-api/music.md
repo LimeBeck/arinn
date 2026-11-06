@@ -39,6 +39,15 @@ are retained, and at most two initial materializations run concurrently. Retryin
 a continuation reads its cached page; a different caller/query cannot reuse it.
 Snapshots contain at most 100,000 unique entities. Search is at most 1024 bytes.
 
+An entity may carry `added_at`: when it joined the user's library, in Unix
+seconds, at most 253402300799. It is optional and omitted when the provider does
+not know it. An album or artist takes its newest track's date. The shell orders
+ordinary entries on shared shelves by it, newest first, after the provider's
+personal `selections` ([ADR-0142](../adr/0142-music-in-hearth-light.md) MH-9).
+Local music reports the time a file was first found; a changed file keeps it,
+and a catalogue stored before the field existed uses the file's modification
+time once. Other providers fill it when their service reports a date (#806).
+
 `Command(generation, command)` takes request_id (UUID), action, session, entity,
 occurrence, position_us, replaces_provider, replaces_session and text. The last two
 fields default to empty for non-replacing commands. Known actions are play,

@@ -905,6 +905,7 @@ pub fn entity(t: &Track) -> Entity {
         },
         duration_us: t.duration_us,
         available: t.available,
+        added_at: t.added_at,
     };
     // Reserve enough budget for all 97 retained queue occurrences, including
     // JSON escaping. Catalogue/private metadata keeps its original text.

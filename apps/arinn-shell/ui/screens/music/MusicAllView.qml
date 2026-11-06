@@ -223,8 +223,14 @@ FocusScope {
     Item {
         id: allClip
         objectName: "musicAllClip"
-        readonly property real padX: 16
-        readonly property real padTop: 32
+        // A focused card grows from its bottom edge by the content focus
+        // scale, lifts, and has the mat and rim around it: the padding is
+        // that, from the card's own size, so a wide station card fits too
+        // (review of #848).
+        readonly property real bleed: Ui.Theme.matThickness + Ui.Theme.rimThickness + 2
+        readonly property real padX: Math.ceil(root.cardWidth * (Ui.Theme.contentFocusScale - 1) / 2 + bleed)
+        readonly property real padTop: Math.ceil((root.cardHeight + Ui.Theme.contentCaptionHeight)
+            * (Ui.Theme.contentFocusScale - 1) - Ui.Theme.contentFocusLift + bleed)
         x: Ui.Theme.safeLeft - padX
         y: 320 - padTop
         width: grid.width + 2 * padX

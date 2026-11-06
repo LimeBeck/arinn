@@ -536,9 +536,10 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     no longer sounds (after `pause`). It decides by the session read after
     the command ends: the catalogue ends a command before that read answers,
     so it waits for two reads, and the catalogue-wide error is not used
-    (Codex review of #851). A session that has not ended once the command has, a playing
-    session that offers neither command, or no answer within 10 s keeps it
-    on, and its row says why.
+    (Codex review of #851). A session that has not ended once the command
+    has, a playing session that offers neither command, or no answer within
+    15 s keeps it on, and its row says why. A command already in flight is
+    waited for first, with its own 15 s.
 - A source whose state cannot be read leaves the shelves, and the *Sources*
   sheet says why. The sheet shows each source's state and its `connect`,
   `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by

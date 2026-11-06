@@ -245,16 +245,29 @@ impl Local {
         } else {
             Default::default()
         };
-        self.deck.lock().await.clear();
-        // The seed plays first and is not dealt again right after it.
+        // The seed plays first and counts as the deck's first round: that
+        // round is the rest of the library, shuffled; later rounds are the
+        // whole library again (review of #815).
         let seeded: HashSet<String> = first
             .iter()
             .chain(rest.iter())
             .map(|t| t.id.clone())
             .collect();
+        {
+            let mut round: Vec<Track> = self
+                .view
+                .read()
+                .await
+                .tracks
+                .iter()
+                .filter(|t| t.available && !seeded.contains(&t.id))
+                .cloned()
+                .collect();
+            shuffle(&mut round, uuid::Uuid::new_v4().as_u64_pair().0);
+            *self.deck.lock().await = round;
+        }
         if first.len() < 64 {
-            let dealt = self.deal(64 - first.len()).await;
-            first.extend(dealt.into_iter().filter(|t| !seeded.contains(&t.id)));
+            first.extend(self.deal(64 - first.len()).await);
         }
         if first.is_empty() {
             return Err(ErrorCode::NotFound);
@@ -339,6 +352,14 @@ impl Local {
             .iter()
             .filter_map(|e| playable.get(&e.track.id).cloned())
             .collect();
+        // The rest of a seed group still comes before the library (review
+        // of #815).
+        {
+            let mut rest = self.seed_rest.lock().await;
+            rest.retain(|t| playable.contains_key(&t.id));
+            let count = rest.len().min(32usize.saturating_sub(kept.len()));
+            kept.extend(rest.drain(..count));
+        }
         if kept.len() < 32 {
             kept.extend(self.deal(32 - kept.len()).await);
         }
@@ -1266,6 +1287,114 @@ mod tests {
             order.extend(local.seed_rest.lock().await.iter().map(|t| t.id.clone()));
             assert_eq!(order, seed);
         }
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: the seed is the deck's first round only. A nine-track
+    /// seed in a ten-track library was followed by copies of the one other
+    /// track; now that track comes next, then the whole library again.
+    #[tokio::test]
+    async fn a_seed_counts_as_the_decks_first_round() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-round-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let files: Vec<String> = (0..10).map(|i| format!("track-{i}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let all: Vec<String> = local
+            .view
+            .read()
+            .await
+            .tracks
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        let playlist = local
+            .library
+            .lock()
+            .unwrap()
+            .create_playlist("Fixture seed", all[..9].to_vec())
+            .unwrap();
+        rescanned(&local).await;
+        local.start_station(&playlist).await.unwrap();
+        let state = local.playback.state().await;
+        let order: Vec<String> = state
+            .current
+            .iter()
+            .chain(state.upcoming.iter())
+            .map(|e| e.track.id.clone())
+            .collect();
+        assert_eq!(order[..9], all[..9]);
+        assert_eq!(order[9], all[9]);
+        let next: HashSet<&String> = order[10..20].iter().collect();
+        assert_eq!(next.len(), 10);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: reconciling after a rescan put library tracks ahead
+    /// of the rest of a long seed group.
+    #[tokio::test]
+    async fn reconciling_keeps_the_rest_of_the_seed_first() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-reseed-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let files: Vec<String> = (0..120).map(|i| format!("track-{i:03}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        let all: Vec<String> = local
+            .view
+            .read()
+            .await
+            .tracks
+            .iter()
+            .map(|t| t.id.clone())
+            .collect();
+        let seed = all[..80].to_vec();
+        let playlist = local
+            .library
+            .lock()
+            .unwrap()
+            .create_playlist("Fixture seed", seed.clone())
+            .unwrap();
+        rescanned(&local).await;
+        local.start_station(&playlist).await.unwrap();
+        // A rescan loses most of the queued part of the seed.
+        let lost: HashSet<String> = seed[1..60].iter().cloned().collect();
+        {
+            let mut view = local.view.write().await;
+            for track in &mut view.tracks {
+                if lost.contains(&track.id) {
+                    track.available = false;
+                }
+            }
+        }
+        local.reconcile_station().await.unwrap();
+        let state = local.playback.state().await;
+        let upcoming: Vec<String> = state.upcoming.iter().map(|e| e.track.id.clone()).collect();
+        let expected: Vec<String> = seed[60..].to_vec();
+        assert_eq!(upcoming[..expected.len()], expected[..]);
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();
     }

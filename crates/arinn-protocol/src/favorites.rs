@@ -15,12 +15,17 @@ pub const MAX_FAVORITES: usize = 1024;
 /// Reserved daemon-owned namespace, never a provider capability.
 pub const SHORTCUT_PROVIDER: &str = "arinn";
 pub const SHORTCUT_CAPABILITY: &str = "web-shortcut";
+/// A pinned music station (ADR-0143): `provider_id` is the music provider,
+/// `local_id` its pinnable station ID (#811). Its title and artwork live in
+/// `MusicPins1`.
+pub const MUSIC_STATION_CAPABILITY: &str = "music-station";
 
-/// Stable application launch target or an Arinn-owned shortcut ID.
+/// Stable application launch target, an Arinn-owned shortcut ID or a pinned
+/// music station.
 pub fn target(value: &EntityRef) -> Result<(), ErrorCode> {
     validation::id(&value.local_id)?;
     match value.capability.as_str() {
-        "application" => {
+        "application" | MUSIC_STATION_CAPABILITY => {
             validation::id(&value.provider_id)?;
         }
         SHORTCUT_CAPABILITY if value.provider_id == SHORTCUT_PROVIDER => {}
@@ -101,6 +106,29 @@ mod tests {
         }
         .validate()
         .unwrap();
+    }
+    /// ADR-0143: a pinned music station is a favorites target of its
+    /// provider; an empty provider or station is not.
+    #[test]
+    fn a_music_station_is_a_target() {
+        let station = |provider: &str, local: &str| EntityRef {
+            provider_id: provider.into(),
+            capability: MUSIC_STATION_CAPABILITY.into(),
+            local_id: local.into(),
+        };
+        let list = FavoriteList {
+            revision: 1,
+            entries: vec![app(), station("fixture.music", "station:library")],
+        };
+        list.validate().unwrap();
+        assert_eq!(
+            target(&station("", "station:library")),
+            Err(ErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            target(&station("fixture.music", "")),
+            Err(ErrorCode::InvalidArgument)
+        );
     }
     #[test]
     fn rejects_duplicates_transient_targets_and_bounds() {

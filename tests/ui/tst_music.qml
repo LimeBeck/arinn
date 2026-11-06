@@ -582,6 +582,10 @@ TestCase {
         // The provider refuses it.
         catalog.errorText="The source could not do that. Try again.";catalog.busy=false;
         tryCompare(like,"text","Not saved");verify(like.Accessible.description.length>0);
+        // Codex review of #821: another command in flight is said before the
+        // older failure.
+        catalog.busy=true;tryCompare(like.Accessible,"description","Another command is in progress.");
+        catalog.busy=false;tryCompare(like.Accessible,"description","The like was not saved. Try again.");
         // A confirmed like.
         catalog.errorText="";keyClick(Qt.Key_Return);tryCompare(like,"text","Saving…");
         catalog.activeState=Object.assign({},catalog.activeState,{feedback:"liked"});catalog.busy=false;

@@ -1615,9 +1615,11 @@ FocusScope {
                     Accessible.checkable: true
                     Accessible.checked: liked
                     // The state is said, not only shown (Codex review of #821).
+                    // Why it is unavailable comes before an older failure
+                    // (Codex review of #821).
                     Accessible.description: root.likePending ? qsTr("Saving…")
-                        : root.likeFailed ? qsTr("The like was not saved. Try again.")
-                        : root.transportBusy ? qsTr("Another command is in progress.") : ""
+                        : root.transportBusy ? qsTr("Another command is in progress.")
+                        : root.likeFailed ? qsTr("The like was not saved. Try again.") : ""
                     KeyNavigation.left: nextButton
                     KeyNavigation.right: queueButton
                     KeyNavigation.up: seek

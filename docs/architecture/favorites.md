@@ -14,7 +14,9 @@ application names, provider identity or catalog position.
 
 Targets reuse `EntityRef`. Applications use their stable opaque provider ID,
 `application`, and provider-declared application ID. Shortcuts use the reserved
-pair `arinn`, `web-shortcut`, and their daemon-owned shortcut ID. Browser tab,
+pair `arinn`, `web-shortcut`, and their daemon-owned shortcut ID. A pinned music
+station uses its music provider ID, `music-station`, and its pinnable station ID
+(#811); its title and artwork live in `MusicPins1` (see below). Browser tab,
 window, media session and generation IDs cannot be pinned. Entries contain no
 titles, URLs, icons or payloads. Duplicate identities and unsupported kinds are
 `InvalidArgument`; Provider IDs and local IDs follow the existing opaque ID bounds.
@@ -89,3 +91,31 @@ Implementation requires persistence/restart, concurrent-write conflict, no-op,
 unavailable-target retention and admission tests, live XML introspection, and
 private-bus/offscreen shell tests for mutation, Home filtering and focus restoration.
 Contract preparation alone closes no gate and runs no real-desktop operator tests.
+
+## Pinned music stations
+
+[ADR-0143](../adr/0143-music-station-pins.md), [MusicPins1 XML](../plugin-api/music-pins1.xml).
+`org.arinn.MusicPins1` sits next to `Favorites1` at the daemon root. It keeps
+what Home shows for a pinned station while its provider is away: provider ID,
+station ID, title (at most 256 bytes, no control characters) and an opaque
+artwork ID or empty.
+
+- `List() → (revision, [(provider_id, station_id, title, artwork)])` returns
+  the pinned stations in favorites order, at the favorites revision.
+- `Pin(revision, pin) → revision` stores the presentation and appends the
+  `music-station` target in one transaction. For a station already pinned it
+  refreshes the title and artwork in place; an identical pin returns the same
+  revision without a signal. A full favorites list gives `Unavailable`.
+- `Unpin(revision, provider_id, station_id) → revision` removes the target and
+  its record; the other favorites keep their order. An unknown pin is
+  `NotFound`.
+- Both share the favorites serializer and revision: a stale revision is
+  `Conflict`. Both announce through `Favorites1.Changed` after commit.
+
+`Favorites1.Set` keeps the two consistent. A `music-station` target may be
+reordered or removed; removing it drops its record in the same transaction. It
+may be added only while `MusicPins1` holds its record (`NotFound` otherwise), so
+a station enters the favorites only through `Pin`. SQLite schema 9 adds the
+`music_pins` table. The daemon never calls a music provider for a pin; starting
+the station and the provider's own `pin` action are the shell's (#804).
+

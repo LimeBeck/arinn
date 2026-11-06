@@ -156,4 +156,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0140](0140-tv-review-visual-decisions.md) | Visual decisions from the TV design review | Accepted | — |
 | [0141](0141-temporary-browser-authorization.md) | Temporary browser authorization and verified music access | Proposed | — |
 | [0142](0142-music-in-hearth-light.md) | Music in Hearth light | Accepted | — |
+| [0143](0143-music-station-pins.md) | Music station pins in the daemon's favorites | Accepted | — |
 <!-- register:end -->

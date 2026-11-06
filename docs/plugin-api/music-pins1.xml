@@ -1,0 +1,20 @@
+<!-- SPDX-FileCopyrightText: 2026 Arinn contributors
+SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<node>
+  <interface name="org.arinn.MusicPins1">
+    <method name="List">
+      <arg type="(ta(ssss))" direction="out" />
+    </method>
+    <method name="Pin">
+      <arg name="revision" type="t" direction="in" />
+      <arg name="pin" type="(ssss)" direction="in" />
+      <arg type="t" direction="out" />
+    </method>
+    <method name="Unpin">
+      <arg name="revision" type="t" direction="in" />
+      <arg name="provider_id" type="s" direction="in" />
+      <arg name="station_id" type="s" direction="in" />
+      <arg type="t" direction="out" />
+    </method>
+  </interface>
+</node>

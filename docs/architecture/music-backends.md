@@ -41,12 +41,15 @@ MPRIS, which the native providers do not publish (#756 M1–M8, #794):
   positions, so it is never pushed past the four further cards; a stopped
   session keeps its place (spec §5.1).
 - `playbackProblem` turns the session's error code into a reason while the
-  session stays stopped or ended. A provider may keep its last error after it
-  skipped to the next track, so the reason clears once the session plays, is
-  paused or loads again. `notice` is the one status line under the music
-  screens: a failed request, a denied account, a degraded source or a stopped
-  session, never a bare code. The player keeps its state as the heading and
-  shows the reason with Retry under the controls.
+  session stays stopped; providers report a failure as `stopped` and a natural
+  end as `ended`. A provider may keep its last error after it skipped to the
+  next track (#810), so the reason clears once the session plays, is paused,
+  loads or ends. `notice` is the one status line under the music screens: a
+  failed request, a denied account, a degraded source or a stopped session,
+  never a bare code. The player keeps its state as the heading and shows the
+  reason under the controls with Retry, which plays the failed track again; a
+  station shows *Play next* instead while it has a loaded next track, because
+  its `retry` only reloads the queue.
 - `MusicView` fills the logical canvas itself, so its background, the confirm
   dialogs (the close flow's scrim and centred 900 × r48 plate) and the
   bottom-anchored keyboard panel are drawn on screen.

@@ -380,13 +380,19 @@ private slots:
                  QStringLiteral("Playback stopped. The track was not found in this source."));
     QVERIFY(catalog.nowPlaying().isEmpty());
     // An unknown code reads as a generic failure, never as the code.
-    publish("ended", "Internal");
+    publish("stopped", "Internal");
     catalog.refresh();
     QTRY_COMPARE(catalog.playbackProblem(), QStringLiteral("The track could not be played."));
+    // A queue that ended naturally after a skipped failure has no problem.
+    publish("ended", "Unavailable");
+    catalog.refresh();
+    QTRY_VERIFY(catalog.playbackProblem().isEmpty());
+    QVERIFY(catalog.notice().isEmpty());
     QSignalSpy changed(&catalog, &MusicCatalog::problemsChanged);
     publish("playing", "Unavailable");
     catalog.refresh();
-    QTRY_VERIFY(catalog.playbackProblem().isEmpty());
+    QTRY_COMPARE(catalog.nowPlaying().value("state").toString(), QStringLiteral("playing"));
+    QVERIFY(catalog.playbackProblem().isEmpty());
     QVERIFY(catalog.notice().isEmpty());
     QVERIFY(changed.count() > 0);
     // The one-second poll alone does not announce an unchanged session.

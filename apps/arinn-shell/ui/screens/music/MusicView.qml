@@ -120,17 +120,22 @@ FocusScope {
         : player.playback === "paused" ? qsTr("Paused")
         : qsTr("Stopped")
     readonly property string playbackProblem: catalog.playbackProblem || ""
-    // Retry plays the failed track again, or asks a station for more.
+    // Retry plays the failed track again. A station's own `retry` only
+    // reloads its queue, so a failed station plays its next loaded track
+    // instead (review of #797); with none loaded, the row's "Retry loading
+    // tracks" stays the way on.
     readonly property bool canRetryPlayback: playbackProblem.length > 0
         && !transportBusy
-        && (supported("retry") || (!player.continuous && !!current.id))
+        && (player.continuous === true
+            ? supported("next") && (player.upcoming || []).length > 0
+            : !!current.id)
     // Only while Retry is offered: a second OK on a hidden button must not
     // restart a track that just started (review of #797).
     function retryPlayback() {
         if (!canRetryPlayback)
             return;
-        if (supported("retry"))
-            catalog.transport("retry");
+        if (player.continuous === true)
+            catalog.transport("next");
         else
             catalog.transport("play", current.id || "");
     }
@@ -1230,7 +1235,7 @@ FocusScope {
                 // staying on a hidden button (spec §6.1, review of #797).
                 onVisibleChanged: if (!visible && activeFocus)
                     Qt.callLater(root.focusInitial)
-                text: qsTr("Retry")
+                text: root.player.continuous === true ? qsTr("Play next") : qsTr("Retry")
                 KeyNavigation.up: playButton
                 onActivated: root.retryPlayback()
             }

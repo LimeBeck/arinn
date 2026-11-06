@@ -88,7 +88,9 @@ fn rfc3339(text: &str) -> Option<u64> {
         || day > days_in_month[(month - 1) as usize]
         || hour > 23
         || minute > 59
-        || second > 60
+        // No leap second: a library date is never one, and ":60" turned
+        // into ":59" would be a made-up time (review of #814).
+        || second > 59
     {
         return None;
     }
@@ -100,7 +102,7 @@ fn rfc3339(text: &str) -> Option<u64> {
     let doy = (153 * mp + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     let days = era * 146_097 + doe - 719_468;
-    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second.min(59) - offset;
+    let seconds = days * 86_400 + hour * 3600 + minute * 60 + second - offset;
     u64::try_from(seconds)
         .ok()
         .filter(|s| *s > 0 && *s <= arinn_protocol::music::MAX_ADDED_AT)
@@ -379,6 +381,7 @@ mod tests {
             "2024-13-01T00:00:00Z",
             "2023-02-29T00:00:00Z",
             "2024-05-01T24:00:00Z",
+            "2024-05-01T12:00:60Z",
             "2024-05-01 12:00:00Z",
             "2024-05-01T12:00:00",
             "2024-05-01T12:00:00+0300",

@@ -720,7 +720,13 @@ TestCase {
         catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:other",title:"Other",pinnable:true}});
         tryCompare(failure,"visible",false);
         catalog.activeState=Object.assign({},catalog.activeState,{station:{id:"station:wave",title:"Fixture wave",artwork:"cover:wave",pinnable:true}});
-        tryCompare(failure,"visible",true);view.pinWriteError="";
+        tryCompare(failure,"visible",true);
+        // Another provider's station with the same ID is not the one asked.
+        catalog.activeSourceId="other.music";tryCompare(failure,"visible",false);
+        catalog.activeSourceId="fixture.music";tryCompare(failure,"visible",true);
+        // Hiding the view, as Home does, forgets the request.
+        view.visible=false;view.visible=true;tryCompare(failure,"visible",false);
+        view.pinWriteError="";
         // Home holds the pin: More offers to unpin it.
         view.pinnedStations=[["fixture.music","station:wave"]];
         keyClick(Qt.Key_Return);tryCompare(list,"activeFocus",true);

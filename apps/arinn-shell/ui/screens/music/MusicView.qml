@@ -204,6 +204,7 @@ FocusScope {
     }
     onVisibleChanged: if (!visible) {
         playerFromHome = false;
+        pinAskedFor = [];
         restoreEntity = "";
         restorePages = 0;
         searchKeyboard.finish();
@@ -395,12 +396,14 @@ FocusScope {
     property var pinnedStations: []
     property bool pinsWritable: false
     // The shell's last favourites write error. Now playing shows it after a
-    // pin asked here, until the station changes or the player closes, so a
-    // failed save is never silent (Codex review of #836).
+    // pin asked here, for that provider's station, until the player closes
+    // or the view hides, so a failed save is never silent (Codex review of
+    // #836).
     property string pinWriteError: ""
-    property string pinAskedFor: ""
-    readonly property string pinFailure: pinAskedFor.length > 0 && player.station
-                                         && player.station.id === pinAskedFor ? pinWriteError : ""
+    property var pinAskedFor: []
+    readonly property string pinFailure: pinAskedFor.length === 2 && !!player.station
+                                         && pinAskedFor[0] === catalog.activeSourceId
+                                         && pinAskedFor[1] === player.station.id ? pinWriteError : ""
     signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
     // Home stores a new pin with its title, cleaned of control characters
     // (MusicPins1): a station without one cannot be pinned, though a pin
@@ -421,7 +424,7 @@ FocusScope {
     property bool moreOpen: false
     onModeChanged: if (mode !== "player") {
         moreOpen = false;
-        pinAskedFor = "";
+        pinAskedFor = [];
     }
     readonly property var moreActions: {
         const rows = [];
@@ -469,7 +472,7 @@ FocusScope {
         }
         if (id === "homePin") {
             if (pinsWritable) {
-                pinAskedFor = player.station.id;
+                pinAskedFor = [catalog.activeSourceId, player.station.id];
                 stationPinRequested(catalog.activeSourceId, player.station.id, stationPinTitle,
                                     player.station.artwork || "", !stationPinned);
             }

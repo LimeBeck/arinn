@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QGuiApplication>
+#include <QScreen>
 #include <QLocale>
 #include <QTemporaryDir>
 #include <QtTest>
@@ -50,6 +51,9 @@ class SystemAboutTest : public QObject {
 private slots:
   void shortBuildSplitsTheId();
   void channelDateFollowsTheLocale();
+  void displayUsesDevicePixels_data();
+  void displayUsesDevicePixels();
+  void liveDisplayUsesTheScreenScale();
   void reportOmitsPrivateFactsUntilOptIn();
   void reportShowsTheMismatchAndRawIds();
   void reportMarksAMissingDaemon();
@@ -81,6 +85,43 @@ void SystemAboutTest::channelDateFollowsTheLocale() {
            QStringLiteral("3 ноября 2026"));
   QCOMPARE(SystemAbout::formatChannelDate(QStringLiteral("HEAD"), QDate()), QString());
   QLocale::setDefault(previous);
+}
+
+void SystemAboutTest::displayUsesDevicePixels_data() {
+  QTest::addColumn<QSize>("logical");
+  QTest::addColumn<qreal>("scale");
+  QTest::addColumn<qreal>("hz");
+  QTest::addColumn<QString>("expected");
+  QTest::newRow("4k-200-percent") << QSize(1920, 1080) << qreal(2) << qreal(60)
+      << QStringLiteral("3840 × 2160 · 60 Hz");
+  QTest::newRow("4k-unscaled") << QSize(3840, 2160) << qreal(1) << qreal(59.94)
+      << QStringLiteral("3840 × 2160 · 60 Hz");
+  QTest::newRow("full-hd-unscaled") << QSize(1920, 1080) << qreal(1) << qreal(60)
+      << QStringLiteral("1920 × 1080 · 60 Hz");
+  QTest::newRow("4k-150-percent") << QSize(2560, 1440) << qreal(1.5) << qreal(60)
+      << QStringLiteral("3840 × 2160 · 60 Hz");
+  QTest::newRow("4k-125-percent") << QSize(3072, 1728) << qreal(1.25) << qreal(0)
+      << QStringLiteral("3840 × 2160");
+  QTest::newRow("fractional-rounding") << QSize(1097, 617) << qreal(1.75) << qreal(60)
+      << QStringLiteral("1920 × 1080 · 60 Hz");
+  QTest::newRow("missing-screen") << QSize() << qreal(1) << qreal(60) << QString();
+  QTest::newRow("invalid-scale") << QSize(1920, 1080) << qreal(0) << qreal(60) << QString();
+}
+
+void SystemAboutTest::displayUsesDevicePixels() {
+  QFETCH(QSize, logical);
+  QFETCH(qreal, scale);
+  QFETCH(qreal, hz);
+  QFETCH(QString, expected);
+  QCOMPARE(SystemAbout::formatDisplay(logical, scale, hz), expected);
+}
+
+void SystemAboutTest::liveDisplayUsesTheScreenScale() {
+  const auto *screen = QGuiApplication::primaryScreen();
+  QVERIFY(screen);
+  SystemAbout about;
+  QCOMPARE(about.displayText(), SystemAbout::formatDisplay(
+      screen->size(), screen->devicePixelRatio(), screen->refreshRate()));
 }
 
 void SystemAboutTest::reportOmitsPrivateFactsUntilOptIn() {

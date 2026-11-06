@@ -3,6 +3,7 @@
 #pragma once
 #include <QDate>
 #include <QObject>
+#include <QSize>
 #include <QString>
 #include <QVariantList>
 #include <QVariantMap>
@@ -67,6 +68,9 @@ public:
   static QString shortBuild(const QString &buildId, const QString &version = {});
   // "master · Nov 3, 2026", or whichever half is known, in the default locale.
   static QString formatChannelDate(const QString &channel, const QDate &date);
+  // Screen geometry is in logical units; About reports device pixels.
+  static QString formatDisplay(const QSize &logicalSize, qreal devicePixelRatio,
+                               qreal refreshRate);
 
   void setDeviceName(const QString &name);
   // Tests: stop reading the machine and the bus, and show `facts` instead.

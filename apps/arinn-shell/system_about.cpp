@@ -21,6 +21,8 @@
 #include <QTimer>
 #include <QtDBus>
 #include <QtQml>
+#include <cmath>
+#include <limits>
 #include <ifaddrs.h>
 #include <arpa/inet.h>
 #include <net/if.h>
@@ -116,18 +118,8 @@ QString readDisplay() {
   const auto *screen = QGuiApplication::primaryScreen();
   if (!screen)
     return {};
-  const auto size = screen->size();
-  if (size.width() <= 0 || size.height() <= 0)
-    return {};
-  const auto hz = qRound(screen->refreshRate());
-  if (hz > 1)
-    return QCoreApplication::translate("SystemAbout", "%1 × %2 · %3 Hz")
-        .arg(size.width())
-        .arg(size.height())
-        .arg(hz);
-  return QCoreApplication::translate("SystemAbout", "%1 × %2")
-      .arg(size.width())
-      .arg(size.height());
+  return SystemAbout::formatDisplay(screen->size(), screen->devicePixelRatio(),
+                                    screen->refreshRate());
 }
 
 QString readAudio() {
@@ -280,6 +272,26 @@ QString SystemAbout::formatChannelDate(const QString &channel, const QDate &date
     parts.append(locale.toString(date, format));
   }
   return parts.join(QStringLiteral(" · "));
+}
+
+QString SystemAbout::formatDisplay(const QSize &logicalSize, qreal devicePixelRatio,
+                                   qreal refreshRate) {
+  if (logicalSize.width() <= 0 || logicalSize.height() <= 0 ||
+      !std::isfinite(devicePixelRatio) || devicePixelRatio <= 0)
+    return {};
+  const QSizeF pixels = QSizeF(logicalSize) * devicePixelRatio;
+  if (pixels.width() > std::numeric_limits<int>::max() ||
+      pixels.height() > std::numeric_limits<int>::max())
+    return {};
+  // Qt screen sizes use device-independent coordinates. Keep a fractional
+  // scale until the final conversion to whole device pixels (#832).
+  const auto size = pixels.toSize();
+  const auto hz = std::isfinite(refreshRate) && refreshRate > 1 &&
+                          refreshRate < std::numeric_limits<int>::max()
+                      ? qRound(refreshRate) : 0;
+  if (hz > 1)
+    return tr("%1 × %2 · %3 Hz").arg(size.width()).arg(size.height()).arg(hz);
+  return tr("%1 × %2").arg(size.width()).arg(size.height());
 }
 
 SystemAbout::SystemAbout(QObject *parent) : QObject(parent) {

@@ -1,0 +1,1 @@
+- Show display dimensions in device pixels in Settings → System → About, accounting for integer and fractional desktop scaling so a 4K screen at 200% no longer appears as Full HD ([#832](https://github.com/LimeBeck/arinn/issues/832)).

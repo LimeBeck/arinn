@@ -370,6 +370,7 @@ void MusicCatalog::readPage(bool append) {
   }
   if (!token.isEmpty() && m_pageTokens.contains(token)) {
     fail(QStringLiteral("Conflict"));
+    emit pageFailed();
     return;
   }
   m_pageBusy = true;
@@ -399,6 +400,7 @@ void MusicCatalog::readPage(bool append) {
                 !json.value("entries").isArray() || revision == 0 ||
                 (append && revision != m_pageRevision)) {
               fail(code(reply));
+              emit pageFailed();
               return;
             }
             auto entries = append ? m_entries : QVariantList();
@@ -408,6 +410,7 @@ void MusicCatalog::readPage(bool append) {
             const auto page = json.value("entries").toArray();
             if (page.size() > 100 || entries.size() + page.size() > 100000) {
               fail(QStringLiteral("Unavailable"));
+              emit pageFailed();
               return;
             }
             for (const auto &item : page) {
@@ -416,6 +419,7 @@ void MusicCatalog::readPage(bool append) {
               const auto id = row.value("id").toString();
               if (id.isEmpty() || ids.contains(id)) {
                 fail(QStringLiteral("Conflict"));
+                emit pageFailed();
                 return;
               }
               ids.insert(id);

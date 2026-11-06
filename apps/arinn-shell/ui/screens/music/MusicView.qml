@@ -61,6 +61,12 @@ FocusScope {
     Connections {
         target: root.catalog
         ignoreUnknownSignals: true
+        // Only a failed page ends the opener search; a failed command
+        // sets the same error line but the page may still arrive
+        // (review of #798).
+        function onPageFailed() {
+            root.cancelRestore();
+        }
         function onBrowseReset() {
             root.cancelRestore();
             root.parentId = "";
@@ -252,9 +258,6 @@ FocusScope {
         cancelRestore();
         catalog.browse(facetId, parent, query);
     }
-    readonly property string catalogueError: catalog.errorText || ""
-    onCatalogueErrorChanged: if (catalogueError.length)
-        cancelRestore()
     function restoreOpener() {
         if (!restoreEntity.length)
             return;

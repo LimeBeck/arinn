@@ -67,7 +67,8 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   or playlist it was opened from (loading up to ten further pages to find
   it), and from a player opened on Home's card to Home, also after a queue
   replacement reopened that player. Another list, a source change or a
-  failed page ends that search, and it takes focus only while focus is still
+  failed page (`MusicCatalog.pageFailed`, not a failed command) ends that
+  search, and it takes focus only while focus is still
   in the list. An empty last page ends it too.
 - Scrims, dialog plates and radii are theme tokens (`Theme.scrim`,
   `dialogSurface`, `dialogRadius`, the shape-role radii). Icons are

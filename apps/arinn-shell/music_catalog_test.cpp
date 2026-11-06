@@ -47,6 +47,7 @@ public:
   QHash<QString, int> pageReads;
   QStringList commands;
   QString commandError;
+  QString pageError;
   QSet<QString> registryMethods;
   QString active = QStringLiteral("null");
   QString introspect(const QString &) const override { return {}; }
@@ -92,6 +93,10 @@ public:
     }
     if (member == QLatin1String("GetPage")) {
       ++pageReads[id];
+      if (!pageError.isEmpty()) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.") + pageError, pageError));
+        return true;
+      }
       // As a provider without a catalogue answers.
       if (states.value(id).value("facets").toArray().isEmpty()) {
         bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unsupported"),
@@ -147,6 +152,7 @@ private slots:
   }
   void init() {
     daemon.commandError.clear();
+    daemon.pageError.clear();
     daemon.providers.clear();
     daemon.states.clear();
     daemon.stateErrors.clear();
@@ -416,6 +422,29 @@ private slots:
     catalog.refresh();
     QTRY_COMPARE(catalog.activeState().value("playback").toString(), QStringLiteral("loading"));
     QVERIFY(catalog.nowPlaying().isEmpty());
+  }
+  // A failed page read is told apart from a failed command: the view ends
+  // its search for a detail's opener only on the former (review of #798).
+  void aFailedPageIsSignalled() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    auto scannable = state({"tracks"});
+    scannable["actions"] = QJsonArray{"scan"};
+    daemon.states.insert("local", scannable);
+    MusicCatalog catalog;
+    QTRY_VERIFY(!catalog.entries().isEmpty());
+    QSignalSpy failed(&catalog, &MusicCatalog::pageFailed);
+    daemon.commandError = "Unsupported";
+    const auto sent = daemon.commands.size();
+    catalog.command(QStringLiteral("scan"));
+    QTRY_COMPARE(daemon.commands.size(), sent + 1);
+    QTRY_VERIFY(!catalog.errorText().isEmpty());
+    QCOMPARE(failed.count(), 0);
+    daemon.commandError.clear();
+    QTRY_VERIFY(!catalog.busy());
+    daemon.pageError = "Timeout";
+    catalog.browse(QStringLiteral("tracks"), QString(), QStringLiteral("other"));
+    QTRY_COMPARE(failed.count(), 1);
+    QVERIFY(!catalog.errorText().isEmpty());
   }
   // A degraded source says that part of it is unavailable, with no code.
   void aDegradedSourceExplainsItself() {

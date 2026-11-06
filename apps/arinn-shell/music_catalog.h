@@ -85,6 +85,8 @@ signals:
   // source or its generation changed.
   void browseReset();
   void problemsChanged();
+  // A page read failed; the list it was for does not arrive.
+  void pageFailed();
 
 private:
   void providers(const QString &token, quint64 ticket, const QString &snapshot,

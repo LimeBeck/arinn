@@ -26,6 +26,7 @@ TestCase {
             property var browsed: []
             property var played: []
             function browse(facet,parent,search) {browsed=browsed.concat([parent]);}
+            signal pageFailed()
             property int loads: 0
             // As the catalogue: a page in flight makes it busy.
             property bool busyOnLoad: false
@@ -588,8 +589,10 @@ TestCase {
         compare(catalog.loads,0);compare(facet.activeFocus,true);
         // A failed page ends it too.
         view.parentId="album:150";view.back();compare(view.restoreEntity,"album:150");
-        catalog.errorText="The music source did not respond.";compare(view.restoreEntity,"");
-        catalog.errorText="";
+        // Review of #798: a failed command sets the same error line and
+        // leaves it; only a failed page ends it.
+        catalog.errorText="This action is not available.";wait(0);compare(view.restoreEntity,"album:150");
+        catalog.errorText="";catalog.pageFailed();compare(view.restoreEntity,"");
         // Focus elsewhere in the view stays there when the opener's page arrives.
         view.parentId="album:2";view.back();Ui.Focus.take(facet);tryCompare(facet,"activeFocus",true);
         catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];

@@ -288,6 +288,25 @@ impl Playback {
         });
         Ok(self.state().await)
     }
+    /// Replaces queued tracks' metadata with `fresh` values of the same ID,
+    /// as after a rescan of retagged files (review of #815). Returns whether
+    /// anything changed.
+    pub async fn refresh_tracks(&self, fresh: &std::collections::BTreeMap<String, Track>) -> bool {
+        let mut d = self.data.lock().await;
+        let mut changed = false;
+        for (id, track) in d.tracks.iter_mut() {
+            if let Some(new) = fresh.get(id)
+                && new != track
+            {
+                *track = new.clone();
+                changed = true;
+            }
+        }
+        if changed {
+            d.revision += 1;
+        }
+        changed
+    }
     pub async fn remaining(&self, session: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
         if d.session != session || d.session.is_empty() || d.station.is_some() {

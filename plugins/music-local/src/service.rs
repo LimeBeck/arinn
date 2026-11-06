@@ -211,8 +211,16 @@ impl Local {
         let mut deck = self.deck.lock().await;
         // A rescan may have removed tracks the deck still holds (review of
         // #815): deal only what the published catalogue can still play.
-        let current: HashSet<&str> = available.iter().map(|t| t.id.as_str()).collect();
-        deck.retain(|t| current.contains(t.id.as_str()));
+        // ... and with its current metadata (a retagged file keeps its ID).
+        let current: BTreeMap<&str, &Track> =
+            available.iter().map(|t| (t.id.as_str(), t)).collect();
+        deck.retain_mut(|t| match current.get(t.id.as_str()) {
+            Some(fresh) => {
+                *t = (*fresh).clone();
+                true
+            }
+            None => false,
+        });
         while deck.len() < count {
             let mut round = available.clone();
             shuffle(&mut round, uuid::Uuid::new_v4().as_u64_pair().0);
@@ -351,6 +359,14 @@ impl Local {
             .filter(|t| t.available)
             .map(|t| (t.id.clone(), t.clone()))
             .collect();
+        // A retagged file keeps its ID: queued and waiting tracks take the
+        // published metadata (review of #815).
+        self.playback.refresh_tracks(&playable).await;
+        for track in self.seed_rest.lock().await.iter_mut() {
+            if let Some(fresh) = playable.get(&track.id) {
+                *track = fresh.clone();
+            }
+        }
         if state
             .upcoming
             .iter()
@@ -1449,6 +1465,54 @@ mod tests {
         drop(held);
         publisher.await.unwrap();
         assert!(!local.view.read().await.tracks[0].available);
+        drop(local);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+    /// Review of #815: a retagged file keeps its ID; the station's queue
+    /// and deck took the old metadata until now.
+    #[tokio::test]
+    async fn a_rescan_refreshes_queued_metadata() {
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-retag-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let files: Vec<String> = (0..20).map(|i| format!("track-{i:02}.wav")).collect();
+        let root = scanned(
+            &directory,
+            &files.iter().map(String::as_str).collect::<Vec<_>>(),
+        );
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            PathBuf::from("/nonexistent-arinn-test-player"),
+            vec![root],
+        )
+        .await
+        .unwrap();
+        rescanned(&local).await;
+        local.start_station(LIBRARY_STATION).await.unwrap();
+        let queued = local.playback.state().await.upcoming[0].track.id.clone();
+        let mut next = {
+            let view = local.view.read().await;
+            View {
+                degraded: false,
+                revision: view.revision + 1,
+                tracks: view.tracks.clone(),
+                playlists: view.playlists.clone(),
+                catalogue: view.catalogue.clone(),
+            }
+        };
+        for track in &mut next.tracks {
+            track.title = "Retagged".into();
+        }
+        local.publish_scan(next).await;
+        let state = local.playback.state().await;
+        let entry = state
+            .upcoming
+            .iter()
+            .find(|e| e.track.id == queued)
+            .unwrap();
+        assert_eq!(entry.track.title, "Retagged");
+        assert!(local.deal(5).await.iter().all(|t| t.title == "Retagged"));
         drop(local);
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -208,10 +208,20 @@ A right-hand sheet 720 wide.
 - **Video.** The same card shows a video session: the poster in place of the cover, the episode in place of the artist.
 - **Without a session** the existing single row stays. The card is fed by the music session as well as by media sessions (M2).
 - **Two sessions at once.** A media session (a browser tab, a video player) and the music session can both exist.
-  - The card shows the one that plays. If both play or both are paused, it shows the one whose playback state changed last.
+  - **One precedence order** decides which session the card shows:
+    1. a playing session ranks above a paused one;
+    2. between two sessions in the same state, the one whose playback state changed last ranks higher.
+  - The time of a change never overrides the state.
+  - Example: both sessions play and the user pauses the one in the row. The card keeps its session, because playing still ranks above paused, and nothing moves.
   - Its transport and *Open player* act only on the session it shows.
-  - The other session is a compact container row under the card, 624 × 88: its artwork 56, title, state and its own play/pause. OK on the row toggles that session. When that session becomes the one that changed last, the two swap places.
+  - The other session is a compact container row under the card, 624 × 88: its artwork 56, title, state and its own play/pause. OK on the row toggles that session. The card and the row change places only when the precedence order changes, for example when the session in the row starts playing while the card's session is paused.
   - No product or provider is preferred.
+- **Fitting the sheet.** With the media card, and possibly the second-session row, the sheet's rows no longer fit the screen. The fixed parts are the header (clock and title, y 64–180) and the hint line (y 996).
+  - In between, the rows from y 200 to y 960 form one column that **scrolls with focus**. It follows the handoff's one-item-from-the-edge rule: the focused row never sits at the edge, and the next row stays partly visible.
+  - A 96 px fade over the bottom edge of the column shows that more rows follow, and a 48 px fade appears under the title once the column has scrolled.
+  - There is no scroll bar and no other key: Down from *Power* reaches *Open Home* and *Close Arinn*, which the spec requires.
+  - Opening the sheet always starts at the top, with focus on play/pause.
+  - The row sizes stay as they are: compressing them would drop below the 96 px TV row and the 26 px action text.
 
 **Ambient (`mh-07`; MH-8).** It follows the Ambient section of the Hearth light brief:
 - black, the clock in Playfair Display 220 at the lower left, the date in Onest 30, the block drifting against burn-in.

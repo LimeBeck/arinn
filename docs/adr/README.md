@@ -149,6 +149,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0129](0129-provider-setting-translations.md) | Translations for provider setting texts | Accepted | — |
 | [0133](0133-sentry-noise-and-stable-grouping.md) | Less Sentry noise and grouping that survives edits | Accepted | — |
 | [0134](0134-native-music-catalogue-and-session.md) | Native music catalogue and provider-owned playback | Proposed | — |
+| [0135](0135-localized-provider-texts.md) | Client-rendered fixed provider text | Proposed | — |
 | [0136](0136-hearth-light-visual-direction.md) | Hearth light visual direction | Accepted | 0137, 0140, 0142 |
 | [0137](0137-playfair-display-for-content-titles.md) | Playfair Display for content titles | Accepted | — |
 | [0138](0138-launched-applications-go-full-screen.md) | Launched applications go full screen | Accepted | — |

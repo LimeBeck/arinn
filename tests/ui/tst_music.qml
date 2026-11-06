@@ -985,6 +985,13 @@ TestCase {
         verify(findChild(header,"musicDetailMeta").text.indexOf("2 tracks")>=0);
         verify(findChild(header,"musicDetailListen").visible);verify(findChild(header,"musicDetailRadio").visible);
         compare(findChild(view,"musicSourcePicker").visible,false);compare(findChild(view,"musicSearch").visible,false);
+        // Codex review of #819: the playlist actions follow the pills, never on them.
+        catalog.state={account:"connected",facets:["albums"],actions:["play","radio","save_playlist"]};
+        const save=findChild(view,"musicSavePlaylist");tryVerify(()=>save.visible);
+        const radio=findChild(header,"musicDetailRadio");
+        verify(save.mapToItem(view,0,0).x>=radio.mapToItem(view,0,0).x+radio.width);
+        compare(save.mapToItem(view,0,0).y,radio.mapToItem(view,0,0).y);
+        catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
         // The row of the session that plays carries the playing mark.
         catalog.activeSourceId="account";
         const list=findChild(view,"musicEntries");tryCompare(list,"count",2);

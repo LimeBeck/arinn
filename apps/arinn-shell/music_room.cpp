@@ -170,6 +170,7 @@ bool MusicRoom::settled() const {
 // The Sources sheet and the first use read these rows; the state polled
 // during playback changes every time (position_us), the rows do not.
 void MusicRoom::publishSources() {
+  reconcileSearch();
   const auto rows = sources();
   if (rows == m_sourceRows)
     return;
@@ -821,11 +822,33 @@ QStringList MusicRoom::searchPending() const {
   return names;
 }
 
+QString MusicRoom::searchSignature() const {
+  QStringList parts;
+  for (const auto &id : m_order) {
+    const auto found = m_sources.find(id);
+    if (found != m_sources.end() && !found->second.stateFailed &&
+        browsable(found->second.state))
+      parts.append(id + QLatin1Char('@') + found->second.generation);
+  }
+  return parts.join(QLatin1Char(','));
+}
+
+// A source that connects, leaves or restarts during a search: the search
+// runs again over the sources there are now (Codex review of #819).
+void MusicRoom::reconcileSearch() {
+  if (m_searchQuery.isEmpty() || searchSignature() == m_searchSignature)
+    return;
+  const auto query = m_searchQuery;
+  m_searchQuery.clear();
+  search(query);
+}
+
 void MusicRoom::search(const QString &raw) {
   const auto query = raw.trimmed();
   if (query == m_searchQuery || query.toUtf8().size() > 1024)
     return;
   m_searchQuery = query;
+  m_searchSignature = searchSignature();
   const auto ticket = ++m_searchTicket;
   m_search.clear();
   if (!query.isEmpty())

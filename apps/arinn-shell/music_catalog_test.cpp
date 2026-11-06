@@ -486,6 +486,15 @@ private slots:
       keys.append(entry.toMap().value("key").toString());
     QCOMPARE(keys, (QStringList{"local\nalbum:a", "account\nalbum:a", "local\nalbum:b",
                                 "account\nalbum:z"}));
+    // Codex review of #819: a source that leaves during a search takes its
+    // results along; one that joins is searched too.
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    catalog.refresh();
+    QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 2);
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    catalog.refresh();
+    QTRY_COMPARE(room.searchShelves().first().toMap().value("entries").toList().size(), 4);
+    QTRY_VERIFY(room.searchPending().isEmpty());
     room.search(QString());
     QVERIFY(room.searchShelves().isEmpty());
   }

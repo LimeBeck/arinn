@@ -148,7 +148,10 @@ private:
     bool busy = false;
   };
   std::map<QString, Search> m_search;
-  QString m_searchQuery;
+  QString m_searchQuery, m_searchSignature;
+  // The browsable sources and their generations the search ran over.
+  QString searchSignature() const;
+  void reconcileSearch();
   quint64 m_searchTicket = 0;
   QVariantList m_searchShelves;
   void publishSources();

@@ -842,8 +842,10 @@ FocusScope {
         onActivated: root.catalog.command("scan")
     }
     Row {
-        x: 120
+        // In a detail it follows the pills on their line, never under them
+        // (Codex review of #819).
         y: root.detailView ? 540 : 880
+        x: root.detailView ? detailHeader.pillsEnd + 24 : 120
         spacing: 24
         visible: root.mode === "catalogue" && root.parentId.length > 0
         Ui.ActionButton {

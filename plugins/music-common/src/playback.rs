@@ -79,6 +79,7 @@ struct Data {
     duration: u64,
     status: String,
     error: Option<ErrorCode>,
+    refill_error: Option<ErrorCode>,
     loaded: bool,
     seek_end: Option<u64>,
     failures: u8,
@@ -114,6 +115,7 @@ impl Playback {
                 duration: 0,
                 status: "stopped".into(),
                 error: None,
+                refill_error: None,
                 loaded: false,
                 seek_end: None,
                 failures: 0,
@@ -212,7 +214,7 @@ impl Playback {
                 .skip(index + 1)
                 .filter_map(entry)
                 .collect(),
-            error: d.error,
+            error: d.error.or(d.refill_error),
             ..State::default()
         }
     }
@@ -279,6 +281,7 @@ impl Playback {
             d.duration = 0;
             d.seek_end = None;
             d.error = None;
+            d.refill_error = None;
             d.revision += 1;
             d.token
         };
@@ -351,7 +354,7 @@ impl Playback {
         let mut d = self.data.lock().await;
         if d.session == refill.session && d.queue.fail_refill(refill.request).is_ok() {
             d.refill = "failed".into();
-            d.error = Some(error);
+            d.refill_error = Some(error);
             d.revision += 1;
         }
     }
@@ -426,7 +429,7 @@ impl Playback {
         }
         prune_radio(&mut d);
         d.refill = "idle".into();
-        d.error = None;
+        d.refill_error = None;
         d.revision += 1;
         let resume = d.waiting_end && (d.queue.upcoming() > 0 || before.is_empty());
         let token = if resume {
@@ -677,6 +680,7 @@ impl Playback {
             d.status = "stopped".into();
             d.position = 0;
             d.error = stopped.err();
+            d.refill_error = None;
             d.revision += 1;
         }
         drop(d);
@@ -1736,6 +1740,96 @@ for line in stream:
             assert!(events.try_recv().is_err());
             fixture.close().await;
         }
+    }
+
+    #[tokio::test]
+    async fn refills_clear_their_own_error_but_keep_playback_failure_until_readiness() {
+        for failure in ["playback", "refill", "both"] {
+            let playback_failed = failure != "refill";
+            let fixture = LoadFixture::new(Arc::new(FailingResolver));
+            if playback_failed {
+                fixture.start(true, &["bad", "good"]).await;
+                fixture
+                    .wait(|state| state.current.as_ref().is_some_and(|e| e.track.id == "good"))
+                    .await;
+            } else {
+                fixture.start(true, &["good"]).await;
+            }
+            if failure != "playback" {
+                let request = fixture.playback.begin_radio_refill(false).await.unwrap();
+                fixture
+                    .playback
+                    .fail_radio_refill(request, ErrorCode::Timeout)
+                    .await;
+                if !playback_failed {
+                    assert_eq!(
+                        fixture.playback.state().await.error,
+                        Some(ErrorCode::Timeout)
+                    );
+                }
+            }
+            let request = fixture.playback.begin_radio_refill(false).await.unwrap();
+            fixture
+                .playback
+                .apply_radio_refill(
+                    request,
+                    vec![Track {
+                        id: "later".into(),
+                        available: true,
+                        ..Track::default()
+                    }],
+                    "refill-batch".into(),
+                )
+                .await
+                .unwrap();
+            let loading = fixture.playback.state().await;
+            assert_eq!(loading.playback, "loading");
+            assert_eq!(loading.current.unwrap().track.id, "good");
+            assert_eq!(
+                loading.error,
+                playback_failed.then_some(ErrorCode::Unavailable)
+            );
+            fixture.flag("ready");
+            let playing = fixture.wait(|state| state.playback == "playing").await;
+            assert_eq!(playing.error, None);
+            fixture.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn native_readiness_preserves_a_failed_refill_until_its_retry_succeeds() {
+        let fixture = LoadFixture::new(Arc::new(FixtureResolver));
+        fixture.start(true, &["good"]).await;
+        let failed = fixture.playback.begin_radio_refill(false).await.unwrap();
+        fixture
+            .playback
+            .fail_radio_refill(failed, ErrorCode::Timeout)
+            .await;
+        fixture.flag("ready");
+        let playing = fixture.wait(|state| state.playback == "playing").await;
+        assert_eq!(playing.error, Some(ErrorCode::Timeout));
+        assert_eq!(playing.refill, "failed");
+
+        let retry = fixture.playback.begin_radio_refill(false).await.unwrap();
+        assert_eq!(
+            fixture.playback.state().await.error,
+            Some(ErrorCode::Timeout)
+        );
+        fixture
+            .playback
+            .apply_radio_refill(
+                retry,
+                vec![Track {
+                    id: "later".into(),
+                    available: true,
+                    ..Track::default()
+                }],
+                "refill-batch".into(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fixture.playback.state().await.error, None);
+        fixture.close().await;
     }
 
     struct SlowAfterFailure {

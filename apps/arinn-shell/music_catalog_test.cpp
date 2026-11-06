@@ -942,6 +942,7 @@ private slots:
     QCOMPARE(entry.value("musicState").toString(), QStringLiteral("playing"));
     QCOMPARE(entry.value("subtitle").toString(), QStringLiteral("Fixture artist · Fixture album"));
     QCOMPARE(entry.value("progress").toDouble(), 0.25);
+    QCOMPARE(entry.value("sourceIcon").toString(), QStringLiteral("public"));
     publish("paused", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
                                   {"title", "Synthetic wave"}, {"artwork", "wave-cover"}},
             QString());

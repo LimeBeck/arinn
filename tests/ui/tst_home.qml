@@ -1011,6 +1011,15 @@ TestCase {
         compare(cover.x + cover.width / 2, card.width / 2);
         verify(findChild(card, "musicCardHairline").visible);
         compare(findChild(card, "musicCardFallback").visible, false);
+        // Codex review of #827: a new cover that is already cached (no status
+        // change) reaches the centred cover too.
+        const firstCover = cover.loadedSource;
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, {id: "b", title: "Saved", kind: "media"},
+                                musicEntry("playing", {artwork: Qt.resolvedUrl("../../apps/arinn-shell/gallery/fixture-artwork.svg")})];
+        tryVerify(() => cover.loadedSource.length > 0 && cover.loadedSource !== firstCover);
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, {id: "b", title: "Saved", kind: "media"},
+                                musicEntry("playing")];
+        tryCompare(cover, "loadedSource", firstCover);
         const chip = findChild(card, "musicCardChip");
         compare(chip.x, 16); compare(chip.y, 16); compare(chip.width, 56); compare(chip.height, 42);
         const bar = findChild(card, "musicCardBar");
@@ -1041,8 +1050,10 @@ TestCase {
         compare(child("heroEyebrow").text, "Paused");
         compare(child("heroMeta").text, "OK — open player · ⏯ — play");
         // A missing cover: the music note in a neutral chip.
-        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing", {artwork: ""})];
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing", {artwork: "", sourceIcon: "public"})];
         tryVerify(() => findChild(card, "musicCardFallback").visible);
+        // The source's mark, not a generic note (Codex review of #827).
+        compare(findChild(card, "musicCardSourceIcon").name, "public");
         compare(findChild(card, "musicCardHairline").visible, false);
         // OK opens Now playing; Back from it returns to the card.
         keyClick(Qt.Key_Return);

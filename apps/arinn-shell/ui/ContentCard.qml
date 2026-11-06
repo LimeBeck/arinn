@@ -31,6 +31,8 @@ Surface {
     // *Presence*, MH-2, #803): the blurred cover behind the centred cover,
     // the playing chip and the Ember line. Empty for any other card.
     property string musicState: ""
+    // The source's mark in the neutral chip when there is no cover.
+    property string musicSourceIcon: "music_note"
     readonly property bool musicFace: musicState.length > 0
     // The bars move only while playing; the shell has no reduced-motion
     // setting yet, and one would stop them here.
@@ -229,6 +231,9 @@ Surface {
                     Connections {
                         target: picture
                         function onStatusChanged() { musicCover.syncSource(); }
+                        // A cached cover stays Ready across a new source
+                        // (Codex review of #827).
+                        function onSourceChanged() { Qt.callLater(musicCover.syncSource); }
                     }
                     Connections {
                         target: root
@@ -246,8 +251,8 @@ Surface {
                         Artwork.drawCover(ctx, loadedSource, picture.implicitWidth, picture.implicitHeight, width, height);
                     }
                 }
-                // Without a cover (the station's included): the music note in
-                // a neutral chip.
+                // Without a cover (the station's included): the source's mark
+                // in a neutral chip.
                 Rectangle {
                     objectName: "musicCardFallback"
                     anchors.centerIn: musicCover
@@ -255,7 +260,7 @@ Surface {
                     width: 96; height: 96; radius: 24
                     color: Theme.chip
                     border.width: 1; border.color: Theme.chipLine
-                    LineIcon { anchors.centerIn: parent; width: 48; height: 48; name: "music_note"; color: Theme.textSecondary }
+                    LineIcon { objectName: "musicCardSourceIcon"; anchors.centerIn: parent; width: 48; height: 48; name: root.musicSourceIcon || "music_note"; color: Theme.textSecondary }
                 }
                 Rectangle {
                     objectName: "musicCardHairline"

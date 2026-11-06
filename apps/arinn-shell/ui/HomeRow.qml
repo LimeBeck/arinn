@@ -408,6 +408,7 @@ FocusScope {
                                     showProgress: entryLoader.modelData.progress !== undefined
                                     progress: entryLoader.modelData.progress || 0
                                     musicState: entryLoader.modelData.musicState || ""
+                                    musicSourceIcon: entryLoader.modelData.sourceIcon || "music_note"
                                     enabled: entryLoader.modelData.enabled !== false
                                     busy: entryLoader.modelData.busy || root.busyEntryIds.includes(entryLoader.modelData.id)
                                     pointerMode: root.pointerMode

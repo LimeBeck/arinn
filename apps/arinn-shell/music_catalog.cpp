@@ -161,6 +161,13 @@ QVariantList MusicCatalog::homeEntries() const {
                                    : paused ? QStringLiteral("paused")
                                             : QString()},
                     {"artwork", artwork},
+                    // The source's mark when there is no cover at all, as the
+                    // music screens draw it (MusicSourceMark): this computer
+                    // or a service (Codex review of #827).
+                    {"sourceIcon",
+                     m_active.value("account").toString() == QStringLiteral("local")
+                         ? QStringLiteral("screen")
+                         : QStringLiteral("public")},
                     {"statusText", statusText(status)},
                     {"secondaryIcon", playing ? QStringLiteral("pause")
                                               : QStringLiteral("play")},

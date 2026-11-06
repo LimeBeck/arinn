@@ -615,6 +615,12 @@ impl Runtime {
             // With every slot busy, a stale listing is still shown and asked
             // again on a later request (Codex review of #849).
             let Ok(permit) = self.catalogue_slots.clone().try_acquire_owned() else {
+                // The retry is announced again in five seconds, not left
+                // waiting for an unrelated revision (Codex review of #849).
+                if let Some(entry) = d.cache.iter_mut().find(|c| c.key == key && c.incomplete) {
+                    entry.announced = false;
+                    entry.fetched = tokio::time::Instant::now() - Duration::from_secs(55);
+                }
                 return cached.ok_or(ErrorCode::Unavailable);
             };
             let api = self
@@ -1710,7 +1716,8 @@ mod tests {
                 tokio::time::Instant::now() - Duration::from_secs(61);
         };
         age().await;
-        // Both slots busy: the stale listing, no error.
+        // Both slots busy: the stale listing, no error, and the retry is
+        // announced again a few seconds later (Codex review of #849).
         let slots = fixture
             .runtime
             .catalogue_slots
@@ -1718,7 +1725,18 @@ mod tests {
             .acquire_many_owned(2)
             .await
             .unwrap();
+        fixture.runtime.data.lock().await.cache[0].announced = true;
         assert!(listing().await.unwrap().entries == first.entries);
+        {
+            let d = fixture.runtime.data.lock().await;
+            assert!(!d.cache[0].announced);
+            let wait = Duration::from_secs(60).saturating_sub(d.cache[0].fetched.elapsed());
+            assert!(
+                wait > Duration::from_secs(3) && wait <= Duration::from_secs(5),
+                "{wait:?}"
+            );
+        }
+        age().await;
         drop(slots);
         // The refresh fails (the account request answers 500): the stale
         // listing stays, not an error, and waits another minute, even when

@@ -71,6 +71,9 @@ struct Cache {
     /// asked again later instead of keeping "no cover" (#843).
     incomplete: bool,
     fetched: tokio::time::Instant,
+    /// The catalogue revision was bumped once for this due retry, so the
+    /// shell, which asks again only on a new revision, asks again (#843).
+    announced: bool,
 }
 struct Radio {
     wire: String,
@@ -520,7 +523,24 @@ impl Runtime {
             self.with_known_artwork(station).await;
         }
         let expired = self.expired().await;
-        let d = self.data.lock().await;
+        let mut d = self.data.lock().await;
+        // A listing with unanswered station covers that is due for its retry
+        // gets one new catalogue revision: the shell asks for a listing only
+        // when the revision changes (Codex review of #849).
+        let due = d.cache.iter_mut().fold(false, |due, cache| {
+            if cache.incomplete
+                && !cache.announced
+                && cache.fetched.elapsed() >= Duration::from_secs(60)
+            {
+                cache.announced = true;
+                true
+            } else {
+                due
+            }
+        });
+        if due {
+            d.revision += 1;
+        }
         if let Some(station) = &mut state.station
             && station.id == "station:wave"
         {
@@ -567,6 +587,10 @@ impl Runtime {
             .map_err(|_| ErrorCode::InvalidArgument)?;
         let mut d = self.data.lock().await;
         let mut cached = None;
+        // The stale listing travels with its refresh, so a failed refresh
+        // keeps it even when the cache has evicted it meanwhile (Codex
+        // review of #849).
+        let mut stale: Option<(Vec<Entity>, Vec<Track>, usize)> = None;
         if let Some(cache) = d.cache.iter().find(|c| c.key == key) {
             if let Some(error) = cache.error {
                 return Err(error);
@@ -584,6 +608,7 @@ impl Runtime {
             {
                 return Ok(listing);
             }
+            stale = Some((cache.entries.clone(), cache.tracks.clone(), cache.bytes));
             cached = Some(listing);
         }
         if !d.pending.contains(&key) {
@@ -628,6 +653,27 @@ impl Runtime {
                         .find(|c| c.key == key && c.error.is_none())
                 {
                     kept.fetched = tokio::time::Instant::now();
+                    kept.announced = false;
+                    return;
+                }
+                if error.is_some()
+                    && let Some((entries, tracks, bytes)) = stale
+                {
+                    while d.cache.len() >= 8 {
+                        d.cache.pop_front();
+                    }
+                    let revision = d.revision;
+                    d.cache.push_back(Cache {
+                        key,
+                        revision,
+                        entries,
+                        tracks,
+                        error: None,
+                        bytes,
+                        incomplete: true,
+                        fetched: tokio::time::Instant::now(),
+                        announced: false,
+                    });
                     return;
                 }
                 d.cache.retain(|c| c.key != key);
@@ -657,6 +703,7 @@ impl Runtime {
                         bytes,
                         incomplete,
                         fetched: tokio::time::Instant::now(),
+                        announced: false,
                     });
                 }
             });
@@ -1578,11 +1625,18 @@ mod tests {
         assert_eq!(first.entries[0].artwork, "");
         // Within the minute the cached listing is final.
         assert_eq!(listing().await.unwrap().revision, first.revision);
+        // Not due yet: no new catalogue revision.
+        let before = fixture.runtime.state().await.catalogue_revision;
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before);
         {
             let mut d = fixture.runtime.data.lock().await;
             assert!(d.cache[0].incomplete);
             d.cache[0].fetched = tokio::time::Instant::now() - Duration::from_secs(61);
         }
+        // The shell asks for a listing only on a new catalogue revision: a
+        // due retry announces one, once (Codex review of #849).
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before + 1);
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before + 1);
         // The stale listing is still shown while it is fetched again.
         assert_eq!(listing().await.unwrap().entries[0].artwork, "");
         let second = loop {
@@ -1661,8 +1715,10 @@ mod tests {
         assert!(listing().await.unwrap().entries == first.entries);
         drop(slots);
         // The refresh fails (the account request answers 500): the stale
-        // listing stays, not an error, and waits another minute.
+        // listing stays, not an error, and waits another minute, even when
+        // the cache evicted it meanwhile (Codex review of #849).
         assert!(listing().await.unwrap().entries == first.entries);
+        fixture.runtime.data.lock().await.cache.clear();
         tokio::time::timeout(Duration::from_secs(5), async {
             while !fixture.runtime.data.lock().await.pending.is_empty() {
                 tokio::time::sleep(Duration::from_millis(10)).await;

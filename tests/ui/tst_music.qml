@@ -903,4 +903,18 @@ TestCase {
         const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
         compare(findChild(view,"musicRoom").firstUse,false);compare(findChild(view,"musicConnectFirst").visible,false);
     }
+    // Codex review of #812: Up in the Sources sheet skips a source without
+    // housekeeping actions, as Down does.
+    function test_sources_sheet_up_skips_actionless_rows() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=[{id:"a",name:"Fixture A",local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
+                      {id:"b",name:"Fixture B",local:false,status:"connected",reason:"",actions:[],busy:false,browsable:true},
+                      {id:"c",name:"Fixture C",local:false,status:"connected",reason:"",actions:["disconnect"],busy:false,browsable:true}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const scan=findChild(sheet,"musicSourceAction-scan");tryCompare(scan,"activeFocus",true);
+        keyClick(Qt.Key_Down);tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(scan,"activeFocus",true);
+    }
 }

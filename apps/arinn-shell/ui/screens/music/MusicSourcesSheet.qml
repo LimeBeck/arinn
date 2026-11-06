@@ -245,10 +245,14 @@ FocusScope {
                                 busy: sourceRow.modelData.busy === true
                                 KeyNavigation.left: index > 0 ? pills.itemAt(index - 1) : null
                                 KeyNavigation.right: index + 1 < pills.count ? pills.itemAt(index + 1) : null
+                                // Rows without an action are skipped both ways
+                                // (Codex review of #812).
                                 Keys.onUpPressed: event => {
-                                    const previous = rows.itemAt(sourceRow.index - 1);
-                                    if (previous && previous.firstAction())
-                                        Ui.Focus.take(previous.firstAction());
+                                    for (let i = sourceRow.index - 1; i >= 0; --i)
+                                        if (rows.itemAt(i).firstAction()) {
+                                            Ui.Focus.take(rows.itemAt(i).firstAction());
+                                            return;
+                                        }
                                 }
                                 Keys.onDownPressed: event => {
                                     for (let i = sourceRow.index + 1; i < rows.count; ++i)

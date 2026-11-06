@@ -116,7 +116,8 @@ set(ARINN_MUSIC_FILES ui/screens/music/qmldir ui/screens/music/MusicView.qml
     ui/screens/music/MusicDialog.qml ui/screens/music/MusicRoomView.qml
     ui/screens/music/MusicShelf.qml ui/screens/music/MusicCard.qml
     ui/screens/music/MusicSourcesSheet.qml ui/screens/music/MusicSourceMark.qml
-    ui/screens/music/MusicAllView.qml)
+    ui/screens/music/MusicAllView.qml ui/screens/music/MusicDetailHeader.qml
+    ui/screens/music/MusicSearchView.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} music_screen PREFIX "/" FILES ${ARINN_MUSIC_FILES})
 endforeach()
@@ -381,7 +382,9 @@ set(ARINN_MUSIC_TRANSLATION_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicCard.qml"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicSourcesSheet.qml"
     "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicSourceMark.qml"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicAllView.qml")
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicAllView.qml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicDetailHeader.qml"
+    "${CMAKE_CURRENT_SOURCE_DIR}/ui/screens/music/MusicSearchView.qml")
 qt_add_lupdate(TS_FILES ${ARINN_MUSIC_TS}
     SOURCES ${ARINN_MUSIC_TRANSLATION_SOURCES}
     LUPDATE_TARGET arinn_music_lupdate OPTIONS -no-obsolete -locations none)

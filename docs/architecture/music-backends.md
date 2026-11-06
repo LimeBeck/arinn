@@ -453,6 +453,22 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   that start at *All*; it pages on while focus is near the end, also when a
   page adds no card of its kind and orders by
   the shelf order (labelled *By date* only once entries carry dates) or *A–Z*.
-- Until the search over every source (#801), *Find* opens the browsed source's
-  search. Back from a detail, the player or the *All* list returns to the room
+- *Find* searches every browsable source (#801, MH-10): `MusicRoom.search`
+  reads the `artists`, `albums` and `tracks` facets with the query from each
+  source, one page at a time per source, and the result shelves take each
+  source's results in their own order, sources in turn, unmerged. Sources
+  still answering are named under the field; late results never move focus.
+  Back closes the keyboard first, then returns to the room.
+- An album, playlist or artist opened from the room or a result is the
+  detail (brief mh-02): the blurred cover with a left scrim, the cover, an
+  eyebrow that names the source, the title in Playfair Display (104, 80 on
+  three lines), creator and length, and *Listen* and *Radio from …* by
+  capability; there is no Shuffle (no protocol action). Rows carry their
+  number and duration, the playing mark on the row of the session that plays,
+  and the artist only where it differs from the album's. An artist detail
+  lists its tracks; the protocol pages no releases for an artist, so that
+  shelf is absent. Opening never plays; Back returns to the room or the
+  results with focus on the entry it was opened from.
+- A resume that fails keeps its target and the shown entries, and its retry
+  resumes; a provider that repeats a token ends the resume with what it read. Back from a detail, the player or the *All* list returns to the room
   with focus on the card it was opened from.

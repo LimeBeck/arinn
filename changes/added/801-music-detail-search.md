@@ -1,0 +1,3 @@
+- Music detail and search ([ADR-0142](docs/adr/0142-music-in-hearth-light.md), [#801](https://github.com/LimeBeck/arinn/issues/801)):
+  - Albums, playlists and artists open as a detail with their cover as backdrop, the title in Playfair and *Listen* and *Radio* pills. The tracks are numbered, with the one playing marked.
+  - *Find* searches every connected source at once, with results as shelves marked by source and a note for a source still answering.

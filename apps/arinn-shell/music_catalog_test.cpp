@@ -455,6 +455,72 @@ private slots:
     QTRY_VERIFY(!room.loading());
     QVERIFY(room.dated());
   }
+  // #801 (MH-10): Find searches every browsable source; each shelf takes
+  // the sources' results in turn, in their own order, unmerged; the sources
+  // still answering are named; an empty query clears the results.
+  void roomSearchesEverySource() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums", "tracks"});
+    daemon.states["account"] = state({"albums", "artists"}, "connected");
+    auto album = [](const char *id) {
+      return QJsonObject{{"id", id}, {"kind", "album"}, {"title", id}, {"available", true},
+                         {"added_at", 1700000000}};
+    };
+    daemon.pages["local/albums"] = QJsonArray{album("album:a"), album("album:b")};
+    daemon.pages["account/albums"] = QJsonArray{album("album:a"), album("album:z")};
+    daemon.pages["local/tracks"] = QJsonArray{};
+    daemon.pages["account/artists"] = QJsonArray{};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.search(QStringLiteral("fixture"));
+    QCOMPARE(room.searchQuery(), QStringLiteral("fixture"));
+    QVERIFY(!room.searchPending().isEmpty());
+    QTRY_VERIFY(room.searchPending().isEmpty());
+    const auto shelves = room.searchShelves();
+    QCOMPARE(shelves.size(), 1);
+    QStringList keys;
+    for (const auto &entry : shelves.first().toMap().value("entries").toList())
+      keys.append(entry.toMap().value("key").toString());
+    QCOMPARE(keys, (QStringList{"local\nalbum:a", "account\nalbum:a", "local\nalbum:b",
+                                "account\nalbum:z"}));
+    room.search(QString());
+    QVERIFY(room.searchShelves().isEmpty());
+  }
+  // Follow-up of #812 (in #801): a resume whose catch-up page fails keeps
+  // the shown entries and its target, and the retry resumes to them instead
+  // of showing only the first page.
+  void roomKeepsAListsPlaceWhenACatchUpFails() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    auto account = state({"albums"}, "connected");
+    account["actions"] = QJsonArray{"play"};
+    daemon.states["account"] = account;
+    QJsonArray albums;
+    for (int i = 0; i < 9; ++i)
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 3;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    room.loadMore("albums");
+    QTRY_COMPARE(room.list("albums").size(), 6);
+    int least = 6;
+    const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+      least = std::min<int>(least, room.list("albums").size());
+    });
+    // The continuation fails, then the resume's catch-up page fails too.
+    daemon.conflicts = 2;
+    room.loadMore("albums");
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 9, 20000);
+    disconnect(watch);
+    QCOMPARE(least, 6);
+  }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.
   void roomWithoutAConnectedSourceIsTheFirstUse() {

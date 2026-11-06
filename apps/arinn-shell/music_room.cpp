@@ -313,8 +313,19 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
   if (facet.busy || (append && facet.next.isEmpty()))
     return;
   const auto token = append ? facet.next : QString();
-  if (!token.isEmpty() && facet.tokens.contains(token))
+  if (!token.isEmpty() && facet.tokens.contains(token)) {
+    // A provider that repeats a token ends the resume with what it read,
+    // instead of leaving the facet resuming (follow-up of #812).
+    if (facet.resumeTo > 0) {
+      if (!facet.buffer.isEmpty())
+        facet.entries = facet.buffer;
+      facet.buffer.clear();
+      facet.resumeTo = 0;
+      facet.next.clear();
+      rebuild();
+    }
     return;
+  }
   facet.busy = true;
   const auto ticket = source.ticket;
   auto message = QDBusMessage::createMethodCall(service, source.path,
@@ -359,14 +370,18 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
             readPage(id, facetId, false);
             return;
           }
-          facet.resumeTo = 0;
+          // A resume that fails (a catch-up page, or its first page refused
+          // while the provider's slots are busy) keeps its target: the shown
+          // entries stay, and the retry resumes instead of showing only the
+          // first page (follow-ups of #812).
           facet.buffer.clear();
+          if (!resuming)
+            facet.resumeTo = 0;
           // A failed facet is left out; the others still fill their shelves,
           // and a later state poll reads its first page again.
           facet.failed = true;
           facet.failedAt = now();
-          if (!append && !resuming)
-            ++facet.retries;
+          ++facet.retries;
           facet.loaded = true;
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.
@@ -775,4 +790,152 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
             // The confirmed state, catalogue included, is read again.
             readState(id);
           });
+}
+
+QVariantList MusicRoom::alternate(const QList<QVariantList> &lists) {
+  QVariantList result;
+  for (int index = 0;; ++index) {
+    bool any = false;
+    for (const auto &list : lists)
+      if (index < list.size()) {
+        result.append(list.at(index));
+        any = true;
+      }
+    if (!any)
+      return result;
+  }
+}
+
+QStringList MusicRoom::searchPending() const {
+  QStringList names;
+  for (const auto &id : m_order) {
+    const auto found = m_search.find(id);
+    const auto source = m_sources.find(id);
+    if (found != m_search.end() && source != m_sources.end() &&
+        (found->second.busy || !found->second.pending.isEmpty()))
+      names.append(source->second.state.value("account").toString() ==
+                           QLatin1String("local")
+                       ? tr("This computer")
+                       : source->second.name);
+  }
+  return names;
+}
+
+void MusicRoom::search(const QString &raw) {
+  const auto query = raw.trimmed();
+  if (query == m_searchQuery || query.toUtf8().size() > 1024)
+    return;
+  m_searchQuery = query;
+  const auto ticket = ++m_searchTicket;
+  m_search.clear();
+  if (!query.isEmpty())
+    for (const auto &id : m_order) {
+      const auto found = m_sources.find(id);
+      if (found == m_sources.end() || found->second.stateFailed ||
+          !browsable(found->second.state))
+        continue;
+      const auto facets = found->second.state.value("facets").toStringList();
+      auto &search = m_search[id];
+      for (const auto *facet : {"artists", "albums", "tracks"})
+        if (facets.contains(QLatin1String(facet)))
+          search.pending.append(QLatin1String(facet));
+      readSearch(id, ticket);
+    }
+  rebuildSearch();
+}
+
+// One search page at a time per source, as the first pages: a source's
+// facets share one materialisation slot.
+void MusicRoom::readSearch(const QString &id, quint64 ticket) {
+  auto found = m_search.find(id);
+  const auto source = m_sources.find(id);
+  if (found == m_search.end() || source == m_sources.end() ||
+      found->second.busy || found->second.pending.isEmpty())
+    return;
+  auto &search = found->second;
+  const auto facet = search.pending.takeFirst();
+  search.busy = true;
+  auto message = QDBusMessage::createMethodCall(
+      service, source->second.path, "org.arinn.Music1", "GetPage");
+  const QJsonObject query{{"facet", facet},
+                          {"parent", QString()},
+                          {"search", m_searchQuery},
+                          {"token", QString()}};
+  message << source->second.generation
+          << QString::fromUtf8(
+                 QJsonDocument(query).toJson(QJsonDocument::Compact));
+  const auto generation = source->second.generation;
+  auto *pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 5500), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id, facet, ticket, generation](auto *watch) {
+            const auto reply = watch->reply();
+            watch->deleteLater();
+            if (ticket != m_searchTicket)
+              return;
+            auto found = m_search.find(id);
+            const auto source = m_sources.find(id);
+            if (found == m_search.end() || source == m_sources.end() ||
+                source->second.generation != generation)
+              return;
+            found->second.busy = false;
+            const auto json = object(reply);
+            QVariantList entries;
+            const bool local = source->second.state.value("account").toString() ==
+                               QLatin1String("local");
+            // A failed search page leaves that shelf without this source.
+            if (json.value("generation").toString() == generation)
+              for (const auto &item : json.value("entries").toArray()) {
+                auto row = item.toObject().toVariantMap();
+                const auto entity = row.value("id").toString();
+                if (entity.isEmpty() || entries.size() >= 100)
+                  continue;
+                row.insert("provider", id);
+                row.insert("providerName", source->second.name);
+                row.insert("local", local);
+                row.insert("key", id + QLatin1Char('\n') + entity);
+                row.insert("image", AssetImages::imageUrl(
+                                        id, source->second.path, generation,
+                                        row.value("artwork").toString()));
+                entries.append(row);
+              }
+            found->second.facets[facet] = entries;
+            readSearch(id, ticket);
+            rebuildSearch();
+          });
+}
+
+void MusicRoom::rebuildSearch() {
+  QVariantList shelves;
+  const std::pair<const char *, const char *> kinds[] = {
+      {"artists", "artist"}, {"albums", "album"}, {"tracks", "track"}};
+  for (const auto &[facet, kind] : kinds) {
+    QList<QVariantList> lists;
+    for (const auto &id : m_order) {
+      const auto found = m_search.find(id);
+      if (found == m_search.end())
+        continue;
+      const auto entries = found->second.facets.find(QLatin1String(facet));
+      if (entries == found->second.facets.end())
+        continue;
+      QVariantList own;
+      for (const auto &entry : entries->second)
+        if (entry.toMap().value("kind").toString() == QLatin1String(kind))
+          own.append(entry);
+      lists.append(own);
+    }
+    const auto entries = alternate(lists);
+    if (entries.isEmpty())
+      continue;
+    const QString id = QLatin1String(facet);
+    shelves.append(QVariantMap{
+        {"id", id},
+        {"title", id == QLatin1String("artists")  ? tr("Artists")
+                  : id == QLatin1String("albums") ? tr("Albums")
+                                                  : tr("Tracks")},
+        {"kind", QLatin1String(kind)},
+        {"entries", entries}});
+  }
+  m_searchShelves = shelves;
+  emit searchChanged();
 }

@@ -15,6 +15,8 @@ FocusScope {
     // The key of the entry that plays, for the playing chip.
     property string playingKey: ""
     property real rowBrightness: 0.62
+    // The All tile ends a room shelf; search results have none.
+    property bool showAll: true
     readonly property string shelfId: shelf.id || ""
     readonly property bool wide: shelfId === "stations"
     readonly property bool round: shelfId === "artists"
@@ -84,7 +86,7 @@ FocusScope {
         preferredHighlightBegin: 0
         preferredHighlightEnd: width - root.cardWidth - Ui.Theme.safeRight
         highlightRangeMode: ListView.ApplyRange
-        model: root.shown.length + 1
+        model: root.shown.length + (root.showAll ? 1 : 0)
         delegate: FocusScope {
             id: slot
             required property int index

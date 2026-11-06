@@ -426,6 +426,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoom</name>
     <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+    <message>
+      <source>Tracks</source>
+      <translation>Треки</translation>
+    </message>
+    <message>
       <source>The source did not respond. Try again.</source>
       <translation>Источник не ответил. Попробуйте ещё раз.</translation>
     </message>
@@ -624,6 +632,80 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Cancel</source>
       <translation>Отмена</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicDetailHeader</name>
+    <message>
+      <source>Album</source>
+      <translation>Альбом</translation>
+    </message>
+    <message>
+      <source>Artist</source>
+      <translation>Исполнитель</translation>
+    </message>
+    <message>
+      <source>Playlist</source>
+      <translation>Плейлист</translation>
+    </message>
+    <message>
+      <source>This computer</source>
+      <translation>Этот компьютер</translation>
+    </message>
+    <message numerus="yes">
+      <source>%n tracks</source>
+      <translation>
+        <numerusform>%n трек</numerusform>
+        <numerusform>%n трека</numerusform>
+        <numerusform>%n треков</numerusform>
+      </translation>
+    </message>
+    <message>
+      <source>%1 h %2 min</source>
+      <translation>%1 ч %2 мин</translation>
+    </message>
+    <message>
+      <source>%1 min</source>
+      <translation>%1 мин</translation>
+    </message>
+    <message>
+      <source>Listen</source>
+      <translation>Слушать</translation>
+    </message>
+    <message>
+      <source>Radio from artist</source>
+      <translation>Радио по исполнителю</translation>
+    </message>
+    <message>
+      <source>Radio from playlist</source>
+      <translation>Радио по плейлисту</translation>
+    </message>
+    <message>
+      <source>Radio from album</source>
+      <translation>Радио по альбому</translation>
+    </message>
+  </context>
+  <context>
+    <name>MusicSearchView</name>
+    <message>
+      <source>this computer</source>
+      <translation>этот компьютер</translation>
+    </message>
+    <message>
+      <source>Searching everywhere: %1 and %2</source>
+      <translation>Поиск везде: %1 и %2</translation>
+    </message>
+    <message>
+      <source>Searching %1</source>
+      <translation>Поиск: %1</translation>
+    </message>
+    <message>
+      <source>%1 is still searching…</source>
+      <translation>%1 ещё ищет…</translation>
+    </message>
+    <message>
+      <source>Nothing found.</source>
+      <translation>Ничего не найдено.</translation>
     </message>
   </context>
 </TS>

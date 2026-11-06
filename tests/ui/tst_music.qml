@@ -15,6 +15,7 @@ TestCase {
             property var state: ({account:"local",facets:["tracks"],actions:["play"]})
             property var activeState: ({session:"session",playback:"playing",current:{occurrence:"occurrence",track:{id:"track-0",title:"Existing track",artist:"Fixture artist",duration_us:10000000}},actions:["pause","next","stop","seek"],upcoming:[]})
             property string activeSourceName: "Fixture music"
+            property string activeSourceId: ""
             property string errorText: ""
             property string notice: ""
             property string playbackProblem: ""
@@ -61,6 +62,12 @@ TestCase {
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
+            // Find over every source (#801): the query is kept; tests set the results.
+            property var searchShelves: []
+            property var searchPending: []
+            property string searchQuery: ""
+            property var searches: []
+            function search(query) {searchQuery=query;searches=searches.concat([query]);}
             function stable(shown,desired) {const keys=desired.map(entry=>entry.key);const kept=shown.filter(entry=>keys.includes(entry.key)).map(entry=>desired[keys.indexOf(entry.key)]);return kept.concat(desired.filter(entry=>!kept.some(item=>item.key===entry.key)));}
         }
     }
@@ -958,5 +965,59 @@ TestCase {
         wait(20);compare(service.activeFocus,true);
         room.sources=[room.sources[0]];
         tryCompare(findChild(all,"musicAllTab-0"),"activeFocus",true);
+    }
+    // #801 detail (brief mh-02): opened from the room, it names the source in
+    // its eyebrow, shows the pills by capability, never plays on opening,
+    // numbers its rows and marks the row that plays.
+    function test_detail_from_the_room() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
+        catalog.entries=[{id:"track-0",kind:"track",title:"One",artist:"Fixture artist",duration_us:185000000,available:true},
+                         {id:"track-2",kind:"track",title:"Two",artist:"Guest",duration_us:60000000,available:true}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);keyClick(Qt.Key_Right);
+        const card=findChild(view,"musicShelf-albums").focusedEntry;compare(card.key,"account\nalbum:1");
+        keyClick(Qt.Key_Return);compare(view.mode,"catalogue");verify(view.detailView);
+        compare(catalog.commands,[]);
+        const header=findChild(view,"musicDetailHeader");verify(header.visible);
+        compare(findChild(header,"musicDetailEyebrow").text,"Album · Fixture service");
+        compare(findChild(header,"musicDetailTitle").text,"Same id");
+        verify(findChild(header,"musicDetailMeta").text.indexOf("2 tracks")>=0);
+        verify(findChild(header,"musicDetailListen").visible);verify(findChild(header,"musicDetailRadio").visible);
+        compare(findChild(view,"musicSourcePicker").visible,false);compare(findChild(view,"musicSearch").visible,false);
+        // The row of the session that plays carries the playing mark.
+        catalog.activeSourceId="account";
+        const list=findChild(view,"musicEntries");tryCompare(list,"count",2);
+        const first=list.itemAtIndex(0);tryVerify(()=>findChild(first,"musicRowPlaying").visible);
+        compare(findChild(list.itemAtIndex(1),"musicRowNumber").text,"2");
+        compare(findChild(first,"musicRowDuration").text,"3:05");
+        // Up from the first row reaches Listen, which starts the album.
+        Ui.Focus.take(list);list.currentIndex=0;keyClick(Qt.Key_Up);
+        tryCompare(findChild(header,"musicDetailListen"),"activeFocus",true);
+        keyClick(Qt.Key_Return);tryCompare(view,"pendingPlay","album:1");
+        keyClick(Qt.Key_Escape);keyClick(Qt.Key_Escape);compare(view.mode,"root");
+        catalog.state={account:"connected",facets:["albums"],actions:["play"]};
+    }
+    // #801 Find (MH-10): one field over every source, results as shelves with
+    // source marks, a quiet line for a source still searching; a result opens
+    // its detail, and Back returns to the results, then to the room.
+    function test_find_searches_every_source() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        Ui.Focus.take(findChild(view,"musicFind"));keyClick(Qt.Key_Return);compare(view.mode,"search");
+        const field=findChild(view,"musicSearch");tryCompare(field,"activeFocus",true);verify(field.visible);
+        compare(findChild(view,"musicSearchWhere").text,"Searching everywhere: this computer and Fixture service");
+        field.text="fix";tryVerify(()=>room.searches.indexOf("fix")>=0);
+        room.searchPending=["Fixture service"];
+        compare(findChild(view,"musicSearchPending").text,"Fixture service is still searching…");
+        room.searchShelves=[{id:"albums",title:"Albums",kind:"album",entries:[room.card("local","album:2","album","Second"),room.card("account","album:1","album","Same id")]}];
+        room.searchPending=[];
+        keyClick(Qt.Key_Down);const results=findChild(view,"musicSearchShelf-albums");tryVerify(()=>results.activeFocus);
+        keyClick(Qt.Key_Right);compare(results.focusedEntry.key,"account\nalbum:1");
+        keyClick(Qt.Key_Return);verify(view.detailView);compare(catalog.sourceId,"account");
+        keyClick(Qt.Key_Escape);compare(view.mode,"search");
+        tryVerify(()=>results.activeFocus);compare(results.focusedEntry.key,"account\nalbum:1");
+        keyClick(Qt.Key_Escape);compare(view.mode,"root");compare(room.searchQuery,"");
     }
 }

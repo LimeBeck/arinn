@@ -25,6 +25,12 @@ FocusScope {
     property string roomKey: ""
     // The shelf whose All tile opened the All list.
     property string roomShelf: ""
+    // The detail of an album, artist or playlist opened from the room or a
+    // search (#801): its entry dresses the detail header.
+    property var detailEntry: ({})
+    readonly property bool detailView: !!room && mode === "catalogue" && parentId.length > 0
+    // The detail was opened from Find: Back returns to the results.
+    property bool fromSearch: false
     // The All list a detail was opened from.
     property bool fromAll: false
     // A track or station chosen in the room waits for its source's state
@@ -47,11 +53,13 @@ FocusScope {
                 roomView.focusInitial();
         });
     }
-    function openFromRoom(entry, fromList) {
+    function openFromRoom(entry, fromList, fromFind) {
         if (!entry || !entry.provider)
             return;
         roomKey = entry.key || "";
         fromAll = fromList === true;
+        fromSearch = fromFind === true;
+        detailEntry = entry;
         if (!fromAll)
             roomShelf = "";
         if (catalog.sourceId !== entry.provider)
@@ -501,6 +509,18 @@ FocusScope {
             Qt.callLater(focusInitial);
         } else if (mode === "all") {
             openRoom();
+        } else if (mode === "search") {
+            search.text = "";
+            room.search("");
+            openRoom();
+        } else if (room && mode === "catalogue" && fromSearch) {
+            parentId = "";
+            parentTitle = "";
+            parentKind = "";
+            fromSearch = false;
+            mode = "search";
+            const key = roomKey;
+            Qt.callLater(() => { if (!searchView.focusKey(key)) Ui.Focus.take(search); });
         } else if (room && mode === "catalogue" && fromAll) {
             parentId = "";
             parentTitle = "";
@@ -565,6 +585,19 @@ FocusScope {
         anchors.fill: parent
         color: Ui.Theme.background
     }
+    // The detail header (#801): backdrop, cover, title and pills.
+    MusicDetailHeader {
+        id: detailHeader
+        objectName: "musicDetailHeader"
+        visible: root.detailView
+        entry: root.detailEntry
+        tracks: root.catalog.entries || []
+        canListen: (root.selected.actions || []).includes("play")
+        canRadio: (root.selected.actions || []).includes("radio")
+        onListenRequested: root.requestPlay(root.parentId)
+        onRadioRequested: root.requestRadio(root.parentId)
+        onDownRequested: Ui.Focus.take(tracks.count ? tracks : root.detailAction())
+    }
     // An album, artist or playlist is content: its title is Playfair Display
     // (ADR-0137, #756 M24); screen titles stay Onest.
     Ui.UiText {
@@ -578,7 +611,7 @@ FocusScope {
         // Lining figures, as UiText gives the content roles (ADR-0137).
         font.features: contentTitle ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
         // The room and its All lists carry their own titles.
-        visible: root.mode !== "root" && root.mode !== "all"
+        visible: root.mode !== "root" && root.mode !== "all" && root.mode !== "search" && !root.detailView
         text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music")
         textFormat: Text.PlainText
         maximumLineCount: 1
@@ -606,7 +639,7 @@ FocusScope {
         y: 180
         spacing: 20
         enabled: !root.pendingPlay
-        visible: root.mode === "catalogue"
+        visible: root.mode === "catalogue" && !root.detailView
         Ui.ActionButton {
             id: sourcePicker
             objectName: "musicSourcePicker"
@@ -668,12 +701,12 @@ FocusScope {
     Rectangle {
         enabled: !root.pendingPlay
         x: 120
-        y: 278
-        width: catalogueActions.x - 40 - x
+        y: root.mode === "search" ? 180 : 278
+        width: root.mode === "search" ? Ui.Theme.canvasWidth - Ui.Theme.safeLeft - Ui.Theme.safeRight : catalogueActions.x - 40 - x
         height: 76
         radius: Ui.Theme.containerRadius
         color: Ui.Theme.plate
-        visible: root.mode === "catalogue"
+        visible: (root.mode === "catalogue" && !root.detailView) || root.mode === "search"
         T.TextField {
             id: search
             objectName: "musicSearch"
@@ -697,7 +730,7 @@ FocusScope {
                 verticalAlignment: Text.AlignVCenter
             }
             onTextChanged: searchDelay.restart()
-            Keys.onDownPressed: root.belowSearch()
+            Keys.onDownPressed: root.mode === "search" ? searchView.focusInitial() : root.belowSearch()
             Keys.onUpPressed: Ui.Focus.take(sourcePicker)
             Keys.onEscapePressed: root.back()
             Keys.onRightPressed: event => {
@@ -711,7 +744,10 @@ FocusScope {
             Timer {
                 id: searchDelay
                 interval: 350
-                onTriggered: root.browse(root.facet, root.parentId, search.text)
+                onTriggered: if (root.mode === "search")
+                    root.room.search(search.text);
+                else
+                    root.browse(root.facet, root.parentId, search.text)
             }
         }
         Ui.KeyboardButton {
@@ -736,7 +772,7 @@ FocusScope {
         x: Ui.Theme.canvasWidth - Ui.Theme.safeRight - 24 - width
         y: 278
         spacing: 20
-        visible: root.mode === "catalogue"
+        visible: root.mode === "catalogue" && !root.detailView
         Ui.ActionButton {
             id: openPlayerButton
             objectName: "musicOpenPlayer"
@@ -745,7 +781,7 @@ FocusScope {
             KeyNavigation.down: root.catalogueAction()
             width: Math.max(240, implicitWidth)
             height: 76
-            visible: root.mode === "catalogue"
+            visible: root.mode === "catalogue" && !root.detailView
                 && (!!root.player.current || root.player.continuous === true)
                 && !root.parentId
             text: qsTr("Open player")
@@ -773,7 +809,7 @@ FocusScope {
             KeyNavigation.down: root.catalogueAction() === settingsButton ? sourcePicker : root.catalogueAction()
             width: Math.max(220, implicitWidth)
             height: 76
-            visible: root.mode === "catalogue"
+            visible: root.mode === "catalogue" && !root.detailView
             text: qsTr("Settings")
             onActivated: root.settingsRequested()
         }
@@ -807,7 +843,7 @@ FocusScope {
     }
     Row {
         x: 120
-        y: 880
+        y: root.detailView ? 540 : 880
         spacing: 24
         visible: root.mode === "catalogue" && root.parentId.length > 0
         Ui.ActionButton {
@@ -840,15 +876,17 @@ FocusScope {
         id: tracks
         objectName: "musicEntries"
         x: 120
-        y: 385
+        y: root.detailView ? 650 : 385
         width: 1680
-        height: 450
+        height: root.detailView ? 380 : 450
         clip: true
         spacing: 12
         visible: root.mode === "catalogue" && ["local", "connected"].includes(root.selected.account)
         enabled: !root.pendingPlay
         Keys.onUpPressed: event => {
-            if (currentIndex <= 0)
+            if (currentIndex <= 0 && root.detailView)
+                Ui.Focus.take(detailHeader.firstPill || root.detailAction());
+            else if (currentIndex <= 0)
                 Ui.Focus.take(search);
             else
                 event.accepted = false;
@@ -875,8 +913,23 @@ FocusScope {
             width: tracks.width - 8
             height: 90
             focus: tracks.currentIndex === index
+            readonly property bool playingRow: root.detailView && !!modelData.id
+                && root.catalog.activeSourceId === root.catalog.sourceId
+                && ["playing", "paused", "loading"].includes(root.player.playback)
+                && root.current.id === modelData.id
             text: modelData.title || qsTr("Untitled")
             contentItem: Item {
+                Ui.UiText {
+                    objectName: "musicRowDuration"
+                    anchors.right: parent.right
+                    anchors.rightMargin: 32
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: root.detailView && (entry.modelData.duration_us || 0) > 0
+                    role: "meta"
+                    color: Ui.Theme.textSecondary
+                    font.features: ({ "tnum": 1 })
+                    text: root.timeLabel(entry.modelData.duration_us)
+                }
                 Row {
                     x: 24
                     anchors.verticalCenter: parent.verticalCenter
@@ -887,9 +940,44 @@ FocusScope {
                         radius: Ui.Theme.stillRadius
                         anchors.verticalCenter: parent.verticalCenter
                         source: entry.modelData.image || ""
+                        visible: !root.detailView
+                    }
+                    // In a detail the row carries its number, or the playing
+                    // mark on the row that plays (brief mh-02).
+                    Item {
+                        width: 64
+                        height: 64
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.detailView
+                        Ui.UiText {
+                            objectName: "musicRowNumber"
+                            anchors.centerIn: parent
+                            visible: !entry.playingRow
+                            role: "meta"
+                            color: Ui.Theme.textSecondary
+                            font.features: ({ "tnum": 1 })
+                            text: String(entry.index + 1)
+                        }
+                        Row {
+                            objectName: "musicRowPlaying"
+                            anchors.centerIn: parent
+                            visible: entry.playingRow
+                            spacing: 4
+                            Repeater {
+                                model: [14, 22, 10]
+                                Rectangle {
+                                    required property var modelData
+                                    width: 5
+                                    height: modelData
+                                    radius: 2
+                                    anchors.bottom: parent.bottom
+                                    color: Ui.Theme.ember
+                                }
+                            }
+                        }
                     }
                     Column {
-                        width: 1400
+                        width: root.detailView ? 1300 : 1400
                         anchors.verticalCenter: parent.verticalCenter
                         Ui.UiText {
                             width: parent.width
@@ -903,7 +991,10 @@ FocusScope {
                         Ui.UiText {
                             width: parent.width
                             text: {
-                                const line = entry.modelData.artist || entry.modelData.album || "";
+                                const artist = entry.modelData.artist || "";
+                                const line = root.detailView
+                                    ? (artist !== (root.detailEntry.artist || "") ? artist : "")
+                                    : artist || entry.modelData.album || "";
                                 if (entry.modelData.available)
                                     return line;
                                 // Readable with its reason, not a bare "Unavailable" (#756 M5).
@@ -1042,7 +1133,7 @@ FocusScope {
         x: 120
         y: 460
         width: 1400
-        visible: root.mode === "catalogue"
+        visible: root.mode === "catalogue" && !root.detailView
             && tracks.visible
             && !tracks.count
             && !root.catalog.busy
@@ -1684,9 +1775,11 @@ FocusScope {
             allView.open(shelfId, shelf ? shelf.title : "");
         }
         onFindRequested: {
-            // Until the search over every source (#801), Find opens the
-            // browsed source's search.
-            root.mode = "catalogue";
+            // Find searches every connected source (MH-10, #801).
+            root.roomKey = "";
+            search.text = "";
+            root.room.search("");
+            root.mode = "search";
             Qt.callLater(() => Ui.Focus.take(search));
         }
     }
@@ -1699,5 +1792,18 @@ FocusScope {
         room: root.room
         playingKey: roomView.playingKey
         onEntryActivated: entry => root.openFromRoom(entry, true)
+    }
+    // Find over every source (#801, MH-10).
+    MusicSearchView {
+        id: searchView
+        objectName: "musicSearchResults"
+        z: 15
+        y: 280
+        height: Ui.Theme.canvasHeight - y
+        visible: root.mode === "search" && !!root.room
+        room: root.room
+        playingKey: roomView.playingKey
+        onUpRequested: Ui.Focus.take(search)
+        onEntryActivated: entry => root.openFromRoom(entry, false, true)
     }
 }

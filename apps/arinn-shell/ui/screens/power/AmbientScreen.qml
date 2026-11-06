@@ -107,6 +107,7 @@ FocusScope {
         armed = false;
         waking = false;
         anchorKnown = false;
+        heldMusicKey = 0;
     }
     function remember(x, y) {
         anchorX = x;
@@ -327,22 +328,44 @@ FocusScope {
         onTriggered: root.drift()
     }
 
+    // The media key whose press went to the music: its repeats and its
+    // release stay the music's even when the session turns to "loading"
+    // meanwhile, so the release never wakes (review of #817).
+    property int heldMusicKey: 0
+    // Every key is Ambient's; these two decide what it does. They are
+    // functions so the tests can drive media keys, which QTest cannot send
+    // in this Qt build (#733).
+    function pressKey(key, repeated) {
+        if (repeated && key === heldMusicKey)
+            return;
+        // Play/Pause acts on the music without waking (MH-8).
+        if (musicKey(key, repeated)) {
+            heldMusicKey = key;
+            return;
+        }
+        if (armed)
+            waking = true;
+    }
+    function releaseKey(key, repeated) {
+        if (key === heldMusicKey) {
+            if (!repeated)
+                heldMusicKey = 0;
+            return;
+        }
+        if (waking && armed)
+            wake();
+        else
+            waking = false;
+    }
     Keys.onPressed: event => {
         event.accepted = true;
-        // Play/Pause acts on the music without waking (MH-8).
-        if (root.musicKey(event.key, event.isAutoRepeat))
-            return;
-        if (root.armed)
-            root.waking = true;
+        root.pressKey(event.key, event.isAutoRepeat);
     }
     // The wake happens on release, so the release never reaches the screen
     // beneath either.
     Keys.onReleased: event => {
         event.accepted = true;
-        if (root.waking && root.armed)
-            root.wake();
-        else
-            root.waking = false;
+        root.releaseKey(event.key, event.isAutoRepeat);
     }
     MouseArea {
         anchors.fill: parent

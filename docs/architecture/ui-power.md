@@ -264,7 +264,8 @@ ambient is a screensaver, not sleep.
   ambient is on, so they wake it too. While the music line shows, the
   Play/Pause keys (`Key_MediaTogglePlayPause`, `Key_Play`, `Key_MediaPlay`,
   `Key_MediaPause`) act on the music through `musicKeyRequested` and never wake,
-  even when held.
+  even when held: a key whose press went to the music keeps its repeats and its
+  release, also when the session turns to `loading` meanwhile.
 - **Never more.** Entering or leaving ambient never plays or pauses music.
   Ambient never pauses playback, closes applications or
   requests suspend; it only draws. A lock or sleep ends it without a wake

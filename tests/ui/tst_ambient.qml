@@ -372,11 +372,27 @@ TestCase {
         keyClick(Qt.Key_Down);
         compare(wakeSpy.count, 1);
         compare(musicSpy.count, 3);
+        // Review of #817: a held key stays the music's when the session
+        // turns to "loading" before its release; the release never wakes.
+        startAmbient();
+        ambient.pressKey(Qt.Key_MediaTogglePlayPause, false);
+        compare(musicSpy.count, 4);
+        ambient.music = music("loading");
+        ambient.pressKey(Qt.Key_MediaTogglePlayPause, true);
+        ambient.releaseKey(Qt.Key_MediaTogglePlayPause, true);
+        ambient.releaseKey(Qt.Key_MediaTogglePlayPause, false);
+        verify(ambient.active);
+        compare(wakeSpy.count, 1);
+        compare(musicSpy.count, 4);
+        // The next press, with no music to own it, is an ordinary key again.
+        ambient.pressKey(Qt.Key_MediaTogglePlayPause, false);
+        ambient.releaseKey(Qt.Key_MediaTogglePlayPause, false);
+        compare(wakeSpy.count, 2);
         // Without music the media keys are ordinary wake keys.
         ambient.music = ({});
         startAmbient();
         verify(!ambient.musicKey(Qt.Key_MediaTogglePlayPause, false));
-        compare(musicSpy.count, 3);
+        compare(musicSpy.count, 4);
     }
     // MH-8 (#791): automatic ambient may start while only music plays; a
     // media session playing video still holds it back.

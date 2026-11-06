@@ -137,7 +137,9 @@ sheet follows the tile action sheet (handoff `cl-1`) and the power menu rows:
 
 ## Media card (#805, ADR-0142 MH-7, frame `mh-06`)
 
-- **Which session.** Only playing or paused sessions take part. One order
+- **Which session.** Only playing or paused sessions take part: the music
+  session and `MediaCatalog.sessionEntries`, which holds an untitled paused
+  session too (Continue's untitled rule, §5.1, does not apply here). One order
   decides:
   1. playing ranks above paused;
   2. then the session whose state change the sheet observed last
@@ -229,6 +231,11 @@ the sheet. The ⏻ exception of §5.7 does not apply to it.
   sheet. `homeEndsTheWayBackToTheSheet`: Home from that player clears the
   way back. `openPlayerForMusicLeavesTheMediaPlayer`: an open media player
   gives way to Now playing.
+- `media-catalog` `continueOmitsAStoppedUntitledSession`: `sessionEntries`
+  holds every playing or paused session, an untitled paused one too, and no
+  stopped one. `openPlayerOnASessionScreenAndBackReturnToTheSheet`: *Open
+  player* on a session without player features opens the session screen, and
+  Back from it reopens the sheet.
 - `media-catalog` `openPlayerOverManagedPlaybackAndBackReturnToTheSheet`:
   *Open player* over managed playback returns to that player, and Back from it
   reopens the sheet without a Stop. `previousAndNextFollowTheSessionsActions`:

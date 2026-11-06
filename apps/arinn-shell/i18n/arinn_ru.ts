@@ -809,6 +809,22 @@
 <context>
     <name>HomeView</name>
     <message>
+        <source>%1 · playing</source>
+        <translation>%1 · играет</translation>
+    </message>
+    <message>
+        <source>OK — open player · ⏯ — pause</source>
+        <translation>OK — открыть плеер · ⏯ — пауза</translation>
+    </message>
+    <message>
+        <source>OK — open player · ⏯ — play</source>
+        <translation>OK — открыть плеер · ⏯ — продолжить</translation>
+    </message>
+    <message>
+        <source>OK — open player</source>
+        <translation>OK — открыть плеер</translation>
+    </message>
+    <message>
         <source>Online</source>
         <translation>Онлайн</translation>
     </message>

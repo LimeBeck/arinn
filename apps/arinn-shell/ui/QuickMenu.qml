@@ -524,7 +524,8 @@ FocusScope {
                     UiText {
                         objectName: "quickMenuCardTitle"
                         width: parent.width
-                        text: mediaCard.session.title || qsTr("Untitled")
+                        // A title of spaces is none (Codex review of #841).
+                        text: String(mediaCard.session.title || "").trim() || qsTr("Untitled")
                         font.pixelSize: 32; font.weight: 600
                         color: Theme.textPrimary
                         elide: Text.ElideRight; maximumLineCount: 1; wrapMode: Text.NoWrap
@@ -608,7 +609,7 @@ FocusScope {
                 cornerRadius: Theme.containerRadius
                 focusScale: 1; focusLift: 0; liftFromBottom: false
                 pointerMode: root.pointerMode
-                text: session.title || qsTr("Untitled")
+                text: String(session.title || "").trim() || qsTr("Untitled")
                 onActiveFocusChanged: if (activeFocus) root.lastFocused = otherRow
                 onEnabledChanged: Qt.callLater(() => root.settle(otherRow))
                 onActivated: root.playPauseRequested(session.id)

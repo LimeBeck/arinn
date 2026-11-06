@@ -996,6 +996,20 @@ TestCase {
         Ui.Focus.take(radio);keyClick(Qt.Key_Right);tryCompare(save,"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(radio,"activeFocus",true);
         Ui.Focus.take(save);keyClick(Qt.Key_Down);tryCompare(findChild(view,"musicEntries"),"activeFocus",true);
+        // Codex review of #819: actions that would pass the safe area (a long
+        // translation) take their own line under the pills, inside it, and
+        // the D-pad follows: Down from the pills, Up back, the tracks below.
+        save.text="A playlist action whose translation runs far longer than the line beside the pills";
+        const actions=findChild(view,"musicPlaylistActions");
+        tryVerify(()=>save.mapToItem(view,0,0).y>=radio.mapToItem(view,0,radio.height).y);
+        verify(save.mapToItem(view,save.width,0).x<=1920-96);
+        const listing=findChild(view,"musicEntries");
+        verify(listing.y>=save.mapToItem(view,0,save.height).y);
+        Ui.Focus.take(radio);keyClick(Qt.Key_Down);tryCompare(save,"activeFocus",true);
+        keyClick(Qt.Key_Up);tryCompare(findChild(header,"musicDetailListen"),"activeFocus",true);
+        Ui.Focus.take(listing);listing.currentIndex=0;keyClick(Qt.Key_Up);tryCompare(save,"activeFocus",true);
+        save.text="Save playlist";
+        tryCompare(actions,"y",header.pillsY);verify(actions.beside);
         catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
         // Review of #819: nothing overlaps the tracks, also under a title on
         // three lines, and the status line stays below them.

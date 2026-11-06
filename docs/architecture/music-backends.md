@@ -478,7 +478,9 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   results with focus on the entry it was opened from. The pills move down
   under a title on three lines, and the tracks start below them and end above
   the status line; the playlist actions join the pills' line for the D-pad
-  (Right from the last pill, Down to the tracks). A detail opened from a
+  (Right from the last pill, Down to the tracks), or take their own line under
+  the pills when the line would pass the safe area (Down from the pills, Up
+  from the first track). A detail opened from a
   detail's row never takes the Find text as a filter.
 - Back from Find returns to the *Find* button. A Find query typed just
   before a result opens is still searched; a catalogue filter typed in

@@ -607,8 +607,8 @@ FocusScope {
         canRadio: (root.selected.actions || []).includes("radio")
         onListenRequested: root.requestPlay(root.parentId)
         onRadioRequested: root.requestRadio(root.parentId)
-        rightNeighbour: saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : null
-        onDownRequested: Ui.Focus.take(tracks.count ? tracks : root.detailAction())
+        rightNeighbour: playlistRow.beside ? playlistRow.first : null
+        onDownRequested: Ui.Focus.take(playlistRow.below ? playlistRow.first : tracks.count ? tracks : root.detailAction())
     }
     // An album, artist or playlist is content: its title is Playfair Display
     // (ADR-0137, #756 M24); screen titles stay Onest.
@@ -862,11 +862,20 @@ FocusScope {
         onActivated: root.catalog.command("scan")
     }
     Row {
-        // In a detail it follows the pills on their line, never under them
+        id: playlistRow
+        objectName: "musicPlaylistActions"
+        // In a detail it follows the pills on their line, never on them
         // (Codex review of #819), and joins them for the D-pad: Left goes
-        // back to the pills, Down to the tracks (review of #819).
-        y: root.detailView ? detailHeader.pillsY : 880
-        x: root.detailView ? detailHeader.pillsEnd + 24 : 120
+        // back to the pills, Down to the tracks (review of #819). Where the
+        // line would pass the safe area (long translations), it takes its
+        // own line under the pills (Codex review of #819).
+        readonly property bool hasActions: saveGroup.visible || removeGroup.visible
+        readonly property Item first: saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : null
+        readonly property bool beside: !root.detailView
+            || detailHeader.pillsEnd + 24 + implicitWidth <= Ui.Theme.canvasWidth - Ui.Theme.safeRight
+        readonly property bool below: root.detailView && visible && hasActions && !beside
+        y: root.detailView ? (beside ? detailHeader.pillsY : detailHeader.contentBottom + 24) : 880
+        x: root.detailView ? (beside ? detailHeader.pillsEnd + 24 : 600) : 120
         spacing: 24
         visible: root.mode === "catalogue" && root.parentId.length > 0
         Ui.ActionButton {
@@ -876,8 +885,8 @@ FocusScope {
             text: qsTr("Save playlist")
             enabled: !root.catalog.busy
             onActivated: root.namePlaylist(root.parentId, false)
-            KeyNavigation.up: root.detailView ? null : tracks
-            KeyNavigation.left: root.detailView ? detailHeader.lastPill : null
+            KeyNavigation.up: root.detailView ? (playlistRow.below ? detailHeader.firstPill : null) : tracks
+            KeyNavigation.left: root.detailView && playlistRow.beside ? detailHeader.lastPill : null
             KeyNavigation.right: removeGroup.visible ? removeGroup : root.detailView ? null : root.catalogueAction()
             KeyNavigation.down: root.detailView ? (tracks.count ? tracks : null) : root.catalogueAction()
         }
@@ -891,8 +900,9 @@ FocusScope {
                 root.deletingPlaylist = true;
                 Qt.callLater(() => Ui.Focus.take(keepPlaylist));
             }
-            KeyNavigation.up: root.detailView ? null : tracks
-            KeyNavigation.left: saveGroup.visible ? saveGroup : root.detailView ? detailHeader.lastPill : tracks
+            KeyNavigation.up: root.detailView ? (playlistRow.below ? detailHeader.firstPill : null) : tracks
+            KeyNavigation.left: saveGroup.visible ? saveGroup
+                : root.detailView ? (playlistRow.beside ? detailHeader.lastPill : null) : tracks
             KeyNavigation.down: root.detailView ? (tracks.count ? tracks : null) : root.catalogueAction()
         }
     }
@@ -902,7 +912,7 @@ FocusScope {
         x: 120
         // In a detail the tracks start below the pills and end above the
         // status line (review of #819).
-        y: root.detailView ? detailHeader.contentBottom + 40 : 385
+        y: root.detailView ? (playlistRow.below ? playlistRow.y + playlistRow.height : detailHeader.contentBottom) + 40 : 385
         width: 1680
         height: root.detailView ? 960 - y : 450
         clip: true
@@ -911,7 +921,7 @@ FocusScope {
         enabled: !root.pendingPlay
         Keys.onUpPressed: event => {
             if (currentIndex <= 0 && root.detailView)
-                Ui.Focus.take(detailHeader.firstPill || root.detailAction());
+                Ui.Focus.take(playlistRow.below ? playlistRow.first : detailHeader.firstPill || root.detailAction());
             else if (currentIndex <= 0)
                 Ui.Focus.take(search);
             else

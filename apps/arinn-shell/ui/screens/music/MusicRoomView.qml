@@ -22,12 +22,12 @@ FocusScope {
     // - otherwise the sources have no music yet (a local library without
     //   folders, an empty service): No music yet, and Sources.
     readonly property bool firstUse: !!room && room.settled !== false && !room.loading
-        && shelves.length === 0
+        && shelves.length === 0 && rows.length > 0
     readonly property var rows: room ? room.sources : []
     readonly property var unreachable: rows.filter(source => source.status === "unavailable")
     readonly property bool allUnreachable: firstUse && unreachable.length > 0 && unreachable.length === rows.length
     readonly property bool needsSignIn: firstUse && !allUnreachable
-        && (!rows.length || rows.some(source => source.status === "signin"))
+        && rows.some(source => source.status === "signin")
     readonly property bool connectedEmpty: firstUse && !allUnreachable && !needsSignIn
     readonly property bool localEmpty: connectedEmpty && rows.some(source => source.local === true)
     readonly property bool sheetOpen: sourcesSheet.visible

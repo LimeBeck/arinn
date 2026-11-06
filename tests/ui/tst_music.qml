@@ -875,4 +875,27 @@ TestCase {
         tryVerify(()=>findChild(view,"musicShelf-stations") && findChild(view,"musicShelf-stations").activeFocus);
         keyClick(Qt.Key_Down);tryVerify(()=>findChild(view,"musicShelf-albums").activeFocus);
     }
+    // Codex review of #812: the All list's tabs scroll with focus, so the
+    // ordering controls past many sources stay reachable on screen.
+    function test_all_tabs_scroll_with_focus() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const rows=[];for(let i=0;i<10;i++)rows.push({id:"s"+i,name:"Fixture service with a long name "+i,local:false,status:"connected",reason:"",actions:[],busy:false,browsable:true});
+        room.sources=rows;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);
+        for(let i=0;i<3;i++)keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");Ui.Focus.take(findChild(all,"musicAllTab-0"));
+        for(let i=0;i<12;i++)keyClick(Qt.Key_Right);
+        const az=findChild(all,"musicAllAlphabetical");tryCompare(az,"activeFocus",true);
+        const area=findChild(all,"musicAllTabArea");
+        tryVerify(()=>{const at=az.mapToItem(area,0,0);return at.x>=0 && at.x+az.width<=area.width;});
+    }
+    // Codex review of #812: before any source is known, the room is not the
+    // first use.
+    function test_no_sources_yet_is_not_first_use() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];room.sources=[];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        compare(findChild(view,"musicRoom").firstUse,false);compare(findChild(view,"musicConnectFirst").visible,false);
+    }
 }

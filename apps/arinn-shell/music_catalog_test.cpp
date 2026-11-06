@@ -426,11 +426,16 @@ private slots:
     auto account = state({}, "disconnected");
     account["actions"] = QJsonArray{"connect"};
     daemon.states["account"] = account;
+    // Codex review of #812: before discovery knows any source, the room is
+    // not settled, so it never claims to be the first use.
+    MusicRoom unknown;
+    QVERIFY(!unknown.settled());
     MusicCatalog catalog;
     MusicRoom room;
     room.setCatalog(&catalog);
     QTRY_COMPARE(room.sources().size(), 1);
     QTRY_COMPARE(room.sources().first().toMap().value("status").toString(), QStringLiteral("signin"));
+    QTRY_VERIFY(room.settled());
     QVERIFY(!room.connected());
     QVERIFY(room.shelves().isEmpty());
     QCOMPARE(room.sources().first().toMap().value("actions").toStringList(), QStringList{"connect"});

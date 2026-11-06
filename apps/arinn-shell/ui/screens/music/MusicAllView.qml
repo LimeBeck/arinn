@@ -107,11 +107,29 @@ FocusScope {
         role: "title"
         text: root.title
     }
+    // The tabs scroll with focus: many sources or long names do not fit
+    // the canvas (Codex review of #812).
+    Flickable {
+        id: tabArea
+        objectName: "musicAllTabArea"
+        x: Ui.Theme.safeLeft
+        y: 196
+        width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight
+        height: tabRow.height
+        contentWidth: tabRow.width
+        interactive: false
+        clip: true
+        Behavior on contentX { NumberAnimation { duration: Ui.Theme.focusDuration; easing.type: Easing.OutCubic } }
+        function reveal(item) {
+            const left = item.x, right = item.x + item.width;
+            if (left < contentX)
+                contentX = Math.max(0, left - 96);
+            else if (right > contentX + width)
+                contentX = Math.min(Math.max(0, contentWidth - width), right - width + 96);
+        }
     Row {
         id: tabRow
         objectName: "musicAllTabs"
-        x: Ui.Theme.safeLeft
-        y: 196
         spacing: 16
         Repeater {
             id: tabs
@@ -126,6 +144,8 @@ FocusScope {
                 KeyNavigation.left: index > 0 ? tabs.itemAt(index - 1) : null
                 KeyNavigation.right: index + 1 < tabs.count ? tabs.itemAt(index + 1) : byOrder
                 KeyNavigation.down: grid
+                onActiveFocusChanged: if (activeFocus)
+                    tabArea.reveal(this)
                 onActivated: {
                     root.source = modelData.id;
                     grid.currentIndex = 0;
@@ -140,6 +160,8 @@ FocusScope {
             KeyNavigation.left: tabs.count ? tabs.itemAt(tabs.count - 1) : null
             KeyNavigation.right: byTitle
             KeyNavigation.down: grid
+            onActiveFocusChanged: if (activeFocus)
+                tabArea.reveal(this)
             onActivated: { root.alphabetical = false; grid.currentIndex = 0; }
         }
         Ui.ActionButton {
@@ -148,8 +170,11 @@ FocusScope {
             text: (root.alphabetical ? "● " : "") + qsTr("A–Z")
             KeyNavigation.left: byOrder
             KeyNavigation.down: grid
+            onActiveFocusChanged: if (activeFocus)
+                tabArea.reveal(this)
             onActivated: { root.alphabetical = true; grid.currentIndex = 0; }
         }
+    }
     }
     GridView {
         id: grid

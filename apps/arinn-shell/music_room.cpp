@@ -155,6 +155,11 @@ void MusicRoom::setActive(bool active) {
 }
 
 bool MusicRoom::settled() const {
+  // No source yet means discovery has not answered: the shell offers Music
+  // only once some source exists, so the room is not the first use yet
+  // (Codex review of #812).
+  if (m_sources.empty())
+    return false;
   for (const auto &[id, source] : m_sources)
     if (!source.answered && source.ready)
       return false;

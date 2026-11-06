@@ -781,6 +781,36 @@ private slots:
     QCOMPARE(daemon.sets.at(2).value, QStringLiteral("\"\""));
     QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
   }
+  // Codex review of #851: a daemon that changes owner during a write: the
+  // change stays shown and is written to the new daemon once it has loaded.
+  void musicSourcesAreWrittenAgainAfterADaemonRestart() {
+    const auto rows = QList<SettingWire>{
+        setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                QStringLiteral("string"), QStringLiteral("\"\""),
+                QStringLiteral("{\"max_length\":4096}"), true)};
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    first.settings.insert(QStringLiteral("arinn"), rows);
+    first.holdOperation = true;
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(first.sets.size(), 1);
+    // The daemon goes away mid-write and another one takes the name.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings.insert(QStringLiteral("arinn"), rows);
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(second.sets.size(), 1);
+    QCOMPARE(second.sets.at(0).value, QStringLiteral("\"[\\\"b\\\"]\""));
+    QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+  }
   // Codex review of #851: a daemon that does not list the setting cannot
   // store a turned-off source, so nothing changes and nothing is written.
   void musicSourcesNeedTheCoreSetting() {

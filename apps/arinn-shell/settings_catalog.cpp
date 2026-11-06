@@ -808,7 +808,8 @@ void SettingsCatalog::readPreferences() {
       m_errors.remove(key);
       m_musicDisabledWanting = false;
       m_musicDisabledSent.reset();
-    } else if (!m_pending.contains(key) && !m_musicDisabledScheduled &&
+    } else if (m_loaded && !m_unreachable && !m_pending.contains(key) &&
+               !m_musicDisabledScheduled &&
                m_musicDisabledSent != m_musicDisabledWanted) {
       m_musicDisabledScheduled = true;
       QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
@@ -856,7 +857,10 @@ void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
 // that one ends (readPreferences schedules it).
 void SettingsCatalog::writeMusicDisabled() {
   m_musicDisabledScheduled = false;
-  if (!m_musicDisabledWanting)
+  // A daemon that is loading again (it changed owner mid-write) or away:
+  // the change waits, and the publish after the load writes it (Codex
+  // review of #851).
+  if (!m_musicDisabledWanting || !m_loaded || m_unreachable)
     return;
   const auto key =
       keyFor(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));

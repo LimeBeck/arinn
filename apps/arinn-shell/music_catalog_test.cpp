@@ -1307,7 +1307,7 @@ private slots:
                         {"continuous", true}, {"pinned", false},
                         {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
                                                 {"title", "Wave"}}},
-                        {"actions", QJsonArray{"pause", "pin"}}};
+                        {"actions", QJsonArray{"pause", "stop", "pin"}}};
     daemon.active = QString::fromUtf8(
         QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
                                   {"state", current}})
@@ -1334,6 +1334,16 @@ private slots:
     QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
     QTest::qWait(100);
     QCOMPARE(daemon.commands.size(), before + 2);
+    // Codex review of #836: after Stop the mirror waits for the session as
+    // it is after the command, and a stopped one takes no pin.
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 3);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("stop"));
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

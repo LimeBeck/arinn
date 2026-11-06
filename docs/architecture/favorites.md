@@ -158,16 +158,18 @@ the station and the provider's own `pin` action are the shell's (#804).
   `Backend.musicStationPinChanged` reports the stations a favorites list read
   pins or unpins compared with the previous read of the same daemon
   connection, never a request that may still fail. Only the playing
-  station's change is kept; a mirror that meets another music command in
-  flight waits for it, and one whose station stopped playing is dropped. The Home shelf still comes from Arinn's store.
+  station's change is kept. A mirror that meets another music command in
+  flight waits for it and for the next read of the active session after it,
+  so a Stop or a new station drops it rather than pinning the old one. The Home shelf still comes from Arinn's store.
 - **Pinning from the player.** For a station the provider marks `pinnable`,
   *Now playing*'s *More* sheet offers *Pin to Home* when the title is not
   empty once control characters are removed (Home stores the title), and
   *Unpin from Home* for a station Home holds, whatever its title now
   (`MusicView.stationPinRequested`, then `Backend.pinMusicStation` or
   `unpinMusicStation`). Whether Home holds the station comes from the stored
-  targets (`Main.pinnedMusicStations`), so a pin whose `MusicPins1` record is
-  not read yet can still be removed. The row waits while a favorites write
+  targets (`Main.pinnedMusicStations`) and the station's identity alone, so a
+  pin whose `MusicPins1` record is not read yet, or whose station is no
+  longer marked `pinnable`, can still be removed. The row waits while a favorites write
   is in flight.
   Any other station keeps the provider's own *Pin station* row.
 

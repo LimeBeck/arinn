@@ -131,6 +131,9 @@ private:
     bool pinned = false;
   };
   std::optional<PinMirror> m_pinMirror;
+  // Commands that ended, and how many of them the last active read had seen
+  // end before it was asked.
+  quint64 m_commandsDone = 0, m_activeSeen = 0;
   // (provider ID, station ID) -> the provider generation that answered. A
   // pair, not a joined string: protocol IDs may hold any character but NUL.
   QMap<QPair<QString, QString>, QString> m_unresolved;

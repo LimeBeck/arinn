@@ -400,12 +400,15 @@ FocusScope {
     // Home already holds can always be removed (Codex review of #836).
     readonly property string stationPinTitle: player.station && player.station.title
         ? String(player.station.title).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : ""
-    readonly property bool stationPinKnown: !!player.station && !!player.station.id
-                                            && player.station.pinnable === true && !!catalog.activeSourceId
-    readonly property bool stationPinned: stationPinKnown
+    // Home membership follows the stable identity alone; a new pin needs
+    // the provider's `pinnable` mark and a title (Codex review of #836).
+    readonly property bool stationIdentified: !!player.station && !!player.station.id && !!catalog.activeSourceId
+    readonly property bool stationPinned: stationIdentified
                                           && pinnedStations.some(pair => pair[0] === catalog.activeSourceId
                                                                          && pair[1] === player.station.id)
-    readonly property bool stationPinnable: stationPinned || (stationPinKnown && stationPinTitle.length > 0)
+    readonly property bool stationPinnable: stationPinned
+                                            || (stationIdentified && player.station.pinnable === true
+                                                && stationPinTitle.length > 0)
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false

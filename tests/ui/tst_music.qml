@@ -697,6 +697,13 @@ TestCase {
         keyClick(Qt.Key_Return);compare(view.mode,"queue");
         tryCompare(findChild(view,"musicQueueEmpty"),"visible",true);compare(list.count,0);
         compare(findChild(view,"musicQueueEmpty").text,"The queue is empty");
+        // Codex review of #821: with Save disabled by a command in flight,
+        // focus stays in the sheet.
+        catalog.activeState={session:"s",playback:"stopped",actions:["save_playlist"],upcoming:[]};catalog.busy=true;
+        Ui.Focus.take(queue);tryCompare(queue,"activeFocus",true);
+        view.focusInitial();const sheet=findChild(view,"musicQueueView");
+        tryVerify(()=>sheet.activeFocus);compare(findChild(view,"musicSaveQueue").enabled,false);
+        catalog.busy=false;
         keyClick(Qt.Key_Escape);compare(view.mode,"player");tryCompare(queue,"activeFocus",true);
     }
     // #802 (brief mh-03): the artwork is 560 with the light in its hue, the

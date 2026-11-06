@@ -49,9 +49,9 @@ FocusScope {
             queueList.currentIndex = at;
             queueList.positionViewAtIndex(at, ListView.Contain);
             Ui.Focus.take(queueList);
-        } else if (saveQueue.visible) {
-            Ui.Focus.take(saveQueue);
-        } else {
+        } else if (!(saveQueue.visible && saveQueue.enabled && Ui.Focus.take(saveQueue))) {
+            // A disabled Save (a command in flight) cannot hold focus: the
+            // sheet does (Codex review of #821).
             Ui.Focus.take(root);
         }
     }

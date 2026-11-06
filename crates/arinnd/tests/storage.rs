@@ -660,7 +660,7 @@ fn browse_recents_drop_queries_and_loopback_addresses() {
         .unwrap()
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 }
 
 #[test]
@@ -879,4 +879,123 @@ fn favorites_schema_six_migration_preserves_existing_order() {
         vec![target("two"), target("one")]
     );
     assert_eq!(store.favorite_list().unwrap().revision, 1);
+}
+
+fn pin(station: &str, title: &str) -> arinn_protocol::music_pins::MusicPin {
+    arinn_protocol::music_pins::MusicPin {
+        provider_id: "fixture.music".into(),
+        station_id: station.into(),
+        title: title.into(),
+        artwork: String::new(),
+    }
+}
+
+/// ADR-0143: a pin joins the favorites order at the captured revision, a
+/// re-pin refreshes it in place, an unpin removes both, and pins survive a
+/// restart like the rest of the favorites.
+#[test]
+fn music_pins_join_the_favorites_order_and_survive_reopen() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(
+        store.replace_favorites(1, &[favorite("app")]),
+        Ok((2, true))
+    );
+    assert_eq!(
+        store.pin_music_station(1, &pin("station:library", "Library")),
+        Err(ErrorCode::Conflict)
+    );
+    assert_eq!(
+        store.pin_music_station(2, &pin("station:library", "Library")),
+        Ok((3, true))
+    );
+    assert_eq!(
+        store.pin_music_station(3, &pin("station:wave", "Wave")),
+        Ok((4, true))
+    );
+    let favorites = store.favorite_list().unwrap();
+    assert_eq!(favorites.revision, 4);
+    assert_eq!(favorites.entries[0], favorite("app"));
+    assert_eq!(
+        favorites.entries[1],
+        pin("station:library", "Library").target()
+    );
+    assert_eq!(favorites.entries[2], pin("station:wave", "Wave").target());
+    // The same pin again changes nothing; a new title refreshes it in place.
+    assert_eq!(
+        store.pin_music_station(4, &pin("station:library", "Library")),
+        Ok((4, false))
+    );
+    assert_eq!(
+        store.pin_music_station(4, &pin("station:library", "All my music")),
+        Ok((5, true))
+    );
+    let pins = store.music_pins().unwrap();
+    assert_eq!(pins.revision, 5);
+    let titles: Vec<_> = pins.pins.iter().map(|p| p.title.as_str()).collect();
+    assert_eq!(titles, ["All my music", "Wave"]);
+    drop(store);
+    let mut store = Store::open(&state).unwrap();
+    assert_eq!(store.music_pins().unwrap().pins.len(), 2);
+    assert_eq!(
+        store.unpin_music_station(5, "fixture.music", "station:library"),
+        Ok(6)
+    );
+    assert_eq!(
+        store.unpin_music_station(6, "fixture.music", "station:library"),
+        Err(ErrorCode::NotFound)
+    );
+    let favorites = store.favorite_list().unwrap();
+    assert_eq!(
+        favorites.entries,
+        [favorite("app"), pin("station:wave", "Wave").target()]
+    );
+    let pins = store.music_pins().unwrap();
+    assert_eq!(pins.pins, [pin("station:wave", "Wave")]);
+}
+
+/// ADR-0143: Favorites1.Set may reorder or drop a pinned station, but it
+/// cannot add one that MusicPins1 never stored; a dropped one is forgotten.
+#[test]
+fn favorites_set_keeps_pins_consistent() {
+    let fixture = Fixture::new();
+    let state = fixture.paths().state;
+    let mut store = Store::open(&state).unwrap();
+    let unknown = pin("station:unknown", "Unknown").target();
+    assert_eq!(
+        store.replace_favorites(1, &[unknown]),
+        Err(ErrorCode::NotFound)
+    );
+    assert_eq!(
+        store.pin_music_station(1, &pin("station:a", "A")),
+        Ok((2, true))
+    );
+    assert_eq!(
+        store.pin_music_station(2, &pin("station:b", "B")),
+        Ok((3, true))
+    );
+    let reordered = vec![
+        pin("station:b", "B").target(),
+        pin("station:a", "A").target(),
+    ];
+    assert_eq!(store.replace_favorites(3, &reordered), Ok((4, true)));
+    let titles: Vec<_> = store
+        .music_pins()
+        .unwrap()
+        .pins
+        .into_iter()
+        .map(|p| p.title)
+        .collect();
+    assert_eq!(titles, ["B", "A"]);
+    assert_eq!(
+        store.replace_favorites(4, &[pin("station:b", "B").target()]),
+        Ok((5, true))
+    );
+    assert_eq!(store.music_pins().unwrap().pins, [pin("station:b", "B")]);
+    // A forgotten pin cannot come back through Set.
+    assert_eq!(
+        store.replace_favorites(5, &reordered),
+        Err(ErrorCode::NotFound)
+    );
 }

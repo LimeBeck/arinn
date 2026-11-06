@@ -621,6 +621,12 @@ Window {
     Connections {
         target: backend
         ignoreUnknownSignals: true
+        // A stored Home pin or unpin is mirrored to the provider's own pin
+        // for the station that plays, never a request that may still fail
+        // (#804).
+        function onMusicStationPinChanged(providerId, stationId, pinned) {
+            musicCatalog.syncProviderPin(providerId, stationId, pinned);
+        }
         function onNativeFocusChanged() { root.checkPresentationFocus(); }
         function onChanged() {
             // The Return of the quick menu is done: the Activity has the
@@ -1059,10 +1065,6 @@ Window {
             favoriteSaving: backend.favoriteSaving === true
             favoriteError: backend.favoriteError || ""
             onFavoriteRequested: (entryId, pinned) => {
-                // Unpinning a station from the shelf also unpins it at its
-                // provider, where the provider keeps its own list (#804).
-                const station = backend.favorites.find(entry => entry.id === entryId && entry.musicStation);
-                if (station && !pinned) musicCatalog.syncProviderPin(station.providerId, station.stationId, false);
                 backend.setFavorite(entryId, pinned);
             }
             onCloseRequested: windowId => closeFlow.ask(windowId)
@@ -1353,6 +1355,13 @@ Window {
             catalog: musicCatalog
             room: musicRoom
             objectName: "productionMusic"
+            pinnedStations: backend.favorites.filter(entry => entry.musicStation)
+                                              .map(entry => [entry.providerId, entry.stationId])
+            pinsWritable: backend.favoritesReady === true && backend.favoriteSaving !== true
+            onStationPinRequested: (providerId, stationId, title, artwork, pinned) => {
+                if (pinned) backend.pinMusicStation(providerId, stationId, title, artwork);
+                else backend.unpinMusicStation(providerId, stationId);
+            }
             layer.enabled: root.navBlur && visible
             layer.effect: navBlurEffect
             visible: home.screen === "music" && !root.playerOpen

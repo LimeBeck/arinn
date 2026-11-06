@@ -154,8 +154,14 @@ the station and the provider's own `pin` action are the shell's (#804).
   card in the music room does: the replace confirmation, then *Now playing*.
 - **The provider's own `pin`.** Where a provider offers it, Arinn mirrors a pin
   or an unpin to it for the station that plays now
-  (`MusicCatalog.syncProviderPin`). The Home shelf still comes from Arinn's
-  store.
-- **Pinning from the player.** The *Pin station to Home* action in the *More*
-  sheet arrives with #802.
+  (`MusicCatalog.syncProviderPin`). It mirrors only a stored change:
+  `Backend.musicStationPinChanged` reports the stations a favorites list read
+  pins or unpins compared with the previous read of the same daemon
+  connection, never a request that may still fail. The Home shelf still comes
+  from Arinn's store.
+- **Pinning from the player.** For a station the provider marks `pinnable`,
+  *Now playing*'s *More* sheet offers *Pin to Home* or *Unpin from Home*
+  (`MusicView.stationPinRequested`, then `Backend.pinMusicStation` or
+  `unpinMusicStation`). The row waits while a favorites write is in flight.
+  Any other station keeps the provider's own *Pin station* row.
 

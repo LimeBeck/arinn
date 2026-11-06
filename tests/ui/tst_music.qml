@@ -1041,6 +1041,18 @@ TestCase {
         const glyphs=item=>{let n=0;const walk=node=>{for(const child of node.children){if(child.objectName==="musicCardSource")continue;if(child.visible&&String(child).indexOf("LineIcon")>=0)n++;walk(child);}};walk(item);return n;};
         compare(glyphs(cards[1]),1);compare(cards[1].opacity,0.6);compare(cards[1].layer.enabled,true);
         compare(cards[0].layer.enabled,false);
+        // Codex review of #848: the dimmed layer takes in the focus mat and
+        // rim, which paint outside the card.
+        const bleed=Ui.Theme.matThickness+Ui.Theme.rimThickness;const rect=cards[1].layer.sourceRect;
+        verify(rect.x<=-bleed&&rect.y<=-bleed&&rect.width>=cards[1].width+2*bleed&&rect.height>=cards[1].height+2*bleed,
+               JSON.stringify(rect));
+        // Codex review of #848: the All grid shows the playing station with
+        // the playing track's cover too.
+        list.currentIndex=2;wait(0);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const grid=findChild(findChild(view,"musicAll"),"musicAllGrid");tryCompare(grid,"activeFocus",true);
+        grid.currentIndex=0;wait(0);
+        compare(grid.currentItem.playing,true);
+        compare(findChild(grid.currentItem,"musicCardArtwork").source.toString(),"image://fixture/track-cover");
     }
     // #800: a late source adds its entries without moving focus; an entry
     // that leaves hands focus to its neighbour.

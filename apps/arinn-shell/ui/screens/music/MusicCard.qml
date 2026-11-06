@@ -27,6 +27,11 @@ Ui.Surface {
     // (#843).
     opacity: entry.available === false ? 0.6 : 1
     layer.enabled: opacity < 1
+    // The focus mat and rim paint outside the card: the layer takes them in
+    // (Codex review of #848).
+    readonly property real focusBleed: Ui.Theme.matThickness + Ui.Theme.rimThickness + 2
+    layer.sourceRect: Qt.rect(-focusBleed, -focusBleed, width + 2 * focusBleed,
+                              height + 2 * focusBleed)
     contentItem: Item {
         MusicArtwork {
             id: art

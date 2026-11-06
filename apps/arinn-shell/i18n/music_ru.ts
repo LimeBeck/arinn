@@ -465,6 +465,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoomView</name>
     <message>
+      <source>Scanning the library…</source>
+      <translation>Сканирование медиатеки…</translation>
+    </message>
+    <message>
+      <source>Add folders with music in Settings.</source>
+      <translation>Добавьте папки с музыкой в настройках.</translation>
+    </message>
+    <message>
       <source>No music yet</source>
       <translation>Музыки пока нет</translation>
     </message>

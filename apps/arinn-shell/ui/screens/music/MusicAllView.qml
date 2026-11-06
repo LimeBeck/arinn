@@ -19,6 +19,10 @@ FocusScope {
     // Bumped when a page arrives, so the list is read again.
     property int revision: 0
     readonly property var sources: room ? room.sources : []
+    // A filtered source that can no longer browse loses its tab: the list
+    // returns to All.
+    onSourcesChanged: if (source.length && !sources.some(row => row.id === source && row.browsable !== false))
+        source = ""
     readonly property bool round: shelfId === "artists"
     readonly property bool wide: shelfId === "stations"
     readonly property real cardWidth: wide ? 448 : 240

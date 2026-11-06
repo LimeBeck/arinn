@@ -14,18 +14,22 @@ FocusScope {
     // The music catalogue, for the session that plays.
     property var catalog: null
     readonly property var shelves: room ? room.shelves : []
-    // No source connected once every source has answered (brief: first use).
-    readonly property bool firstUse: !!room && !room.connected && !room.loading && room.settled !== false
-    // Every source is there but none can be reached: say why instead of
-    // asking to connect (review of #812).
-    readonly property var unreachable: room ? room.sources.filter(source => source.status === "unavailable") : []
-    readonly property bool allUnreachable: firstUse && unreachable.length > 0
-        && unreachable.length === (room ? room.sources.length : 0)
-    // A source is connected but has no catalogue to show yet: it is not the
-    // first use, so the hero says so instead of asking to connect (Codex
-    // review of #812).
-    readonly property bool connectedEmpty: firstUse && !allUnreachable && !!room
-        && room.sources.some(source => ["connected", "scanning"].includes(source.status))
+    // Arinn never shows an empty room (brief: first use). Once every source
+    // has answered and nothing is loading, a room without shelves says why,
+    // from the source rows (reviews of #812):
+    // - every source unreachable: the reason, and Sources;
+    // - a source that needs sign-in and none with music: Connect a source;
+    // - otherwise the sources have no music yet (a local library without
+    //   folders, an empty service): No music yet, and Sources.
+    readonly property bool firstUse: !!room && room.settled !== false && !room.loading
+        && shelves.length === 0
+    readonly property var rows: room ? room.sources : []
+    readonly property var unreachable: rows.filter(source => source.status === "unavailable")
+    readonly property bool allUnreachable: firstUse && unreachable.length > 0 && unreachable.length === rows.length
+    readonly property bool needsSignIn: firstUse && !allUnreachable
+        && (!rows.length || rows.some(source => source.status === "signin"))
+    readonly property bool connectedEmpty: firstUse && !allUnreachable && !needsSignIn
+    readonly property bool localEmpty: connectedEmpty && rows.some(source => source.local === true)
     readonly property bool sheetOpen: sourcesSheet.visible
     // The shelf and entry under focus.
     property Item focusedShelf: null
@@ -187,6 +191,10 @@ FocusScope {
             text: {
                 if (root.allUnreachable)
                     return root.unreachable[0].reason || "";
+                if (root.connectedEmpty && rows.some(source => source.status === "scanning"))
+                    return qsTr("Scanning the library…");
+                if (root.localEmpty)
+                    return qsTr("Add folders with music in Settings.");
                 if (root.connectedEmpty)
                     return qsTr("Your sources have no music to show yet.");
                 if (root.firstUse)

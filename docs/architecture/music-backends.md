@@ -439,10 +439,11 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
   with Cancel focused. The catalogue screen no longer shows the source switch,
   *Refresh*, *Disconnect* or the account panel while a room is present.
-- The room is the first use only once every source has answered: with none
-  connected it offers *Connect a source*; when every source is unreachable it
-  says why and offers *Sources*; a connected source with no catalogue yet
-  says that the sources have no music yet. The shell's status area hides while the
+- The room is never shown empty. Once every source has answered and nothing
+  loads, a room without shelves says why, from the source rows: every source
+  unreachable gives the reason and *Sources*; a source that needs sign-in
+  gives *Connect a source*; otherwise *No music yet* (for this computer, add
+  folders with music in Settings) and *Sources*. The shell's status area hides while the
   *Sources* sheet or a confirm dialog covers the screen.
 - The *All* list filters by source with tabs, for sources that can browse,
   that start at *All*; it pages on while focus is near the end, also when a

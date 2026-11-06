@@ -834,4 +834,17 @@ TestCase {
         view.forceActiveFocus();view.focusInitial();
         compare(findChild(view,"musicHeroTitle").text,"No music yet");compare(findChild(view,"musicConnectFirst").text,"Sources");
     }
+    // Review of #812: an empty room is never shown bare. A local library
+    // without music, or a lone expired service, still lists facets, so the
+    // state comes from the shelves and the source rows.
+    function test_empty_room_explains_itself() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.shelves=[];room.sources=[{id:"local",name:"Fixture music",local:true,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();
+        compare(findChild(view,"musicHeroTitle").text,"No music yet");compare(findChild(view,"musicHeroMeta").text,"Add folders with music in Settings.");
+        const action=findChild(view,"musicConnectFirst");tryCompare(action,"activeFocus",true);compare(action.text,"Sources");
+        room.sources=[{id:"account",name:"Fixture service",local:false,status:"signin",reason:"",actions:["authorize"],busy:false,browsable:true}];
+        compare(findChild(view,"musicHeroTitle").text,"Connect a source");compare(action.text,"Connect a source");
+    }
 }

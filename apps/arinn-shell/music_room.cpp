@@ -270,7 +270,8 @@ void MusicRoom::readState(const QString &id) {
                   // Also a refresh that failed after a new revision, whose
                   // previous entries stay shown meanwhile (Codex review).
                   if (facet.failed &&
-                      now() - facet.failedAt > retryDelay(facet.retries - 1))
+                      now() - facet.failedAt >
+                          retryDelay(std::max(0, facet.retries - 1)))
                     source.pending.append(name);
               // A retried facet stays `loaded`: the room is not loading
               // again, so an empty room keeps its state.

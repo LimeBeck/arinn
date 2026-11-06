@@ -1,0 +1,1 @@
+- Music: the remote's Back now leaves *Find* from its search field, after closing the on-screen keyboard first; Backspace in the field still only deletes ([#829](https://github.com/LimeBeck/arinn/issues/829)).

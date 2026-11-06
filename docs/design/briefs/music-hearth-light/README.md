@@ -86,7 +86,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
 - **No merging (MH-10).** An album or artist present in two sources appears twice, each with its own mark. Playing always uses the source of the card: a queue never mixes sources.
 - **Each shelf ends with an *All* tile.** It opens the full grid or list for that facet (`mh-11`).
   - The view has text tabs "All · This computer · <each connected service>". The selected tab carries the Ember dot. It starts at *All* each time.
-  - It offers *By date* and *A–Z* order.
+  - It offers the default order (personal first, then the MH-9 order) and *A–Z*. *By date* appears only once entities carry dates (#806). Until then the default order is the providers' own order, alternating, and it is not labelled as a date order.
   - Lists use container rows; grids use the shelf covers.
 - **Light.** Rows follow the Hearth light rules: the focused row at 0.82, other rows at 0.62, the floor light on, the pool keyed to the focused artwork.
 - **First use.** With no connected source, the hero explains the next step ("Connect a source") and offers that one action, which opens the *Sources* sheet. The shelves stay absent. Arinn never shows an empty connected library.
@@ -148,9 +148,9 @@ A right-hand sheet 720 wide, like the tile actions sheet. It lists only the acti
 - *Dislike*;
 - *Radio from this track*;
 - *Pin station to Home* (MH-6), or *Unpin* when it is pinned;
-- *Go to album*;
-- *Go to artist*;
 - *Stop*.
+
+*Go to album* and *Go to artist* are not offered yet. `Entity` carries only the album and artist names, while opening a detail needs their entity IDs, and matching by name is ambiguous. They follow a `contract-change` task that adds album and artist references.
 
 Back closes the sheet and restores focus to the control that opened it.
 
@@ -211,7 +211,8 @@ A right-hand sheet 720 wide.
   - Only sessions that are **playing or paused** take part. A stopped session, titled or not, is not shown in the Quick menu; Continue may still show it (§5.1). With no session playing or paused, the plain row stays.
   - **One precedence order** decides which session the card shows:
     1. a playing session ranks above a paused one;
-    2. between two sessions in the same state, the one whose playback state changed last ranks higher.
+    2. between two sessions in the same state, the one whose playback state change the shell observed last ranks higher;
+    3. if the shell observed no change for either (it started or reconnected while both were already playing or paused), the native music session ranks higher. Arinn owns that session and can open its player. This deterministic fallback applies only until the shell observes the next change.
   - The time of a change never overrides the state.
   - Example: both sessions play and the user pauses the one in the row. The card keeps its session, because playing still ranks above paused, and nothing moves.
   - Its transport and *Open player* act only on the session it shows.

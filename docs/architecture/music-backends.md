@@ -63,6 +63,35 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   on.
 - The player's control row is its last row: Up from any control reaches the
   seek bar, and Down leaves the row only for a failure's Retry.
+- Now playing (#802, brief mh-03, ADR-0142 MH-3):
+  - the artwork is 560 with the floor and pool in its hue (`AmbientGlow`);
+  - the eyebrow names the context (the station, or *Album*) and the source
+    after an Ember dot; the title is Playfair 96 with the fit steps 96/80/64;
+    the artist is Onest 600 32 and the album 28 meta, with no year (the
+    `Entity` carries none);
+  - the seek line is a 4 px track at 20 % white with an Ember fill. Its knob
+    shows only in focus, and elapsed and total time sit below it in tabular
+    figures, both with hours when the track is longer than an hour;
+  - one vertically centred row: previous 96, play/pause 120, next 96, the
+    *Like* and *Queue* pills and a round *More* (`more_horiz`). Left and Right
+    stop at its ends, Down from the seek line returns to play/pause, and the
+    labels under the round buttons appear in focus at 26;
+  - *Like* shows a filled heart and *Liked* when liked, *Saving…* while its
+    command is in flight and *Not saved* when it fails, until the track
+    changes or Like is pressed again; it is checkable for accessibility.
+- The *More* sheet (720, right) lists only the session's actions, as
+  container rows with a line icon: Dislike, Radio from this track, the
+  provider's station pin, Retry loading tracks and Stop. *Go to album* and
+  *Go to artist* wait for album and artist references in the protocol, and
+  *Pin station to Home* for #804. Back closes the sheet and returns to
+  *More*; the Menu key keeps global navigation and never opens it.
+- The *Queue* sheet (720, right) lists the current entry first, with the
+  playing mark and the initial focus, then the upcoming ones as container
+  rows (cover 72, title, artist, duration). A continuous queue is named after
+  its station and ends with "More tracks will follow", never a total; a
+  finite one is *Up next*, since the state names no album or playlist for
+  it. An empty queue says so. Rows are keyed by occurrence, so the state
+  poll keeps the focused row; the current entry is not removable.
 - Back returns from the queue to *Queue*, from a detail to the album, artist
   or playlist it was opened from (loading up to ten further pages to find
   it), and from a player opened on Home's card to Home, also after a queue

@@ -18,7 +18,7 @@ FocusScope {
     property var room: null
     // A sheet or a dialog covers the screen: the shell's status area hides.
     readonly property bool overlayOpen: (room && roomView.sheetOpen) || pendingPlay.length > 0
-        || queueOccurrence.length > 0 || deletingPlaylist
+        || queueOccurrence.length > 0 || deletingPlaylist || moreOpen || mode === "queue"
     property string mode: "catalogue"
     // The room entry a detail, the All list or the player was opened from:
     // Back returns to the room with focus on it (brief, M16).
@@ -173,6 +173,7 @@ FocusScope {
         // A pending opener search waits while anything is busy (a page, a
         // command); it is checked again once that ends (review of #798).
         function onStatusChanged() {
+            root.settleLike();
             Qt.callLater(root.recoverFocus);
             Qt.callLater(root.restoreOpener);
         }
@@ -181,6 +182,7 @@ FocusScope {
             Qt.callLater(root.restoreOpener);
         }
         function onTransportBusyChanged() {
+            root.settleLike();
             Qt.callLater(root.recoverFocus);
         }
         function onEntriesChanged() {
@@ -209,6 +211,8 @@ FocusScope {
         queueOccurrence = "";
         deletingPlaylist = false;
         roomPlay = null;
+        moreOpen = false;
+        replaceOpener = null;
     }
     readonly property var selected: catalog.state || ({})
     readonly property var player: catalog.activeState || ({})
@@ -270,15 +274,148 @@ FocusScope {
         Ui.Focus.take(tracks.count && tracks.visible ? tracks : catalogueAction());
     }
     // 3:05, or 1:15:03 from an hour on (#756 M25).
-    function timeLabel(microseconds) {
+    function timeLabel(microseconds, withHours) {
         const seconds = Math.max(0, Math.floor((microseconds || 0) / 1000000));
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor(seconds % 3600 / 60);
         const rest = String(seconds % 60).padStart(2, "0");
-        return hours > 0 ? hours + ":" + String(minutes).padStart(2, "0") + ":" + rest : minutes + ":" + rest;
+        return hours > 0 || withHours === true ? hours + ":" + String(minutes).padStart(2, "0") + ":" + rest
+            : minutes + ":" + rest;
     }
     function supported(action) {
         return actions.includes(action);
+    }
+    // Times of a track longer than an hour carry hours, elapsed too (M25).
+    readonly property bool longTrack: (current.duration_us || 0) >= 3600000000
+    // Now playing's context (brief mh-03): the station, or the album, and
+    // the source.
+    readonly property string playerContext: {
+        const source = catalog.activeSourceName || "";
+        const station = player.station ? (player.station.title || "") : "";
+        const context = station.length ? station : current.album ? qsTr("Album") : "";
+        return [context, source].filter(part => part.length).join(" · ");
+    }
+    // The Queue sheet's rows: the current entry first, then the upcoming
+    // ones (brief *Queue*).
+    readonly property var queueEntries: {
+        const rows = [];
+        if (player.current && player.current.track && player.current.track.id)
+            rows.push({occurrence: player.current.occurrence || "current", track: current, current: true});
+        for (const entry of player.upcoming || [])
+            rows.push({occurrence: entry.occurrence || "", track: entry.track || ({}), current: false});
+        return rows;
+    }
+    // Like: pending while its command is in flight, failed when it ends
+    // with an error, until the track changes or Like is pressed again (M18).
+    property bool likePending: false
+    property bool likeFailed: false
+    readonly property string currentId: current.id || ""
+    // A new track ends whatever the last one's like was doing (Codex review
+    // of #821).
+    onCurrentIdChanged: {
+        likeFailed = false;
+        likePending = false;
+        likeAwaitsState = false;
+    }
+    function like() {
+        if (transportBusy || !supported("like"))
+            return;
+        likeFailed = false;
+        likeAwaitsState = false;
+        likeFeedbackBefore = player.feedback || "";
+        likePending = true;
+        catalog.transport("like");
+        // A command the catalogue did not send ends the pending state.
+        Qt.callLater(settleLike);
+    }
+    // A like that went through stays pending until the next state brings
+    // its feedback, so the label never flashes back to "Like" (review of
+    // #821); a refused one fails at once.
+    property bool likeAwaitsState: false
+    property string likeFeedbackBefore: ""
+    function settleLike() {
+        if (!likePending || catalog.transportBusy || likeAwaitsState)
+            return;
+        if ((catalog.errorText || "").length > 0) {
+            likePending = false;
+            likeFailed = true;
+        } else if ((player.feedback || "") !== likeFeedbackBefore) {
+            likePending = false;
+        } else {
+            likeAwaitPolls = 0;
+            likeAwaitsState = true;
+        }
+    }
+    // After the state's own bindings, so the label goes from "Saving…"
+    // straight to the new state.
+    // A poll already in flight can bring the state from before the like:
+    // only a changed feedback ends the wait, or, should the provider keep
+    // it, the third state after the command (Codex review of #821).
+    property int likeAwaitPolls: 0
+    onPlayerChanged: if (likeAwaitsState)
+        Qt.callLater(finishLike)
+    function finishLike() {
+        if (!likeAwaitsState)
+            return;
+        if ((player.feedback || "") === likeFeedbackBefore && ++likeAwaitPolls < 3)
+            return;
+        likeAwaitsState = false;
+        likePending = false;
+    }
+    function openQueue() {
+        moreOpen = false;
+        mode = "queue";
+        Qt.callLater(focusInitial);
+    }
+    // The More sheet (brief *More sheet*): only the session's actions. The
+    // Menu key keeps global navigation and never opens it.
+    property bool moreOpen: false
+    onModeChanged: if (mode !== "player")
+        moreOpen = false
+    readonly property var moreActions: {
+        const rows = [];
+        // A command in flight blocks every row, visibly: each sends one,
+        // Radio after its confirmation (Codex review of #821).
+        const busy = transportBusy;
+        if (supported("dislike"))
+            rows.push({id: "dislike", icon: "thumb_down", selected: player.feedback === "disliked", busy: busy,
+                       label: player.feedback === "disliked" ? qsTr("Disliked") : qsTr("Dislike")});
+        if (supported("radio") && !!current.id)
+            rows.push({id: "radio", icon: "radio", busy: busy, label: qsTr("Radio from this track")});
+        if (supported("pin") && player.station && player.station.id)
+            rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true, busy: busy,
+                       label: player.pinned === true ? qsTr("Unpin station") : qsTr("Pin station")});
+        if (supported("retry"))
+            rows.push({id: "retry", icon: "refresh", busy: busy, label: qsTr("Retry loading tracks")});
+        if (supported("stop"))
+            rows.push({id: "stop", icon: "stop", busy: busy, label: qsTr("Stop")});
+        return rows;
+    }
+    function openMore() {
+        moreOpen = true;
+        Qt.callLater(moreSheet.focusInitial);
+    }
+    function closeMore() {
+        moreOpen = false;
+        Qt.callLater(() => {
+            if (!Ui.Focus.take(moreButton))
+                focusInitial();
+        });
+    }
+    function runMore(id) {
+        if (transportBusy)
+            return;
+        if (id === "radio") {
+            moreOpen = false;
+            replaceOpener = moreButton;
+            requestRadio(current.id || "", true);
+            return;
+        }
+        if (id === "pin")
+            catalog.transport("pin", player.station ? player.station.id : "");
+        else
+            catalog.transport(id);
+        closeMore();
     }
     // The control row is the last row: Down leaves it only for the failure's
     // Retry, never sideways inside the row (#756 M15).
@@ -293,8 +430,8 @@ FocusScope {
     function playerFocus() {
         if (playButton.enabled)
             return playButton;
-        return [retryPlaybackButton, retryButton, stopButton, nextButton, previousButton]
-            .find(item => item.visible && item.enabled) || queueButton;
+        return [retryPlaybackButton, nextButton, previousButton, likeButton, queueButton]
+            .find(item => item.visible && item.enabled) || moreButton;
     }
     function focusInitial() {
         // Find keeps focus on the result it was left from, or its first
@@ -321,7 +458,7 @@ FocusScope {
             fallbackFocus = target === playButton ? null : target;
             Ui.Focus.take(target);
         } else if (mode === "queue")
-            Ui.Focus.take(queueList);
+            queueSheet.focusInitial();
         else if (tracks.visible && tracks.count)
             Ui.Focus.take(tracks);
         else if (detailView && (detailHeader.firstPill || playlistRow.first))
@@ -475,6 +612,17 @@ FocusScope {
         closePlaylist();
     }
 
+    // The control a replacement was asked from, when it is not where
+    // focusInitial() lands: Radio from this track in More returns to More
+    // (review of #821).
+    property Item replaceOpener: null
+    function cancelReplacement() {
+        pendingPlay = "";
+        const opener = replaceOpener;
+        replaceOpener = null;
+        if (!(opener && Ui.Focus.take(opener)))
+            focusInitial();
+    }
     function requestRadio(id, active) {
         pendingAction = "radio";
         pendingActive = active === true;
@@ -503,15 +651,16 @@ FocusScope {
                 closePlaylist();
         } else if (queueOccurrence) {
             queueOccurrence = "";
-            Ui.Focus.take(queueList.currentItem || queueList);
+            Ui.Focus.take(queueSheet.list.currentItem || queueSheet.list);
         } else if (deletingPlaylist) {
             deletingPlaylist = false;
             focusInitial();
         } else if (typing) {
             finishTyping();
         } else if (pendingPlay) {
-            pendingPlay = "";
-            focusInitial();
+            cancelReplacement();
+        } else if (moreOpen) {
+            closeMore();
         } else if (mode === "queue") {
             mode = "player";
             Qt.callLater(() => {
@@ -605,6 +754,18 @@ FocusScope {
     Rectangle {
         anchors.fill: parent
         color: Ui.Theme.background
+    }
+    // Now playing's floor and pool take the artwork's hue (#802). It sits
+    // under every line of the screen, the heading too (review of #821).
+    Ui.AmbientGlow {
+        objectName: "musicPlayerGlow"
+        anchors.fill: parent
+        visible: playerView.visible
+        veilEnabled: false
+        strength: 0.7
+        lit: playerView.visible && (root.current.image || "").length > 0
+        source: root.current.image || ""
+        anchor: playerArtwork
     }
     // The detail header (#801): backdrop, cover, title and pills.
     MusicDetailHeader {
@@ -1212,34 +1373,52 @@ FocusScope {
             : root.selected.account === "local" ? qsTr("Add music folders in Settings, then rescan.")
             : qsTr("No music here yet. Try search or another section.")
     }
+    // Now playing (brief mh-03, ADR-0142 MH-3, #802): the artwork with its
+    // light, the copy, the seek line and one row of controls. The Queue and
+    // More sheets open over it.
     Item {
+        id: playerView
+        objectName: "musicNowPlaying"
         enabled: !root.pendingPlay
-        x: 120
-        y: 235
-        width: 1680
-        height: 680
-        visible: root.mode === "player"
+        anchors.fill: parent
+        visible: root.mode === "player" || root.mode === "queue"
         MusicArtwork {
-            x: 0
-            y: 0
-            width: 500
-            height: 500
+            id: playerArtwork
+            objectName: "musicPlayerArtwork"
+            x: 120
+            y: 220
+            width: 560
+            height: 560
             radius: Ui.Theme.stillRadius
             source: root.current.image || ""
         }
         Column {
             objectName: "musicInfoColumn"
-            x: 580
-            width: 1100
-            spacing: 16
-            Ui.UiText {
-                width: parent.width
-                role: "eyebrow"
-                text: root.catalog.activeSourceName + (root.player.station ? " · " + root.player.station.title : "")
-                maximumLineCount: 1
-                elide: Text.ElideRight
-                textFormat: Text.PlainText
-                color: Ui.Theme.textSecondary
+            x: 760
+            y: 220
+            width: 1064
+            spacing: 14
+            // The context: an Ember dot, then the station or the album and
+            // the source.
+            Row {
+                spacing: 14
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 12
+                    height: 12
+                    radius: 6
+                    color: Ui.Theme.ember
+                }
+                Ui.UiText {
+                    objectName: "musicPlayerContext"
+                    width: 1030
+                    role: "eyebrow"
+                    text: root.playerContext
+                    maximumLineCount: 1
+                    elide: Text.ElideRight
+                    textFormat: Text.PlainText
+                    color: Ui.Theme.textSecondary
+                }
             }
             Ui.UiText {
                 objectName: "musicTrackTitle"
@@ -1253,117 +1432,119 @@ FocusScope {
                 verticalAlignment: Text.AlignVCenter
             }
             Ui.UiText {
+                objectName: "musicPlayerArtist"
                 width: parent.width
                 role: "section"
+                font.pixelSize: 32
                 text: root.current.artist || ""
                 textFormat: Text.PlainText
                 maximumLineCount: 1
                 elide: Text.ElideRight
-                color: Ui.Theme.textSecondary
+                color: Ui.Theme.textPrimary
             }
+            // The album; no year: the music Entity carries none (brief).
             Ui.UiText {
+                objectName: "musicPlayerAlbum"
                 width: parent.width
-                role: "body"
+                role: "meta"
+                font.pixelSize: 28
                 text: root.current.album || ""
                 textFormat: Text.PlainText
                 maximumLineCount: 1
                 elide: Text.ElideRight
                 color: Ui.Theme.textSecondary
             }
-            T.Slider {
-                id: seek
-                objectName: "musicSeek"
-                height: 32
-                stepSize: 10000000
-                Keys.onRightPressed: {
-                    seek.increase();
-                    root.catalog.transport("seek", "", "", Math.round(seek.value));
-                }
-                Keys.onLeftPressed: {
-                    seek.decrease();
-                    root.catalog.transport("seek", "", "", Math.round(seek.value));
-                }
-                KeyNavigation.down: playButton
-                width: parent.width
-                from: 0
-                to: root.current.duration_us || 1
-                value: root.player.position_us || 0
-                enabled: root.supported("seek")
-                Accessible.name: qsTr("Playback position")
-                onMoved: root.catalog.transport("seek", "", "", Math.round(value))
-                background: Rectangle {
-                    x: seek.leftPadding
-                    y: seek.topPadding + (seek.availableHeight - height) / 2
-                    width: seek.availableWidth
-                    height: 4
+        }
+        // The seek line: a 4 px track at 20 % white with an Ember fill; the
+        // knob shows only in focus. Left and Right seek (M15).
+        T.Slider {
+            id: seek
+            objectName: "musicSeek"
+            x: 760
+            y: 588
+            width: 1064
+            height: 32
+            stepSize: 10000000
+            Keys.onRightPressed: {
+                seek.increase();
+                root.catalog.transport("seek", "", "", Math.round(seek.value));
+            }
+            Keys.onLeftPressed: {
+                seek.decrease();
+                root.catalog.transport("seek", "", "", Math.round(seek.value));
+            }
+            KeyNavigation.down: playButton
+            from: 0
+            to: root.current.duration_us || 1
+            value: root.player.position_us || 0
+            enabled: root.supported("seek")
+            Accessible.name: qsTr("Playback position")
+            onMoved: root.catalog.transport("seek", "", "", Math.round(value))
+            background: Rectangle {
+                x: seek.leftPadding
+                y: seek.topPadding + (seek.availableHeight - height) / 2
+                width: seek.availableWidth
+                height: 4
+                radius: 2
+                color: Qt.rgba(1, 1, 1, 0.2)
+                Rectangle {
+                    objectName: "musicSeekFill"
+                    width: seek.visualPosition * parent.width
+                    height: parent.height
                     radius: 2
-                    color: Ui.Theme.plateAction
-                    Rectangle {
-                        width: seek.visualPosition * parent.width
-                        height: parent.height
-                        radius: 2
-                        color: Ui.Theme.textPrimary
-                    }
-                }
-                handle: Rectangle {
-                    x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
-                    y: seek.topPadding + (seek.availableHeight - height) / 2
-                    width: seek.activeFocus ? 24 : 16
-                    height: width
-                    radius: width / 2
-                    color: Ui.Theme.textPrimary
+                    color: Ui.Theme.ember
                 }
             }
-            Ui.UiText {
-                role: "caption"
-                objectName: "musicElapsed"
-                text: root.timeLabel(root.player.position_us)
-                    + (root.current.duration_us ? " / " + root.timeLabel(root.current.duration_us) : "")
-                color: Ui.Theme.textSecondary
+            handle: Rectangle {
+                objectName: "musicSeekKnob"
+                x: seek.leftPadding + seek.visualPosition * (seek.availableWidth - width)
+                y: seek.topPadding + (seek.availableHeight - height) / 2
+                visible: seek.activeFocus
+                width: 24
+                height: 24
+                radius: 12
+                color: Ui.Theme.textPrimary
             }
         }
+        // Elapsed and total time, in tabular figures, with hours when the
+        // track is longer than an hour (M25).
+        Ui.UiText {
+            objectName: "musicElapsed"
+            x: 760
+            y: 628
+            role: "meta"
+            font.features: ({ "tnum": 1, "lnum": 1 })
+            text: root.timeLabel(root.player.position_us, root.longTrack)
+            color: Ui.Theme.textSecondary
+        }
+        Ui.UiText {
+            objectName: "musicDuration"
+            x: 760 + 1064 - width
+            y: 628
+            role: "meta"
+            font.features: ({ "tnum": 1, "lnum": 1 })
+            visible: (root.current.duration_us || 0) > 0
+            text: root.timeLabel(root.current.duration_us, root.longTrack)
+            color: Ui.Theme.textSecondary
+        }
+        // One row, vertically centred: previous, play/pause, next, Like,
+        // Queue and More (MH-3). Left and Right stop at its ends; Up goes to
+        // the seek line (M15). There is no Stop in the row: it is in More.
         Item {
             objectName: "musicControlsB"
-            x: 580
-            y: 460
-            width: 1100
-            height: 112
+            x: 760
+            y: 690
+            width: 1064
+            height: 120
             Row {
-                x: 0
-                spacing: 16
-                MusicButton {
-                    id: likeButton
-                    selected: root.player.feedback === "liked"
-                    objectName: "musicLike"
-                    KeyNavigation.right: dislikeButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
-                    iconName: "thumb_up"
-                    text: qsTr("Like")
-                    visible: root.supported("like")
-                    onActivated: root.catalog.transport("like")
-                }
-                MusicButton {
-                    id: dislikeButton
-                    selected: root.player.feedback === "disliked"
-                    objectName: "musicDislike"
-                    KeyNavigation.left: likeButton
-                    KeyNavigation.right: previousButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
-                    iconName: "thumb_down"
-                    text: qsTr("Not for me")
-                    visible: root.supported("dislike")
-                    onActivated: root.catalog.transport("dislike")
-                }
-            }
-            Row {
-                x: 330
-                spacing: 24
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 20
                 MusicButton {
                     id: previousButton
                     objectName: "musicPrevious"
-                    KeyNavigation.left: dislikeButton
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 96
+                    height: 96
                     KeyNavigation.right: playButton
                     KeyNavigation.down: root.belowControls
                     KeyNavigation.up: seek
@@ -1374,13 +1555,14 @@ FocusScope {
                 }
                 MusicButton {
                     id: playButton
+                    anchors.verticalCenter: parent.verticalCenter
                     KeyNavigation.left: previousButton
                     KeyNavigation.right: nextButton
                     KeyNavigation.up: seek
                     KeyNavigation.down: root.belowControls
                     objectName: "musicPlayPause"
-                    width: 96
-                    height: 96
+                    width: 120
+                    height: 120
                     iconName: root.playing ? "pause" : "play"
                     text: root.playing ? qsTr("Pause") : qsTr("Play")
                     // A command in flight keeps the button and its focus;
@@ -1397,8 +1579,11 @@ FocusScope {
                 MusicButton {
                     id: nextButton
                     objectName: "musicNext"
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 96
+                    height: 96
                     KeyNavigation.left: playButton
-                    KeyNavigation.right: queueButton
+                    KeyNavigation.right: likeButton
                     KeyNavigation.up: seek
                     KeyNavigation.down: root.belowControls
                     iconName: "skip_next"
@@ -1406,108 +1591,78 @@ FocusScope {
                     enabled: root.supported("next") && !root.transportBusy
                     onActivated: root.catalog.transport("next")
                 }
-            }
-            Row {
-                anchors.right: parent.right
-                spacing: 12
-                MusicButton {
-                    id: queueButton
-                    width: 64
-                    height: 64
-                    objectName: "musicQueue"
+                // Like shows its state as a filled heart and "Liked", not
+                // only as a stronger plate (M18), with pending and failure.
+                MusicPill {
+                    id: likeButton
+                    objectName: "musicLike"
+                    anchors.verticalCenter: parent.verticalCenter
+                    readonly property bool liked: root.player.feedback === "liked"
+                    selected: liked
+                    // Busy for its own command and for any other in flight:
+                    // like() refuses then (Codex review of #821).
+                    busy: root.likePending || root.transportBusy
+                    visible: root.supported("like")
+                    iconName: liked ? "favorite_fill" : "favorite"
+                    // One width for every state, so Queue and More never move
+                    // and the row stays in the safe area in every language
+                    // (review of #821).
+                    labels: [qsTr("Like"), qsTr("Liked"), qsTr("Saving…"), qsTr("Not saved")]
+                    text: root.likePending ? qsTr("Saving…")
+                        : root.likeFailed ? qsTr("Not saved")
+                        : liked ? qsTr("Liked") : qsTr("Like")
+                    Accessible.name: qsTr("Like")
+                    Accessible.checkable: true
+                    Accessible.checked: liked
+                    // The state is said, not only shown (Codex review of #821).
+                    // Why it is unavailable comes before an older failure
+                    // (Codex review of #821).
+                    Accessible.description: root.likePending ? qsTr("Saving…")
+                        : root.transportBusy ? qsTr("Another command is in progress.")
+                        : root.likeFailed ? qsTr("The like was not saved. Try again.") : ""
                     KeyNavigation.left: nextButton
-                    KeyNavigation.right: seekButton
+                    KeyNavigation.right: queueButton
                     KeyNavigation.up: seek
                     KeyNavigation.down: root.belowControls
+                    onActivated: root.like()
+                }
+                MusicPill {
+                    id: queueButton
+                    objectName: "musicQueue"
+                    anchors.verticalCenter: parent.verticalCenter
                     iconName: "queue_music"
                     text: qsTr("Queue")
-                    onActivated: {
-                        root.mode = "queue";
-                        Qt.callLater(root.focusInitial);
-                    }
+                    KeyNavigation.left: likeButton
+                    KeyNavigation.right: moreButton
+                    KeyNavigation.up: seek
+                    KeyNavigation.down: root.belowControls
+                    onActivated: root.openQueue()
                 }
                 MusicButton {
-                    id: seekButton
-                    width: 64
-                    height: 64
-                    objectName: "musicSeekButton"
+                    id: moreButton
+                    objectName: "musicMore"
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 96
+                    height: 96
+                    iconName: "more_horiz"
+                    text: qsTr("More")
                     KeyNavigation.left: queueButton
-                    KeyNavigation.right: stopButton
                     KeyNavigation.up: seek
                     KeyNavigation.down: root.belowControls
-                    iconName: "schedule"
-                    text: qsTr("Seek")
-                    enabled: root.supported("seek")
-                    onActivated: Ui.Focus.take(seek)
-                }
-                MusicButton {
-                    id: stopButton
-                    width: 64
-                    height: 64
-                    objectName: "musicStop"
-                    KeyNavigation.left: seekButton
-                    KeyNavigation.right: radioButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
-                    iconName: "stop"
-                    text: qsTr("Stop")
-                    enabled: root.supported("stop") && !root.transportBusy
-                    onActivated: root.catalog.transport("stop")
-                }
-                MusicButton {
-                    id: radioButton
-                    width: 64
-                    height: 64
-                    objectName: "musicRadio"
-                    KeyNavigation.right: pinButton.visible ? pinButton : retryButton
-                    KeyNavigation.left: stopButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
-                    iconName: "radio"
-                    text: qsTr("Radio from this track")
-                    visible: root.supported("radio") && !!root.current.id
-                    onActivated: root.requestRadio(root.current.id || "", true)
-                }
-                MusicButton {
-                    id: pinButton
-                    width: 64
-                    height: 64
-                    iconName: "push_pin"
-                    visible: root.supported("pin")
-                    selected: root.player.pinned === true
-                    text: root.player.pinned ? qsTr("Unpin station") : qsTr("Pin station")
-                    enabled: !root.transportBusy
-                    onActivated: root.catalog.transport("pin", root.player.station.id)
-                    KeyNavigation.left: radioButton
-                    KeyNavigation.right: retryButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
-                }
-                MusicButton {
-                    id: retryButton
-                    width: 64
-                    height: 64
-                    iconName: "refresh"
-                    visible: root.supported("retry")
-                    text: qsTr("Retry loading tracks")
-                    enabled: !root.transportBusy
-                    onActivated: root.catalog.transport("retry")
-                    KeyNavigation.left: pinButton.visible ? pinButton : radioButton
-                    KeyNavigation.up: seek
-                    KeyNavigation.down: root.belowControls
+                    onActivated: root.openMore()
                 }
             }
         }
         // Why playback stopped, and Retry (#756 M8).
         Row {
             objectName: "musicPlaybackFailure"
-            x: 580
-            y: 640
+            x: 760
+            y: 860
             spacing: 32
             visible: root.playbackProblem.length > 0
             Ui.UiText {
                 objectName: "musicPlaybackProblem"
-                width: retryPlaybackButton.visible ? 1100 - retryPlaybackButton.width - 32 : 1100
+                width: retryPlaybackButton.visible ? 1064 - retryPlaybackButton.width - 32 : 1064
                 anchors.verticalCenter: parent.verticalCenter
                 text: qsTr("Playback failed. %1").arg(root.playbackProblem)
                 role: "body"
@@ -1530,80 +1685,50 @@ FocusScope {
                 onActivated: root.retryPlayback()
             }
         }
+        Ui.UiText {
+            objectName: "musicRefill"
+            x: 760
+            y: 880
+            width: 1064
+            visible: root.player.continuous === true && !root.playbackProblem.length
+            role: "caption"
+            color: Ui.Theme.textSecondary
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            text: root.player.refill === "loading" ? qsTr("Loading upcoming tracks…")
+                : root.player.refill === "failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.")
+                : root.player.refill === "exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.")
+                : qsTr("Upcoming tracks continue automatically")
+        }
     }
-    Ui.ActionButton {
-        id: saveQueue
-        objectName: "musicSaveQueue"
-        x: 1460
-        y: 80
-        width: 340
-        height: 76
-        visible: root.mode === "queue" && root.supported("save_playlist")
-        text: qsTr("Save queue")
-        enabled: !root.transportBusy
-        onActivated: root.namePlaylist("", true)
-        KeyNavigation.down: queueList
-    }
-    Ui.UiText {
-        x: 700
-        y: 900
-        width: 1100
-        visible: root.mode === "player" && root.player.continuous === true && !root.playbackProblem.length
-        role: "caption"
-        color: Ui.Theme.textSecondary
-        maximumLineCount: 1
-        elide: Text.ElideRight
-        text: root.player.refill === "loading" ? qsTr("Loading upcoming tracks…")
-            : root.player.refill === "failed" ? qsTr("Could not load more tracks. The loaded queue is preserved.")
-            : root.player.refill === "exhausted" ? qsTr("No more tracks in the loaded queue. You can retry.")
-            : qsTr("Upcoming tracks continue automatically")
-    }
-    ListView {
-        id: queueList
-        objectName: "musicQueueEntries"
-        enabled: !root.pendingPlay
-        x: 120
-        y: 230
-        width: 1680
-        height: 680
-        clip: true
-        spacing: 12
+    MusicQueueSheet {
+        id: queueSheet
+        objectName: "musicQueueView"
+        z: 20
         visible: root.mode === "queue"
-        keyNavigationEnabled: true
-        Keys.onUpPressed: event => {
-            if (currentIndex <= 0 && saveQueue.visible)
-                Ui.Focus.take(saveQueue);
-            else
-                event.accepted = false;
-        }
-        model: root.player.upcoming || []
-        header: Ui.UiText {
-            role: "section"
-            text: root.player.continuous ? qsTr("Upcoming · continues automatically") : qsTr("Upcoming")
-            height: 70
-        }
-        delegate: Ui.Surface {
-            id: queueEntry
-            required property var modelData
-            required property int index
-            width: queueList.width - 8
-            height: 90
-            focus: queueList.currentIndex === index
-            text: modelData.track.title || qsTr("Untitled")
-            contentItem: Ui.UiText {
-                anchors.fill: parent
-                anchors.margins: 24
-                text: queueEntry.text
-                role: "body"
-                textFormat: Text.PlainText
-                maximumLineCount: 1
-                elide: Text.ElideRight
-            }
-            onActivated: if (root.supported("remove")) {
-                root.queueOccurrence = modelData.occurrence;
+        enabled: !root.pendingPlay
+        title: root.player.continuous === true && root.player.station ? (root.player.station.title || "") : ""
+        continuous: root.player.continuous === true
+        canSave: root.supported("save_playlist")
+        saveEnabled: !root.transportBusy
+        entries: root.queueEntries
+        onSaveRequested: root.namePlaylist("", true)
+        onDismissed: root.back()
+        onEntryActivated: entry => {
+            if (entry.current !== true && root.supported("remove")) {
+                root.queueOccurrence = entry.occurrence;
                 Qt.callLater(() => Ui.Focus.take(queueKeep));
             }
         }
+    }
+    MusicMoreSheet {
+        id: moreSheet
+        objectName: "musicMoreView"
+        z: 20
+        visible: root.moreOpen
+        actions: root.moreActions
+        onDismissed: root.closeMore()
+        onActivated: id => root.runMore(id)
     }
     MusicDialog {
         objectName: "musicRemoveDialog"
@@ -1805,10 +1930,7 @@ FocusScope {
             id: cancelReplace
             objectName: "musicKeepQueue"
             text: qsTr("Cancel")
-            onActivated: {
-                root.pendingPlay = "";
-                root.focusInitial();
-            }
+            onActivated: root.cancelReplacement()
         }
         Ui.ActionButton {
             id: confirmReplace
@@ -1817,6 +1939,7 @@ FocusScope {
             onActivated: {
                 const id = root.pendingPlay;
                 root.pendingPlay = "";
+                root.replaceOpener = null;
                 root.startCommand(root.pendingAction, id, root.pendingActive);
                 root.openPlayer();
             }

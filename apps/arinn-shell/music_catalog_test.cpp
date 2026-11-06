@@ -48,6 +48,10 @@ public:
   QHash<QString, int> pageReads;
   // Entries per "provider/facet"; a facet without its own uses one track.
   QHash<QString, QJsonArray> pages;
+  // With a page size, those entries come in pages with tokens "p<n>"; the
+  // next `conflicts` continuations fail as an expired lease does.
+  int pageSize = 0;
+  int conflicts = 0;
   QStringList commands;
   QString commandError;
   QString pageError;
@@ -108,15 +112,34 @@ public:
       }
       const auto facet = QJsonDocument::fromJson(message.arguments().value(1).toString().toUtf8())
                              .object().value("facet").toString();
+      const auto token = QJsonDocument::fromJson(message.arguments().value(1).toString().toUtf8())
+                             .object().value("token").toString();
+      if (!token.isEmpty() && conflicts > 0) {
+        --conflicts;
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Conflict"),
+                                          QStringLiteral("Conflict")));
+        return true;
+      }
       const auto own = pages.find(id + QLatin1Char('/') + facet);
+      auto entries = own != pages.end() ? *own
+                     : QJsonArray{QJsonObject{{"id", "t1"},
+                                              {"kind", "track"},
+                                              {"title", "Synthetic"},
+                                              {"available", true}}};
+      QString next;
+      if (pageSize > 0 && own != pages.end()) {
+        const int offset = token.isEmpty() ? 0 : token.mid(1).toInt() * pageSize;
+        QJsonArray slice;
+        for (int i = offset; i < std::min<int>(offset + pageSize, entries.size()); ++i)
+          slice.append(entries.at(i));
+        if (offset + pageSize < entries.size())
+          next = QStringLiteral("p%1").arg(offset / pageSize + 1);
+        entries = slice;
+      }
       QJsonObject page{{"generation", message.arguments().value(0).toString()},
                        {"revision", 1},
-                       {"entries", own != pages.end() ? *own
-                                   : QJsonArray{QJsonObject{{"id", "t1"},
-                                                            {"kind", "track"},
-                                                            {"title", "Synthetic"},
-                                                            {"available", true}}}},
-                       {"next_token", ""}};
+                       {"entries", entries},
+                       {"next_token", next}};
       bus.send(message.createReply(
           QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact))));
       return true;
@@ -165,6 +188,8 @@ private slots:
     daemon.stateErrors.clear();
     daemon.pageReads.clear();
     daemon.pages.clear();
+    daemon.pageSize = 0;
+    daemon.conflicts = 0;
     daemon.commands.clear();
     daemon.active = QStringLiteral("null");
   }
@@ -306,6 +331,46 @@ private slots:
     daemon.providers = {{"local", "Fixture music", "g1"}};
     catalog.refresh();
     QTRY_COMPARE(room.sources().size(), 1);
+  }
+  // Review of #812: a shelf's All list pages its personal entries in
+  // `selections` as well as its own facet, and a continuation that fails (a
+  // lease expires after 30 s) reads again from the start and pages on
+  // instead of stopping at the first page.
+  void roomPagesSelectionsAndResumesAfterAnExpiredLease() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    auto account = state({"selections", "albums"}, "connected");
+    account["actions"] = QJsonArray{"play"};
+    daemon.states["account"] = account;
+    QJsonArray mine, albums;
+    for (int i = 0; i < 5; ++i) {
+      mine.append(QJsonObject{{"id", QStringLiteral("album:mine%1").arg(i)}, {"kind", "album"},
+                              {"title", QStringLiteral("Mine %1").arg(i)}, {"available", true}});
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    }
+    daemon.pages["account/selections"] = mine;
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 2;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QCOMPARE(room.list("albums").size(), 4);
+    QVERIFY(room.more("albums"));
+    // The next continuation fails once: the facet starts over and pages on.
+    daemon.conflicts = 1;
+    for (int i = 0; i < 6 && room.more("albums"); ++i) {
+      const auto before = room.list("albums").size();
+      room.loadMore("albums");
+      QTRY_VERIFY(room.list("albums").size() > before || !room.more("albums"));
+    }
+    QTRY_COMPARE(room.list("albums").size(), 10);
+    QVERIFY(!room.more("albums"));
+    // Personal entries still lead the full list.
+    const auto list = room.list("albums");
+    for (int i = 0; i < 5; ++i)
+      QVERIFY(list.at(i).toMap().value("id").toString().startsWith("album:mine"));
   }
   // #800 first use: without a connected source the room is not connected,
   // so the hero offers Connect and no shelf shows.

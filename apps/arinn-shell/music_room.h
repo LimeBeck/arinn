@@ -94,6 +94,13 @@ private:
     // A new catalogue revision: the entries stay until the new first page
     // replaces them, so cards never leave and return (late sources rule).
     bool stale = false;
+    // A continuation lease lasts 30 s (music.md): a later page, or a
+    // continuation that fails, reads again from the first page into
+    // `buffer` up to `resumeTo` entries, and the shown entries stay until it
+    // has caught up (review of #812).
+    QVariantList buffer;
+    int resumeTo = 0;
+    qint64 readAt = 0;
     QSet<QString> tokens;
   };
   struct Source {

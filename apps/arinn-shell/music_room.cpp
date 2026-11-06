@@ -10,6 +10,7 @@
 #include <QUuid>
 #include <QtDBus>
 #include <algorithm>
+#include <chrono>
 
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
@@ -56,6 +57,22 @@ QString shelfTitle(const QString &id) {
 // has no facets.
 bool browsable(const QVariantMap &state) {
   return !state.value(QStringLiteral("facets")).toList().isEmpty();
+}
+qint64 now() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+// The daemon keeps a continuation for 30 s; past this age a page is read
+// again from the start instead.
+constexpr qint64 leaseMs = 25000;
+// The facets a shelf pages: its personal entries in `selections`, and its
+// own facet when it has one.
+QStringList pagedFacets(const char *facet) {
+  QStringList facets{QStringLiteral("selections")};
+  if (facet)
+    facets.append(QLatin1String(facet));
+  return facets;
 }
 void registerRoom() {
   qmlRegisterType<MusicRoom>("Arinn.Shell", 1, 0, "MusicRoom");
@@ -227,6 +244,8 @@ void MusicRoom::readState(const QString &id) {
                   auto &entry = source.facets[QLatin1String(facet)];
                   entry.busy = false;
                   entry.stale = true;
+                  entry.buffer.clear();
+                  entry.resumeTo = 0;
                   entry.next.clear();
                   entry.tokens.clear();
                   source.pending.append(QLatin1String(facet));
@@ -286,6 +305,7 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
           return;
         auto &facet = entry->second;
         facet.busy = false;
+        const bool resuming = facet.resumeTo > 0;
         const auto json = object(reply);
         const auto revision = json.value("revision").toVariant().toULongLong();
         const auto page = json.value("entries").toArray();
@@ -293,18 +313,31 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
             json.value("generation").toString() != source.generation ||
             !json.value("entries").isArray() || revision == 0 ||
             page.size() > 100 || (append && revision != facet.revision)) {
+          // An expired or invalid continuation reads again from the start
+          // and pages forward to where the list was (review of #812).
+          if (append && !resuming) {
+            facet.resumeTo = facet.entries.size() + 1;
+            facet.buffer.clear();
+            facet.tokens.clear();
+            readPage(id, facetId, false);
+            return;
+          }
+          facet.resumeTo = 0;
+          facet.buffer.clear();
           // A failed facet is left out; the others still fill their shelves.
           facet.failed = true;
           facet.loaded = true;
           facet.next.clear();
           // A failed new first page leaves the previous entries in place.
           facet.stale = false;
-          if (!append)
+          if (!append && !resuming)
             readNext(id);
           rebuild();
           return;
         }
-        auto entries = append ? facet.entries : QVariantList();
+        auto entries = !append ? QVariantList()
+                       : resuming ? facet.buffer
+                                  : facet.entries;
         QSet<QString> ids;
         for (const auto &row : entries)
           ids.insert(row.toMap().value("id").toString());
@@ -327,16 +360,26 @@ void MusicRoom::readPage(const QString &id, const QString &facetId,
                                            row.value("artwork").toString()));
           entries.append(row);
         }
-        facet.entries = entries;
         facet.revision = revision;
         facet.next = json.value("next_token").toString();
+        facet.readAt = now();
+        if (!token.isEmpty())
+          facet.tokens.insert(token);
+        if (resuming) {
+          facet.buffer = entries;
+          if (entries.size() < facet.resumeTo && !facet.next.isEmpty()) {
+            readPage(id, facetId, true);
+            return;
+          }
+          facet.buffer.clear();
+          facet.resumeTo = 0;
+        }
+        facet.entries = entries;
         facet.failed = false;
         facet.loaded = true;
         facet.stale = false;
-        if (!token.isEmpty())
-          facet.tokens.insert(token);
         // Only the first pages chain: a further page is the All list's own.
-        if (!append)
+        if (!append && !resuming)
           readNext(id);
         rebuild();
       });
@@ -498,16 +541,17 @@ bool MusicRoom::more(const QString &shelfId, const QString &only) const {
   const auto *shelf = shelfDef(shelfId);
   if (!shelf)
     return false;
-  const QString facetId = QLatin1String(shelf->facet ? shelf->facet : "selections");
   for (const auto &id : m_order) {
     if (!only.isEmpty() && id != only)
       continue;
     const auto found = m_sources.find(id);
     if (found == m_sources.end())
       continue;
-    const auto facet = found->second.facets.find(facetId);
-    if (facet != found->second.facets.end() && !facet->second.next.isEmpty())
-      return true;
+    for (const auto &facetId : pagedFacets(shelf->facet)) {
+      const auto facet = found->second.facets.find(facetId);
+      if (facet != found->second.facets.end() && !facet->second.next.isEmpty())
+        return true;
+    }
   }
   return false;
 }
@@ -516,14 +560,28 @@ void MusicRoom::loadMore(const QString &shelfId, const QString &only) {
   const auto *shelf = shelfDef(shelfId);
   if (!shelf)
     return;
-  const QString facetId = QLatin1String(shelf->facet ? shelf->facet : "selections");
   for (const auto &id : m_order) {
     if (!only.isEmpty() && id != only)
       continue;
     const auto found = m_sources.find(id);
-    if (found != m_sources.end() && found->second.facets.count(facetId) &&
-        !found->second.facets.at(facetId).next.isEmpty())
-      readPage(id, facetId, true);
+    if (found == m_sources.end())
+      continue;
+    for (const auto &facetId : pagedFacets(shelf->facet)) {
+      const auto entry = found->second.facets.find(facetId);
+      if (entry == found->second.facets.end())
+        continue;
+      auto &facet = entry->second;
+      if (facet.next.isEmpty() || facet.busy || facet.resumeTo > 0)
+        continue;
+      if (now() - facet.readAt > leaseMs) {
+        facet.resumeTo = facet.entries.size() + 1;
+        facet.buffer.clear();
+        facet.tokens.clear();
+        readPage(id, facetId, false);
+      } else {
+        readPage(id, facetId, true);
+      }
+    }
   }
 }
 

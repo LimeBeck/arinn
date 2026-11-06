@@ -4,6 +4,7 @@
 
 // MusicCatalog against a scripted daemon on the session bus (ADR-0134).
 // Synthetic providers and tracks only.
+#include "asset_images.h"
 #include "music_catalog.h"
 #include "music_room.h"
 #include <QFile>
@@ -1053,14 +1054,22 @@ private slots:
     QFile main(QString::fromUtf8(ARINN_MAIN_QML));
     QVERIFY(main.open(QIODevice::ReadOnly));
     const auto text = QString::fromUtf8(main.readAll());
-    const auto start = text.indexOf(QStringLiteral("    function musicPinRows("));
-    QVERIFY(start >= 0);
-    const auto end = text.indexOf(QStringLiteral("\n    }\n"), start);
-    QVERIFY(end > start);
+    auto extract = [&](const QString &name) {
+      const auto start = text.indexOf(QStringLiteral("    function ") + name + '(');
+      const auto end = text.indexOf(QStringLiteral("\n    }\n"), start);
+      return start >= 0 && end > start ? text.mid(start, end + 6 - start) : QString();
+    };
+    const auto rowsFunction = extract(QStringLiteral("musicPinRows"));
+    const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
+    QVERIFY(!rowsFunction.isEmpty());
+    QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(("import QtQml\nQtObject {\n" + text.mid(start, end + 6 - start) +
-                       "\n}").toUtf8(),
+    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction +
+                       "    function rows(f, s, u, a) {\n"
+                       "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id);\n"
+                       "    }\n}")
+                          .toUtf8(),
                       QUrl());
     std::unique_ptr<QObject> root(component.create());
     QVERIFY2(root != nullptr, qPrintable(component.errorString()));
@@ -1069,9 +1078,13 @@ private slots:
                          {"providerId", provider}, {"stationId", station},
                          {"launchable", true}, {"title", "Fixture"}};
     };
+    auto withArtwork = pin("local", "station:library");
+    withArtwork.insert("artworkId", "cover:library");
+    auto goneWithArtwork = pin("away", "station:x");
+    goneWithArtwork.insert("artworkId", "cover:x");
     const QVariantList favorites{QVariantMap{{"id", "app"}, {"title", "App"}},
-                                 pin("local", "station:library"),
-                                 pin("away", "station:x"), pin("local", "station:gone"),
+                                 withArtwork,
+                                 goneWithArtwork, pin("local", "station:gone"),
                                  pin("cloud", "station:wave"), pin("down", "station:wave")};
     const QVariantList sources{
         QVariantMap{{"id", "local"}, {"name", "Local music"}, {"ready", true}},
@@ -1083,7 +1096,7 @@ private slots:
                                 QVariantMap{{"id", "cloud"}, {"status", "signin"}},
                                 QVariantMap{{"id", "down"}, {"status", "unavailable"}}};
     QVariant result;
-    QVERIFY(QMetaObject::invokeMethod(root.get(), "musicPinRows", Q_RETURN_ARG(QVariant, result),
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, result),
                                       Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
                                       Q_ARG(QVariant, QStringList{"local\nstation:gone"}),
                                       Q_ARG(QVariant, accounts)));
@@ -1092,6 +1105,10 @@ private slots:
     QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
     QVERIFY(!rows[1].toMap().value("unavailable").toBool());
     QCOMPARE(rows[1].toMap().value("subtitle").toString(), QStringLiteral("Local music"));
+    // The stored artwork ID shows through the source's image route.
+    QCOMPARE(rows[1].toMap().value("artwork").toString(),
+             QStringLiteral("image://fixture/local/cover:library"));
+    QVERIFY(rows[2].toMap().value("artwork").toString().isEmpty());
     QVERIFY(rows[2].toMap().value("unavailable").toBool());
     QVERIFY(!rows[2].toMap().value("launchable").toBool());
     QCOMPARE(rows[2].toMap().value("subtitle").toString(),
@@ -1103,6 +1120,36 @@ private slots:
       QCOMPARE(rows[i].toMap().value("subtitle").toString(),
                QStringLiteral("Music source not connected"));
     }
+    // The room keeps the account rows live while Home shows a pin, not only
+    // on the music screen.
+    auto follows = [&](bool music, bool home, const QVariantList &shelf) {
+      QVariant value;
+      [&] {
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "musicRoomFollows",
+                                          Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, music),
+                                          Q_ARG(QVariant, home), Q_ARG(QVariant, shelf)));
+      }();
+      return value.toBool();
+    };
+    const QVariantList noPins{favorites.first()};
+    QVERIFY(follows(true, false, noPins));
+    QVERIFY(follows(false, true, favorites));
+    QVERIFY(!follows(false, true, noPins));
+    QVERIFY(!follows(false, false, favorites));
+  }
+  // #804: a pin's stored artwork ID becomes an image URL through the
+  // source's current endpoint and generation, and none while it is absent.
+  void pinArtworkFollowsTheSourceEndpoint() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    MusicCatalog catalog;
+    QTRY_VERIFY(!catalog.sources().isEmpty());
+    const auto path = catalog.sources().first().toMap().value("path").toString();
+    QCOMPARE(catalog.artworkUrl("local", "cover:wave"),
+             AssetImages::imageUrl("local", path, "g1", "cover:wave"));
+    QVERIFY(catalog.artworkUrl("local", "cover:wave").startsWith("image://arinn-assets/"));
+    QVERIFY(catalog.artworkUrl("away", "cover:wave").isEmpty());
+    QVERIFY(catalog.artworkUrl("local", QString()).isEmpty());
   }
   // #804: Arinn's pin is mirrored to the provider's `pin` only for the
   // station that plays, and only when the provider's state differs.

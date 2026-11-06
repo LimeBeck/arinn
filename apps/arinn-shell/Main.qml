@@ -764,7 +764,15 @@ Window {
     // A pinned station whose source is not connected, or which the source
     // no longer knows, stays on the shelf, unavailable with the reason; it
     // never starts another station (music brief, Favourites; #804).
-    function musicPinRows(favorites, sources, unresolved, accounts) {
+    // The music room polls its sources' states while the music screen shows,
+    // and while Home shows a pinned station, whose availability follows the
+    // account (#804).
+    function musicRoomFollows(musicVisible, homeVisible, favorites) {
+        return musicVisible || (homeVisible && favorites.some(entry => entry.musicStation === true));
+    }
+    // `artworkUrl(provider, artworkId)` gives the image URL of a stored
+    // artwork ID while its source is present.
+    function musicPinRows(favorites, sources, unresolved, accounts, artworkUrl) {
         return favorites.map(entry => {
             if (!entry.musicStation) return entry;
             const source = sources.find(s => s.id === entry.providerId);
@@ -777,7 +785,8 @@ Window {
                 : unresolved.includes(entry.providerId + "\n" + entry.stationId)
                     ? qsTr("This station is no longer available") : "";
             return reason.length ? Object.assign({}, entry, {unavailable: true, launchable: false, subtitle: reason})
-                                 : Object.assign({}, entry, {subtitle: source.name});
+                                 : Object.assign({}, entry, {subtitle: source.name,
+                                                             artwork: entry.artworkId ? artworkUrl(entry.providerId, entry.artworkId) : ""});
         });
     }
     function continueMedia(entries, library, saved) {
@@ -968,7 +977,10 @@ Window {
         Keys.onPressed: event => root.unhandledKey(event)
         MusicCatalog { id: musicCatalog; objectName: "musicCatalog" }
         // The Music root over every source (#800).
-        MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog; active: musicView.visible }
+        // Home reads the room's account rows for pinned stations, so the room
+        // also follows its sources while Home shows any (#804).
+        MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog
+                    active: root.musicRoomFollows(musicView.visible, backend.homeVisible, backend.favorites) }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45
         // (Hearth light brief, *Global navigation*; #756 C17). Not on the
@@ -1058,7 +1070,8 @@ Window {
                 .concat(root.continueMedia(mediaCatalog.continueEntries, libraryCatalog.entries, libraryCatalog.continueEntries)).concat(musicCatalog.homeEntries)
             favoriteEntries: [{id: "arinn-browse", title: qsTr("Site or search"), hint: qsTr("Type an address or a search"),
                                monogram: "⌕", enabled: true}].concat(root.musicPinRows(backend.favorites, musicCatalog.sources,
-                                                                             musicCatalog.unresolvedStations, musicRoom.sources))
+                                                                             musicCatalog.unresolvedStations, musicRoom.sources,
+                                                                             (provider, artwork) => musicCatalog.artworkUrl(provider, artwork)))
             newEntries: libraryCatalog.newEntries
             onMusicRequested: {root.closeOverlays();home.screen="music";musicView.openPlayerFromHome();}
             // A pinned station starts like a station card in the music room:

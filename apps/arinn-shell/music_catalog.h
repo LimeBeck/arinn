@@ -74,6 +74,11 @@ public:
   // marks its pin unavailable and never starts another station (#804).
   Q_INVOKABLE bool stationResolved(const QString &providerId,
                                    const QString &stationId) const;
+  // The image URL of a provider's opaque artwork ID through the source's
+  // current endpoint and generation; empty while the source is absent
+  // (pinned stations on Home, #804).
+  Q_INVOKABLE QString artworkUrl(const QString &providerId,
+                                 const QString &artworkId) const;
   // Mirrors Arinn's pin to the provider's `pin` action where it covers the
   // station that plays now (music brief, Favourites).
   Q_INVOKABLE void syncProviderPin(const QString &providerId,

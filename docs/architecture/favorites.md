@@ -123,7 +123,9 @@ the station and the provider's own `pin` action are the shell's (#804).
 
 - **Reading.** The shell accepts `music-station` targets in `Favorites1.List`.
   When the list holds any, it reads `MusicPins1.List` and gives the station's
-  Favourites row the pinned title. Without a record, or against an older
+  Favourites row the pinned title. While the source is available, the stored
+  artwork ID is shown through the source's current asset-image route
+  (`MusicCatalog.artworkUrl`). Without a record, or against an older
   daemon, the row is the usual removable "Unavailable favorite".
 - **Writing.** `Backend.pinMusicStation(provider, station, title, artwork)` and
   `unpinMusicStation(provider, station)` call `Pin` and `Unpin` at the current
@@ -135,7 +137,9 @@ the station and the provider's own `pin` action are the shell's (#804).
 - **Availability.** Home marks a pin unavailable, with its reason, while its
   music source is not connected: the provider is not running, or the music
   room reports its account as anything but connected or scanning (signed out,
-  expired, restricted, unavailable, still connecting). It is also unavailable
+  expired, restricted, unavailable, still connecting). The room polls its
+  sources while Home shows a pin, as it does on the music screen, so this
+  follows an account that changes while Home is open. It is also unavailable
   after the source answered `radio` for it with NotFound or Unavailable
   (`MusicCatalog.stationResolved`; `docs/plugin-api/music.md`) until that
   provider restarts with a new generation. Selecting such a pin opens the

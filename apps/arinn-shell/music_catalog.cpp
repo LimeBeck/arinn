@@ -656,6 +656,17 @@ bool MusicCatalog::stationResolved(const QString &providerId,
   return !m_unresolved.contains(providerId + QLatin1Char('\n') + stationId);
 }
 
+QString MusicCatalog::artworkUrl(const QString &providerId,
+                                 const QString &artworkId) const {
+  for (const auto &row : m_sources) {
+    const auto source = row.toMap();
+    if (source.value("id").toString() == providerId)
+      return AssetImages::imageUrl(providerId, source.value("path").toString(),
+                                   source.value("generation").toString(),
+                                   artworkId);
+  }
+  return {};
+}
 void MusicCatalog::syncProviderPin(const QString &providerId,
                                    const QString &stationId, bool pinned) {
   // The provider's own pin covers only the station that plays (`pinned` in

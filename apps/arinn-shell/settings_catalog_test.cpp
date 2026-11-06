@@ -727,6 +727,53 @@ private slots:
     QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"a\\\"b\""));
     QCOMPARE(daemon.sets.at(1).value, QStringLiteral("[\"/videos\",\"/music\"]"));
   }
+  // #842: the music sources turned off in the Sources sheet, a JSON array of
+  // provider ids in the daemon's `music_disabled_sources`. A change shows at
+  // once; one made while a write is in flight is written after it, and a
+  // written list is not sent twice. The Settings screen leaves the row out.
+  void musicSourcesTurnedOffAreWrittenInTurn() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"[\\\"a\\\"]\""),
+                 QStringLiteral("{\"max_length\":4096}"), true),
+         setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("true"),
+                 QStringLiteral("{}"), true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("a")});
+    for (const auto &value : catalog.rows())
+      QVERIFY(value.toMap().value(QStringLiteral("id")).toString() !=
+              QStringLiteral("music_disabled_sources"));
+    QVERIFY(!rowAt(catalog, QStringLiteral("arinn"), QStringLiteral("light_field")).isEmpty());
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QCOMPARE(catalog.musicDisabledSources(), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    QCOMPARE(daemon.sets.at(0).setting, QStringLiteral("music_disabled_sources"));
+    QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"[\\\"a\\\",\\\"b\\\"]\""));
+    // A second change while the first is in flight shows at once and is
+    // written when the first ends.
+    catalog.setMusicSourceEnabled(QStringLiteral("a"), true);
+    QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTest::qWait(200);
+    QCOMPARE(daemon.sets.size(), 1);
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\"]\""));
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTest::qWait(500);
+    QCOMPARE(daemon.sets.size(), 2);
+    // Every source on again: an empty string.
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    QTRY_COMPARE(daemon.sets.size(), 3);
+    QCOMPARE(daemon.sets.at(2).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+  }
   // ADR-0112: the light field and the ambient timeout come from the daemon's
   // own settings; the same ids from another provider do not count.
   void shellPreferencesFromTheCoreSource() {

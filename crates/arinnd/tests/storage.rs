@@ -436,6 +436,31 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
             10,
             vec!["interface_sounds"],
         ),
+        // #842: a list of ids, each valid and listed once.
+        (
+            "music_disabled_sources = \"music-local\"\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"a\", \"a\"]\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"a\", 3]\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"music-local\"]\n",
+            true,
+            10,
+            vec![],
+        ),
     ] {
         std::fs::write(
             dir.join("config.toml"),

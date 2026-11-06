@@ -234,6 +234,18 @@ constexpr PackagedName kProviderNames[] = {
 };
 // The source line of a row: none for Arinn's own settings, which need no
 // source, else the provider's name in the shell's language.
+// The daemon's list of turned-off music sources (#842).
+constexpr char kMusicDisabledSources[] = "music_disabled_sources";
+// A JSON array of provider ids; anything else is none.
+QStringList parseMusicDisabled(const QString &text) {
+  QStringList ids;
+  const auto array = QJsonDocument::fromJson(text.toUtf8()).array();
+  for (const auto &value : array)
+    if (value.isString() && !value.toString().isEmpty() &&
+        !ids.contains(value.toString()))
+      ids.append(value.toString());
+  return ids;
+}
 QString sourceName(const QString &providerId, const QString &pluginId,
                    const QString &name) {
   if (providerId == QLatin1String(kDaemonProvider))
@@ -743,6 +755,7 @@ void SettingsCatalog::readPreferences() {
   bool follows = m_lightFollowsTime;
   int minutes = m_ambientMinutes;
   QString sounds = m_interfaceSounds;
+  QStringList disabled = m_musicDisabled;
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
       continue;
@@ -769,20 +782,83 @@ void SettingsCatalog::readPreferences() {
             parsed == QLatin1String("normal"))
           sounds = parsed;
       }
+      if (setting.id == QLatin1String(kMusicDisabledSources)) {
+        disabled = parseMusicDisabled(valueFor(setting.kind, setting.valueJson, false)
+                                          .toString());
+      }
     }
   }
   if (m_loaded && !m_unreachable)
     m_interfaceSoundsKnown = true;
   if (m_interfaceSoundsKnown && sounds.isEmpty())
     sounds = QStringLiteral("quiet");
+  const auto shownBefore = musicDisabledSources();
+  if (disabled != m_musicDisabled)
+    m_musicDisabledSent.reset();
+  m_musicDisabled = disabled;
+  if (m_musicDisabledWanting) {
+    const auto key = keyFor(QLatin1String(kDaemonProvider),
+                            QLatin1String(kMusicDisabledSources));
+    if (m_musicDisabledWanted == m_musicDisabled) {
+      m_musicDisabledWanting = false;
+    } else if (!m_pending.contains(key) && m_errors.contains(key)) {
+      // A refused write: the stored list shows again.
+      m_errors.remove(key);
+      m_musicDisabledWanting = false;
+      m_musicDisabledSent.reset();
+    } else if (!m_pending.contains(key) && !m_musicDisabledScheduled &&
+               m_musicDisabledSent != m_musicDisabledWanted) {
+      m_musicDisabledScheduled = true;
+      QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
+    }
+  }
+  const bool musicChanged = musicDisabledSources() != shownBefore;
   if (light == m_lightField && follows == m_lightFollowsTime &&
-      minutes == m_ambientMinutes && sounds == m_interfaceSounds)
+      minutes == m_ambientMinutes && sounds == m_interfaceSounds) {
+    if (musicChanged)
+      emit preferencesChanged();
     return;
+  }
   m_lightField = light;
   m_lightFollowsTime = follows;
   m_ambientMinutes = minutes;
   m_interfaceSounds = sounds;
   emit preferencesChanged();
+}
+void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
+                                            bool enabled) {
+  if (providerId.isEmpty())
+    return;
+  auto wanted = musicDisabledSources();
+  if (enabled)
+    wanted.removeAll(providerId);
+  else if (!wanted.contains(providerId))
+    wanted.append(providerId);
+  if (wanted == musicDisabledSources())
+    return;
+  m_musicDisabledWanted = wanted;
+  m_musicDisabledWanting = true;
+  emit preferencesChanged();
+  writeMusicDisabled();
+}
+// One write at a time: a change made while one is in flight is written when
+// that one ends (readPreferences schedules it).
+void SettingsCatalog::writeMusicDisabled() {
+  m_musicDisabledScheduled = false;
+  if (!m_musicDisabledWanting)
+    return;
+  const auto key =
+      keyFor(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  if (m_pending.contains(key) || m_musicDisabledWanted == m_musicDisabled ||
+      m_musicDisabledSent == m_musicDisabledWanted)
+    return;
+  m_musicDisabledSent = m_musicDisabledWanted;
+  const auto text = m_musicDisabledWanted.isEmpty()
+                        ? QString()
+                        : QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(
+                                                              m_musicDisabledWanted))
+                                                .toJson(QJsonDocument::Compact));
+  setValue(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources), text);
 }
 void SettingsCatalog::publish() {
   syncDeferred();
@@ -805,6 +881,13 @@ void SettingsCatalog::publish() {
         for (const auto &setting : provider.settings) {
           if (setting.category != categoryId)
             continue;
+          // The Sources sheet keeps this one, not the Settings screen (#842).
+          // It stays live, so its write in flight is kept.
+          if (provider.id == QLatin1String(kDaemonProvider) &&
+              setting.id == QLatin1String(kMusicDisabledSources)) {
+            live.insert(keyFor(provider.id, setting.id));
+            continue;
+          }
           auto constraints = constraintsFor(setting.kind, setting.constraints);
           const auto daemon = provider.id == QLatin1String(kDaemonProvider);
           // The daemon's texts from the shell's catalogue (ADR-0112), a

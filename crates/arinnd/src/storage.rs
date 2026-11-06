@@ -199,6 +199,36 @@ pub struct Config {
     /// default.
     #[serde(default = "interface_sounds")]
     pub interface_sounds: String,
+    /// Music sources turned off in the shell's Sources sheet, by provider id
+    /// (spec §5.3.1, #842): presentation only, the providers keep running.
+    /// A hand-edited value that is not a list of ids reads as none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub music_disabled_sources: Vec<String>,
+}
+/// At most this many turned-off music sources are kept (#842).
+pub const MUSIC_DISABLED_SOURCES_MAX: usize = 64;
+/// The turned-off music sources as the shell writes them: a JSON array of
+/// provider ids, each one valid and listed once; empty text is none (#842).
+pub fn music_disabled_sources(text: &str) -> Result<Vec<String>, ErrorCode> {
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<String> =
+        serde_json::from_str(text).map_err(|_| ErrorCode::InvalidArgument)?;
+    check_music_disabled_sources(&ids)?;
+    Ok(ids)
+}
+fn check_music_disabled_sources(ids: &[String]) -> Result<(), ErrorCode> {
+    if ids.len() > MUSIC_DISABLED_SOURCES_MAX {
+        return Err(ErrorCode::InvalidArgument);
+    }
+    for (index, id) in ids.iter().enumerate() {
+        validation::id(id)?;
+        if ids[..index].contains(id) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
 }
 /// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
 pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
@@ -215,6 +245,7 @@ static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
 static WARNED_LIGHT_FOLLOWS_TIME: std::sync::Once = std::sync::Once::new();
 static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
 static WARNED_INTERFACE_SOUNDS: std::sync::Once = std::sync::Once::new();
+static WARNED_MUSIC_DISABLED_SOURCES: std::sync::Once = std::sync::Once::new();
 
 /// Owner decision on #488: an invalid hand-edited preference never makes
 /// `config.toml` invalid. It is dropped from the parsed table, so it reads as
@@ -251,6 +282,17 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
             dropped.push("interface_sounds");
         }
     }
+    if let Some(value) = table.get("music_disabled_sources") {
+        let valid = value.as_array().is_some_and(|ids| {
+            let texts: Option<Vec<String>> =
+                ids.iter().map(|id| id.as_str().map(str::to_owned)).collect();
+            texts.is_some_and(|texts| check_music_disabled_sources(&texts).is_ok())
+        });
+        if !valid {
+            table.remove("music_disabled_sources");
+            dropped.push("music_disabled_sources");
+        }
+    }
     dropped
 }
 
@@ -260,6 +302,7 @@ fn warn_invalid_preference(key: &'static str) {
         "light_field" => &WARNED_LIGHT_FIELD,
         "light_follows_time" => &WARNED_LIGHT_FOLLOWS_TIME,
         "ambient_timeout" => &WARNED_AMBIENT_TIMEOUT,
+        "music_disabled_sources" => &WARNED_MUSIC_DISABLED_SOURCES,
         _ => &WARNED_INTERFACE_SOUNDS,
     };
     once.call_once(|| {
@@ -303,6 +346,7 @@ impl Default for Config {
             light_follows_time: true,
             ambient_timeout: ambient_timeout(),
             interface_sounds: interface_sounds(),
+            music_disabled_sources: Vec::new(),
         }
     }
 }
@@ -330,6 +374,7 @@ impl Config {
         if !INTERFACE_SOUND_LEVELS.contains(&self.interface_sounds.as_str()) {
             return Err(ErrorCode::InvalidArgument);
         }
+        check_music_disabled_sources(&self.music_disabled_sources)?;
         for (id, instance) in &self.providers {
             validation::id(id)?;
             validation::id(&instance.plugin_id)?;

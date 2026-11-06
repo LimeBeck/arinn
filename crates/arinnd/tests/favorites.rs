@@ -234,7 +234,7 @@ assert contract(expected) == contract(actual), (contract(expected), contract(act
     assert_eq!(signal.args().unwrap().revision, 2);
     let (list,) = pins.list().await.unwrap();
     assert_eq!(list.revision, 2);
-    assert_eq!(list.pins, [pin.clone()]);
+    assert_eq!(list.pins, std::slice::from_ref(&pin));
     let (entries,) = favorites.list().await.unwrap();
     assert_eq!(entries.entries, [pin.target()]);
     // The same pin again is silent.

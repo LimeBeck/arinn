@@ -192,6 +192,14 @@ TestCase {
         compare(child("quickMenuVolumeDescription").text, "Sound on · Left/Right: volume, OK: mute");
     }
 
+    // Codex review of #841: a session whose title is only spaces reads
+    // "Untitled" on the card and in the second-session row.
+    function test_a_blank_title_reads_untitled() {
+        menu.sessions = [{id: "blank", kind: "media", title: "   ", state: "paused", playPause: true},
+                         {id: "other", kind: "media", title: " \t", state: "paused", playPause: true}];
+        compare(child("quickMenuCardTitle").text, "Untitled");
+        compare(child("quickMenuOtherTitle").text, "Untitled");
+    }
     function test_media_without_play_pause_or_session() {
         menu.sessions = [{id: "radio", kind: "media", title: "Radio", state: "playing", playPause: false}];
         verify(!child("quickMenuCardPlayPause").enabled);

@@ -92,6 +92,16 @@ struct Data {
     pins: Vec<Entity>,
     feedback_error: Option<ErrorCode>,
     expired_stopped: bool,
+    /// Bumped by every deliberate cache clear (scan, pin, reconnect), so a
+    /// refresh that fails afterwards does not restore its stale listing
+    /// over it; a capacity eviction does not bump it (Codex review of #849).
+    listings_generation: u64,
+}
+impl Data {
+    fn invalidate_listings(&mut self) {
+        self.cache.clear();
+        self.listings_generation += 1;
+    }
 }
 pub struct Runtime {
     source: Arc<RwLock<Option<Authorized>>>,
@@ -297,6 +307,7 @@ impl Runtime {
                 pins: saved,
                 feedback_error: None,
                 expired_stopped: false,
+                listings_generation: 0,
             }),
             playback,
             catalogue_slots: Arc::new(Semaphore::new(2)),
@@ -393,7 +404,7 @@ impl Runtime {
         self.epochs.send_replace(d.epoch);
         d.revision += 1;
         d.pending.clear();
-        d.cache.clear();
+        d.invalidate_listings();
         d.radio = None;
         d.ratings.clear();
         d.feedback_error = None;
@@ -411,7 +422,7 @@ impl Runtime {
             self.epochs.send_replace(d.epoch);
             d.revision += 1;
             d.pending.clear();
-            d.cache.clear();
+            d.invalidate_listings();
             d.radio = None;
             d.ratings.clear();
             d.feedback_error = None;
@@ -459,7 +470,7 @@ impl Runtime {
         d.revision += 1;
         d.radio = None;
         d.pending.clear();
-        d.cache.clear();
+        d.invalidate_listings();
         d.ratings.clear();
         if let Some(source) = self.source.write().await.as_mut() {
             source.epoch = d.epoch;
@@ -591,6 +602,7 @@ impl Runtime {
         // keeps it even when the cache has evicted it meanwhile (Codex
         // review of #849).
         let mut stale: Option<(Vec<Entity>, Vec<Track>, usize)> = None;
+        let generation = d.listings_generation;
         if let Some(cache) = d.cache.iter().find(|c| c.key == key) {
             if let Some(error) = cache.error {
                 return Err(error);
@@ -663,6 +675,7 @@ impl Runtime {
                     return;
                 }
                 if error.is_some()
+                    && d.listings_generation == generation
                     && let Some((entries, tracks, bytes)) = stale
                 {
                     // The same eight-entry and 16 MiB limits as any listing
@@ -970,7 +983,7 @@ impl Runtime {
             }
             "scan" => {
                 let mut d = self.data.lock().await;
-                d.cache.clear();
+                d.invalidate_listings();
                 d.revision += 1;
             }
             _ => {
@@ -1147,7 +1160,7 @@ impl Runtime {
                 return Err(ErrorCode::Unavailable);
             }
             d.pins = pins;
-            d.cache.clear();
+            d.invalidate_listings();
             d.revision += 1;
             if durability {
                 d.feedback_error = Some(ErrorCode::Unavailable);
@@ -1823,6 +1836,51 @@ mod tests {
             "station-cover:user:onyourwave"
         );
         assert!(mock.finish().is_empty());
+    }
+    /// Codex review of #849: a deliberate cache clear (scan, pin) during a
+    /// refresh that then fails is not undone by restoring the stale listing.
+    #[tokio::test]
+    async fn a_failed_refresh_does_not_undo_a_scan() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let mock = Mock::new(vec![
+            (200, account),
+            (200, json!({"result":[]}).to_string()),
+            (500, "{}".into()),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        loop {
+            if listing().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        fixture.runtime.data.lock().await.cache[0].fetched =
+            tokio::time::Instant::now() - Duration::from_secs(61);
+        // The stale listing is shown and its refresh starts; a scan clears
+        // the listings while it runs, and the refresh then fails.
+        assert!(listing().await.is_ok());
+        fixture.runtime.data.lock().await.invalidate_listings();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            !fixture
+                .runtime
+                .data
+                .lock()
+                .await
+                .cache
+                .iter()
+                .any(|c| c.error.is_none() && c.incomplete)
+        );
+        mock.finish();
     }
     /// Codex review of #849: a full station memo makes room for one more
     /// station by dropping a single entry, never the whole memo.

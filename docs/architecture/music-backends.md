@@ -439,7 +439,9 @@ keeping "no cover". An answer of "no image" is final for the connection. The mem
 that drops one entry at a time. The Selections shelf asks for My Wave
 and every pinned station, including a pin stored before stations had covers.
 A radio start never waits for a cover: it uses what the connection already
-knows and asks about an unknown station in the background. A stale
+knows and asks about an unknown station in the background; the playing
+station and a pin of it take the cover once the connection knows it.
+Concurrent lookups of one station share a single request. A stale
 incomplete listing stays shown when its refresh cannot start because every
 catalogue slot is busy, or when the refresh fails; it is asked again a
 minute later.

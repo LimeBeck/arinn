@@ -57,6 +57,11 @@ pub struct Api {
     /// a new account gets a new `Api` and asks again (#843).
     station_images:
         std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>>,
+    /// One lookup in flight per station: a second caller waits for it and
+    /// reads its answer (Codex review of #849).
+    station_lookups: std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    >,
 }
 
 fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
@@ -149,6 +154,7 @@ impl Api {
             expires_at: None,
             deadline: None,
             station_images: Default::default(),
+            station_lookups: Default::default(),
             client,
             origin: Url::parse("https://api.music.yandex.net/").map_err(|_| Error::InvalidInput)?,
         })
@@ -277,13 +283,24 @@ impl Api {
         if parse::station_seed(key).ok().as_deref() != Some(key) {
             return Err(Error::InvalidInput);
         }
-        if let Some(known) = self
-            .station_images
-            .lock()
-            .map_err(|_| Error::Unavailable)?
-            .get(key)
-        {
-            return Ok(known.clone());
+        if let Some(known) = self.known_station_image(key) {
+            return Ok(known);
+        }
+        let lookup = {
+            let mut lookups = self
+                .station_lookups
+                .lock()
+                .map_err(|_| Error::Unavailable)?;
+            // Only idle locks are dropped, so a waiting caller keeps its own.
+            if lookups.len() >= 1024 {
+                lookups.retain(|_, lock| std::sync::Arc::strong_count(lock) > 1);
+            }
+            lookups.entry(key.to_owned()).or_default().clone()
+        };
+        let _turn = lookup.lock().await;
+        // The lookup that held the turn may have answered meanwhile.
+        if let Some(known) = self.known_station_image(key) {
+            return Ok(known);
         }
         let info = self
             .request(Method::GET, &["rotor", "station", key, "info"], &[])

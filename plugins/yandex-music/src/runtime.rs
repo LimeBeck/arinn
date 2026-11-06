@@ -493,8 +493,27 @@ impl Runtime {
             .as_ref()
             .is_some_and(|api| api.expired())
     }
+    /// A station's cover from the connection's memo when it has none yet: a
+    /// radio started before the lookup answered gets its cover once the
+    /// background lookup does, and a pin keeps it (Codex review of #849).
+    async fn with_known_artwork(&self, station: &mut Entity) {
+        if !station.artwork.is_empty() {
+            return;
+        }
+        let Ok(key) = seed(&station.id) else {
+            return;
+        };
+        if let Some(api) = self.source.read().await.as_ref()
+            && let Some(Some(_)) = api.known_station_image(&key)
+        {
+            station.artwork = format!("station-cover:{key}");
+        }
+    }
     pub async fn state(&self) -> State {
         let mut state = self.playback.state().await;
+        if let Some(station) = &mut state.station {
+            self.with_known_artwork(station).await;
+        }
         let expired = self.expired().await;
         let d = self.data.lock().await;
         if let Some(station) = &mut state.station
@@ -1029,10 +1048,11 @@ impl Runtime {
         tokio::spawn(async move {
             let mut d = this.data.lock().await;
             let state = this.playback.state().await;
-            let station = state
+            let mut station = state
                 .station
                 .filter(|s| s.id == id)
                 .ok_or(ErrorCode::InvalidArgument)?;
+            this.with_known_artwork(&mut station).await;
             let mut pins = d.pins.clone();
             if let Some(index) = pins.iter().position(|p| p.id == id) {
                 pins.remove(index);
@@ -1639,6 +1659,52 @@ mod tests {
         assert!(d.cache[0].fetched.elapsed() < Duration::from_secs(60));
         drop(d);
         assert_eq!(mock.finish().len(), 4);
+    }
+    /// Codex review of #849: two callers asking about the same unseen
+    /// station at once share one request.
+    #[tokio::test]
+    async fn concurrent_station_lookups_share_one_request() {
+        let wave = json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]);
+        let mock = Mock::new(vec![response_with(wave)]);
+        let (a, b) = tokio::join!(
+            mock.api.station_image("user:onyourwave"),
+            mock.api.station_image("user:onyourwave")
+        );
+        assert!(a.unwrap().is_some() && b.unwrap().is_some());
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: a radio that started before its cover was
+    /// known shows it once the connection knows it, and a pin keeps it.
+    #[tokio::test]
+    async fn the_playing_station_takes_its_cover_once_known() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        fixture
+            .runtime
+            .playback
+            .radio(
+                vec![],
+                "batch".into(),
+                station("station:wave", "Fixture wave"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fixture.runtime.state().await.station.unwrap().artwork, "");
+        mock.api.station_images.lock().unwrap().insert(
+            "user:onyourwave".into(),
+            Some("avatars.yandex.net/x/%%".into()),
+        );
+        assert_eq!(
+            fixture.runtime.state().await.station.unwrap().artwork,
+            "station-cover:user:onyourwave"
+        );
+        fixture.runtime.pin("station:wave").await.unwrap();
+        assert_eq!(
+            fixture.runtime.data.lock().await.pins[0].artwork,
+            "station-cover:user:onyourwave"
+        );
+        assert!(mock.finish().is_empty());
     }
     /// Codex review of #849: a full station memo makes room for one more
     /// station by dropping a single entry, never the whole memo.

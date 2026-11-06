@@ -987,7 +987,11 @@ TestCase {
         compare(findChild(albums,"musicShelfTitle").mapToItem(view,0,0).x,Ui.Theme.safeLeft);
         const edge=findChild(albums,"musicShelfEdgeFade");verify(!edge.visible);
         for(let i=0;i<8;i++)keyClick(Qt.Key_Right);
-        tryVerify(()=>edge.visible);compare(edge.mapToItem(view,0,0).x,Ui.Theme.edgeFadeStart);
+        // Opaque from the screen edge to x 24, then fading out to x 112
+        // (Codex review of #848).
+        tryVerify(()=>edge.visible);compare(edge.mapToItem(view,0,0).x,0);compare(edge.width,Ui.Theme.edgeFadeEnd);
+        const stops=edge.gradient.stops;compare(stops.length,3);
+        compare(stops[1].position,Ui.Theme.edgeFadeStart/Ui.Theme.edgeFadeEnd);compare(stops[1].color.a,1);compare(stops[2].color.a,0);
         // Review of #848: a scrolled focused card stops right of the fade,
         // its mat and rim included.
         const scrolled=findChild(albums.focusedCard,"musicShelfCard");tryCompare(scrolled,"scale",Ui.Theme.contentFocusScale);

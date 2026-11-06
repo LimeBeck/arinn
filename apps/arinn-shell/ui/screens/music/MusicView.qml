@@ -68,11 +68,15 @@ FocusScope {
             root.parentKind = "";
             root.facet = "";
         }
+        // A pending opener search waits while anything is busy (a page, a
+        // command); it is checked again once that ends (review of #798).
         function onStatusChanged() {
             Qt.callLater(root.recoverFocus);
+            Qt.callLater(root.restoreOpener);
         }
         function onBusyChanged() {
             Qt.callLater(root.recoverFocus);
+            Qt.callLater(root.restoreOpener);
         }
         function onTransportBusyChanged() {
             Qt.callLater(root.recoverFocus);

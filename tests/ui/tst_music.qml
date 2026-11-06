@@ -567,5 +567,11 @@ TestCase {
         // Review of #798: an empty final page ends it as well.
         view.parentId="album:9";view.back();compare(view.restoreEntity,"album:9");
         catalog.more=false;catalog.entries=[];tryCompare(view,"restoreEntity","");
+        // Review of #798: an empty last page that lands while a command is
+        // still busy ends the search once the command ends.
+        catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true}];wait(0);
+        view.parentId="album:9";view.back();catalog.busy=true;catalog.entries=[];wait(50);
+        compare(view.restoreEntity,"album:9");
+        catalog.busy=false;tryCompare(view,"restoreEntity","");
     }
 }

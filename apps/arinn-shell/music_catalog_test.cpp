@@ -326,7 +326,8 @@ private slots:
     QTRY_COMPARE(catalog.homeEntries().first().toMap().value("statusText").toString(),
                  QStringLiteral("Local music · Playing"));
   }
-  // A station tells My Wave from an album on the Home card (#756 M24).
+  // A station tells a continuous station from an album on the Home card
+  // (#756 M24).
   void theHomeCardNamesTheStation() {
     daemon.providers = {{"local", "Local music", "g1"}};
     daemon.states.insert("local", state({"tracks"}));

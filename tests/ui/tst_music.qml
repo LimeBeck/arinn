@@ -410,7 +410,8 @@ TestCase {
         compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogPlate").radius,Ui.Theme.dialogRadius);
         const art=createTemporaryObject(artworkFactory,suite);compare(art.radius,Ui.Theme.stillRadius);
     }
-    // An album or playlist title is content: Playfair Display (ADR-0137,
+    // An album, artist or playlist title is content: Playfair Display with
+    // lining figures (ADR-0137,
     // #756 M24). The section title stays Onest.
     function test_detail_heading_is_a_content_title() {
         const catalog=createTemporaryObject(catalogFactory,suite);
@@ -419,6 +420,7 @@ TestCase {
         compare(heading.font.family,Ui.Theme.fontFamily);
         view.parentId="album:1";view.parentTitle="Fixture album";
         compare(heading.text,"Fixture album");compare(heading.font.family,Ui.Theme.contentFontFamily);
+        compare(heading.font.features.lnum,1);
     }
     // Hours in long tracks, no raw facet ids, labels that set their widths
     // (#756 M25).
@@ -523,5 +525,28 @@ TestCase {
         Ui.Focus.take(confirm);tryCompare(confirm,"activeFocus",true);keyClick(Qt.Key_Return);
         compare(catalog.commands,["radio"]);compare(view.mode,"player");
         wait(0);keyClick(Qt.Key_Escape);compare(backs,1);
+    }
+    // Review of #798: the opener search stayed armed after the user asked
+    // for another list or a page failed, then paged that list and pulled
+    // focus off the control the user had moved to.
+    function test_another_browse_or_a_failed_page_ends_the_opener_search() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.state={account:"local",facets:["albums","playlists"],actions:["play"]};
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog,parentId:"album:150",parentKind:"album",parentTitle:"Late"});
+        verify(view);wait(0);
+        view.back();compare(view.restoreEntity,"album:150");
+        const facet=findChild(view,"musicFacet-1");Ui.Focus.take(facet);tryCompare(facet,"activeFocus",true);
+        keyClick(Qt.Key_Return);compare(view.restoreEntity,"");compare(view.restorePages,0);
+        catalog.more=true;catalog.entries=[{id:"playlist:1",kind:"playlist",title:"P",available:true}];wait(50);
+        compare(catalog.loads,0);compare(facet.activeFocus,true);
+        // A failed page ends it too.
+        view.parentId="album:150";view.back();compare(view.restoreEntity,"album:150");
+        catalog.errorText="The music source did not respond.";compare(view.restoreEntity,"");
+        catalog.errorText="";
+        // Focus elsewhere in the view stays there when the opener's page arrives.
+        view.parentId="album:2";view.back();Ui.Focus.take(facet);tryCompare(facet,"activeFocus",true);
+        catalog.more=false;catalog.entries=[{id:"album:1",kind:"album",title:"A",available:true},{id:"album:2",kind:"album",title:"B",available:true}];
+        const list=findChild(view,"musicEntries");tryCompare(list,"currentIndex",1);wait(50);
+        compare(facet.activeFocus,true);compare(view.restoreEntity,"");
     }
 }

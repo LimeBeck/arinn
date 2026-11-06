@@ -60,6 +60,7 @@ FocusScope {
         target: root.catalog
         ignoreUnknownSignals: true
         function onBrowseReset() {
+            root.cancelRestore();
             root.parentId = "";
             root.parentTitle = "";
             root.parentKind = "";
@@ -214,6 +215,19 @@ FocusScope {
     property string restoreEntity: ""
     property int restorePages: 0
     readonly property int restorePageLimit: 10
+    // Any other list the user asks for, a source change or a failed page
+    // ends the search for the opener (review of #798).
+    function cancelRestore() {
+        restoreEntity = "";
+        restorePages = 0;
+    }
+    function browse(facetId, parent, query) {
+        cancelRestore();
+        catalog.browse(facetId, parent, query);
+    }
+    readonly property string catalogueError: catalog.errorText || ""
+    onCatalogueErrorChanged: if (catalogueError.length)
+        cancelRestore()
     function restoreOpener() {
         if (!restoreEntity.length || !catalog.entries.length)
             return;
@@ -229,8 +243,19 @@ FocusScope {
             tracks.currentIndex = index;
             tracks.positionViewAtIndex(index, ListView.Contain);
         }
-        if (tracks.visible)
+        // Only while focus is still in the list, or nowhere in the view: a
+        // user who moved on keeps their focus (review of #798).
+        const item = hostWindow ? hostWindow.activeFocusItem : null;
+        const inList = !!item && (item === tracks || isInside(item, tracks));
+        const elsewhere = !!item && item !== root && containsFocusItem(item);
+        if (tracks.visible && (inList || !elsewhere))
             Ui.Focus.take(tracks);
+    }
+    function isInside(item, scope) {
+        for (let current = item; current; current = current.parent)
+            if (current === scope)
+                return true;
+        return false;
     }
     property string pendingAction: "play"
     property bool pendingActive: false
@@ -377,7 +402,7 @@ FocusScope {
         anchors.fill: parent
         color: Ui.Theme.background
     }
-    // An album or playlist is content: its title is Playfair Display
+    // An album, artist or playlist is content: its title is Playfair Display
     // (ADR-0137, #756 M24); screen titles stay Onest.
     Ui.UiText {
         objectName: "musicHeading"
@@ -385,8 +410,10 @@ FocusScope {
         y: 80
         width: 1150
         role: "title"
-        font.family: root.mode === "catalogue" && root.parentId.length ? Ui.Theme.contentFontFamily
-            : Ui.Theme.fontFamily
+        readonly property bool contentTitle: root.mode === "catalogue" && root.parentId.length > 0
+        font.family: contentTitle ? Ui.Theme.contentFontFamily : Ui.Theme.fontFamily
+        // Lining figures, as UiText gives the content roles (ADR-0137).
+        font.features: contentTitle ? ({ "tnum": 1, "lnum": 1 }) : ({ "tnum": 1 })
         text: mode === "player" ? root.playerHeading : mode === "queue" ? qsTr("Queue") : parentTitle || qsTr("Music")
         textFormat: Text.PlainText
         maximumLineCount: 1
@@ -465,7 +492,7 @@ FocusScope {
                     root.facet = modelData;
                     root.parentId = "";
                     root.parentTitle = "";
-                    root.catalog.browse(modelData, "", search.text);
+                    root.browse(modelData, "", search.text);
                 }
             }
         }
@@ -516,7 +543,7 @@ FocusScope {
             Timer {
                 id: searchDelay
                 interval: 350
-                onTriggered: root.catalog.browse(root.facet, root.parentId, search.text)
+                onTriggered: root.browse(root.facet, root.parentId, search.text)
             }
         }
         Ui.KeyboardButton {
@@ -734,7 +761,7 @@ FocusScope {
                     root.parentId = modelData.id;
                     root.parentKind = modelData.kind;
                     root.parentTitle = text;
-                    root.catalog.browse(root.facet, modelData.id, search.text);
+                    root.browse(root.facet, modelData.id, search.text);
                 }
             }
         }
@@ -1293,7 +1320,7 @@ FocusScope {
                 root.deletingPlaylist = false;
                 root.parentId = "";
                 root.parentTitle = "";
-                root.catalog.browse("playlists", "", "");
+                root.browse("playlists", "", "");
                 root.focusInitial();
             }
         }
@@ -1430,6 +1457,7 @@ FocusScope {
                     root.facet = "";
                     root.parentId = "";
                     root.parentTitle = "";
+                    root.cancelRestore();
                     root.catalog.choose(modelData.id);
                     root.pickingSource = false;
                     Ui.Focus.take(sourcePicker);

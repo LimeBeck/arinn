@@ -204,7 +204,10 @@ no transport button of its own. Without a cover,
 the station's is used, then the source's mark (`screen` or `public`) in a
 neutral chip. The caption is
 the track over "artist · station or album"; the hero reads "station ·
-playing" or "Paused" and names the keys. OK opens *Now playing*, Back
+playing" or "Paused" and names the keys, the Play/Pause key only while the
+session offers the action it needs (`homeEntries.playPause`), else just "OK —
+open player". Play/Pause, Play and Pause act only when the session can do what
+each asks; otherwise the key passes on. OK opens *Now playing*, Back
 returns to the card, and Play/Pause on Home acts on the music session
 without moving focus unless the focused card is linked to a media session
 (`HomeView.mediaKey`). The shell has no reduced-motion setting yet; the

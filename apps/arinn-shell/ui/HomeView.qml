@@ -522,16 +522,21 @@ FocusScope {
                                  : key === Qt.Key_MediaPause ? "pause" : "playPause");
             return true;
         }
-        if (musicKeyTarget) {
-            musicKeyRequested(key === Qt.Key_MediaPlay ? "play" : key === Qt.Key_MediaPause ? "pause" : "toggle");
+        // Each key only when the session can do what it asks: Play while
+        // paused, Pause while playing, the toggle either way (Codex review of
+        // #827); otherwise it passes on.
+        const music = musicKeyTarget;
+        const action = key === Qt.Key_MediaPlay ? "play" : key === Qt.Key_MediaPause ? "pause" : "toggle";
+        if (music && (action === "toggle" || (action === "play") === (music.musicState === "paused"))) {
+            musicKeyRequested(action);
             return true;
         }
         return false;
     }
     // A playing or paused music session that offers the action Play/Pause
     // needs; without it the key passes on (Codex review of #827).
-    readonly property bool musicKeyTarget: (continueEntries || []).some(entry => entry && entry.kind === "music"
-        && entry.live === true && entry.playPause === true)
+    readonly property var musicKeyTarget: (continueEntries || []).find(entry => entry && entry.kind === "music"
+        && entry.live === true && entry.playPause === true) || null
     // The pool takes the focused content item. The open-services summary has
     // no single hue. Applications use the focused tile.
     readonly property var lightEntry: {

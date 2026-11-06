@@ -6,7 +6,6 @@
 // Synthetic providers and tracks only.
 #include "asset_images.h"
 #include "music_catalog.h"
-#include "asset_images.h"
 #include "music_room.h"
 #include <QFile>
 #include <QQmlComponent>

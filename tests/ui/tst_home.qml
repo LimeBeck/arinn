@@ -1058,7 +1058,10 @@ TestCase {
         // From another card too, and dedicated Pause stays pause.
         child("entry-a").forceActiveFocus(); focused("entry-a");
         verify(home.mediaKey(Qt.Key_MediaPause));
-        compare(musicKeys.count, 2); compare(musicKeys.signalArguments[1][0], "pause");
+        compare(musicKeys.count, 2);
+        // Dedicated Play while playing asks nothing and passes on (Codex
+        // review of #827).
+        verify(!home.mediaKey(Qt.Key_MediaPlay)); compare(musicKeys.count, 2); compare(musicKeys.signalArguments[1][0], "pause");
         focused("entry-a");
         // A session that offers no pause: the key passes on and the hero names
         // only OK (Codex review of #827).
@@ -1069,6 +1072,9 @@ TestCase {
         // Paused: the bars stand still in text-3.
         home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("paused")];
         tryCompare(bar, "moving", false); verify(Qt.colorEqual(bar.color, Ui.Theme.textHint));
+        // Paused: Pause passes on, Play resumes.
+        verify(!home.mediaKey(Qt.Key_MediaPause));
+        verify(home.mediaKey(Qt.Key_MediaPlay)); compare(musicKeys.signalArguments[musicKeys.count - 1][0], "play");
         card.forceActiveFocus(); focused("entry-arinn-music-session");
         compare(child("heroEyebrow").text, "Paused");
         compare(child("heroMeta").text, "OK — open player · ⏯ — play");

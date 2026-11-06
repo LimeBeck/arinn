@@ -13,7 +13,8 @@ import QtQuick
 // and error. `public` is the Open services globe; `close` is Close Arinn.
 // Music (#756 M23): stop, queue_music, thumb_up, thumb_down, radio,
 // push_pin, refresh and music_note, with play, pause, skip_previous,
-// skip_next and schedule (seek).
+// skip_next and schedule (seek). Now playing (#802): favorite (the Like
+// heart), favorite_fill (Liked) and more_horiz (More).
 Canvas {
     id: root
     property string name: ""
@@ -230,6 +231,26 @@ Canvas {
             ctx.lineTo(21, 9); ctx.lineTo(18, 21); ctx.lineTo(8, 21); ctx.closePath();
             ctx.rect(3, 10, 3, 11);
             ctx.stroke();
+            break;
+        case "favorite":
+        case "favorite_fill":
+            ctx.moveTo(12, 20);
+            ctx.bezierCurveTo(4, 14.5, 2.5, 11, 3.5, 7.8);
+            ctx.bezierCurveTo(4.6, 4.6, 9.4, 3.6, 12, 7.4);
+            ctx.bezierCurveTo(14.6, 3.6, 19.4, 4.6, 20.5, 7.8);
+            ctx.bezierCurveTo(21.5, 11, 20, 14.5, 12, 20);
+            ctx.closePath();
+            if (root.name === "favorite_fill")
+                ctx.fill();
+            else
+                ctx.stroke();
+            break;
+        case "more_horiz":
+            for (const x of [5, 12, 19]) {
+                ctx.moveTo(x + 2, 12);
+                ctx.arc(x, 12, 2, 0, Math.PI * 2);
+            }
+            ctx.fill();
             break;
         case "radio":
             ctx.arc(12, 12, 2, 0, Math.PI * 2);

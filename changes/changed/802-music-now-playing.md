@@ -1,0 +1,4 @@
+- Music Now playing in Hearth light ([ADR-0142](docs/adr/0142-music-in-hearth-light.md), [#802](https://github.com/LimeBeck/arinn/issues/802)):
+  - One row of controls: previous, a larger play/pause, next, *Like*, *Queue* and *More*. *Like* shows a filled heart and *Liked*, and says when a like was not saved. The seek line has an Ember fill and shows hours for long tracks.
+  - *More* holds Dislike, Radio from this track, the station pin, Retry and Stop, only where the source offers them.
+  - The queue opens as a side sheet with the playing track first, its covers and durations, and a closing line for a station's queue.

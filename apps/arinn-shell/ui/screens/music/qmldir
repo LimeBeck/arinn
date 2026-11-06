@@ -12,3 +12,6 @@ MusicSourceMark 1.0 MusicSourceMark.qml
 MusicAllView 1.0 MusicAllView.qml
 MusicDetailHeader 1.0 MusicDetailHeader.qml
 MusicSearchView 1.0 MusicSearchView.qml
+MusicPill 1.0 MusicPill.qml
+MusicMoreSheet 1.0 MusicMoreSheet.qml
+MusicQueueSheet 1.0 MusicQueueSheet.qml

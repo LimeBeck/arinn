@@ -22,7 +22,8 @@ Ui.Surface {
         width: 260
         visible: root.activeFocus
         text: root.text
-        role: "caption"
+        // Labels under the round buttons appear in focus at 26 (M14).
+        role: "meta"
         horizontalAlignment: Text.AlignHCenter
         maximumLineCount: 1
         elide: Text.ElideRight

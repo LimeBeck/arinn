@@ -132,7 +132,8 @@ QString MusicCatalog::statusText(const QString &status) const {
 }
 QVariantList MusicCatalog::homeEntries() const {
   const auto current = m_active.value("current").toMap();
-  if (current.isEmpty())
+  // A turned-off source has no presence on Home (#842).
+  if (current.isEmpty() || m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value("track").toMap();
   const auto playback = m_active.value("playback").toString();
@@ -772,11 +773,19 @@ bool MusicCatalog::audible() const {
          playback == QStringLiteral("loading");
 }
 
+void MusicCatalog::setDisabledSources(const QStringList &sources) {
+  if (sources == m_disabledSources)
+    return;
+  m_disabledSources = sources;
+  emit activeChanged();
+  updateProblems();
+}
 QVariantMap MusicCatalog::nowPlaying() const {
   const auto current = m_active.value(QStringLiteral("current")).toMap();
   const auto playback = m_active.value(QStringLiteral("playback")).toString();
   const bool playing = playback == QStringLiteral("playing");
-  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")))
+  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")) ||
+      m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value(QStringLiteral("track")).toMap();
   const auto actions = m_active.value(QStringLiteral("actions")).toStringList();

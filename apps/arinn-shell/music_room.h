@@ -38,6 +38,9 @@ class MusicRoom : public QObject {
   Q_PROPERTY(bool settled READ settled NOTIFY sourcesChanged)
   // The room polls only while it is shown.
   Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+  // Sources turned off in the Sources sheet, by provider id (spec §5.3.1,
+  // #842): the room reads nothing from them and lists them last, `off`.
+  Q_PROPERTY(QStringList disabled READ disabled WRITE setDisabled NOTIFY sourcesChanged)
   // Find over every source (MH-10, #801): result shelves Artists, Albums
   // and Tracks, each source's results in its own relevance order, sources
   // in turn; nothing merged.
@@ -57,6 +60,8 @@ public:
   bool settled() const;
   bool active() const { return m_timer.isActive(); }
   void setActive(bool active);
+  QStringList disabled() const { return m_disabled; }
+  void setDisabled(const QStringList &disabled);
   QVariantList searchShelves() const { return m_searchShelves; }
   QStringList searchPending() const;
   QString searchQuery() const { return m_searchQuery; }
@@ -172,6 +177,16 @@ private:
                       int limit) const;
   QPointer<QObject> m_catalog;
   QStringList m_order;
+  // Turned-off sources (#842): left out of everything the room reads, and
+  // listed last in `sources`. Whether each was this computer's is kept from
+  // its last state, for its mark.
+  QStringList m_disabled;
+  struct Off {
+    QString id, name;
+    bool local = false;
+  };
+  QList<Off> m_off;
+  std::map<QString, bool> m_local;
   std::map<QString, Source> m_sources;
   QVariantList m_shelves, m_sourceRows;
   bool m_dated = false, m_loading = false;

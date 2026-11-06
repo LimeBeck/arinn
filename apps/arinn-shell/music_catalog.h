@@ -25,6 +25,10 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(bool transportBusy READ transportBusy NOTIFY statusChanged)
   Q_PROPERTY(bool more READ more NOTIFY statusChanged)
   Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY activeChanged)
+  // Sources turned off in the Sources sheet (#842): a session of one of
+  // them has no presence on Home or in the Quick menu.
+  Q_PROPERTY(QStringList disabledSources READ disabledSources WRITE
+                 setDisabledSources NOTIFY activeChanged)
   Q_PROPERTY(QString sectionTitle READ sectionTitle CONSTANT)
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
@@ -66,6 +70,8 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
+  QStringList disabledSources() const { return m_disabledSources; }
+  void setDisabledSources(const QStringList &sources);
   QString statusLine() const;
   QVariantList unresolvedStations() const;
   bool audible() const;
@@ -129,6 +135,7 @@ private:
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;
+  QStringList m_disabledSources;
   QString m_playbackProblem, m_notice;
   void readState();
   void readActive();

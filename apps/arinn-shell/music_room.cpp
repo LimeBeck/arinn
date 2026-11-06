@@ -114,11 +114,24 @@ void MusicRoom::follow() {
   const auto rows =
       m_catalog ? m_catalog->property("sources").toList() : QVariantList();
   QStringList order;
+  QList<Off> off;
+  for (const auto &[id, source] : m_sources)
+    if (!source.state.isEmpty())
+      m_local[id] = source.state.value("account").toString() == QLatin1String("local");
   for (const auto &value : rows) {
     const auto row = value.toMap();
     const auto id = row.value(QStringLiteral("id")).toString();
-    if (id.isEmpty() || order.contains(id))
+    if (id.isEmpty() || order.contains(id) ||
+        std::any_of(off.cbegin(), off.cend(), [&id](const Off &o) { return o.id == id; }))
       continue;
+    // A turned-off source is read no more and leaves the shelves, search
+    // and All as a source that left does (#842).
+    if (m_disabled.contains(id)) {
+      const auto local = m_local.find(id);
+      off.append({id, row.value(QStringLiteral("name")).toString(),
+                  local != m_local.end() && local->second});
+      continue;
+    }
     order.append(id);
     auto &source = m_sources[id];
     const auto path = row.value(QStringLiteral("path")).toString(),
@@ -144,9 +157,17 @@ void MusicRoom::follow() {
   for (auto it = m_sources.begin(); it != m_sources.end();)
     it = order.contains(it->first) ? std::next(it) : m_sources.erase(it);
   m_order = order;
+  m_off = off;
   publishSources();
   rebuild();
   refresh();
+}
+
+void MusicRoom::setDisabled(const QStringList &disabled) {
+  if (disabled == m_disabled)
+    return;
+  m_disabled = disabled;
+  follow();
 }
 
 void MusicRoom::setActive(bool active) {
@@ -166,7 +187,7 @@ bool MusicRoom::settled() const {
   // only once some source exists, so the room is not the first use yet
   // (Codex review of #812).
   if (m_sources.empty())
-    return false;
+    return !m_off.isEmpty();
   for (const auto &[id, source] : m_sources)
     if (!source.answered && source.ready)
       return false;
@@ -766,6 +787,19 @@ QVariantList MusicRoom::sources() const {
                             {"browsable", !source.stateFailed &&
                                               browsable(source.state)}});
   }
+  for (const auto &source : m_off)
+    rows.append(QVariantMap{{"id", source.id},
+                            {"name", source.name},
+                            {"local", source.local},
+                            {"account", QString()},
+                            {"status", QStringLiteral("off")},
+                            {"reason", QString()},
+                            {"error", QString()},
+                            {"actions", QStringList()},
+                            {"prompt", QVariant()},
+                            {"busy", false},
+                            {"answered", true},
+                            {"browsable", false}});
   return rows;
 }
 

@@ -909,6 +909,78 @@ private slots:
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     daemon.active="null";catalog.refresh();QTRY_VERIFY(!policy->property("mediaActive").toBool());
   }
+  // #842: a turned-off source is read no more. Its entries leave the
+  // shelves, All and search; the Sources sheet lists it last as `off`; a
+  // session of it has no presence on Home. Turning it on brings it back.
+  void aTurnedOffSourceLeavesTheRoom() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.states["account"] = state({"albums"}, "connected");
+    auto album = [](const char *id) {
+      return QJsonObject{{"id", id}, {"kind", "album"}, {"title", id}, {"available", true}};
+    };
+    daemon.pages["local/albums"] = QJsonArray{album("album:a")};
+    daemon.pages["account/albums"] = QJsonArray{album("album:z")};
+    daemon.active = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {"provider_id", "local"},
+        {"generation", "g1"},
+        {"state", QJsonObject{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
+                              {"actions", QJsonArray{"pause"}},
+                              {"current", QJsonObject{{"occurrence", "o"},
+                                                      {"track", QJsonObject{{"id", "t1"},
+                                                                            {"kind", "track"},
+                                                                            {"title", "Synthetic"}}}}}}}})
+                                          .toJson(QJsonDocument::Compact));
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QTRY_COMPARE(catalog.homeEntries().size(), 1);
+    const auto keys = [&room] {
+      QStringList out;
+      for (const auto &value : room.shelves())
+        for (const auto &entry : value.toMap().value("entries").toList())
+          out << entry.toMap().value("key").toString().replace(QLatin1Char('\n'), QLatin1Char(' '));
+      out.sort();
+      return out;
+    };
+    QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
+    room.setDisabled({"local"});
+    catalog.setDisabledSources({"local"});
+    QTRY_COMPARE(keys(), QStringList{"account album:z"});
+    QCOMPARE(room.list("albums", QString()).size(), 1);
+    const auto rows = room.sources();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0).toMap().value("id").toString(), QStringLiteral("account"));
+    QCOMPARE(rows.at(1).toMap().value("id").toString(), QStringLiteral("local"));
+    QCOMPARE(rows.at(1).toMap().value("status").toString(), QStringLiteral("off"));
+    QCOMPARE(rows.at(1).toMap().value("local").toBool(), true);
+    QVERIFY(rows.at(1).toMap().value("actions").toStringList().isEmpty());
+    // Its session has no presence on Home.
+    QVERIFY(catalog.homeEntries().isEmpty());
+    QVERIFY(catalog.nowPlaying().isEmpty());
+    QVERIFY(catalog.statusLine().isEmpty());
+    // Search asks only the sources that are on.
+    room.search(QStringLiteral("album"));
+    QTRY_VERIFY(room.searchPending().isEmpty());
+    QStringList found;
+    for (const auto &value : room.searchShelves())
+      for (const auto &entry : value.toMap().value("entries").toList())
+        found << entry.toMap().value("provider").toString();
+    QVERIFY(!found.contains(QStringLiteral("local")));
+    room.search(QString());
+    // Every source off: the room is settled, with no shelves.
+    room.setDisabled({"local", "account"});
+    QTRY_VERIFY(room.shelves().isEmpty());
+    QVERIFY(room.settled());
+    QVERIFY(!room.connected());
+    // On again: the source is read anew.
+    room.setDisabled({});
+    catalog.setDisabledSources({});
+    QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
+    QTRY_COMPARE(catalog.homeEntries().size(), 1);
+  }
   // The Home card names the source of the active session.
   void theHomeCardNamesTheActiveSource() {
     daemon.providers = {{"local", "Local music", "g1"}};

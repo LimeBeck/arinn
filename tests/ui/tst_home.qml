@@ -851,6 +851,8 @@ TestCase {
     function test_focus_stays_in_its_band_and_the_safe_area() {
         home.continueEntries = [{id: "a", title: "Activity", subtitle: "Return", running: true},
                                 {id: "b", title: "Second", subtitle: "S1"}];
+        // The second card has no eyebrow: the rows still do not move.
+        const continueTop = child("continue").mapToItem(home, 0, 0).y;
         child("entry-a").forceActiveFocus(); focused("entry-a");
         const label = rect(child("continueLabel"));
         const ring = findChild(child("entry-a"), "focusRing");
@@ -862,6 +864,8 @@ TestCase {
         const caption = findChild(child("entry-a"), "cardCaption");
         const focusedCaption = rect(caption);
         keyClick(Qt.Key_Right); focused("entry-b");
+        compare(child("heroEyebrow").text, "");
+        compare(child("continue").mapToItem(home, 0, 0).y, continueTop);
         tryVerify(() => Math.abs(rect(caption).y - focusedCaption.y) < 0.01 && Math.abs(rect(caption).x - focusedCaption.x) < 0.01,
                   2000, "caption moved: " + JSON.stringify(rect(caption)) + " from " + JSON.stringify(focusedCaption));
         // The focused Favourites name stays under its label.

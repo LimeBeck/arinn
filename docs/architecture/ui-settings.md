@@ -52,7 +52,10 @@ texts.
 Category titles are model data. The QML does not embed those names or any
 product name. `SettingsCatalog` publishes the design categories that have at least one row,
 in the design order, once a snapshot has loaded, so the screen opens on the
-first category with rows. A category with no rows is not listed: a missing
+first category with rows. A category with no rows is not listed, except
+System, which stays so About can be opened (#742). While the daemon is
+unreachable every design category stays listed with no rows: System shows
+About and the other sections stay covered by the unavailable state. A missing
 playback, download or network setting is not shown as a working control, and
 there is no empty pane ([#764](https://github.com/LimeBeck/arinn/issues/764),
 #756 B16). A reload keeps the selected category by id, else the nearest
@@ -208,6 +211,45 @@ any other error leaves the sheet open with the daemon's
 text; a string error clears on the next key. A rejected boolean springs back,
 shows an error toast, and keeps the text on the row until focus leaves it. A
 shell deadline (`Timeout`) uses "Arinn did not reply. Try again."
+
+## System → About
+
+About is the last group on System ([#742](https://github.com/LimeBeck/arinn/issues/742)).
+`SystemAbout` (`system_about.cpp`) collects it. The shell's build id is
+`BuildIdentity::shell()` (ADR-0097). The channel is the git branch and the
+build date is the commit date, both written into `arinn_build_id.h` when
+CMake configures; a detached checkout leaves the channel empty. The daemon's
+version and build id are `Daemon1.BuildInfo`. Installed providers and their
+versions are `Daemon1.Providers`. Neither call adds a D-Bus field. The
+operating system comes from `/etc/os-release`, the kernel from `uname`, Qt
+from `qVersion`, the display from the primary screen, the session from
+`XDG_CURRENT_DESKTOP` and `XDG_SESSION_TYPE`, the audio output from
+`QMediaDevices` (skipped on the offscreen platform), the default route and
+address from `/proc/net/route` and `getifaddrs`, and free space from
+`QStorageInfo` of the Downloads directory. Plasma is the version in
+`PlasmaConfigVersion.cmake` when that file is present. The shell does not run
+a command and does not talk to another application. Anything it cannot read
+is the text Unknown.
+
+The device name is not an About row. When the report is allowed to include
+it, `SettingsView` passes the System setting whose id is `name`, and leaves
+Unknown when that setting is not registered. It does not substitute the host
+name.
+
+`Copy details` is the first About row. OK on it opens the copy sheet; OK on
+any other About row does nothing, and the hint bar is Back only. The sheet
+writes the clipboard and `Downloads/arinn-about-YYYY-MM-DD-HHMM.txt`. The IP
+address, the connection and the device name are in that report only when the
+sheet's switch is on. The switch starts off on every open. The file contains
+the raw build ids. A mismatch (`BuildIdentity::same` is false, and so is an
+`UnknownMethod` from a daemon that predates `BuildInfo`) is drawn on the
+arinnd row in the error colour, with the restart sentence. While the daemon
+is down, that row and Providers say Unavailable and the rest stay filled.
+`ProvidersChanged` and the daemon's name owner refresh those two rows if
+arinnd returns while Settings is open.
+
+The group is drawn only when the view's `about` object is set, so a test
+that does not set one keeps the previous System list.
 
 ## Focus
 

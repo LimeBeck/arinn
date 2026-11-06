@@ -89,7 +89,20 @@ FocusScope {
         const row = rowByKey(focusedRowKey);
         return !!row && !partActionable(row, partName);
     }
-    readonly property bool screenBlocked: screenState === "loading" || screenState === "error" || screenState === "unavailable"
+    // The shell's About facts (#742). Null hides the block, so tests that
+    // do not set one keep the previous System list.
+    property var about: null
+    property bool aboutFocused: false
+    property int aboutIndex: 0
+    // Loading and a failed load still cover Settings. A missing daemon does
+    // not cover System → About; the other sections stay covered (#742).
+    readonly property bool hardBlocked: screenState === "loading" || screenState === "error"
+    readonly property bool onSystemCategory: {
+        const category = currentCategory();
+        return !!(category && category.id === "system");
+    }
+    readonly property bool sectionCovered: screenState === "unavailable" && !onSystemCategory
+    readonly property bool screenBlocked: hardBlocked
     readonly property var activeRows: collectRows()
     onActiveRowsChanged: queueRowFocusRestore()
     readonly property string paneKind: paneFor(currentCategory())
@@ -117,7 +130,42 @@ FocusScope {
     }
     function paneFor(category) {
         if (!category) return "empty";
+        // About is the System section's own content, with or without rows.
+        if (category.id === "system" && about) return "ready";
         return collectRows().length === 0 ? "empty" : "ready";
+    }
+    function aboutOpen() {
+        return onSystemCategory && !!about && aboutBlock && aboutBlock.count > 0
+               && !hardBlocked && !sectionCovered;
+    }
+    function syncAboutDeviceName() {
+        if (!about || !about.setDeviceName)
+            return;
+        let name = "";
+        const list = rows || [];
+        for (let i = 0; i < list.length; ++i) {
+            const row = list[i];
+            if (row && row.categoryId === "system" && row.id === "name")
+                name = row.currentValue ? String(row.currentValue) : "";
+        }
+        about.setDeviceName(name);
+    }
+    function noteAboutCopy(code) {
+        const name = about && about.fileName ? about.fileName : "";
+        if (code === 0)
+            showToast(qsTr("Copied. File: Downloads/%1").arg(name), "", false);
+        else if (code === 1)
+            showToast(qsTr("File not saved. The details are on the clipboard"), "", true);
+        else if (code === 2)
+            showToast(qsTr("Clipboard unavailable. The details are in Downloads/%1").arg(name), "", true);
+        else
+            showToast(qsTr("Could not copy the details"), "", true);
+    }
+    function focusCoveredStatus() {
+        detailFocused = true;
+        aboutFocused = false;
+        focusedRowKey = "";
+        Ui.Focus.take(screenStatus);
     }
     function rowKey(row) {
         if (!row) return "";
@@ -321,6 +369,7 @@ FocusScope {
             if (row && row.pending) suppressedError = "";
         }
         settleAwaiting();
+        syncAboutDeviceName();
     }
     function settleAwaiting() {
         if (!awaitingKey.length) return;
@@ -721,6 +770,8 @@ FocusScope {
     // The open editor or option list, closed without committing its draft.
     // The shell calls this for the platform's Home too (review of #778).
     function dropTransient() {
+        if (aboutBlock && aboutBlock.sheetOpen)
+            aboutBlock.closeSheet(false);
         if (editingKey.length) cancelEditor();
         if (choosingKey.length) closeOptions();
     }
@@ -906,7 +957,7 @@ FocusScope {
         ctx.restore();
     }
     function focusCategory(index) {
-        if (!categories.length || screenBlocked) return;
+        if (!categories.length || hardBlocked) return;
         const leaving = rowByKey(focusedRowKey);
         rememberBooleanError(leaving);
         const next = Math.max(0, Math.min(index, categories.length - 1));
@@ -914,7 +965,10 @@ FocusScope {
         choosingKey = "";
         enumCloseTimer.stop();
         enumClosingKey = "";
+        if (aboutBlock && aboutBlock.sheetOpen)
+            aboutBlock.closeSheet(false);
         detailFocused = false;
+        aboutFocused = false;
         focusedRowKey = "";
         categoryIndex = next;
         const item = categoryRepeater.itemAt(next);
@@ -927,6 +981,7 @@ FocusScope {
         const item = scope.itemFor(name);
         if (!item || !item.visible) return false;
         detailFocused = true;
+        aboutFocused = false;
         rowFocusIndex = rowIndex;
         partName = name;
         const row = activeRows[rowIndex];
@@ -976,9 +1031,45 @@ FocusScope {
         else if (bottom > rowFlick.contentY + rowFlick.height - rowFade)
             rowFlick.contentY = Math.min(maxY, bottom - rowFlick.height + rowFade);
     }
+    function focusAbout(index) {
+        if (!aboutOpen())
+            return false;
+        const next = Math.max(0, Math.min(index, aboutBlock.count - 1));
+        const item = aboutBlock.itemAt(next);
+        if (!item)
+            return false;
+        editingKey = "";
+        choosingKey = "";
+        detailFocused = true;
+        aboutFocused = true;
+        aboutIndex = next;
+        focusedRowKey = "";
+        Ui.Focus.take(item);
+        revealRow(aboutBlock, item);
+        return true;
+    }
     function moveVertical(step) {
         pointerMode = false;
+        if (aboutFocused) {
+            const next = aboutIndex + step;
+            if (next >= 0 && next < aboutBlock.count) {
+                focusAbout(next);
+                return;
+            }
+            if (step < 0 && activeRows.length) {
+                aboutFocused = false;
+                const last = activeRows.length - 1;
+                const parts = partsFor(activeRows[last]);
+                if (parts.length)
+                    focusPart(last, parts[0]);
+            }
+            return;
+        }
         if (detailFocused) {
+            if (sectionCovered) {
+                focusCategory(categoryIndex);
+                return;
+            }
             rememberBooleanError(activeRows[rowFocusIndex]);
             let index = rowFocusIndex + step;
             while (index >= 0 && index < rowRepeater.count) {
@@ -986,6 +1077,8 @@ FocusScope {
                 if (parts.length && focusPart(index, parts[0])) return;
                 index += step;
             }
+            if (step > 0 && aboutOpen())
+                focusAbout(0);
             return;
         }
         const next = categoryIndex + step;
@@ -994,11 +1087,26 @@ FocusScope {
     }
     function moveHorizontal(step) {
         pointerMode = false;
+        if (aboutFocused) {
+            if (step < 0)
+                focusCategory(categoryIndex);
+            return;
+        }
         if (!detailFocused) {
             if (step > 0) {
                 const parts = partsFor(activeRows[0]);
-                if (parts.length) focusPart(0, parts[0]);
+                if (parts.length && focusPart(0, parts[0]))
+                    return;
+                if (aboutOpen())
+                    focusAbout(0);
+                else if (sectionCovered)
+                    focusCoveredStatus();
             }
+            return;
+        }
+        if (sectionCovered) {
+            if (step < 0)
+                focusCategory(categoryIndex);
             return;
         }
         const parts = partsFor(activeRows[rowFocusIndex]);
@@ -1016,7 +1124,7 @@ FocusScope {
     }
     function focusInitial() {
         if (!visible) return;
-        if (screenBlocked) {
+        if (hardBlocked) {
             Ui.Focus.take(screenStatus);
             return;
         }
@@ -1064,11 +1172,18 @@ FocusScope {
             event.accepted = true;
             return;
         }
-        if (screenBlocked) {
+        if (hardBlocked) {
             // Menu stays global (#329): the shell handles it.
             if (event.key === Qt.Key_Menu) return;
             if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
                 dismissRequested();
+            event.accepted = true;
+            return;
+        }
+        if (aboutBlock && aboutBlock.sheetOpen) {
+            if (homeKey(event)) return;
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back)
+                aboutBlock.closeSheet();
             event.accepted = true;
             return;
         }
@@ -1087,7 +1202,19 @@ FocusScope {
         }
     }
     Component.onCompleted: Qt.callLater(focusInitial)
-    onVisibleChanged: if (visible) Qt.callLater(focusInitial)
+    onVisibleChanged: {
+        if (!visible)
+            return;
+        if (about && about.refreshLocal)
+            about.refreshLocal();
+        Qt.callLater(focusInitial);
+    }
+    onScreenStateChanged: {
+        if (!visible)
+            return;
+        if (hardBlocked || (sectionCovered && detailFocused))
+            Qt.callLater(focusInitial);
+    }
     onCategoryIndexChanged: {
         rowFlick.contentY = 0;
         const category = categories[categoryIndex];
@@ -1114,10 +1241,10 @@ FocusScope {
     Ui.StatusPane {
         id: screenStatus
         objectName: "screenStatus"
-        x: 550
         y: 280
         width: 820
-        visible: root.screenBlocked
+        x: root.sectionCovered ? 740 : 550
+        visible: root.hardBlocked || root.sectionCovered
         kind: root.screenState === "loading" ? "loading" : root.screenState === "error" ? "error" : "unavailable"
         title: root.screenState === "loading" ? qsTr("Loading settings…")
                : root.screenState === "error" ? qsTr("Settings could not be loaded")
@@ -1126,15 +1253,19 @@ FocusScope {
                      : qsTr("Nothing here can be changed until settings are available.")
         actionText: root.screenState === "loading" ? "" : qsTr("Retry")
         onActionRequested: root.retryRequested()
+        onDpadRequested: {
+            if (root.sectionCovered)
+                root.focusCategory(root.categoryIndex);
+        }
     }
     Column {
         id: categoryColumn
-        opacity: root.sheetOpen ? 0.55 : 1
+        opacity: root.sheetOpen || (aboutBlock && aboutBlock.sheetOpen) ? 0.55 : 1
         x: 120
         y: 220
         width: 540
         spacing: 8
-        visible: !root.screenBlocked
+        visible: !root.hardBlocked
         Repeater {
             id: categoryRepeater
             model: root.categories
@@ -1150,7 +1281,7 @@ FocusScope {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: false
                 text: modelData.title || ""
-                focus: index === root.categoryIndex && !root.detailFocused && !root.screenBlocked
+                focus: index === root.categoryIndex && !root.detailFocused && !root.hardBlocked
                 onClicked: {
                     root.focusCategory(index);
                     root.moveHorizontal(1);
@@ -1218,9 +1349,12 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 64
         spacing: 44
-        visible: root.detailFocused && !root.sheetOpen && !root.screenBlocked
+        visible: root.detailFocused && !root.sheetOpen && !(aboutBlock && aboutBlock.sheetOpen)
+                 && !root.hardBlocked && !root.sectionCovered
         Repeater {
-            model: [
+            model: root.aboutFocused
+                   ? [{key: qsTr("Back"), action: qsTr("To sections")}]
+                   : [
                 // ED-2: "OK Unavailable" where OK does nothing.
                 {key: qsTr("OK"), action: root.hintRowLocked ? qsTr("Unavailable") : qsTr("Edit")},
                 {key: qsTr("Back"), action: qsTr("To sections")}
@@ -1255,12 +1389,12 @@ FocusScope {
     }
     Item {
         id: detail
-        opacity: root.sheetOpen ? 0.55 : 1
+        opacity: root.sheetOpen || (aboutBlock && aboutBlock.sheetOpen) ? 0.55 : 1
         x: 740
         y: 220
         width: 1920 - 740 - 96
         height: 1080 - 220 - 48
-        visible: !root.screenBlocked
+        visible: !root.hardBlocked && !root.sectionCovered
         Ui.UiText {
             id: eyebrow
             width: parent.width
@@ -1861,6 +1995,15 @@ FocusScope {
                             }
                         }
                     }
+                }
+                AboutBlock {
+                    id: aboutBlock
+                    width: rowColumn.width
+                    visible: root.onSystemCategory && !!root.about
+                    about: root.about
+                    sheetParent: root
+                    onSheetClosed: root.focusAbout(0)
+                    onCopied: code => root.noteAboutCopy(code)
                 }
             }
         }

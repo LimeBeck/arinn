@@ -17,6 +17,21 @@ execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/build_
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/build_id.py --watch
     OUTPUT_VARIABLE ARINN_BUILD_WATCH OUTPUT_STRIP_TRAILING_WHITESPACE
     COMMAND_ERROR_IS_FATAL ANY)
+# Channel and commit date for Settings → About. Not part of the build id
+# (ADR-0097): a detached HEAD or a tarball without git leaves them empty.
+execute_process(COMMAND git -C ${CMAKE_SOURCE_DIR} rev-parse --abbrev-ref HEAD
+    OUTPUT_VARIABLE ARINN_BUILD_CHANNEL OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+execute_process(COMMAND git -C ${CMAKE_SOURCE_DIR} log -1 --format=%cs
+    OUTPUT_VARIABLE ARINN_BUILD_DATE OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+if(NOT ARINN_BUILD_CHANNEL OR ARINN_BUILD_CHANNEL STREQUAL "HEAD")
+    set(ARINN_BUILD_CHANNEL "")
+endif()
+# CMake's MATCHES does not treat {n} as a count, so the date is spelled out.
+if(NOT ARINN_BUILD_DATE MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$")
+    set(ARINN_BUILD_DATE "")
+endif()
 string(REPLACE "\n" ";" ARINN_BUILD_WATCH "${ARINN_BUILD_WATCH}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/scripts/build_id.py ${ARINN_BUILD_WATCH})

@@ -752,7 +752,9 @@ TestCase {
         view.screenState = "unavailable";
         tryCompare(child("screenStatus"), "visible", true);
         compare(child("screenStatus").kind, "unavailable");
-        compare(child("category-media").parent.visible, false);
+        // #742: categories stay so System → About can be opened. The cover
+        // sits on the detail area of every section except System.
+        compare(child("category-media").parent.visible, true);
         const action = findChild(child("screenStatus"), "statusAction");
         verify(action !== null);
         compare(action.visible, true);

@@ -802,6 +802,12 @@ Window {
         id: systemStatus
         objectName: "systemStatus"
     }
+    // Settings → System → About (#742). Facts the shell reads itself, plus
+    // Daemon1.BuildInfo and Daemon1.Providers. No new D-Bus field.
+    SystemAbout {
+        id: systemAbout
+        objectName: "systemAbout"
+    }
     // Ambient (§5.7, #307): an explicit start or ten idle minutes on screen,
     // never while media plays. It never suspends, pauses or closes anything.
     Power.AmbientIdle {
@@ -1221,6 +1227,7 @@ Window {
             screenState: settingsCatalog.screenState
             categories: settingsCatalog.categories
             rows: settingsCatalog.rows
+            about: systemAbout
             keyboardAvailable: keyboardMonitor.available
             // `~` in a path names this folder (#479); unset in test hosts.
             homeFolder: typeof shellHomeFolder === "string" ? shellHomeFolder : ""

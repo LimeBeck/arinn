@@ -118,6 +118,7 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
 endforeach()
 
 set(ARINN_SETTINGS_FILES ui/screens/settings/qmldir ui/screens/settings/SettingsView.qml
+    ui/screens/settings/AboutBlock.qml
     ui/screens/settings/LibraryFoldersView.qml ui/screens/settings/FolderPicker.qml
     ui/screens/settings/FolderGlyph.qml)
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
@@ -271,6 +272,7 @@ foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test
         keyboard_model.cpp keyboard_model.h
         download_catalog.cpp download_catalog.h input_mode.cpp input_mode.h
         system_status.cpp system_status.h system_control.cpp system_control.h
+        system_about.cpp system_about.h
         external_keyboard.cpp external_keyboard.h)
     target_link_libraries(${target} PRIVATE arinn-keyboard-panel)
 endforeach()
@@ -291,6 +293,11 @@ qt_add_executable(arinn-system-control-test system_control_test.cpp
     system_control.cpp system_control.h)
 target_link_libraries(arinn-system-control-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
 add_test(NAME system-control COMMAND dbus-run-session -- $<TARGET_FILE:arinn-system-control-test>)
+qt_add_executable(arinn-system-about-test system_about_test.cpp
+    system_about.cpp system_about.h)
+target_link_libraries(arinn-system-about-test PRIVATE Qt6::DBus Qt6::Gui Qt6::Multimedia Qt6::Qml Qt6::Test)
+add_test(NAME system-about COMMAND dbus-run-session -- $<TARGET_FILE:arinn-system-about-test>)
+set_tests_properties(system-about PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 foreach(target arinn-shell arinn-shell-test arinn-session-lifecycle-test)
     qt_add_resources(${target} browse_screen PREFIX "/" FILES
         ui/screens/browse/qmldir ui/screens/browse/BrowseView.qml)

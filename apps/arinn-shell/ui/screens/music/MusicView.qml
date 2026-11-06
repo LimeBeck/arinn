@@ -261,6 +261,12 @@ FocusScope {
         return saveGroup.visible ? saveGroup : removeGroup.visible ? removeGroup : catalogueAction();
     }
     function belowSearch() {
+        // In Find, below the field and its keyboard button are the results
+        // (Codex review of #819).
+        if (mode === "search" && room) {
+            searchView.focusInitial();
+            return;
+        }
         Ui.Focus.take(tracks.count && tracks.visible ? tracks : catalogueAction());
     }
     // 3:05, or 1:15:03 from an hour on (#756 M25).
@@ -318,6 +324,10 @@ FocusScope {
             Ui.Focus.take(queueList);
         else if (tracks.visible && tracks.count)
             Ui.Focus.take(tracks);
+        else if (detailView && (detailHeader.firstPill || playlistRow.first))
+            // An empty detail hides the catalogue's actions: its own pills
+            // take focus (Codex review of #819).
+            Ui.Focus.take(detailHeader.firstPill || playlistRow.first);
         else
             Ui.Focus.take(catalogueAction());
     }
@@ -748,7 +758,7 @@ FocusScope {
                 searchDelay.forMode = root.mode;
                 searchDelay.restart();
             }
-            Keys.onDownPressed: root.mode === "search" ? searchView.focusInitial() : root.belowSearch()
+            Keys.onDownPressed: root.belowSearch()
             Keys.onUpPressed: Ui.Focus.take(sourcePicker)
             Keys.onEscapePressed: root.back()
             Keys.onRightPressed: event => {

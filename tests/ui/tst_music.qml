@@ -1048,6 +1048,17 @@ TestCase {
         keyClick(Qt.Key_Escape);keyClick(Qt.Key_Escape);compare(view.mode,"root");
         catalog.state={account:"connected",facets:["albums"],actions:["play"]};
     }
+    // Codex review of #819: an empty detail focuses its first pill, as the
+    // catalogue's own actions are hidden there.
+    function test_empty_detail_focuses_its_pill() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.state={account:"connected",facets:["albums"],actions:["play","radio"]};
+        catalog.entries=[];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();view.focusInitial();keyClick(Qt.Key_Down);keyClick(Qt.Key_Right);
+        keyClick(Qt.Key_Return);verify(view.detailView);
+        tryCompare(findChild(view,"musicDetailListen"),"activeFocus",true);
+    }
     // #801 Find (MH-10): one field over every source, results as shelves with
     // source marks, a quiet line for a source still searching; a result opens
     // its detail, and Back returns to the results, then to the room.
@@ -1063,7 +1074,11 @@ TestCase {
         compare(findChild(view,"musicSearchPending").text,"Fixture service is still searching…");
         room.searchShelves=[{id:"albums",title:"Albums",kind:"album",entries:[room.card("local","album:2","album","Second"),room.card("account","album:1","album","Same id")]}];
         room.searchPending=[];
-        keyClick(Qt.Key_Down);const results=findChild(view,"musicSearchShelf-albums");tryVerify(()=>results.activeFocus);
+        // Codex review of #819: Down from the keyboard button also reaches
+        // the results.
+        const results=findChild(view,"musicSearchShelf-albums");
+        Ui.Focus.take(findChild(view,"musicKeyboard"));keyClick(Qt.Key_Down);tryVerify(()=>results.activeFocus);
+        Ui.Focus.take(field);keyClick(Qt.Key_Down);tryVerify(()=>results.activeFocus);
         keyClick(Qt.Key_Right);compare(results.focusedEntry.key,"account\nalbum:1");
         keyClick(Qt.Key_Return);verify(view.detailView);compare(catalog.sourceId,"account");
         keyClick(Qt.Key_Escape);compare(view.mode,"search");

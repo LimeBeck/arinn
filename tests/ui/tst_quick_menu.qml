@@ -20,13 +20,18 @@ TestCase {
         Ui.QuickMenu {
             pointerMode: false
             clockText: "21:47"
-            nowPlaying: ({id: "song", title: "Song", state: "playing", playPause: true})
+            sessions: [({id: "song", kind: "music", title: "Song", subtitle: "Singer", state: "playing",
+                         playPause: true, previous: true, next: true, open: true, eyebrow: "Night Wave · Fixture music",
+                         positionUs: 30e6, durationUs: 120e6})]
             audio: "muted"
             network: "wifi"
             wifiLevel: 3
         }
     }
     SignalSpy { id: playPauseSpy; signalName: "playPauseRequested" }
+    SignalSpy { id: previousSpy; signalName: "previousRequested" }
+    SignalSpy { id: nextSpy; signalName: "nextRequested" }
+    SignalSpy { id: openSpy; signalName: "openPlayerRequested" }
     SignalSpy { id: backSpy; signalName: "backRequested" }
     SignalSpy { id: homeSpy; signalName: "homeRequested" }
     SignalSpy { id: closeSpy; signalName: "closeShellRequested" }
@@ -47,7 +52,7 @@ TestCase {
         mouseMove(suite, 10, 10);
         menu = createTemporaryObject(factory, suite);
         verify(menu);
-        for (const spy of [playPauseSpy, backSpy, homeSpy, closeSpy, sleepSpy, powerSpy, muteSpy, volumeSpy]) {
+        for (const spy of [playPauseSpy, previousSpy, nextSpy, openSpy, backSpy, homeSpy, closeSpy, sleepSpy, powerSpy, muteSpy, volumeSpy]) {
             spy.target = menu;
             spy.clear();
         }
@@ -55,16 +60,53 @@ TestCase {
         menu.start();
     }
 
+    // #805 (mh-06): while a session plays or is paused, Now playing is the
+    // media card; focus starts on play/pause.
     function test_opens_on_now_playing_and_toggles_it() {
-        focused("quickMenuMedia");
-        compare(child("quickMenuMediaLabel").text, "Song");
+        focused("quickMenuCardPlayPause");
+        verify(child("quickMenuMediaCard").visible);
+        verify(!child("quickMenuMedia").visible);
+        compare(child("quickMenuCardTitle").text, "Song");
+        compare(child("quickMenuCardTitle").font.pixelSize, 32);
+        compare(child("quickMenuCardTitle").font.weight, 600);
+        compare(child("quickMenuCardSubtitle").text, "Singer");
+        compare(child("quickMenuCardSubtitle").font.pixelSize, 24);
+        compare(child("quickMenuCardEyebrow").text, "Night Wave · Fixture music");
+        compare(child("quickMenuMediaCard").width, 624);
+        compare(child("quickMenuMediaCard").height, 284);
+        compare(child("quickMenuCardCover").width, 128);
+        compare(child("quickMenuCardPlayPause").width, 64);
+        verify(child("quickMenuCardProgress").visible);
         keyClick(Qt.Key_Return);
         compare(playPauseSpy.count, 1);
         compare(playPauseSpy.signalArguments[0][0], "song");
     }
+    // Left and Right along the card's row, stopping at its ends; previous and
+    // next only with the capability; Open player for the shown session.
+    function test_card_row_and_capabilities() {
+        focused("quickMenuCardPlayPause");
+        keyClick(Qt.Key_Left); focused("quickMenuCardPrevious");
+        keyClick(Qt.Key_Left); focused("quickMenuCardPrevious");
+        keyClick(Qt.Key_Return); compare(previousSpy.count, 1); compare(previousSpy.signalArguments[0][0], "song");
+        keyClick(Qt.Key_Right); keyClick(Qt.Key_Right); focused("quickMenuCardNext");
+        keyClick(Qt.Key_Return); compare(nextSpy.count, 1);
+        keyClick(Qt.Key_Right); focused("quickMenuCardOpen");
+        keyClick(Qt.Key_Right); focused("quickMenuCardOpen");
+        keyClick(Qt.Key_Return); compare(openSpy.count, 1); compare(openSpy.signalArguments[0][0], "song");
+        // A video session: no previous or next, the poster and the episode.
+        menu.sessions = [{id: "film", kind: "media", title: "Film", subtitle: "S1 E2", state: "paused",
+                          playPause: true, open: true}];
+        menu.start();
+        focused("quickMenuCardPlayPause");
+        verify(!child("quickMenuCardPrevious").enabled);
+        verify(!child("quickMenuCardNext").enabled);
+        compare(child("quickMenuCardSubtitle").text, "S1 E2");
+        keyClick(Qt.Key_Left); focused("quickMenuCardPlayPause");
+        keyClick(Qt.Key_Right); focused("quickMenuCardOpen");
+    }
 
     function test_rows_in_order_and_network_is_not_focusable() {
-        focused("quickMenuMedia");
+        focused("quickMenuCardPlayPause");
         // Without platform volume control the row says so and is skipped.
         verify(!child("quickMenuVolume").enabled);
         verify(child("quickMenuVolumeDescription").text.indexOf("Muted") === 0);
@@ -80,7 +122,7 @@ TestCase {
         keyClick(Qt.Key_Right);
         focused("quickMenuClose");
         for (let i = 0; i < 6; ++i) keyClick(Qt.Key_Up);
-        focused("quickMenuMedia");
+        focused("quickMenuCardPlayPause");
     }
 
     function test_actions_leave_as_intents() {
@@ -108,7 +150,7 @@ TestCase {
         compare(homeSpy.count, 1);
         // Menu does not leave the sheet scope.
         keyClick(Qt.Key_Menu);
-        focused("quickMenuMedia");
+        focused("quickMenuCardPlayPause");
         compare(backSpy.count, 3);
     }
 
@@ -151,16 +193,109 @@ TestCase {
     }
 
     function test_media_without_play_pause_or_session() {
-        menu.nowPlaying = {id: "radio", title: "Radio", state: "playing", playPause: false};
-        verify(!child("quickMenuMedia").enabled);
-        compare(child("quickMenuMediaDescription").text, "Cannot be paused from Arinn");
-        menu.nowPlaying = {id: "radio", title: "Radio", state: "paused", playPause: false};
-        verify(!child("quickMenuMedia").enabled);
-        compare(child("quickMenuMediaDescription").text, "Cannot be resumed from Arinn");
-        menu.nowPlaying = null;
+        menu.sessions = [{id: "radio", kind: "media", title: "Radio", state: "playing", playPause: false}];
+        verify(!child("quickMenuCardPlayPause").enabled);
+        compare(child("quickMenuCardEyebrow").text, "Cannot be paused from Arinn");
+        menu.sessions = [{id: "radio", kind: "media", title: "Radio", state: "paused", playPause: false}];
+        compare(child("quickMenuCardEyebrow").text, "Cannot be resumed from Arinn");
+        // Nothing on the card works: focus starts on the next row.
+        menu.start();
+        focused("quickMenuSleep");
+        // A stopped session is not shown; without one the plain row stays.
+        menu.sessions = [{id: "radio", kind: "media", title: "Radio", state: "stopped", playPause: true}];
+        verify(!child("quickMenuMediaCard").visible);
+        menu.sessions = [];
+        verify(child("quickMenuMedia").visible);
         compare(child("quickMenuMediaLabel").text, "Nothing is playing");
         menu.start();
         focused("quickMenuSleep");
+    }
+    // #805: one precedence order. Playing ranks above paused; then the change
+    // observed last; with none observed, the native music session; no
+    // product is preferred. The other session is a compact row under the
+    // card, and the two change places only when the order changes.
+    function music(state) {
+        return {id: "music", kind: "music", title: "Track", subtitle: "Artist", state: state, playPause: true, open: true};
+    }
+    function video(state) {
+        return {id: "video", kind: "media", title: "Film", subtitle: "S1 E2", state: state, playPause: true, open: true};
+    }
+    function test_precedence_and_the_second_session() {
+        // Both paused when first seen: the native music session first.
+        menu.sessions = [video("paused"), music("paused")];
+        compare(menu.nowPlaying.id, "music");
+        compare(menu.otherSession.id, "video");
+        verify(child("quickMenuOtherSession").visible);
+        compare(child("quickMenuOtherSession").height, 88);
+        compare(child("quickMenuOtherTitle").text, "Film");
+        compare(child("quickMenuOtherState").text, "Paused");
+        // The video starts playing: playing ranks above paused, they swap.
+        menu.sessions = [video("playing"), music("paused")];
+        compare(menu.nowPlaying.id, "video");
+        compare(child("quickMenuCardTitle").text, "Film");
+        compare(child("quickMenuOtherTitle").text, "Track");
+        // Both play: the one whose change was observed last (the music).
+        menu.sessions = [video("playing"), music("playing")];
+        compare(menu.nowPlaying.id, "music");
+        // Pausing the one in the row moves nothing: playing still ranks first.
+        menu.sessions = [video("paused"), music("playing")];
+        compare(menu.nowPlaying.id, "music");
+        // Both paused: the change observed last (the video's pause).
+        menu.sessions = [video("paused"), music("paused")];
+        compare(menu.nowPlaying.id, "music");
+        menu.sessions = [video("playing"), music("paused")];
+        menu.sessions = [video("paused"), music("paused")];
+        compare(menu.nowPlaying.id, "video");
+        // A stopped session takes no part.
+        menu.sessions = [video("stopped"), music("paused")];
+        verify(!child("quickMenuOtherSession").visible);
+        compare(menu.nowPlaying.id, "music");
+    }
+    // The card's controls act only on its session; OK on the row toggles the
+    // row's. Down: card, row, then Sound; Up from the row: play/pause.
+    function test_controls_follow_the_shown_session_and_down_order() {
+        menu.volumeControl = true;
+        menu.sessions = [video("paused"), music("playing")];
+        menu.start();
+        focused("quickMenuCardPlayPause");
+        keyClick(Qt.Key_Return);
+        compare(playPauseSpy.signalArguments[0][0], "music");
+        keyClick(Qt.Key_Down); focused("quickMenuOtherSession");
+        keyClick(Qt.Key_Return);
+        compare(playPauseSpy.signalArguments[1][0], "video");
+        keyClick(Qt.Key_Up); focused("quickMenuCardPlayPause");
+        keyClick(Qt.Key_Down); keyClick(Qt.Key_Down); focused("quickMenuVolume");
+        // Without a second session, Down from the card goes to Sound.
+        menu.sessions = [music("playing")];
+        menu.start();
+        keyClick(Qt.Key_Down); focused("quickMenuVolume");
+    }
+    // Brief *Fitting the sheet*: the rows scroll with focus, the focused row
+    // never at an edge; fades show that more rows follow; opening starts at
+    // the top on play/pause.
+    function test_rows_scroll_with_focus() {
+        menu.volumeControl = true;
+        menu.sessions = [video("paused"), music("playing")];
+        menu.start();
+        const column = child("quickMenuColumn");
+        compare(column.contentY, 0);
+        verify(child("quickMenuBottomFade").visible);
+        verify(!child("quickMenuTopFade").visible);
+        for (const name of ["quickMenuOtherSession", "quickMenuVolume", "quickMenuSleep", "quickMenuPower",
+                            "quickMenuHome", "quickMenuClose"]) {
+            keyClick(Qt.Key_Down);
+            focused(name);
+            const row = child(name);
+            tryVerify(() => {
+                const top = row.mapToItem(column, 0, 0).y;
+                return top >= 0 && top + row.height <= column.height;
+            }, 2000, name);
+        }
+        tryVerify(() => column.contentY > 0);
+        verify(child("quickMenuTopFade").visible);
+        menu.start();
+        tryCompare(column, "contentY", 0);
+        focused("quickMenuCardPlayPause");
     }
 
     // Degraded without the daemon: Open Home and Close Arinn stay available,
@@ -183,7 +318,7 @@ TestCase {
         focused("quickMenuHome");
         menu.connected = true;
         menu.start();
-        focused("quickMenuMedia");
+        focused("quickMenuCardPlayPause");
     }
 
     function test_notice_and_overlay_dim() {

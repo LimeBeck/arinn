@@ -1312,17 +1312,35 @@ private slots:
     startMusic();
     daemon.request("QuickMenuRequested");
     QTRY_VERIFY(menuOpen());
-    auto *row = child(window, "quickMenuMedia");
-    QTRY_COMPARE(row->property("text").toString(), QStringLiteral("Synthetic song"));
-    QVERIFY(row->isEnabled());
-    // The playing session takes the sheet's first focus, and OK pauses it.
-    QTRY_VERIFY(row->hasActiveFocus());
+    // #805: the media card shows the music session; its play/pause takes the
+    // sheet's first focus, and OK pauses it.
+    auto *card = child(window, "quickMenuMediaCard");
+    auto *title = child(window, "quickMenuCardTitle");
+    auto *button = child(window, "quickMenuCardPlayPause");
+    QTRY_VERIFY(card->isVisible());
+    QTRY_COMPARE(title->property("text").toString(), QStringLiteral("Synthetic song"));
+    QVERIFY(button->isEnabled());
+    QTRY_VERIFY(button->hasActiveFocus());
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(daemon.musicCommands, QStringList{QStringLiteral("pause")});
-    QTRY_COMPARE(row->property("description").toString(), QStringLiteral("Paused · OK plays"));
+    QTRY_COMPARE(button->property("text").toString(), QStringLiteral("Play"));
     QTest::keyClick(window, Qt::Key_Return);
     QTRY_COMPARE(daemon.musicCommands,
                  (QStringList{QStringLiteral("pause"), QStringLiteral("resume")}));
+    // Open player opens Now playing; Back from there returns to the sheet.
+    auto *open = child(window, "quickMenuCardOpen");
+    auto *music = child(window, "productionMusic");
+    QTest::keyClick(window, Qt::Key_Right);
+    QTest::keyClick(window, Qt::Key_Right);
+    QTRY_VERIFY(open->hasActiveFocus());
+    QTest::keyClick(window, Qt::Key_Return);
+    QTRY_VERIFY(!menuOpen());
+    QTRY_VERIFY(music->isVisible());
+    QTRY_COMPARE(music->property("mode").toString(), QStringLiteral("player"));
+    QTRY_VERIFY(focusIn(music));
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(menuOpen());
+    QTRY_VERIFY(child(window, "quickMenuCardPlayPause")->hasActiveFocus());
   }
 
   // Home leaves the music player, by the remote's key and by the

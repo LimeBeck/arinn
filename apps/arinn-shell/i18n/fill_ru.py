@@ -426,6 +426,8 @@ RU = {
     "Connected": "Подключено",
     "Untitled": "Без названия",
     "Nothing is playing": "Ничего не воспроизводится",
+    # Quick menu media card (#805, mh-06): as on the music screens.
+    "Open player": "Открыть плеер",
     "Not available": "Недоступно",
     "Cannot be paused from Arinn": "Arinn не может поставить на паузу",
     "Cannot be resumed from Arinn": "Arinn не может продолжить воспроизведение",

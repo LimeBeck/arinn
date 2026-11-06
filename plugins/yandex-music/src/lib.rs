@@ -305,7 +305,7 @@ impl Api {
         let info = self
             .request(Method::GET, &["rotor", "station", key, "info"], &[])
             .await?;
-        let image = parse::station_image(&info).map(str::to_owned);
+        let image = parse::station_image(&info)?.map(str::to_owned);
         let mut known = self.station_images.lock().map_err(|_| Error::Unavailable)?;
         // A bounded memo with room for every pin (256), My Wave and the
         // radios started in one connection; past that only one entry makes

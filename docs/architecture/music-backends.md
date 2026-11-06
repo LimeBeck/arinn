@@ -431,7 +431,10 @@ or `avatars.mds.yandex.net`, behind the same cache, epoch guard, size limit and
 
 Search results, playlists and stations carry an ID only when the API names an
 image. Whether a station's info names one is asked once per connection, at
-most eight stations at a time under one shared 3-second deadline; a failed or
+most eight stations at a time under one shared 3-second deadline that never
+runs past the listing's own 30-second budget: the Selections listing asks
+for its required playlists first. Only a well-formed station that names no
+image counts as "no image"; a malformed answer is a failed lookup; a failed or
 slow answer leaves the station without artwork. Such a listing is marked
 incomplete in the catalogue cache: a request after a minute fetches it again
 while the cached one is still shown, so a station is asked again instead of

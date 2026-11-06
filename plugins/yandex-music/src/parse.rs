@@ -79,14 +79,21 @@ pub(crate) fn cover_reference(value: &Value) -> Option<&str> {
 }
 
 /// The image a rotor station's info names (#843): its `icon.imageUrl`, else
-/// its `fullImageUrl`; `None` when it names none. `info` is the result of
-/// `rotor/station/<key>/info`, a list holding the station.
-pub(crate) fn station_image(info: &Value) -> Option<&str> {
-    let station = &info.as_array()?.first()?["station"];
-    [&station["icon"]["imageUrl"], &station["fullImageUrl"]]
+/// its `fullImageUrl`; `None` when a well-formed station names none. `info` is
+/// the result of `rotor/station/<key>/info`, a list holding the station; any
+/// other shape is an error, so it is asked again rather than kept as "no
+/// image" (Codex review of #849).
+pub(crate) fn station_image(info: &Value) -> Result<Option<&str>, Error> {
+    let station = info
+        .as_array()
+        .and_then(|list| list.first())
+        .and_then(|entry| entry.get("station"))
+        .filter(|station| station.is_object())
+        .ok_or(Error::InvalidResponse)?;
+    Ok([&station["icon"]["imageUrl"], &station["fullImageUrl"]]
         .into_iter()
         .filter_map(Value::as_str)
-        .find(|reference| !reference.is_empty())
+        .find(|reference| !reference.is_empty()))
 }
 
 /// A library date from the API ("2024-05-01T12:00:00+00:00", optionally
@@ -542,18 +549,29 @@ mod tests {
         );
         assert_eq!(reference(json!({"cover": {"type": "mosaic"}})), None);
         // #843: a station's `icon.imageUrl`, else its `fullImageUrl`.
-        let station = |value| station_image(&value).map(str::to_owned);
+        let station = |value| station_image(&value).map(|image| image.map(str::to_owned));
         assert_eq!(
             station(json!([{"station": {"icon": {"imageUrl": "f/%%"}, "fullImageUrl": "g/%%"}}])),
-            Some("f/%%".into())
+            Ok(Some("f/%%".into()))
         );
         assert_eq!(
             station(json!([{"station": {"icon": {"imageUrl": ""}, "fullImageUrl": "g/%%"}}])),
-            Some("g/%%".into())
+            Ok(Some("g/%%".into()))
         );
-        assert_eq!(station(json!([{"station": {"icon": {}}}])), None);
-        assert_eq!(station(json!([])), None);
-        assert_eq!(station(json!({"station": {"fullImageUrl": "g/%%"}})), None);
+        assert_eq!(station(json!([{"station": {"icon": {}}}])), Ok(None));
+        // Codex review of #849: a malformed answer is an error, not "no image".
+        for malformed in [
+            json!([]),
+            json!([{}]),
+            json!([{"station": "x"}]),
+            json!({"station": {"fullImageUrl": "g/%%"}}),
+        ] {
+            assert_eq!(
+                station(malformed.clone()),
+                Err(crate::Error::InvalidResponse),
+                "{malformed}"
+            );
+        }
         assert_eq!(reference(json!({"coverUri": 5})), None);
     }
     /// #825: a playlist records whether the API names an image for it.

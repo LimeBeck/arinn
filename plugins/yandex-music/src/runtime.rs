@@ -184,8 +184,13 @@ fn known_station_artwork(api: &Api, seed: &str) -> String {
 /// listing waits no longer, and those stations go without artwork (Codex
 /// review of #849). The flag is false when some lookup failed or ran out of
 /// time, so the caller can ask again later.
-async fn station_artworks(api: &Api, ids: &[String]) -> (HashMap<String, String>, bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+async fn station_artworks(
+    api: &Api,
+    ids: &[String],
+    limit: tokio::time::Instant,
+) -> (HashMap<String, String>, bool) {
+    // Three seconds at most, and never past the caller's own limit.
+    let deadline = limit.min(tokio::time::Instant::now() + Duration::from_secs(3));
     let slots = Arc::new(Semaphore::new(8));
     let mut lookups = tokio::task::JoinSet::new();
     for id in ids {
@@ -598,8 +603,9 @@ impl Runtime {
             let this = self.clone();
             tokio::spawn(async move {
                 let _permit = permit;
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
                 let result =
-                    tokio::time::timeout(Duration::from_secs(30), this.fetch_listing(&api, &query))
+                    tokio::time::timeout_at(deadline, this.fetch_listing(&api, &query, deadline))
                         .await
                         .unwrap_or(Err(ErrorCode::Timeout));
                 let mut d = this.data.lock().await;
@@ -662,6 +668,7 @@ impl Runtime {
         &self,
         api: &Api,
         query: &Query,
+        deadline: tokio::time::Instant,
     ) -> Result<(Vec<Entity>, Vec<Track>, bool), ErrorCode> {
         let uid = api.account_uid().await.map_err(error)?;
         let tracks = if let Some(id) = query.parent.strip_prefix("playlist:") {
@@ -718,18 +725,18 @@ impl Runtime {
             }
             // Each station's cover as its rotor info names it now, also for
             // a pin stored before stations carried one (#843).
+            // The required playlists first; the optional covers then get
+            // what is left of the listing's budget, up to three seconds, so
+            // they can never make a listing whose required requests answered
+            // run out of time (Codex review of #849).
+            let playlists = api.user_playlists(&uid).await.map_err(error)?;
             let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
-            let (mut artworks, complete) = station_artworks(api, &ids).await;
+            let (mut artworks, complete) =
+                station_artworks(api, &ids, deadline - Duration::from_secs(1)).await;
             for entry in &mut entries {
                 entry.artwork = artworks.remove(&entry.id).unwrap_or_default();
             }
-            entries.extend(
-                api.user_playlists(&uid)
-                    .await
-                    .map_err(error)?
-                    .into_iter()
-                    .map(|p| playlist(&uid, p)),
-            );
+            entries.extend(playlists.into_iter().map(|p| playlist(&uid, p)));
             return Ok((entries, vec![], complete));
         } else if query.facet == "playlists" {
             return Ok((
@@ -810,9 +817,13 @@ impl Runtime {
         api: &Api,
         query: &Query,
     ) -> Result<(Vec<Entity>, Vec<Track>), ErrorCode> {
-        self.fetch_listing(api, query)
-            .await
-            .map(|(entries, tracks, _)| (entries, tracks))
+        self.fetch_listing(
+            api,
+            query,
+            tokio::time::Instant::now() + Duration::from_secs(30),
+        )
+        .await
+        .map(|(entries, tracks, _)| (entries, tracks))
     }
     async fn selected(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
@@ -1449,10 +1460,10 @@ mod tests {
         let bare = json!({"result":[{"station":{"id":{"type":"track","tag":"456"},"icon":{}}}]});
         let mock = Mock::new(vec![
             (200, account.to_string()),
+            (200, json!({"result":[]}).to_string()),
             (200, wave.to_string()),
             (200, track.to_string()),
             (200, bare.to_string()),
-            (200, json!({"result":[]}).to_string()),
             (200, account.to_string()),
             (200, json!({"result":[]}).to_string()),
         ]);
@@ -1477,6 +1488,13 @@ mod tests {
             assert!(entries.iter().all(|e| e.validate().is_ok()));
         }
         let requests = mock.finish();
+        // The required playlists come before the optional covers (Codex
+        // review of #849).
+        assert!(
+            requests[1].0.contains("/playlists/list"),
+            "{}",
+            requests[1].0
+        );
         let paths: Vec<&str> = requests
             .iter()
             .filter_map(|r| r.0.split(' ').nth(1))
@@ -1543,11 +1561,11 @@ mod tests {
         let playlists = json!({"result":[]}).to_string();
         let mock = Mock::new(vec![
             (200, account.clone()),
-            (500, "{}".into()),
             (200, playlists.clone()),
+            (500, "{}".into()),
             (200, account),
-            (200, wave.to_string()),
             (200, playlists),
+            (200, wave.to_string()),
         ]);
         fixture.runtime.connected(mock.api.clone()).await;
         let listing = || fixture.runtime.catalogue(query("selections", "", ""));
@@ -1615,8 +1633,8 @@ mod tests {
         let account = json!({"result":{"account":{"uid":5}}}).to_string();
         let mock = Mock::new(vec![
             (200, account),
-            (500, "{}".into()),
             (200, json!({"result":[]}).to_string()),
+            (500, "{}".into()),
             (500, "{}".into()),
         ]);
         fixture.runtime.connected(mock.api.clone()).await;
@@ -1763,11 +1781,31 @@ mod tests {
         });
         let ids: Vec<String> = (1..=12).map(|n| format!("station:track:{n}")).collect();
         let started = std::time::Instant::now();
-        let (artworks, complete) = station_artworks(&api, &ids).await;
+        let (artworks, complete) = station_artworks(
+            &api,
+            &ids,
+            tokio::time::Instant::now() + Duration::from_secs(30),
+        )
+        .await;
         assert!(artworks.is_empty());
         assert!(!complete);
         assert!(
             started.elapsed() < Duration::from_secs(6),
+            "{:?}",
+            started.elapsed()
+        );
+        // Codex review of #849: a caller's own limit caps the phase, so the
+        // optional covers never outlast the listing's budget.
+        let started = std::time::Instant::now();
+        let (artworks, complete) = station_artworks(
+            &api,
+            &ids,
+            tokio::time::Instant::now() + Duration::from_millis(200),
+        )
+        .await;
+        assert!(artworks.is_empty() && !complete);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
             "{:?}",
             started.elapsed()
         );

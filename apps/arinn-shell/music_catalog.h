@@ -15,6 +15,9 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(
       QString activeSourceName READ activeSourceName NOTIFY activeChanged)
   Q_PROPERTY(QString sourceId READ sourceId NOTIFY sourcesChanged)
+  // The provider of the active session, which may differ from the browsed
+  // source: the Music root marks the entry that plays (#800).
+  Q_PROPERTY(QString activeSourceId READ activeSourceId NOTIFY activeChanged)
   Q_PROPERTY(QString errorText READ errorText NOTIFY statusChanged)
   Q_PROPERTY(bool busy READ busy NOTIFY statusChanged)
   Q_PROPERTY(bool transportBusy READ transportBusy NOTIFY statusChanged)
@@ -42,6 +45,7 @@ public:
   QVariantMap activeState() const { return m_active; }
   QString activeSourceName() const;
   QString sourceId() const { return m_sourceId; }
+  QString activeSourceId() const { return m_activeId; }
   QString errorText() const { return m_error; }
   bool busy() const {
     return m_commandBusy || m_pageBusy ||

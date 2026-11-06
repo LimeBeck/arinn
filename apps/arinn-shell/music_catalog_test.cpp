@@ -5,6 +5,7 @@
 // MusicCatalog against a scripted daemon on the session bus (ADR-0134).
 // Synthetic providers and tracks only.
 #include "music_catalog.h"
+#include "music_room.h"
 #include <QFile>
 #include <QQmlComponent>
 #include <QQmlContext>
@@ -45,6 +46,12 @@ public:
   QHash<QString, QJsonObject> states;
   QHash<QString, QString> stateErrors;
   QHash<QString, int> pageReads;
+  // Entries per "provider/facet"; a facet without its own uses one track.
+  QHash<QString, QJsonArray> pages;
+  // With a page size, those entries come in pages with tokens "p<n>"; the
+  // next `conflicts` continuations fail as an expired lease does.
+  int pageSize = 0;
+  int conflicts = 0;
   QStringList commands;
   QString commandError;
   QString pageError;
@@ -103,13 +110,36 @@ public:
                                           QStringLiteral("Unsupported")));
         return true;
       }
+      const auto facet = QJsonDocument::fromJson(message.arguments().value(1).toString().toUtf8())
+                             .object().value("facet").toString();
+      const auto token = QJsonDocument::fromJson(message.arguments().value(1).toString().toUtf8())
+                             .object().value("token").toString();
+      if (!token.isEmpty() && conflicts > 0) {
+        --conflicts;
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Conflict"),
+                                          QStringLiteral("Conflict")));
+        return true;
+      }
+      const auto own = pages.find(id + QLatin1Char('/') + facet);
+      auto entries = own != pages.end() ? *own
+                     : QJsonArray{QJsonObject{{"id", "t1"},
+                                              {"kind", "track"},
+                                              {"title", "Synthetic"},
+                                              {"available", true}}};
+      QString next;
+      if (pageSize > 0 && own != pages.end()) {
+        const int offset = token.isEmpty() ? 0 : token.mid(1).toInt() * pageSize;
+        QJsonArray slice;
+        for (int i = offset; i < std::min<int>(offset + pageSize, entries.size()); ++i)
+          slice.append(entries.at(i));
+        if (offset + pageSize < entries.size())
+          next = QStringLiteral("p%1").arg(offset / pageSize + 1);
+        entries = slice;
+      }
       QJsonObject page{{"generation", message.arguments().value(0).toString()},
                        {"revision", 1},
-                       {"entries", QJsonArray{QJsonObject{{"id", "t1"},
-                                                          {"kind", "track"},
-                                                          {"title", "Synthetic"},
-                                                          {"available", true}}}},
-                       {"next_token", ""}};
+                       {"entries", entries},
+                       {"next_token", next}};
       bus.send(message.createReply(
           QString::fromUtf8(QJsonDocument(page).toJson(QJsonDocument::Compact))));
       return true;
@@ -157,7 +187,294 @@ private slots:
     daemon.states.clear();
     daemon.stateErrors.clear();
     daemon.pageReads.clear();
+    daemon.pages.clear();
+    daemon.pageSize = 0;
+    daemon.conflicts = 0;
+    daemon.commands.clear();
     daemon.active = QStringLiteral("null");
+  }
+  // #800, ADR-0142 MH-9: personal entries first, providers in Sources
+  // order; dated ordinary entries newest first; undated ones alternate.
+  void roomOrdersPersonalThenDatedThenAlternating() {
+    auto entry = [](const char *key, qulonglong at = 0) {
+      QVariantMap value{{"key", QString::fromLatin1(key)}};
+      if (at)
+        value.insert("added_at", at);
+      return QVariant(value);
+    };
+    auto keys = [](const QVariantList &list) {
+      QStringList out;
+      for (const auto &value : list)
+        out.append(value.toMap().value("key").toString());
+      return out.join(',');
+    };
+    // Without dates: each provider's own order, one from each in turn.
+    QCOMPARE(keys(MusicRoom::order({{entry("a-wave")}, {}},
+                                   {{entry("a1"), entry("a2"), entry("a3")},
+                                    {entry("b1"), entry("b2")}})),
+             QStringLiteral("a-wave,a1,b1,a2,b2,a3"));
+    // Dated entries newest first, undated ones after them.
+    QCOMPARE(keys(MusicRoom::order({}, {{entry("a1", 100), entry("a2", 300)},
+                                        {entry("b1"), entry("b2", 200)}})),
+             QStringLiteral("a2,b2,a1,b1"));
+    // Personal entries of a later provider still precede ordinary ones.
+    QCOMPARE(keys(MusicRoom::order({{}, {entry("b-mix")}}, {{entry("a1", 5)}, {}})),
+             QStringLiteral("b-mix,a1"));
+  }
+  // #800: late entries never move focus. The shown cards keep their places,
+  // new ones join at the end and gone ones leave.
+  void roomKeepsShownEntriesInPlace() {
+    auto list = [](const QStringList &keys) {
+      QVariantList out;
+      for (const auto &key : keys)
+        out.append(QVariantMap{{"key", key}});
+      return out;
+    };
+    auto keys = [](const QVariantList &values) {
+      QStringList out;
+      for (const auto &value : values)
+        out.append(value.toMap().value("key").toString());
+      return out;
+    };
+    QCOMPARE(keys(MusicRoom::stable(list({"a1", "a2"}), list({"b1", "a1", "b2", "a2"}))),
+             (QStringList{"a1", "a2", "b1", "b2"}));
+    QCOMPARE(keys(MusicRoom::stable(list({"a1", "b1", "a2"}), list({"a1", "a2"}))),
+             (QStringList{"a1", "a2"}));
+  }
+  // #800 (MH-1, MH-5, MH-10): one room over every source. Each source is
+  // paged on its own, shelves gather them with source marks, identical ids
+  // stay two cards, a shelf no source supplies is absent, the Sources sheet
+  // carries each state and its housekeeping, and a source that leaves takes
+  // its entries along.
+  void roomGathersShelvesFromEverySource() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    auto local = state({"albums", "tracks", "playlists"});
+    local["actions"] = QJsonArray{"play", "scan"};
+    auto account = state({"selections", "albums"}, "connected");
+    account["actions"] = QJsonArray{"play", "disconnect"};
+    daemon.states["local"] = local;
+    daemon.states["account"] = account;
+    auto album = [](const char *id, const char *title, qint64 at = 0) {
+      QJsonObject value{{"id", id}, {"kind", "album"}, {"title", title}, {"available", true}};
+      if (at)
+        value.insert("added_at", at);
+      return value;
+    };
+    daemon.pages["local/albums"] = QJsonArray{album("album:1", "Old", 100), album("album:2", "New", 900)};
+    daemon.pages["account/albums"] = QJsonArray{album("album:1", "Same id"), album("album:9", "Remote")};
+    daemon.pages["account/selections"] = QJsonArray{
+        QJsonObject{{"id", "station:mix"}, {"kind", "station"}, {"title", "Mix"}, {"available", true}}};
+    daemon.pages["local/tracks"] = QJsonArray{};
+    daemon.pages["local/playlists"] = QJsonArray{};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_COMPARE(room.sources().size(), 2);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QStringList ids;
+    QVariantList albums;
+    for (const auto &value : room.shelves()) {
+      const auto shelf = value.toMap();
+      ids.append(shelf.value("id").toString());
+      if (shelf.value("id") == "albums")
+        albums = shelf.value("entries").toList();
+    }
+    // Stations from the personal facet, Albums from both; no source offers
+    // playlists, tracks or artists here, so those shelves are absent.
+    QCOMPARE(ids, (QStringList{"stations", "albums"}));
+    QStringList keys;
+    for (const auto &value : albums)
+      keys.append(value.toMap().value("key").toString());
+    QCOMPARE(keys, (QStringList{"local\nalbum:2", "local\nalbum:1", "account\nalbum:1",
+                                "account\nalbum:9"}));
+    QCOMPARE(albums.first().toMap().value("local").toBool(), true);
+    QCOMPARE(albums.at(2).toMap().value("providerName").toString(), QStringLiteral("Fixture account"));
+    QVERIFY(room.dated());
+    // The All list filters by source and sorts by title on request.
+    QCOMPARE(room.list("albums", "account").size(), 2);
+    QCOMPARE(room.list("albums", QString(), true).first().toMap().value("title").toString(),
+             QStringLiteral("New"));
+    const auto sources = room.sources();
+    QCOMPARE(sources.at(0).toMap().value("status").toString(), QStringLiteral("connected"));
+    QCOMPARE(sources.at(0).toMap().value("actions").toStringList(), QStringList{"scan"});
+    QCOMPARE(sources.at(1).toMap().value("actions").toStringList(), QStringList{"disconnect"});
+    // Housekeeping goes to the source it belongs to, by capability only.
+    room.sourceCommand("account", "scan");
+    room.sourceCommand("account", "disconnect");
+    QTRY_COMPARE(daemon.commands, QStringList{"disconnect"});
+    QTRY_VERIFY(!room.sources().at(1).toMap().value("busy").toBool());
+    QVERIFY(room.sources().at(1).toMap().value("error").toString().isEmpty());
+    // Codex review of #812: a refused command says so in the sheet.
+    daemon.commandError = QStringLiteral("Unavailable");
+    room.sourceCommand("account", "disconnect");
+    QTRY_VERIFY(!room.sources().at(1).toMap().value("error").toString().isEmpty());
+    daemon.commandError.clear();
+    // Review of #812: a new catalogue revision keeps the source's cards
+    // until its new first pages replace them, so none leave and return.
+    {
+      bool emptied = false;
+      const auto watch = connect(&room, &MusicRoom::listChanged, this, [&] {
+        if (room.list("albums", "local").isEmpty())
+          emptied = true;
+      });
+      const auto reads = daemon.pageReads.value("local");
+      local["catalogue_revision"] = 2;
+      daemon.states["local"] = local;
+      room.refresh();
+      QTRY_VERIFY(daemon.pageReads.value("local") >= reads + 3);
+      QTRY_VERIFY(!room.loading());
+      disconnect(watch);
+      QVERIFY(!emptied);
+      QCOMPARE(room.list("albums", "local").size(), 2);
+    }
+    // A source that stops answering leaves the shelves, and the sheet says why.
+    daemon.stateErrors["account"] = QStringLiteral("Timeout");
+    room.refresh();
+    QTRY_COMPARE(room.sources().at(1).toMap().value("status").toString(), QStringLiteral("unavailable"));
+    QTRY_COMPARE(room.list("albums").size(), 2);
+    QVERIFY(!room.sources().at(1).toMap().value("reason").toString().isEmpty());
+    // A source that leaves the registry leaves the room.
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    catalog.refresh();
+    QTRY_COMPARE(room.sources().size(), 1);
+  }
+  // Review of #812: a shelf's All list pages its personal entries in
+  // `selections` as well as its own facet, and a continuation that fails (a
+  // lease expires after 30 s) reads again from the start and pages on
+  // instead of stopping at the first page.
+  void roomPagesSelectionsAndResumesAfterAnExpiredLease() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    auto account = state({"selections", "albums"}, "connected");
+    account["actions"] = QJsonArray{"play"};
+    daemon.states["account"] = account;
+    QJsonArray mine, albums;
+    for (int i = 0; i < 5; ++i) {
+      mine.append(QJsonObject{{"id", QStringLiteral("album:mine%1").arg(i)}, {"kind", "album"},
+                              {"title", QStringLiteral("Mine %1").arg(i)}, {"available", true}});
+      albums.append(QJsonObject{{"id", QStringLiteral("album:%1").arg(i)}, {"kind", "album"},
+                                {"title", QStringLiteral("Album %1").arg(i)}, {"available", true}});
+    }
+    daemon.pages["account/selections"] = mine;
+    daemon.pages["account/albums"] = albums;
+    daemon.pageSize = 2;
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QCOMPARE(room.list("albums").size(), 4);
+    QVERIFY(room.more("albums"));
+    // The next continuation fails once: the facet starts over and pages on.
+    daemon.conflicts = 1;
+    for (int i = 0; i < 6 && room.more("albums"); ++i) {
+      const auto before = room.list("albums").size();
+      room.loadMore("albums");
+      QTRY_VERIFY(room.list("albums").size() > before || !room.more("albums"));
+    }
+    QTRY_COMPARE(room.list("albums").size(), 10);
+    QVERIFY(!room.more("albums"));
+    // Personal entries still lead the full list.
+    const auto list = room.list("albums");
+    for (int i = 0; i < 5; ++i)
+      QVERIFY(list.at(i).toMap().value("id").toString().startsWith("album:mine"));
+  }
+  // Codex review of #812: a first page that fails (a timeout) is read again
+  // on a later state poll instead of leaving its shelf out until the next
+  // catalogue revision.
+  void roomRetriesAFailedFirstPage() {
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.pages["local/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:1"}, {"kind", "album"}, {"title", "One"}, {"available", true}}};
+    daemon.pageError = QStringLiteral("Timeout");
+    MusicCatalog catalog;
+    MusicRoom room;
+    QList<bool> loads;
+    connect(&room, &MusicRoom::loadingChanged, this, [&] { loads.append(room.loading()); });
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    // The last notification carries false, with the shelves still empty.
+    QTRY_VERIFY(!loads.isEmpty() && !loads.last());
+    QVERIFY(loads.contains(true));
+    QVERIFY(room.list("albums").isEmpty());
+    // Review of #812: QML hears `loading` turn false although the shelves
+    // stay empty, and retries do not raise it again.
+    QCOMPARE(room.property("loading").toBool(), false);
+    QList<bool> seen;
+    const auto watch = connect(&room, &MusicRoom::loadingChanged, this,
+                               [&] { seen.append(room.loading()); });
+    QTest::qWait(4500);
+    disconnect(watch);
+    QVERIFY2(!seen.contains(true), "a retry raised loading");
+    daemon.pageError.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 1, 20000);
+    // A refresh for a new revision that fails keeps the old entries shown
+    // and is read again, not left stale until the next revision.
+    daemon.pages["local/albums"].append(
+        QJsonObject{{"id", "album:2"}, {"kind", "album"}, {"title", "Two"}, {"available", true}});
+    auto local = state({"albums"});
+    local["catalogue_revision"] = 2;
+    daemon.states["local"] = local;
+    daemon.pageError = QStringLiteral("Timeout");
+    const auto reads = daemon.pageReads.value("local");
+    room.refresh();
+    QTRY_VERIFY(daemon.pageReads.value("local") > reads);
+    QTest::qWait(200);
+    QCOMPARE(room.list("albums").size(), 1);
+    daemon.pageError.clear();
+    QTRY_COMPARE_WITH_TIMEOUT(room.list("albums").size(), 2, 20000);
+  }
+  // Codex review of #812: a source that has not answered its state counts
+  // as loading, and `dated` sees dates past a shelf's preview.
+  void roomLoadsUntilStatesAnswerAndSeesDatesBeyondThePreview() {
+    daemon.providers = {{"local", "Fixture music", "g1"}};
+    daemon.states["local"] = state({"selections", "albums"});
+    QJsonArray mine;
+    for (int i = 0; i < 30; ++i)
+      mine.append(QJsonObject{{"id", QStringLiteral("album:mine%1").arg(i)}, {"kind", "album"},
+                              {"title", QStringLiteral("Mine %1").arg(i)}, {"available", true}});
+    daemon.pages["local/selections"] = mine;
+    daemon.pages["local/albums"] = QJsonArray{QJsonObject{
+        {"id", "album:dated"}, {"kind", "album"}, {"title", "Dated"}, {"available", true},
+        {"added_at", 1700000000}}};
+    MusicCatalog catalog;
+    MusicRoom room;
+    // The moment the source is known, before its state answers, the room is
+    // loading.
+    int seen = -1;
+    connect(&room, &MusicRoom::sourcesChanged, this, [&] {
+      if (seen < 0 && !room.sources().isEmpty())
+        seen = room.loading() ? 1 : 0;
+    });
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(seen >= 0);
+    QCOMPARE(seen, 1);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QVERIFY(room.dated());
+  }
+  // #800 first use: without a connected source the room is not connected,
+  // so the hero offers Connect and no shelf shows.
+  void roomWithoutAConnectedSourceIsTheFirstUse() {
+    daemon.providers = {{"account", "Fixture account", "g1"}};
+    auto account = state({}, "disconnected");
+    account["actions"] = QJsonArray{"connect"};
+    daemon.states["account"] = account;
+    // Codex review of #812: before discovery knows any source, the room is
+    // not settled, so it never claims to be the first use.
+    MusicRoom unknown;
+    QVERIFY(!unknown.settled());
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_COMPARE(room.sources().size(), 1);
+    QTRY_COMPARE(room.sources().first().toMap().value("status").toString(), QStringLiteral("signin"));
+    QTRY_VERIFY(room.settled());
+    QVERIFY(!room.connected());
+    QVERIFY(room.shelves().isEmpty());
+    QCOMPARE(room.sources().first().toMap().value("actions").toStringList(), QStringList{"connect"});
   }
   void timedOutStartClearsErrorOnlyAfterItsNewSessionIsConfirmed() {
     daemon.providers={{"account","Fixture account","g1"}};

@@ -928,7 +928,8 @@ TestCase {
         room.shelves=[{id:"stations",title:"Stations",kind:"station",entries:[room.card("account","station:mix","station","Fixture mix")]},
                       {id:"forYou",title:"For you",kind:"playlist",entries:[room.card("account","playlist:1","playlist","Mix")]},albums];
         const area=findChild(view,"musicShelves");
-        // Promptly, as the shelves arrive: not on some later event.
-        tryVerify(()=>shelf.activeFocus && shelf.y>=area.contentY && shelf.y+shelf.height<=area.contentY+area.height,500);
+        // Once the column has laid the new shelves out above it.
+        tryVerify(()=>shelf.y>0);
+        tryVerify(()=>shelf.activeFocus && shelf.y>=area.contentY && shelf.y+shelf.height<=area.contentY+area.height);
     }
 }

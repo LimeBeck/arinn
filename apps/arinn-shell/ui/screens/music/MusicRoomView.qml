@@ -299,6 +299,11 @@ FocusScope {
                         root.focusedShelf = shelfItem;
                         root.revealShelf(shelfItem);
                     }
+                    // A shelf that arrived above moves the focused one down
+                    // once the column lays it out: keep it in view (reviews
+                    // of #812).
+                    onYChanged: if (activeFocus)
+                        root.revealShelf(shelfItem)
                     Keys.onUpPressed: event => {
                         const previous = shelfRepeater.itemAt(index - 1);
                         if (previous) {
@@ -341,13 +346,6 @@ FocusScope {
                 shelfModel.move(at, i, 1);
         }
         Qt.callLater(settleFocus);
-        // A shelf that arrived above the focused one moves it down: keep the
-        // focused shelf in view (Codex review of #812).
-        Qt.callLater(revealFocused);
-    }
-    function revealFocused() {
-        if (focusedShelf && focusedShelf.activeFocus)
-            revealShelf(focusedShelf);
     }
     // A shelf that left while it held focus hands focus on, and so does a
     // control that hid under focus (an item keeps focus as it hides): the

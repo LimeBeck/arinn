@@ -905,14 +905,28 @@ void SettingsCatalog::publish() {
     m_deferredGeneration.remove(key);
   }
   // A category without rows is not shown, so Settings opens on the first
-  // category that has one (#756).
+  // category that has one (#756). System stays: About lives there even when
+  // no provider registers a system setting (#742). While the daemon is
+  // unreachable every design category stays listed, so System → About can be
+  // reached and the other sections stay covered.
   QSet<QString> used;
   for (const auto &row : std::as_const(rows))
     used.insert(row.toMap().value(QStringLiteral("categoryId")).toString());
+  if (m_loaded)
+    used.insert(QStringLiteral("system"));
   QVariantList shown;
-  for (const auto &category : std::as_const(categories))
-    if (used.contains(category.toMap().value(QStringLiteral("id")).toString()))
-      shown.append(category);
+  if (m_unreachable) {
+    for (const auto &category : kCategories) {
+      shown.append(QVariantMap{
+          {QStringLiteral("id"), QString::fromLatin1(category.id)},
+          {QStringLiteral("title"), tr(category.title)},
+          {QStringLiteral("icon"), QString::fromLatin1(category.icon)}});
+    }
+  } else {
+    for (const auto &category : std::as_const(categories))
+      if (used.contains(category.toMap().value(QStringLiteral("id")).toString()))
+        shown.append(category);
+  }
   categories = shown;
   // A reload follows every ProvidersChanged. Announcing unchanged rows makes
   // the open settings screen rebuild (#441).

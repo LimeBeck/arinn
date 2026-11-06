@@ -2,6 +2,165 @@
 <!DOCTYPE TS>
 <TS version="2.1" language="ru" sourcelanguage="en">
 <context>
+    <name>AboutBlock</name>
+    <message>
+        <source>Unknown</source>
+        <translation>Неизвестно</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>About</source>
+        <translation>О системе</translation>
+    </message>
+    <message>
+        <source>Copy details</source>
+        <translation>Скопировать сведения</translation>
+    </message>
+    <message>
+        <source>For a bug report: to the clipboard and as a file in Downloads</source>
+        <translation>Для отчёта об ошибке: в буфер обмена и файлом в «Загрузки»</translation>
+    </message>
+    <message>
+        <source>Arinn version</source>
+        <translation>Версия Arinn</translation>
+    </message>
+    <message>
+        <source>arinnd service</source>
+        <translation>Служба arinnd</translation>
+    </message>
+    <message>
+        <source>Channel and build date</source>
+        <translation>Канал и дата сборки</translation>
+    </message>
+    <message>
+        <source>Providers</source>
+        <translation>Провайдеры</translation>
+    </message>
+    <message>
+        <source>System</source>
+        <translation>Система</translation>
+    </message>
+    <message>
+        <source>OS</source>
+        <translation>ОС</translation>
+    </message>
+    <message>
+        <source>Kernel</source>
+        <translation>Ядро</translation>
+    </message>
+    <message>
+        <source>Plasma</source>
+        <translation>Plasma</translation>
+    </message>
+    <message>
+        <source>Qt</source>
+        <translation>Qt</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Сессия</translation>
+    </message>
+    <message>
+        <source>Display and sound</source>
+        <translation>Экран и звук</translation>
+    </message>
+    <message>
+        <source>Display</source>
+        <translation>Экран</translation>
+    </message>
+    <message>
+        <source>Audio output</source>
+        <translation>Аудиовыход</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Сеть</translation>
+    </message>
+    <message>
+        <source>Connection</source>
+        <translation>Подключение</translation>
+    </message>
+    <message>
+        <source>IP address</source>
+        <translation>IP-адрес</translation>
+    </message>
+    <message>
+        <source>Storage</source>
+        <translation>Хранилище</translation>
+    </message>
+    <message>
+        <source>Free space</source>
+        <translation>Свободно</translation>
+    </message>
+    <message>
+        <source>Disk with the Downloads folder</source>
+        <translation>Диск с папкой «Загрузки»</translation>
+    </message>
+    <message>
+        <source>The arinnd service is not responding</source>
+        <translation>Служба arinnd не отвечает</translation>
+    </message>
+    <message>
+        <source>Different build from Arinn. Restart Arinn</source>
+        <translation>Другая сборка, чем у Arinn. Перезапустите Arinn</translation>
+    </message>
+    <message>
+        <source>Build %1</source>
+        <translation>Сборка %1</translation>
+    </message>
+    <message>
+        <source>To the clipboard and as a file in Downloads.</source>
+        <translation>В буфер обмена и файлом в «Загрузки».</translation>
+    </message>
+    <message>
+        <source>Network and device name</source>
+        <translation>Сеть и имя устройства</translation>
+    </message>
+    <message>
+        <source>IP address, connection and name. On — included in the details</source>
+        <translation>IP-адрес, подключение и имя. Включено — они в сведениях</translation>
+    </message>
+    <message>
+        <source>IP address, connection and name. Off — left out</source>
+        <translation>IP-адрес, подключение и имя. Выключено — их нет в сведениях</translation>
+    </message>
+    <message>
+        <source>Included</source>
+        <translation>В сведениях</translation>
+    </message>
+    <message>
+        <source>Arinn, arinnd and provider versions</source>
+        <translation>Версии Arinn, arinnd и провайдеров</translation>
+    </message>
+    <message>
+        <source>System, display, sound and free space</source>
+        <translation>Система, экран, звук и свободное место</translation>
+    </message>
+    <message>
+        <source>IP address, connection and device name</source>
+        <translation>IP-адрес, подключение и имя устройства</translation>
+    </message>
+    <message>
+        <source>No IP address or device name</source>
+        <translation>Без IP-адреса и имени устройства</translation>
+    </message>
+    <message>
+        <source>File: Downloads/%1</source>
+        <translation>Файл: Загрузки/%1</translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation>Скопировать</translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation>Отмена</translation>
+    </message>
+</context>
+<context>
     <name>ActionButton</name>
     <message>
         <source>Loading…</source>
@@ -2468,6 +2627,22 @@
         <translation>Arinn не ответил. Попробуйте снова.</translation>
     </message>
     <message>
+        <source>Copied. File: Downloads/%1</source>
+        <translation>Скопировано. Файл: Загрузки/%1</translation>
+    </message>
+    <message>
+        <source>File not saved. The details are on the clipboard</source>
+        <translation>Файл не сохранён. Сведения в буфере обмена</translation>
+    </message>
+    <message>
+        <source>Clipboard unavailable. The details are in Downloads/%1</source>
+        <translation>Буфер обмена недоступен. Сведения в файле Загрузки/%1</translation>
+    </message>
+    <message>
+        <source>Could not copy the details</source>
+        <translation>Не удалось скопировать сведения</translation>
+    </message>
+    <message>
         <source>Cannot be changed now</source>
         <translation>Сейчас нельзя изменить</translation>
     </message>
@@ -2699,6 +2874,133 @@
     <message>
         <source>Loading</source>
         <translation>Загрузка</translation>
+    </message>
+</context>
+<context>
+    <name>SystemAbout</name>
+    <message>
+        <source>%1 × %2 · %3 Hz</source>
+        <translation>%1 × %2 · %3 Гц</translation>
+    </message>
+    <message>
+        <source>%1 × %2</source>
+        <translation>%1 × %2</translation>
+    </message>
+    <message>
+        <source>Wi-Fi</source>
+        <translation>Wi-Fi</translation>
+    </message>
+    <message>
+        <source>Ethernet</source>
+        <translation>Ethernet</translation>
+    </message>
+    <message>
+        <source>%1 GB</source>
+        <translation>%1 ГБ</translation>
+    </message>
+    <message>
+        <source>%1 of %2</source>
+        <translation>%1 из %2</translation>
+    </message>
+    <message>
+        <source>Unknown</source>
+        <translation>Неизвестно</translation>
+    </message>
+    <message>
+        <source>Arinn</source>
+        <translation>Arinn</translation>
+    </message>
+    <message>
+        <source>Arinn version</source>
+        <translation>Версия Arinn</translation>
+    </message>
+    <message>
+        <source>Build %1</source>
+        <translation>Сборка %1</translation>
+    </message>
+    <message>
+        <source>arinnd service</source>
+        <translation>Служба arinnd</translation>
+    </message>
+    <message>
+        <source>Unavailable</source>
+        <translation>Недоступно</translation>
+    </message>
+    <message>
+        <source>The arinnd service is not responding</source>
+        <translation>Служба arinnd не отвечает</translation>
+    </message>
+    <message>
+        <source>Different build from Arinn. Restart Arinn</source>
+        <translation>Другая сборка, чем у Arinn. Перезапустите Arinn</translation>
+    </message>
+    <message>
+        <source>Channel and build date</source>
+        <translation>Канал и дата сборки</translation>
+    </message>
+    <message>
+        <source>Providers</source>
+        <translation>Провайдеры</translation>
+    </message>
+    <message>
+        <source>System</source>
+        <translation>Система</translation>
+    </message>
+    <message>
+        <source>OS</source>
+        <translation>ОС</translation>
+    </message>
+    <message>
+        <source>Kernel</source>
+        <translation>Ядро</translation>
+    </message>
+    <message>
+        <source>Plasma</source>
+        <translation>Plasma</translation>
+    </message>
+    <message>
+        <source>Qt</source>
+        <translation>Qt</translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation>Сессия</translation>
+    </message>
+    <message>
+        <source>Display and sound</source>
+        <translation>Экран и звук</translation>
+    </message>
+    <message>
+        <source>Display</source>
+        <translation>Экран</translation>
+    </message>
+    <message>
+        <source>Audio output</source>
+        <translation>Аудиовыход</translation>
+    </message>
+    <message>
+        <source>Network</source>
+        <translation>Сеть</translation>
+    </message>
+    <message>
+        <source>Connection</source>
+        <translation>Подключение</translation>
+    </message>
+    <message>
+        <source>IP address</source>
+        <translation>IP-адрес</translation>
+    </message>
+    <message>
+        <source>Storage</source>
+        <translation>Хранилище</translation>
+    </message>
+    <message>
+        <source>Free space</source>
+        <translation>Свободно</translation>
+    </message>
+    <message>
+        <source>Device name</source>
+        <translation>Имя устройства</translation>
     </message>
 </context>
 <context>

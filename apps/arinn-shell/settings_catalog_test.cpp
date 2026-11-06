@@ -1347,7 +1347,32 @@ private slots:
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("unavailable"));
     QCOMPARE(catalog.rows().size(), 0);
-    QCOMPARE(catalog.categories().size(), 0);
+    // #742: the categories stay so System → About can be reached. The view
+    // covers every section except System.
+    QStringList shown;
+    for (const auto &category : catalog.categories())
+      shown.append(category.toMap().value(QStringLiteral("id")).toString());
+    QCOMPARE(shown, QStringList({QStringLiteral("media"), QStringLiteral("playback"),
+                                 QStringLiteral("sound"), QStringLiteral("network"),
+                                 QStringLiteral("applications"), QStringLiteral("appearance"),
+                                 QStringLiteral("system")}));
+  }
+  void systemStaysListedForAbout() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("library"), QStringLiteral("Library")}};
+    daemon.settings.insert(
+        QStringLiteral("library"),
+        {setting(QStringLiteral("scan"), QStringLiteral("media"),
+                 QStringLiteral("boolean"), QStringLiteral("false"), QString(),
+                 true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QStringList shown;
+    for (const auto &category : catalog.categories())
+      shown.append(category.toMap().value(QStringLiteral("id")).toString());
+    QCOMPARE(shown, QStringList({QStringLiteral("media"), QStringLiteral("system")}));
+    QCOMPARE(catalog.rows().size(), 1);
   }
 };
 

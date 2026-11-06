@@ -163,6 +163,11 @@ public slots:
         engine->rootContext()->setContextProperty(
             QStringLiteral("captureSoundsStatusDir"),
             qEnvironmentVariable("ARINN_CAPTURE_SOUNDS_STATUS"));
+        engine->rootContext()->setContextProperty(
+            QStringLiteral("captureAboutDir"),
+            qEnvironmentVariable("ARINN_ABOUT_CAPTURE"));
+        engine->rootContext()->setContextProperty(
+            QStringLiteral("aboutLocale"), qEnvironmentVariable("ARINN_UI_LOCALE"));
         // Comma-separated manifest ids. Empty renders every state.
         engine->rootContext()->setContextProperty(
             QStringLiteral("captureOnly"), qEnvironmentVariable("ARINN_CAPTURE_ONLY"));

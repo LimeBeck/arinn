@@ -48,6 +48,19 @@ Local music reports the time a file was first found; a changed file keeps it,
 and a catalogue stored before the field existed uses the file's modification
 time once. Other providers fill it when their service reports a date (#806).
 
+A station may carry `pinnable` (#811, [ADR-0142](../adr/0142-music-in-hearth-light.md)
+MH-6). It promises that the station's `id` stays valid across provider restarts
+and generations, is never reused for another station, and that `radio` with that
+`id` as `entity` starts this station. Only a station may carry it; it is optional
+and omitted when false. The shell may store a pinnable station and start it
+later. Starting a stored ID the provider no longer offers fails with NotFound
+where the provider can tell (Yandex maps an HTTP 404 to it), otherwise with
+Unavailable; it is never silently replaced by another station, and the shell
+marks such a pin unavailable either way. Yandex stations derive their IDs from the service's station
+keys (`station:wave` for `user:onyourwave`, `station:track:<id>`). Local music
+offers one station, `station:library` ("All my music, shuffled"), in its
+`selections` facet.
+
 `Command(generation, command)` takes request_id (UUID), action, session, entity,
 occurrence, position_us, replaces_provider, replaces_session and text. The last two
 fields default to empty for non-replacing commands. Known actions are play,

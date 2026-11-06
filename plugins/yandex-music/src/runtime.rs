@@ -102,6 +102,8 @@ fn error(error: crate::Error) -> ErrorCode {
     match error {
         crate::Error::InvalidInput => ErrorCode::InvalidArgument,
         crate::Error::Authentication | crate::Error::Forbidden => ErrorCode::PermissionDenied,
+        // A pinned station the service no longer knows (#811).
+        crate::Error::NotFound => ErrorCode::NotFound,
         _ => ErrorCode::Unavailable,
     }
 }
@@ -125,12 +127,16 @@ fn message_locale() -> String {
         .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
         .unwrap_or_default()
 }
+// Every station here derives its ID from the service's own station key
+// (`user:onyourwave`, `track:<id>`), so the ID survives a provider restart
+// and never names another station: it may be pinned (ADR-0142 MH-6, #811).
 fn station(id: &str, title: &str) -> Entity {
     Entity {
         id: id.into(),
         kind: "station".into(),
         title: title.into(),
         available: true,
+        pinnable: true,
         ..Entity::default()
     }
 }
@@ -164,12 +170,17 @@ fn feedback_batch(batch: &Batch) -> Batch {
 
 impl Runtime {
     pub fn new(player: Player, pins: Storage) -> Result<Arc<Self>, ErrorCode> {
-        let saved: Vec<Entity> = pins
+        let mut saved: Vec<Entity> = pins
             .read()
             .map_err(|_| ErrorCode::Unavailable)?
             .map(|b| serde_json::from_slice(&b).map_err(|_| ErrorCode::Unavailable))
             .transpose()?
             .unwrap_or_default();
+        // Pins stored before #811 lack the mark; every stored pin is one of
+        // this provider's stations, so it carries it.
+        for pin in &mut saved {
+            pin.pinnable = pin.kind == "station";
+        }
         if saved.len() > 256
             || saved
                 .iter()
@@ -1400,5 +1411,77 @@ mod tests {
         )
         .unwrap();
         assert!(stored.is_empty());
+    }
+    /// #811: a station's ID and its pinnable mark are the same after a
+    /// provider restart, also for a pin stored before the mark existed.
+    #[tokio::test]
+    async fn station_ids_survive_a_provider_restart() {
+        let fixture = Fixture::new();
+        fixture
+            .runtime
+            .playback
+            .radio(
+                vec![],
+                "batch".into(),
+                station("station:wave", "Fixture wave"),
+            )
+            .await
+            .unwrap();
+        let current = fixture.runtime.state().await.station.unwrap();
+        assert_eq!(current.id, "station:wave");
+        assert!(current.pinnable && current.validate().is_ok());
+        fixture.runtime.pin("station:wave").await.unwrap();
+        // Add a pin stored before #811, without the mark.
+        let mut stored: Vec<serde_json::Value> = serde_json::from_slice(
+            &fixture
+                .runtime
+                .pins
+                .lock()
+                .unwrap()
+                .read()
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        stored.push(
+            json!({"id":"station:track:123","kind":"station","title":"Fixture track radio",
+            "artist":"","album":"","artwork":"","duration_us":0,"available":true}),
+        );
+        let bytes = serde_json::to_vec(&stored).unwrap();
+        // The next provider start reads the same stored state. The first
+        // runtime keeps its storage locked, so the restart reads a copy.
+        let restarted = Fixture::new();
+        let storage = Storage::open(&restarted.directory.join("pins-copy")).unwrap();
+        storage.write(&bytes).unwrap();
+        let again = Runtime::new(
+            Player::new(
+                &restarted.directory,
+                "/nonexistent-arinn-test-player".into(),
+            )
+            .unwrap(),
+            storage,
+        )
+        .unwrap();
+        let pins = again.data.lock().await.pins.clone();
+        let ids: Vec<_> = pins.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["station:wave", "station:track:123"]);
+        assert!(pins.iter().all(|p| p.pinnable && p.validate().is_ok()));
+        // A station started again from its stored ID resolves to the same ID.
+        assert_eq!(seed("station:wave").unwrap(), "user:onyourwave");
+        assert_eq!(seed("station:track:123").unwrap(), "track:123");
+    }
+    /// Review of #815: a stored station the service no longer knows must
+    /// fail as NotFound, not as a transient outage.
+    #[tokio::test]
+    async fn a_vanished_station_fails_as_not_found() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![(404, "{}".into())]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let api = fixture.runtime.source.read().await.clone().unwrap();
+        assert_eq!(
+            fixture.runtime.start_radio(&api, "station:track:123").await,
+            Err(ErrorCode::NotFound)
+        );
+        mock.finish();
     }
 }

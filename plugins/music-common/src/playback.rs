@@ -288,6 +288,25 @@ impl Playback {
         });
         Ok(self.state().await)
     }
+    /// Replaces queued tracks' metadata with `fresh` values of the same ID,
+    /// as after a rescan of retagged files (review of #815). Returns whether
+    /// anything changed.
+    pub async fn refresh_tracks(&self, fresh: &std::collections::BTreeMap<String, Track>) -> bool {
+        let mut d = self.data.lock().await;
+        let mut changed = false;
+        for (id, track) in d.tracks.iter_mut() {
+            if let Some(new) = fresh.get(id)
+                && new != track
+            {
+                *track = new.clone();
+                changed = true;
+            }
+        }
+        if changed {
+            d.revision += 1;
+        }
+        changed
+    }
     pub async fn remaining(&self, session: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
         if d.session != session || d.session.is_empty() || d.station.is_some() {
@@ -342,17 +361,39 @@ impl Playback {
         tracks: Vec<Track>,
         batch: String,
     ) -> Result<(), ErrorCode> {
+        self.apply_refill(refill, tracks, batch, true).await
+    }
+    /// A refill whose tracks may repeat those queued or recently played: a
+    /// provider's own station over a small library (see
+    /// `Queue::complete_refill_repeating`).
+    pub async fn apply_radio_refill_repeating(
+        self: &Arc<Self>,
+        refill: RadioRefill,
+        tracks: Vec<Track>,
+        batch: String,
+    ) -> Result<(), ErrorCode> {
+        self.apply_refill(refill, tracks, batch, false).await
+    }
+    async fn apply_refill(
+        self: &Arc<Self>,
+        refill: RadioRefill,
+        tracks: Vec<Track>,
+        batch: String,
+        dedupe: bool,
+    ) -> Result<(), ErrorCode> {
         let mut d = self.data.lock().await;
         if d.session != refill.session {
             return Err(ErrorCode::Conflict);
         }
         let before: std::collections::HashSet<_> =
             d.queue.entries().iter().map(|e| e.occurrence).collect();
-        let result = d.queue.complete_refill(
-            refill.request,
-            tracks.iter().take(64).map(|t| t.id.clone()).collect(),
-            refill.replace,
-        );
+        let ids = tracks.iter().take(64).map(|t| t.id.clone()).collect();
+        let result = if dedupe {
+            d.queue.complete_refill(refill.request, ids, refill.replace)
+        } else {
+            d.queue
+                .complete_refill_repeating(refill.request, ids, refill.replace)
+        };
         if let Err(error) = result {
             if error == crate::queue::Error::Stale {
                 return Err(ErrorCode::Conflict);
@@ -910,6 +951,7 @@ pub fn entity(t: &Track) -> Entity {
         duration_us: t.duration_us,
         available: t.available,
         added_at: t.added_at,
+        pinnable: false,
     };
     // Reserve enough budget for all 97 retained queue occurrences, including
     // JSON escaping. Catalogue/private metadata keeps its original text.

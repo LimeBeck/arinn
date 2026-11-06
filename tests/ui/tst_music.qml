@@ -988,6 +988,11 @@ TestCase {
         const edge=findChild(albums,"musicShelfEdgeFade");verify(!edge.visible);
         for(let i=0;i<8;i++)keyClick(Qt.Key_Right);
         tryVerify(()=>edge.visible);compare(edge.mapToItem(view,0,0).x,Ui.Theme.edgeFadeStart);
+        // Review of #848: a scrolled focused card stops right of the fade,
+        // its mat and rim included.
+        const scrolled=findChild(albums.focusedCard,"musicShelfCard");tryCompare(scrolled,"scale",Ui.Theme.contentFocusScale);
+        const scrolledMat=findChild(scrolled,"focusMat");
+        tryVerify(()=>scrolledMat.mapToItem(view,0,0).x-Ui.Theme.rimThickness>=Ui.Theme.edgeFadeEnd);
         // Rows scrolled up fade under the hero; the focused shelf's title
         // stays below the band.
         const top=findChild(view,"musicShelvesTopFade");
@@ -1020,6 +1025,29 @@ TestCase {
         verify(at.x-Ui.Theme.rimThickness>=box.x,"left "+at.x+" clip "+box.x);
         verify(at.y-Ui.Theme.rimThickness>=box.y,"top "+at.y+" clip "+box.y);
         verify(!findChild(all,"musicAllTopFade").visible);
+    }
+    // Review of #848: a focused wide station card on the first or last
+    // column of the All grid stays whole inside its clip.
+    function test_all_grid_keeps_a_wide_card_whole() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const stations=[];for(let i=0;i<6;i++)stations.push(room.card("account","station:"+i,"station","Station "+i));
+        room.shelves=[{id:"stations",title:"Stations",kind:"station",entries:stations}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const shelf=findChild(view,"musicShelf-stations");tryCompare(shelf,"activeFocus",true);
+        findChild(shelf,"musicShelfCards").currentIndex=6;wait(0);keyClick(Qt.Key_Return);compare(view.mode,"all");
+        const all=findChild(view,"musicAll");const grid=findChild(all,"musicAllGrid");tryCompare(grid,"activeFocus",true);
+        const clip=findChild(all,"musicAllClip");const box=clip.mapToItem(view,0,0);
+        const columns=Math.floor(grid.width/grid.cellWidth);verify(columns>=2,"columns "+columns);
+        for(const index of [0,columns-1]) {
+            grid.currentIndex=index;const card=grid.currentItem;tryCompare(card,"activeFocus",true);
+            tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+            const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
+            const at=mat.mapToItem(view,0,0),end=mat.mapToItem(view,mat.width,0);
+            verify(at.x-Ui.Theme.rimThickness>=box.x,index+": left "+at.x+" clip "+box.x);
+            verify(end.x+Ui.Theme.rimThickness<=box.x+clip.width,index+": right "+end.x+" clip "+(box.x+clip.width));
+            verify(at.y-Ui.Theme.rimThickness>=box.y,index+": top "+at.y+" clip "+box.y);
+        }
     }
     // #843 (shell part): an unavailable card shows one glyph and dims as one
     // layer; a playing station without its own cover shows the playing

@@ -68,14 +68,19 @@ FocusScope {
     }
     // The current card stays between the safe areas: never in the left band
     // where scrolled cards fade, nor past the right one (#838).
+    // A scrolled card stops right of the fade by its focus growth, mat and
+    // rim, so its left rim is never dimmed (review of #848).
+    readonly property real focusBleed: Math.ceil(cardWidth * (Ui.Theme.contentFocusScale - 1) / 2
+        + Ui.Theme.matThickness + Ui.Theme.rimThickness)
     function reveal() {
         list.forceLayout();
         const item = list.currentItem;
         if (!item)
             return;
         const left = item.x - list.contentX;
-        if (left < root.inset)
-            list.contentX = Math.max(-list.leftMargin, item.x - root.inset);
+        const start = Math.max(root.inset, Ui.Theme.edgeFadeEnd + focusBleed);
+        if (left < start)
+            list.contentX = Math.max(-list.leftMargin, item.x - start);
         else if (left + item.width > list.width - Ui.Theme.safeRight)
             list.contentX = item.x + item.width - list.width + Ui.Theme.safeRight;
     }

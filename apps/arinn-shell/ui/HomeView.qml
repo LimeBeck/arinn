@@ -245,9 +245,10 @@ FocusScope {
     // brief (#837): the Continue label at y 404, the Favourites label at
     // y 836, and the New label peeking at the bottom edge. Captions sit under
     // the images; the shelf is a fixed step under the Favourites label.
-    readonly property real heroRowGap: 30
     readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
-    readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
+    // The rows never follow the hero's height: the Continue label is at the
+    // brief's y 404 whatever the hero shows (#837).
+    readonly property real firstRowY: heroBox.y + 254
     readonly property real homeRowStride: Math.max(continueRow.height + Theme.rowGap, 432)
     readonly property real shelfStep: 149
     readonly property real newRowStep: favoritesRow.variant === "shelf" ? shelfStep : favoritesRow.height + Theme.rowGap
@@ -948,14 +949,19 @@ FocusScope {
                 }
                 // Two-line title slot at 68 px, bottom-aligned, so a one-line
                 // title sits lower and a two-line title grows upward. The
-                // block stays at y 150. The rows stay heroRowGap under it.
+                // block stays at y 150; the rows start at firstRowY (y 404).
                 Column {
                     id: heroBox
                     objectName: "heroBox"
                     x: 120; y: 150; width: 1300; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
+                    // An empty eyebrow keeps its line, so the title and meta
+                    // never move when it comes and goes (#837).
                     Row {
+                        objectName: "heroEyebrowLine"
                         spacing: 12
+                        height: eyebrowProbe.implicitHeight
+                        UiText { id: eyebrowProbe; role: "eyebrow"; text: " "; visible: false }
                         Rectangle {
                             objectName: "heroLiveDot"
                             anchors.verticalCenter: parent.verticalCenter

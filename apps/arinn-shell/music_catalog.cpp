@@ -625,6 +625,10 @@ void MusicCatalog::send(const QString &action, const QString &entity,
     return;
   auto endpoint = m_path, generation = m_generation;
   auto state = m_state;
+  // A turned-off source's session takes no command: nothing can resume
+  // music the room no longer shows (#842, Codex review of #851).
+  if (active && m_disabledSources.contains(m_activeId))
+    return;
   if (active) {
     bool found = false;
     for (const auto &row : m_sources) {

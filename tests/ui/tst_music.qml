@@ -1308,7 +1308,14 @@ TestCase {
         // The stored list drops it again (the write failed): the row says so.
         // The watch outlasts the write's own path, about 16 s at worst.
         verify(findChild(sheet,"musicTurnOffConfirmWatch").interval>=16000);
-        room.disabled=[];tryCompare(sheet,"stopFailed","account");
+        // Turned on again during the watch: no failure is told.
+        sheet.act(Object.assign({},room.sources[1],{status:"off"}),"on");wait(100);compare(sheet.stopFailed,"");
+        compare(sheet.confirming,"");
+        // Another turn-off whose write then fails: the row says so.
+        catalog.busy=true;sheet.act(room.sources[0],"off");tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);
+        findChild(sheet,"musicTurnOffSource").activated();catalog.busy=false;
+        tryCompare(sheet,"confirming","local");
+        room.disabled=room.disabled.filter(id=>id!=="local");tryCompare(sheet,"stopFailed","local");
         compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
         // 60 ids of 62 emoji fit in code points, though not in UTF-16 units.
         const ids=[];for(let i=0;i<60;i++)ids.push("\u{1F3B5}".repeat(62)+String(i).padStart(2,"0"));

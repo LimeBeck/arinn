@@ -1921,7 +1921,10 @@ Window {
             dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
             onActiveChanged: if (!active) root.finishAmbient()
             // The track line and Play/Pause without waking (ADR-0142 MH-8).
-            music: musicCatalog.activeState
+            // A turned-off source's session is not shown on Ambient (#842,
+            // Codex review of #851).
+            music: musicCatalog.disabledSources.includes(musicCatalog.activeSourceId)
+                ? ({}) : musicCatalog.activeState
             onMusicKeyRequested: action => {
                 if (action === "toggle") musicCatalog.togglePlayback();
                 else musicCatalog.transport(action === "play" ? "resume" : "pause");

@@ -270,6 +270,12 @@ FocusScope {
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
         } else if (action === "off" || action === "on") {
             stopFailed = "";
+            // Turned on again: the watch for a failed turn-off ends, so the
+            // source leaving the list is no failure (Codex review of #851).
+            if (action === "on" && confirming === source.id) {
+                confirming = "";
+                confirmWatch.stop();
+            }
             setEnabled(source.id, action === "on");
         } else if (room) {
             room.sourceCommand(source.id, action);

@@ -969,7 +969,12 @@ private slots:
     QCOMPARE(rows.at(1).toMap().value("status").toString(), QStringLiteral("off"));
     QCOMPARE(rows.at(1).toMap().value("local").toBool(), true);
     QVERIFY(rows.at(1).toMap().value("actions").toStringList().isEmpty());
-    // Its session has no presence on Home.
+    // Its session has no presence on Home, and takes no command: nothing
+    // resumes it, from Ambient or elsewhere (Codex review of #851).
+    daemon.commands.clear();
+    catalog.transport(QStringLiteral("pause"));
+    QTest::qWait(200);
+    QVERIFY(daemon.commands.isEmpty());
     QVERIFY(catalog.homeEntries().isEmpty());
     QVERIFY(catalog.nowPlaying().isEmpty());
     QVERIFY(catalog.statusLine().isEmpty());

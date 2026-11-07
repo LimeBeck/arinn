@@ -5,6 +5,8 @@
 #include "asset_images.h"
 #include "main_qml_test_support.h"
 #include "backend.h"
+#include "localization_manager.h"
+#include "settings_catalog.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
 #include <QKeyEvent>
@@ -27,6 +29,7 @@ class BackendTest : public QObject {
   Q_OBJECT
 private slots:
   void typedWireAndLocalFocus() {
+    LocalizationManager localization({}, {}, QLocale(QStringLiteral("en_US")));
     Backend backend;
     QTRY_VERIFY_WITH_TIMEOUT(backend.connected(), 5000);
     QTRY_VERIFY_WITH_TIMEOUT(backend.available(), 5000);
@@ -35,6 +38,8 @@ private slots:
              QString("demo.activity"));
     configureShellWindows();
     QQmlApplicationEngine engine;
+    localization.attachEngine(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("shellLocalization"), &localization);
     auto *sessionGuard = createSessionLifecycle(&engine);
     InterfaceSounds interfaceSounds;
 
@@ -95,6 +100,31 @@ private slots:
         inFavorites = true;
     QVERIFY(inFavorites);
     second->forceActiveFocus();
+    QTRY_VERIFY(second->hasActiveFocus());
+    auto *settings = window->findChild<SettingsCatalog *>(QStringLiteral("settingsCatalog"));
+    QVERIFY(settings);
+    QTRY_VERIFY(settings->uiLanguageKnown());
+    auto *continueRow = findItem(window->contentItem(), QStringLiteral("continue"));
+    QVERIFY(continueRow);
+    localization.setLanguage(QStringLiteral("ru"));
+    QTRY_COMPARE(continueRow->property("title").toString(), QStringLiteral("Продолжить"));
+    QTRY_VERIFY(second->hasActiveFocus());
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    localization.setLanguage(QStringLiteral("en"));
+    QTRY_COMPARE(continueRow->property("title").toString(), QStringLiteral("Continue"));
+    QTRY_VERIFY(second->hasActiveFocus());
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName().startsWith(QStringLiteral("nav-")));
+    QTest::keyClick(window, Qt::Key_Down);
+    const auto navigationId = window->activeFocusItem()->objectName();
+    const auto navigationText = window->activeFocusItem()->property("text").toString();
+    localization.setLanguage(QStringLiteral("ru"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName() == navigationId);
+    QTRY_VERIFY(window->activeFocusItem()->property("text").toString() != navigationText);
+    localization.setLanguage(QStringLiteral("en"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName() == navigationId);
+    QTRY_COMPARE(window->activeFocusItem()->property("text").toString(), navigationText);
+    QTest::keyClick(window, Qt::Key_Escape);
     QTRY_VERIFY(second->hasActiveFocus());
     // Autorepeat releases while holding Select must not activate the tile.
     QTest::keyPress(window, Qt::Key_Return);

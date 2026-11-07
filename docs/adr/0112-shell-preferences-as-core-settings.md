@@ -4,7 +4,7 @@
 - **Date:** 2026-10-21
 - **Deciders:** Owner (option A on [#389](https://github.com/LimeBeck/arinn/issues/389), 2026-10-07: a daemon-owned core settings source persisted in `config.toml`; the ambient timeout as an Appearance setting with a 10-minute default, 2026-10-21 on [#478](https://github.com/LimeBeck/arinn/pull/478)); delegated technical choice for the ids, kinds and the shell reader
 - **Amends / Supersedes:** —
-- **Amended by / Superseded by:** amended by [ADR-0129](0129-provider-setting-translations.md) (provider setting texts can be translated), [ADR-0136](0136-hearth-light-visual-direction.md) (interface sounds and time-of-day light settings)
+- **Amended by / Superseded by:** amended by [ADR-0129](0129-provider-setting-translations.md) (provider setting texts can be translated), [ADR-0136](0136-hearth-light-visual-direction.md) (interface sounds and time-of-day light settings); proposed amendment [ADR-0144](0144-live-interface-language-and-local-overlays.md) (live interface language)
 - **Specification:** §5.6, §5.7, §11, §14.3, §15
 
 ## Context

@@ -47,6 +47,22 @@ the method, an error or a table from another generation leaves the source
 texts. The library, managed player and Transmission providers ship Russian
 texts.
 
+`ui_language` is an Appearance enum ([ADR-0144](../adr/0144-live-interface-language-and-local-overlays.md)):
+`system` by default, `en`, `ru` and locally discovered language tags. It uses the
+normal Settings1 operation and persistence path. `uiLanguageKnown` prevents a
+default placeholder from overwriting the startup cache before the daemon answers;
+`languagePreferenceChanged` changes the shell locale only when the confirmed
+preference changes. The last confirmed value remains while the daemon is away.
+Settings are republished on LanguageChange without provider reads. Language
+options use native names; the system option is translated. The picker also has
+*Reload translations*, a local action that reloads files and refreshes available
+choices without setting a value or interrupting an operation.
+
+Personal setting translations precede the provider table and require the plugin
+identity from a successful Daemon1.Providers listing plus the expected source for
+each field. An instance id never substitutes for that identity. File layout and
+manual installation are in [Shell translations](ui-translations.md).
+
 ## What the view receives
 
 Category titles are model data. The QML does not embed those names or any

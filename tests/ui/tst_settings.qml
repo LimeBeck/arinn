@@ -68,6 +68,7 @@ TestCase {
     SignalSpy { id: changes; signalName: "valueChangeRequested" }
     SignalSpy { id: dismissals; signalName: "dismissRequested" }
     SignalSpy { id: homes; signalName: "homeRequested" }
+    SignalSpy { id: translationReloads; signalName: "translationsReloadRequested" }
 
     function child(name) {
         const item = findChild(view, name);
@@ -517,6 +518,42 @@ TestCase {
         focused("setting-shell-idle");
         compare(changes.count, 0);
         verify(insideView(windowFocus()));
+    }
+
+    function test_language_reload_is_a_local_action_without_a_settings_write() {
+        const row = { providerId: "arinn", id: "ui_language", categoryId: "appearance", title: "Language",
+            type: "enum", currentValue: "en", enabled: true,
+            constraints: { options: [{ value: "en", title: "English" }, { value: "ru", title: "Русский" }] } };
+        view.rows = [row];
+        view.translationsAvailable = true;
+        translationReloads.target = view;
+        translationReloads.clear();
+        view.categoryIndex = 5;
+        view.focusPart(0, "main");
+        focused("setting-arinn-ui_language");
+        keyClick(Qt.Key_Return);
+        focused("option-0");
+        keyClick(Qt.Key_Down);
+        keyClick(Qt.Key_Down);
+        focused("option-2");
+        keyClick(Qt.Key_Return);
+        compare(translationReloads.count, 1);
+        compare(changes.count, 0);
+        compare(view.choosingKey, "arinn-ui_language");
+        focused("option-2");
+        // A newly discovered locale moves Reload; focus follows its identity.
+        row.constraints.options.push({ value: "de", title: "Deutsch" });
+        view.rows = [Object.assign({}, row)];
+        focused("option-3");
+        keyClick(Qt.Key_Return);
+        compare(translationReloads.count, 2);
+        compare(changes.count, 0);
+        row.constraints.options = row.constraints.options.slice(0, 2);
+        view.rows = [Object.assign({}, row)];
+        focused("option-2");
+        keyClick(Qt.Key_Escape);
+        focused("setting-arinn-ui_language");
+        compare(row.currentValue, "en");
     }
 
     function test_enum_option_list() {

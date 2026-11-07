@@ -129,7 +129,7 @@ private:
   bool acceptProvider(const std::shared_ptr<Catalog> &catalog, int index);
   void applyResumes(const std::shared_ptr<Catalog> &catalog, int index);
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
-  void publish();
+  void publish(bool presentationOnly = false);
   void setOperation(const QString &state);
   void watchOperation(const QString &objectPath, quint64 ticket, quint64 epoch);
   const ItemRow *findId(const QString &id) const;

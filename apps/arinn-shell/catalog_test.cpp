@@ -7,6 +7,7 @@
 #include "web_icon_references.h"
 #include <optional>
 #include <QUuid>
+#include <QTranslator>
 #include <QtDBus>
 #include <QtTest>
 
@@ -460,6 +461,25 @@ public:
 class CatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void openShellErrorRetranslatesFromItsSource() {
+    Backend backend;
+    backend.launch(QStringLiteral("missing"));
+    QCOMPARE(backend.message(), QStringLiteral("Shortcut is no longer available"));
+    class Translator : public QTranslator {
+    public:
+      bool isEmpty() const override { return false; }
+      QString translate(const char *context, const char *source, const char *, int) const override {
+        return QByteArray(context) == "Backend" && QByteArray(source) == "Shortcut is no longer available"
+            ? QStringLiteral("Локальная подпись ошибки") : QString();
+      }
+    } translator;
+    QSignalSpy changes(&backend, &Backend::changed);
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    QTRY_VERIFY(!changes.isEmpty());
+    QCOMPARE(backend.message(), QStringLiteral("Локальная подпись ошибки"));
+    QVERIFY(QCoreApplication::removeTranslator(&translator));
+    QCOMPARE(backend.message(), QStringLiteral("Shortcut is no longer available"));
+  }
   void nativeFocusUsesOwnWaylandIdentityAndBoundedObservation() {
     const NativeShellFocusIdentity identity{QStringLiteral("wayland"), QStringLiteral("org.example.Shell")};
     QCOMPARE(identity.classify(true, "surface", "org.example.Shell"), QString("shell"));

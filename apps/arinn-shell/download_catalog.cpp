@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "download_catalog.h"
+#include "language_change.h"
 #include <QLocale>
 #include <QDeadlineTimer>
 #include <QUuid>
@@ -208,6 +209,7 @@ struct DownloadCatalog::Catalog {
 };
 
 DownloadCatalog::DownloadCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { publish(); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
   bus.connect(service, path, service, "StateChanged", this,
@@ -334,8 +336,8 @@ void DownloadCatalog::publish() {
         statusText = tr("Done · No library folder covers this download");
     }
     const auto failure = m_failures.value(row.id);
-    if (!failure.message.isEmpty())
-      statusText = failure.message;
+    if (!failure.error.isEmpty())
+      statusText = actionTitle(failure.action) + QStringLiteral(" · ") + failureText(failure.error);
     QString errorText;
     if (row.state == QLatin1String("error"))
       errorText = jobErrorText(row.errorCode, row.errorMessage);
@@ -932,9 +934,7 @@ void DownloadCatalog::finishCommand(const QString &id, quint64 ticket,
   m_busy.remove(id);
   const auto *row = findId(id);
   if (!result.isEmpty() && row && row->generation == generation)
-    m_failures.insert(id, {row->state, generation,
-                           actionTitle(action) + QStringLiteral(" · ") +
-                               failureText(result)});
+    m_failures.insert(id, {row->state, generation, action, result});
   publish();
   refresh();
 }

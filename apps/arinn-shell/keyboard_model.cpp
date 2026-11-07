@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "keyboard_model.h"
+#include "language_change.h"
 
 #include <QCoreApplication>
 #include <QHash>
@@ -111,6 +112,10 @@ KeyboardModel::KeyboardModel(QObject *parent)
   m_language = defaultLanguage();
   m_row = topLetterRow() + 1;
   m_column = 4;
+  new LanguageChangeObserver(this, [this] {
+    setUiLanguage(QLocale().language() == QLocale::Russian ? QStringLiteral("ru") : QStringLiteral("en"));
+    emit layoutChanged();
+  });
 }
 
 void KeyboardModel::setField(const QString &field) {

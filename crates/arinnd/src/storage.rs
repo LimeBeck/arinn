@@ -199,6 +199,9 @@ pub struct Config {
     /// default.
     #[serde(default = "interface_sounds")]
     pub interface_sounds: String,
+    /// Requested interface language, independent of process locale.
+    #[serde(default = "ui_language")]
+    pub ui_language: String,
 }
 /// The ambient idle timeouts the shell offers, in minutes (ADR-0112).
 pub const AMBIENT_TIMEOUTS: [u32; 5] = [5, 10, 15, 30, 60];
@@ -210,11 +213,15 @@ fn ambient_timeout() -> u32 {
 fn interface_sounds() -> String {
     "quiet".into()
 }
+fn ui_language() -> String {
+    "system".into()
+}
 
 static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
 static WARNED_LIGHT_FOLLOWS_TIME: std::sync::Once = std::sync::Once::new();
 static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
 static WARNED_INTERFACE_SOUNDS: std::sync::Once = std::sync::Once::new();
+static WARNED_UI_LANGUAGE: std::sync::Once = std::sync::Once::new();
 
 /// Owner decision on #488: an invalid hand-edited preference never makes
 /// `config.toml` invalid. It is dropped from the parsed table, so it reads as
@@ -251,6 +258,14 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
             dropped.push("interface_sounds");
         }
     }
+    if table.get("ui_language").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(crate::localization::valid_language)
+    }) {
+        table.remove("ui_language");
+        dropped.push("ui_language");
+    }
     dropped
 }
 
@@ -260,6 +275,7 @@ fn warn_invalid_preference(key: &'static str) {
         "light_field" => &WARNED_LIGHT_FIELD,
         "light_follows_time" => &WARNED_LIGHT_FOLLOWS_TIME,
         "ambient_timeout" => &WARNED_AMBIENT_TIMEOUT,
+        "ui_language" => &WARNED_UI_LANGUAGE,
         _ => &WARNED_INTERFACE_SOUNDS,
     };
     once.call_once(|| {
@@ -303,6 +319,7 @@ impl Default for Config {
             light_follows_time: true,
             ambient_timeout: ambient_timeout(),
             interface_sounds: interface_sounds(),
+            ui_language: ui_language(),
         }
     }
 }
@@ -328,6 +345,9 @@ impl Config {
             return Err(ErrorCode::InvalidArgument);
         }
         if !INTERFACE_SOUND_LEVELS.contains(&self.interface_sounds.as_str()) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if !crate::localization::valid_language(&self.ui_language) {
             return Err(ErrorCode::InvalidArgument);
         }
         for (id, instance) in &self.providers {

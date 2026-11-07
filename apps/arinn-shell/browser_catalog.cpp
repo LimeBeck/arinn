@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "browser_catalog.h"
+#include "language_change.h"
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QUrl>
@@ -174,6 +175,7 @@ QVariantList BrowserCatalog::serviceTabs() const {
 }
 
 BrowserCatalog::BrowserCatalog(QObject *parent) : QObject(parent), m_association(this) {
+  new LanguageChangeObserver(this, [this] { presentTabs(m_tabs); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "Changed", this, SLOT(invalidateEvidence()));
   bus.connect(service, path, service, "ProvidersChanged", this, SLOT(invalidateEvidence()));

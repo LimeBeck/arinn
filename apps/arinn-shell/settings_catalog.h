@@ -52,6 +52,9 @@ class SettingsCatalog : public QObject {
                  preferencesChanged)
   Q_PROPERTY(bool interfaceSoundsLevelKnown READ interfaceSoundsLevelKnown NOTIFY
                  preferencesChanged)
+  Q_PROPERTY(QString uiLanguage READ uiLanguage NOTIFY languagePreferenceChanged)
+  Q_PROPERTY(bool uiLanguageKnown READ uiLanguageKnown NOTIFY languagePreferenceChanged)
+  Q_PROPERTY(QString translationLocale READ translationLocale WRITE setTranslationLocale NOTIFY translationLocaleChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
@@ -62,6 +65,10 @@ public:
   int ambientTimeoutMinutes() const { return m_ambientMinutes; }
   QString interfaceSoundsLevel() const { return m_interfaceSounds; }
   bool interfaceSoundsLevelKnown() const { return m_interfaceSoundsKnown; }
+  QString uiLanguage() const { return m_uiLanguage; }
+  bool uiLanguageKnown() const { return m_uiLanguageKnown; }
+  QString translationLocale() const { return m_translationLocale; }
+  void setTranslationLocale(const QString &locale);
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -75,6 +82,8 @@ public slots:
 signals:
   void catalogChanged();
   void preferencesChanged();
+  void languagePreferenceChanged();
+  void translationLocaleChanged();
 
 private:
   struct SettingRecord {
@@ -125,6 +134,9 @@ private:
   int m_ambientMinutes = 10;
   QString m_interfaceSounds;
   bool m_interfaceSoundsKnown = false;
+  QString m_uiLanguage = QStringLiteral("system");
+  QString m_translationLocale;
+  bool m_uiLanguageKnown = false;
   QVariantList m_categories;
   QVariantList m_rows;
   // The screen state the last catalogChanged announced (#441).
@@ -141,6 +153,7 @@ private:
   // Provider instance id → plugin id, from Daemon1.Providers: Settings1
   // lists only the instance id and name.
   QHash<QString, QString> m_pluginIds;
+  QHash<QString, QString> m_pluginGenerations;
   // Root availability per library provider (path → available), only for a
   // provider whose GetRoots answered. No entry means no unavailable state.
   QHash<QString, QHash<QString, bool>> m_roots;

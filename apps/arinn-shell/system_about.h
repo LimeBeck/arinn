@@ -118,6 +118,8 @@ private:
   QString m_display;
   QString m_audio;
   QString m_connection;
+  QString m_connectionKind;
+  QString m_connectionInterface;
   QString m_ip;
   QString m_storage;
   QString m_deviceName;

@@ -129,7 +129,7 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0109](0109-season-only-snn-markers.md) | Season-only `Snn` markers in library names | Accepted | — |
 | [0110](0110-application-launch-lifetime-and-cancellation.md) | Application launch lifetime and cancellation | Accepted | — |
 | [0111](0111-power-key.md) | The remote's power key opens Arinn's power menu | Accepted | — |
-| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | 0129, 0136 |
+| [0112](0112-shell-preferences-as-core-settings.md) | The shell's preferences are core settings of the daemon | Accepted | 0129, 0136, 0144 |
 | [0113](0113-per-runner-ci-target-directories.md) | One Cargo target directory per self-hosted runner instance | Accepted | 0114 |
 | [0114](0114-per-runner-package-target-directories.md) | One package target directory per self-hosted runner instance | Accepted | — |
 | [0115](0115-unmounted-share-root-is-unavailable.md) | An unmounted share is an unavailable library root | Accepted | — |
@@ -158,4 +158,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0141](0141-temporary-browser-authorization.md) | Temporary browser authorization and verified music access | Proposed | — |
 | [0142](0142-music-in-hearth-light.md) | Music in Hearth light | Accepted | — |
 | [0143](0143-music-station-pins.md) | Music station pins in the daemon's favorites | Accepted | — |
+| [0144](0144-live-interface-language-and-local-overlays.md) | Live interface language and local translation overlays | Proposed | — |
 <!-- register:end -->

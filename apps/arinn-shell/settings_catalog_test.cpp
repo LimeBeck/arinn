@@ -3,8 +3,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "settings_catalog.h"
+#include "local_translations.h"
+#include <QEvent>
+#include <QFile>
+#include <QDir>
 #include <QInputDevice>
 #include <QKeyEvent>
+#include <QScopeGuard>
+#include <QTemporaryDir>
 #include <QtDBus>
 #include <QTranslator>
 #include <QtTest>
@@ -333,6 +339,122 @@ QVariantMap rowAt(const SettingsCatalog &catalog, const QString &provider,
 class SettingsCatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void languagePreferenceComesOnlyFromCoreAndSurvivesAnUnavailableDaemon() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")},
+                        {QStringLiteral("alpha"), QStringLiteral("Alpha")}};
+    const auto languages = QStringLiteral(R"({"options":[{"value":"system","title":"As in the system"},{"value":"en","title":"English"},{"value":"ru","title":"Russian"}]})");
+    daemon.settings[QStringLiteral("arinn")] = {setting(QStringLiteral("ui_language"), QStringLiteral("appearance"),
+        QStringLiteral("enum"), QStringLiteral("\"ru\""), languages, true)};
+    daemon.settings[QStringLiteral("alpha")] = {setting(QStringLiteral("ui_language"), QStringLiteral("appearance"),
+        QStringLiteral("enum"), QStringLiteral("\"en\""), languages, true)};
+    SettingsCatalog catalog;
+    QVERIFY(!catalog.uiLanguageKnown());
+    QSignalSpy changes(&catalog, &SettingsCatalog::languagePreferenceChanged);
+    QVERIFY(registerBus(daemon));
+    catalog.refresh();
+    QTRY_VERIFY(catalog.uiLanguageKnown());
+    QCOMPARE(catalog.uiLanguage(), QStringLiteral("ru"));
+    QCOMPARE(changes.count(), 1);
+    const auto options = rowAt(catalog, QStringLiteral("arinn"), QStringLiteral("ui_language"))
+        .value(QStringLiteral("constraints")).toMap().value(QStringLiteral("options")).toList();
+    QCOMPARE(options.at(2).toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Русский"));
+    catalog.refresh();
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QCOMPARE(changes.count(), 1);
+    QVERIFY(QDBusConnection::sessionBus().unregisterService(QStringLiteral("org.arinn.Daemon1")));
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("unavailable"));
+    QVERIFY(catalog.uiLanguageKnown());
+    QCOMPARE(catalog.uiLanguage(), QStringLiteral("ru"));
+    QCOMPARE(changes.count(), 1);
+  }
+
+  void localSettingOverlayUsesConfirmedPluginAndSourceAndRetranslatesInPlace() {
+    QTemporaryDir folder;
+    QVERIFY(folder.isValid());
+    const auto oldDataHome = qgetenv("XDG_DATA_HOME");
+    const auto oldLocale = QLocale();
+    const auto restore = qScopeGuard([&] {
+      if (oldDataHome.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME", oldDataHome);
+      QLocale::setDefault(oldLocale);
+    });
+    qputenv("XDG_DATA_HOME", folder.path().toUtf8());
+    QLocale::setDefault(QLocale(QStringLiteral("ru_RU")));
+    const auto plugin = QStringLiteral("Example/источник");
+    const auto directory = folder.filePath(QStringLiteral("arinn/translations/overrides/ru/providers/%1")
+        .arg(LocalTranslations::pluginDirectory(plugin)));
+    QVERIFY(QDir().mkpath(directory));
+    const auto write = [&](const QByteArray &bytes) {
+      QFile file(directory + QStringLiteral("/settings.json"));
+      const auto encoded = QByteArray(bytes).replace("example.provider", plugin.toUtf8());
+      return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(encoded) == encoded.size();
+    };
+    QVERIFY(write(R"({"formatVersion":1,"pluginId":"example.provider","locale":"ru","settings":{"rate":{"title":{"source":"rate","translation":"Мой параметр"},"description":{"source":"detail","translation":""}}}})"));
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("custom-instance"), QStringLiteral("Example")}};
+    daemon.libraryProviders = {{QStringLiteral("custom-instance"), QDBusObjectPath(QStringLiteral("/provider")), {}, {}, plugin}};
+    daemon.settings[QStringLiteral("custom-instance")] = {setting(QStringLiteral("rate"), QStringLiteral("media"),
+        QStringLiteral("boolean"), QStringLiteral("false"), QStringLiteral("{}"), true)};
+    daemon.translations[QStringLiteral("custom-instance")] = QStringLiteral(R"({"ru":{"rate":{"title":"Перевод провайдера"}}})");
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    const auto row = [&] { return rowAt(catalog, QStringLiteral("custom-instance"), QStringLiteral("rate")); };
+    QTRY_COMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("Мой параметр"));
+    QCOMPARE(row().value(QStringLiteral("description")).toString(), QString());
+    const auto reads = daemon.settingsReads;
+    QEvent change(QEvent::LanguageChange);
+    QLocale::setDefault(QLocale(QStringLiteral("en_US")));
+    QCoreApplication::sendEvent(QCoreApplication::instance(), &change);
+    QTRY_COMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("rate"));
+    QCOMPARE(daemon.settingsReads, reads);
+    const auto privateDirectory = folder.filePath(QStringLiteral("arinn/translations/overrides/qaa/providers/%1")
+        .arg(LocalTranslations::pluginDirectory(plugin)));
+    QVERIFY(QDir().mkpath(privateDirectory));
+    QFile privateFile(privateDirectory + QStringLiteral("/settings.json"));
+    QVERIFY(privateFile.open(QIODevice::WriteOnly));
+    privateFile.write(QJsonDocument(QJsonObject{{QStringLiteral("formatVersion"), 1},
+        {QStringLiteral("pluginId"), plugin}, {QStringLiteral("locale"), QStringLiteral("qaa")},
+        {QStringLiteral("settings"), QJsonObject{{QStringLiteral("rate"), QJsonObject{
+          {QStringLiteral("title"), QJsonObject{{QStringLiteral("source"), QStringLiteral("rate")},
+            {QStringLiteral("translation"), QStringLiteral("Private language label")}}}}}}}}).toJson());
+    privateFile.close();
+    catalog.setTranslationLocale(QStringLiteral("qaa"));
+    QCOMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("Private language label"));
+    QCOMPARE(daemon.settingsReads, reads);
+    catalog.setTranslationLocale(QString());
+    QLocale::setDefault(QLocale(QStringLiteral("ru_RU")));
+    QVERIFY(write(R"({"formatVersion":1,"pluginId":"example.provider","locale":"ru","settings":{"rate":{"title":{"source":"outdated source","translation":"Old override"},"description":{"translation":"Must not match a missing source"}}}})"));
+    QCoreApplication::sendEvent(QCoreApplication::instance(), &change);
+    QTRY_COMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("Перевод провайдера"));
+    QCOMPARE(row().value(QStringLiteral("description")).toString(), QStringLiteral("detail"));
+    QCOMPARE(daemon.settingsReads, reads);
+    daemon.providersFail = true;
+    catalog.refreshRoots();
+    QTest::qWait(100);
+    QVERIFY(write(R"({"formatVersion":1,"pluginId":"example.provider","locale":"ru","settings":{"rate":{"title":{"source":"rate","translation":"Мой параметр"}}}})"));
+    QCoreApplication::sendEvent(QCoreApplication::instance(), &change);
+    QTest::qWait(100);
+    QCOMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("Перевод провайдера"));
+    // Reassigning one instance must not apply a new plugin's dictionary to
+    // the retained old settings when the new schema read fails.
+    const auto replacement = folder.filePath(QStringLiteral("arinn/translations/overrides/ru/providers/replacement"));
+    QVERIFY(QDir().mkpath(replacement));
+    QFile replacementFile(replacement + QStringLiteral("/settings.json"));
+    QVERIFY(replacementFile.open(QIODevice::WriteOnly));
+    replacementFile.write(R"({"formatVersion":1,"pluginId":"replacement","locale":"ru","settings":{"rate":{"title":{"source":"rate","translation":"Wrong generation"}}}})");
+    replacementFile.close();
+    daemon.providersFail = false;
+    daemon.libraryProviders[0].plugin = QStringLiteral("replacement");
+    daemon.libraryProviders[0].generation = QStringLiteral("new-generation");
+    daemon.settings.clear();
+    const auto beforeFailure = daemon.settingsReads;
+    catalog.refresh();
+    catalog.refreshRoots();
+    QTRY_VERIFY(daemon.settingsReads > beforeFailure);
+    QTest::qWait(100);
+    QCOMPARE(row().value(QStringLiteral("title")).toString(), QStringLiteral("Перевод провайдера"));
+  }
+
   void initTestCase() {
     qDBusRegisterMetaType<ProviderWire>();
     qDBusRegisterMetaType<SettingWire>();

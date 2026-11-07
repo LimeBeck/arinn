@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "media_catalog.h"
+#include "language_change.h"
 #include "asset_images.h"
 #include <QDeadlineTimer>
 #include <QJsonDocument>
@@ -253,6 +254,7 @@ struct MediaCatalog::Catalog {
 };
 
 MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { emit tracksChanged(); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, QString(), "org.arinn.MediaWindow1", "Changed", this,
               SLOT(windowChanged(QString)));

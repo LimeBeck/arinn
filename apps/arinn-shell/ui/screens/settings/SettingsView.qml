@@ -25,6 +25,7 @@ FocusScope {
     property string editingDraft: ""
     property string choosingKey: ""
     property int optionIndex: 0
+    property string optionFocusKey: ""
     property string awaitingKey: ""
     property var awaitingValue: null
     property string awaitingLabel: ""
@@ -40,7 +41,9 @@ FocusScope {
     readonly property bool keyboardReady: keyboardAvailable || keyboardSeen
     property int integerDraft: 0
     property int integerWas: 0
-    property string integerNote: ""
+    property string integerNoteKind: ""
+    readonly property string integerNote: integerNoteKind === "max" ? qsTr("This is the maximum")
+        : integerNoteKind === "min" ? qsTr("This is the minimum") : ""
     property double holdMark: 0
     property bool integerFresh: true
     property string stringPart: "field"
@@ -70,6 +73,8 @@ FocusScope {
     // (owner decision on #732). Video is a different screen and stays uncovered.
     property bool lightFollowsTime: true
     property string clockText: ""
+    property bool translationsAvailable: false
+    signal translationsReloadRequested()
     // Why the open path editor's draft cannot be saved, empty when it can or
     // when nothing is typed yet (§6.2: a format error blocks the main key).
     readonly property string pathHint: pathEditing ? pathProblem(expandHome(editingDraft)) : ""
@@ -107,7 +112,13 @@ FocusScope {
     onActiveRowsChanged: queueRowFocusRestore()
     readonly property string paneKind: paneFor(currentCategory())
     readonly property var choosingRow: rowByKey(choosingKey)
-    readonly property var choosingOptions: choosingRow ? optionsOf(choosingRow) : []
+    readonly property var choosingOptions: {
+        const options = choosingRow ? optionsOf(choosingRow).slice() : [];
+        if (translationsAvailable && choosingRow && choosingRow.providerId === "arinn" && choosingRow.id === "ui_language")
+            options.push({ title: qsTr("Reload translations"), reloadTranslations: true });
+        return options;
+    }
+    onChoosingOptionsChanged: if (choosingKey.length) Qt.callLater(restoreOptionFocus)
     readonly property bool stringSheet: sheetRowIs("string")
     readonly property bool integerSheet: sheetRowIs("integer")
     readonly property bool sheetOpen: choosingKey.length > 0 || stringSheet || integerSheet
@@ -408,7 +419,7 @@ FocusScope {
             editingKey = "";
             editingPart = "";
             stringPart = "field";
-            integerNote = "";
+            integerNoteKind = "";
             refocusKey(key);
         }
     }
@@ -567,6 +578,7 @@ FocusScope {
         editingPart = "";
         enumCloseTimer.stop();
         enumClosingKey = "";
+        optionFocusKey = "";
         choosingKey = rowKey(row);
         const options = optionsOf(row);
         let index = 0;
@@ -581,7 +593,7 @@ FocusScope {
         const current = integerValue(row);
         integerWas = current;
         integerDraft = current;
-        integerNote = "";
+        integerNoteKind = "";
         integerFresh = true;
         holdMark = 0;
         editingPart = "integer";
@@ -623,7 +635,7 @@ FocusScope {
         const min = hasBound(row, "min") ? Number(row.constraints.min) : -Infinity;
         const max = hasBound(row, "max") ? Number(row.constraints.max) : Infinity;
         if ((direction < 0 && integerDraft <= min) || (direction > 0 && integerDraft >= max)) {
-            integerNote = direction > 0 ? qsTr("This is the maximum") : qsTr("This is the minimum");
+            integerNoteKind = direction > 0 ? "max" : "min";
             return;
         }
         let next = integerDraft + direction * step * factor;
@@ -632,9 +644,9 @@ FocusScope {
         integerDraft = next;
         integerFresh = true;
         editingDraft = String(next);
-        integerNote = "";
-        if (next <= min) integerNote = qsTr("This is the minimum");
-        if (next >= max) integerNote = qsTr("This is the maximum");
+        integerNoteKind = "";
+        if (next <= min) integerNoteKind = "min";
+        if (next >= max) integerNoteKind = "max";
     }
     function typeInteger(text) {
         const row = integerRowData;
@@ -649,16 +661,16 @@ FocusScope {
         if (digits === "-" || digits === "") return;
         const number = Number(digits);
         if (!withinInteger(row, number)) {
-            integerNote = text === "-" ? "" : (number > integerDraft ? qsTr("This is the maximum") : qsTr("This is the minimum"));
+            integerNoteKind = text === "-" ? "" : (number > integerDraft ? "max" : "min");
             return;
         }
         integerDraft = number;
         editingDraft = String(number);
-        integerNote = "";
+        integerNoteKind = "";
         const min = hasBound(row, "min") ? Number(row.constraints.min) : -Infinity;
         const max = hasBound(row, "max") ? Number(row.constraints.max) : Infinity;
-        if (number <= min) integerNote = qsTr("This is the minimum");
-        if (number >= max) integerNote = qsTr("This is the maximum");
+        if (number <= min) integerNoteKind = "min";
+        if (number >= max) integerNoteKind = "max";
     }
     function commitInteger() {
         const row = integerRowData;
@@ -781,7 +793,7 @@ FocusScope {
         editingKey = "";
         editingPart = "";
         stringPart = "field";
-        integerNote = "";
+        integerNoteKind = "";
         refocusKey(key);
     }
     function noteStringEdit() {
@@ -823,6 +835,7 @@ FocusScope {
         const item = optionRepeater.itemAt(index);
         if (!item) return;
         optionIndex = index;
+        optionFocusKey = optionIdentity(choosingOptions[index]);
         Ui.Focus.take(item);
         if (choosingOptions.length > 6 && optionFlick) {
             // On the first focus after the sheet opens, the Repeater has
@@ -834,6 +847,16 @@ FocusScope {
             optionFlick.contentY = Math.min(y, Math.max(0, optionFlick.contentHeight - optionFlick.height));
         }
     }
+    function optionIdentity(option) {
+        return option ? (option.reloadTranslations ? "action:reload" : "value:" + String(option.value)) : "";
+    }
+    function restoreOptionFocus() {
+        if (!choosingKey.length || !choosingOptions.length) return;
+        let index = Math.max(0, Math.min(optionIndex, choosingOptions.length - 1));
+        for (let i = 0; i < choosingOptions.length; ++i)
+            if (optionIdentity(choosingOptions[i]) === optionFocusKey) { index = i; break; }
+        focusOption(index);
+    }
     function closeOptions() {
         const key = choosingKey;
         choosingKey = "";
@@ -841,9 +864,12 @@ FocusScope {
     }
     function chooseOption() {
         const row = rowByKey(choosingKey);
-        const options = optionsOf(row);
-        const option = options[optionIndex];
+        const option = choosingOptions[optionIndex];
         if (!row || !option || !canEdit(row)) return;
+        if (option.reloadTranslations) {
+            translationsReloadRequested();
+            return;
+        }
         if (option.value === row.currentValue) {
             closeSheet(choosingKey);
             return;
@@ -997,7 +1023,7 @@ FocusScope {
             Qt.callLater(() => {
                 if (stringSheet) focusString();
                 else if (integerSheet && integerStepper) Ui.Focus.take(integerStepper);
-                else if (choosingKey.length) focusOption(optionIndex);
+                else if (choosingKey.length) restoreOptionFocus();
             });
             return;
         }
@@ -2121,9 +2147,10 @@ FocusScope {
                                 activeFocusOnTab: false
                                 text: modelData.title || modelData.value || ""
                                 onClicked: {
-                                    root.optionIndex = index;
+                                    root.focusOption(index);
                                     root.chooseOption();
                                 }
+                                onActiveFocusChanged: if (activeFocus) root.optionFocusKey = root.optionIdentity(modelData)
                                 Keys.onPressed: event => {
                                     if (event.key === Qt.Key_Up) {
                                         if (index > 0) root.focusOption(index - 1);

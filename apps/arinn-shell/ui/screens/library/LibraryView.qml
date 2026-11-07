@@ -20,6 +20,7 @@ FocusScope {
     property string statusActionText: ""
     property var tabs: []
     property string currentTabId: ""
+    property string focusedTabId: ""
     property string descriptionEntryId: ""
     property string descriptionText: ""
     property var entries: []
@@ -221,7 +222,9 @@ FocusScope {
     }
     property int focusedPosterIndex: 0
     property int episodeIndex: 0
+    property string focusedEpisodeId: ""
     property int seasonIndex: 0
+    property string focusedSeasonId: ""
     property string currentSeasonId: ""
     // The first episode that has been started, else the first. Down from the
     // selected season lands here (#725).
@@ -657,6 +660,7 @@ FocusScope {
         detailRailActive = true;
         seasonIndex = index;
         const season = detailSeasons[index];
+        focusedSeasonId = season.id;
         if (season && currentSeasonId !== season.id)
             currentSeasonId = season.id;
         Ui.Focus.take(item);
@@ -671,12 +675,17 @@ FocusScope {
             return false;
         detailRailActive = true;
         episodeIndex = index;
+        focusedEpisodeId = detailEpisodes[index].id;
         item.focusStill();
         return true;
     }
     function focusInitial() {
         if (!ownsFocus || !visible || !enabled) return;
         if (detailOpen) {
+            if (detailRailActive) {
+                if (episodeStillFocused && restoreEpisodeFocus()) return;
+                if (!episodeStillFocused && restoreSeasonFocus()) return;
+            }
             focusDetailAction();
             return;
         }
@@ -685,7 +694,7 @@ FocusScope {
             return;
         }
         if (tabs && tabs.length) {
-            focusCurrentTab();
+            if (!restoreTabFocus()) focusCurrentTab();
             return;
         }
         if (showGrid) {
@@ -868,7 +877,35 @@ FocusScope {
     onEntriesChanged: Qt.callLater(reconcilePoster)
     onFolderEntriesChanged: Qt.callLater(reconcileFolder)
     onVisibleEntriesChanged: Qt.callLater(reconcilePoster)
-    onTabsChanged: adoptTab()
+    onTabsChanged: {
+        adoptTab();
+        Qt.callLater(() => {
+            restoreTabFocus();
+        });
+    }
+    function restoreTabFocus() {
+        if (!ownsFocus || !visible || !enabled || detailOpen || focusPlace !== "tab") return false;
+        const id = focusedTabId || currentTabId;
+        const found = catalogueTabs.findIndex(tab => tab.id === id);
+        const index = found >= 0 ? found : catalogueTabs.findIndex(tab => tab.id === currentTabId);
+        const item = tabRepeater.itemAt(index);
+        return item ? Ui.Focus.take(item) : false;
+    }
+    function restoreSeasonFocus() {
+        if (!ownsFocus || !visible || !enabled || !detailOpen || !detailRailActive || episodeStillFocused) return false;
+        const id = focusedSeasonId || currentSeasonId;
+        const found = detailSeasons.findIndex(season => season.id === id);
+        const index = found >= 0 ? found : Math.max(0, Math.min(seasonIndex, detailSeasons.length - 1));
+        const item = seasonRepeater.itemAt(index);
+        return item ? Ui.Focus.take(item) : false;
+    }
+    function restoreEpisodeFocus() {
+        if (!ownsFocus || !visible || !enabled || !detailOpen || !detailRailActive || !episodeStillFocused) return false;
+        const index = detailEpisodes.findIndex(episode => episode.id === focusedEpisodeId);
+        return focusEpisode(index >= 0 ? index : Math.max(0, Math.min(episodeIndex, detailEpisodes.length - 1)));
+    }
+    onDetailSeasonsChanged: Qt.callLater(restoreSeasonFocus)
+    onDetailEpisodesChanged: Qt.callLater(restoreEpisodeFocus)
     onCurrentTabIdChanged: if (currentTabId !== "@folders") lastCatalogueTab = currentTabId
     Component.onCompleted: {
         adoptTab();
@@ -1015,6 +1052,10 @@ FocusScope {
                 hoverFocusEnabled: root.hoverFocusEnabled
                 onDpadRequested: Ui.InputMode.keyPressed()
                 onActivated: root.focusTab(index)
+                onActiveFocusChanged: if (activeFocus) {
+                    root.focusedTabId = modelData.id;
+                    root.focusPlace = "tab";
+                }
             }
         }
     }
@@ -1657,6 +1698,8 @@ FocusScope {
                             onActiveFocusChanged: if (activeFocus) {
                                 root.detailRailActive = true;
                                 root.episodeStillFocused = false;
+                                root.focusedSeasonId = modelData.id;
+                                root.seasonIndex = index;
                             }
                             onActivated: root.focusSeason(index)
                         }
@@ -1756,6 +1799,7 @@ FocusScope {
                                         root.detailRailActive = true;
                                         root.episodeStillFocused = true;
                                         root.episodeIndex = index;
+                                        root.focusedEpisodeId = modelData.id;
                                         episodeFlick.reveal(episodeCell);
                                     }
                                     onActivated: root.episodeRequested(root.detailEntryId, modelData.id)

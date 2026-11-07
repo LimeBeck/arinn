@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "system_about.h"
+#include "language_change.h"
 #include "build_identity.h"
 #include <QAudioDevice>
 #include <QClipboard>
@@ -283,6 +284,16 @@ QString SystemAbout::formatChannelDate(const QString &channel, const QDate &date
 }
 
 SystemAbout::SystemAbout(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] {
+    if (!m_fixture) {
+      m_channelDate = formatChannelDate(QStringLiteral(ARINN_BUILD_CHANNEL),
+          QDate::fromString(QStringLiteral(ARINN_BUILD_DATE), Qt::ISODate));
+      m_storage = formatStorage(downloadsPath());
+      m_display = readDisplay();
+      m_connection = formatConnection(m_connectionKind, m_connectionInterface);
+    }
+    emit changed();
+  });
   m_retry = new QTimer(this);
   m_retry->setSingleShot(true);
   connect(m_retry, &QTimer::timeout, this, &SystemAbout::readDaemon);
@@ -379,6 +390,8 @@ void SystemAbout::refreshLocal() {
   m_display = readDisplay();
   m_audio = readAudio();
   const auto net = readNetwork();
+  m_connectionKind = net.kind;
+  m_connectionInterface = net.iface;
   m_connection = formatConnection(net.kind, net.iface);
   m_ip = net.ip;
   m_storage = formatStorage(downloadsPath());

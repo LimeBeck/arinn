@@ -114,6 +114,7 @@ TestCase {
     }
     function init() { createHome(); }
     function cleanup() {
+        Ui.Theme.shellHour = -1;
         if (home) {
             home.destroy();
             home = null;
@@ -193,6 +194,17 @@ TestCase {
         verify(glow.poolChroma(glow.hue) < 0.09);
         verify(glow.poolChroma(glow.hue) >= 0.065);
     }
+    function test_localized_clock_does_not_change_the_light_period() {
+        const glow = child("ambientGlow");
+        glow.hour = -1;
+        Ui.Theme.shellHour = 21;
+        home.clockText = "9:15 PM";
+        compare(Ui.Theme.period, "evening");
+        Ui.Theme.shellHour = 23;
+        home.clockText = "11:15 PM";
+        compare(Ui.Theme.period, "night");
+    }
+
     // Evening from 19:00, night from 23:00, by the shell clock. The setting
     // keeps the daytime light (spec §5.6, ADR-0136).
     function test_time_of_day_and_its_setting() {

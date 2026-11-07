@@ -1306,6 +1306,8 @@ TestCase {
         // The command ends without a session of this source: it turns off.
         catalog.busy=false;tryVerify(()=>room.commands.length===1);compare(room.commands[0],"account:off");
         // The stored list drops it again (the write failed): the row says so.
+        // The watch outlasts the write's own path, about 16 s at worst.
+        verify(findChild(sheet,"musicTurnOffConfirmWatch").interval>=16000);
         room.disabled=[];tryCompare(sheet,"stopFailed","account");
         compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
         // 60 ids of 62 emoji fit in code points, though not in UTF-16 units.

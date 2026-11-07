@@ -71,6 +71,20 @@ impl Default for Coordinator {
     }
 }
 impl Coordinator {
+    pub(super) async fn text_state(
+        &self,
+        id: &str,
+        generation: &str,
+        owner: &str,
+    ) -> Option<MusicState> {
+        self.registry
+            .lock()
+            .await
+            .states
+            .get(id)
+            .filter(|cached| cached.generation == generation && cached.owner == owner)
+            .map(|cached| cached.state.clone())
+    }
     pub(super) async fn forget(&self, id: &str) {
         let mut r = self.registry.lock().await;
         r.states.remove(id);
@@ -82,7 +96,7 @@ impl Coordinator {
             r.active = None;
         }
     }
-    async fn cache(&self, id: &str, generation: &str, owner: &str, state: MusicState) {
+    pub(super) async fn cache(&self, id: &str, generation: &str, owner: &str, state: MusicState) {
         let mut r = self.registry.lock().await;
         if let Some(previous) = r.states.get(id)
             && previous.generation == generation
@@ -350,6 +364,18 @@ impl MusicEndpoint {
         if self.core.music_identity(&self.id, generation).await? != owner {
             return Err(ErrorCode::Conflict.into());
         }
+        {
+            let state = self.core.state.lock().await;
+            if !state.providers.get(&self.id).is_some_and(|provider| {
+                provider.owner == owner && provider.info.generation == generation
+            }) {
+                return Err(ErrorCode::Conflict.into());
+            }
+            self.core
+                .music
+                .cache(&self.id, generation, &owner, snapshot.clone())
+                .await;
+        }
         Ok(music::encode(&snapshot)?)
     }
     async fn get_page(
@@ -383,6 +409,9 @@ impl MusicEndpoint {
         {
             return Err(ErrorCode::Conflict.into());
         }
+        self.core
+            .remember_text_page(&self.id, generation, &owner, &page)
+            .await?;
         Ok(music::encode(&page)?)
     }
     async fn command(

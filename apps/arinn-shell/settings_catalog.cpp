@@ -804,7 +804,10 @@ void SettingsCatalog::readPreferences() {
     // Done only once no write is in flight and the stored list reflects the
     // last write: a list reversed during a write would otherwise be dropped
     // against the snapshot from before it (Codex review of #851).
-    if (m_musicDisabledWanted == m_musicDisabled && !m_pending.contains(key) &&
+    // The stored list must come from the daemon now loaded: after a daemon
+    // change the cached one is stale until the new one answers.
+    if (m_loaded && !m_unreachable && m_musicDisabledWanted == m_musicDisabled &&
+        !m_pending.contains(key) &&
         (!m_musicDisabledSent || *m_musicDisabledSent == m_musicDisabled)) {
       m_musicDisabledWanting = false;
     } else if (!m_pending.contains(key) && m_errors.contains(key)) {

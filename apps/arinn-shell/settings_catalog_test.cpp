@@ -838,6 +838,40 @@ private slots:
     QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
   }
+  // Codex review of #851: a toggle reversed during a write survives a
+  // daemon change after the first write was stored: the new daemon's list is
+  // read first, and the reversal is written to it.
+  void aReversalSurvivesADaemonRestart() {
+    const auto rows = [](const QString &value) {
+      return QList<SettingWire>{
+          setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                  QStringLiteral("string"), value,
+                  QStringLiteral("{\"max_length\":4096}"), true)};
+    };
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    first.settings.insert(QStringLiteral("arinn"), rows(QStringLiteral("\"\"")));
+    first.holdOperation = true;
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(first.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    // The first write was stored; then the daemon is replaced.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings.insert(QStringLiteral("arinn"),
+                           rows(QStringLiteral("\"[\\\"b\\\"]\"")));
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(second.sets.size(), 1);
+    QCOMPARE(second.sets.at(0).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+  }
   // Codex review of #851: a daemon that does not list the setting cannot
   // store a turned-off source, so nothing changes and nothing is written.
   void musicSourcesNeedTheCoreSetting() {

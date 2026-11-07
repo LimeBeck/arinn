@@ -281,6 +281,51 @@ private slots:
     QCOMPARE(caption(), QStringLiteral("Continue"));
   }
 
+  void unsafeActiveReplacementsKeepTheirLastGoodBytes_data() {
+    QTest::addColumn<QString>("replacement");
+    for (const auto &kind : {"directory", "outside-link", "dangling-link", "unreadable"})
+      QTest::newRow(kind) << QString::fromLatin1(kind);
+  }
+
+  void unsafeActiveReplacementsKeepTheirLastGoodBytes() {
+    QFETCH(QString, replacement);
+    QTemporaryDir root, outside;
+    QVERIFY(root.isValid() && outside.isValid());
+    const auto local = root.filePath("overrides/ru/shell/arinn.qm");
+    QVERIFY(catalogue(local, QStringLiteral("Личный перевод")));
+    LocalizationManager manager({root.path()}, {}, QLocale(QStringLiteral("en_US")));
+    manager.setLanguage("ru");
+    QCOMPARE(caption(), QStringLiteral("Личный перевод"));
+    const auto before = manager.revision();
+    if (replacement == QLatin1String("unreadable")) {
+      QVERIFY(QFile::setPermissions(local, QFileDevice::WriteOwner));
+      if (QFileInfo(local).isReadable()) QSKIP("This user can still read a file with no read permissions");
+    } else {
+      QVERIFY(QFile::remove(local));
+      if (replacement == QLatin1String("directory")) QVERIFY(QDir().mkpath(local));
+      else {
+        const auto target = outside.filePath("arinn.qm");
+        if (replacement == QLatin1String("outside-link"))
+          QVERIFY(catalogue(target, QStringLiteral("Внешний перевод")));
+        QVERIFY(QFile::link(target, local));
+        QVERIFY(QFileInfo(local).isSymLink());
+      }
+    }
+    manager.reload();
+    QVERIFY(manager.reloadFailed());
+    QCOMPARE(manager.revision(), before);
+    QCOMPARE(caption(), QStringLiteral("Личный перевод"));
+    if (replacement == QLatin1String("directory")) QVERIFY(QDir(local).removeRecursively());
+    else QVERIFY(QFile::remove(local));
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QCOMPARE(caption(), QStringLiteral("Продолжить"));
+    QVERIFY(catalogue(local, QStringLiteral("Исправлено")));
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QCOMPARE(caption(), QStringLiteral("Исправлено"));
+  }
+
   void partialNewLanguageNeedsNoApplicationRebuild() {
     QTemporaryDir folder;
     QVERIFY(folder.isValid());

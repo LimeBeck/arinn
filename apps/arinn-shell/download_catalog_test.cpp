@@ -8,6 +8,7 @@
 #include "download_catalog.h"
 #include "flow_trace_recorder.h"
 #include "provider_text_client.h"
+#include "localization_manager.h"
 #include <QFile>
 #include <QLibraryInfo>
 #include <QProcess>
@@ -456,6 +457,70 @@ private slots:
     QCOMPARE(daemon->translationReads, method == QLatin1String("GetTranslation") ? 2 : 1);
     QCOMPARE(daemon->resolves, method == QLatin1String("Resolve") ? 2 : 1);
     QCOMPARE(daemon->reads, 0);
+    QVERIFY(daemon->commands.isEmpty());
+  }
+
+  void providerReloadReportsInvalidActiveReplacements_data() {
+    QTest::addColumn<QString>("replacement");
+    for (const auto &kind : {"corrupt", "oversized", "directory", "outside-link", "dangling-link", "unreadable"})
+      QTest::newRow(kind) << QString::fromLatin1(kind);
+  }
+
+  void providerReloadReportsInvalidActiveReplacements() {
+    QFETCH(QString, replacement);
+    QTemporaryDir root, outside;
+    QVERIFY(root.isValid() && outside.isValid());
+    const auto previousHome = qgetenv("XDG_DATA_HOME");
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      if (previousHome.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME", previousHome);
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    qputenv("XDG_DATA_HOME", root.path().toUtf8());
+    QVERIFY(messageQm(root.path(), "de", "Deutsch %1"));
+    const auto local = root.filePath("arinn/translations/overrides/de/providers/plugin/messages.qm");
+    LocalizationManager manager({}, {}, QLocale(QStringLiteral("de")));
+    daemon->texts = true;
+    auto fixed = job("fixed", "error");
+    fixed.errorCode = "Unavailable";
+    fixed.errorMessage = daemon->fixedError;
+    daemon->page1 = {fixed};
+    DownloadCatalog catalog;
+    QTRY_COMPARE(jobById(catalog, "fixed").value("errorText").toString(), QStringLiteral("Deutsch Music"));
+    const auto revision = manager.revision();
+    const auto reads = daemon->reads, resolves = daemon->resolves;
+    if (replacement == QLatin1String("unreadable")) {
+      QVERIFY(QFile::setPermissions(local, QFileDevice::WriteOwner));
+      if (QFileInfo(local).isReadable()) QSKIP("This user can still read a file with no read permissions");
+    } else if (replacement == QLatin1String("corrupt") || replacement == QLatin1String("oversized")) {
+      QFile file(local);
+      QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+      file.write(QByteArray(replacement == QLatin1String("corrupt") ? 16 : ProviderMessages::maxQmBytes + 1, 'x'));
+    } else {
+      QVERIFY(QFile::remove(local));
+      if (replacement == QLatin1String("directory")) QVERIFY(QDir().mkpath(local));
+      else {
+        if (replacement == QLatin1String("outside-link")) QVERIFY(messageQm(outside.path(), "de", "Outside %1"));
+        QVERIFY(QFile::link(outside.filePath("arinn/translations/overrides/de/providers/plugin/messages.qm"), local));
+      }
+    }
+    manager.reload();
+    QVERIFY(manager.reloadFailed()); // the existing QML action reads this immediately
+    QCOMPARE(manager.revision(), revision);
+    QCOMPARE(jobById(catalog, "fixed").value("errorText").toString(), QStringLiteral("Deutsch Music"));
+    if (replacement == QLatin1String("directory")) QVERIFY(QDir(local).removeRecursively());
+    else QVERIFY(QFile::remove(local));
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QTRY_COMPARE(jobById(catalog, "fixed").value("errorText").toString(), fixed.errorMessage);
+    QVERIFY(messageQm(root.path(), "de", "Repaired %1"));
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QTRY_COMPARE(jobById(catalog, "fixed").value("errorText").toString(), QStringLiteral("Repaired Music"));
+    QCOMPARE(daemon->reads, reads);
+    QCOMPARE(daemon->resolves, resolves);
     QVERIFY(daemon->commands.isEmpty());
   }
 

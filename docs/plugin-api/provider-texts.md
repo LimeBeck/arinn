@@ -7,7 +7,8 @@ The optional [ProviderTexts1](provider-texts1.xml) interface on
 `/org/arinn/Provider1` supplies localization metadata without changing existing
 records. [ADR-0135](../adr/0135-localized-provider-texts.md) explains the boundary.
 The SDK exports it with `runtime::serve_texts` and `TextsHandler`.
-The daemon-side [Texts1](texts1.xml) is specified here but not yet implemented.
+The daemon exports [Texts1](texts1.xml) to clients; its validation and snapshot
+proofs are described in [Provider text routing](../architecture/provider-text-routing.md).
 
 ## Discovery and lifetime
 
@@ -185,7 +186,9 @@ owner or arbitrary file paths as a translation source. It does not choose the
 client's language. Caches are discarded on provider/daemon owner changes.
 
 Existing snapshots, actions and plain strings stay unchanged. An old client or
-a provider without this interface continues to work. The provider SDK endpoint
-and protocol are implemented in this contract change; daemon routing, shell
-lookup, local overrides and provider adaptations remain dependent tasks.
+a provider without this interface continues to work. The SDK endpoint, daemon
+routing and private shell lookup are implemented, including the Local music and
+Yandex Music adapters. [Local translations](../architecture/ui-translations.md)
+documents installed-copy export, compilation and independent provider/shell
+overlays. This implementation status does not declare the full Plugin API stable.
 No central repository, translation platform or change to CLA policy is needed.

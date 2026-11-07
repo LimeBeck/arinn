@@ -439,7 +439,29 @@ class ProviderTextClient final : public QObject {
       if (m_pending < 4) resolve(p);
     }
   }
+  bool eventFilter(QObject *object, QEvent *event) override {
+    if (object == qApp && event->type() == TranslationReloadCheck::typeId()) {
+      auto *check = static_cast<TranslationReloadCheck *>(event);
+      const auto roots = LocalTranslations::roots();
+      for (const auto &p : m_providers) {
+        if (p->locale != check->locale || !p->catalog) continue;
+        for (const auto &path : p->localPaths) {
+          if (!p->dictionaries.contains(path)) continue;
+          const QFileInfo current(path);
+          if (!current.exists() && !current.isSymLink()) continue;
+          QFile file(path);
+          ProviderMessages::Dictionary candidate(p->catalog->pluginId);
+          if (!std::any_of(roots.cbegin(), roots.cend(), [&](const auto &root) {
+                return LocalTranslations::safeFile(root, path, ProviderMessages::maxQmBytes);
+              }) || !file.open(QIODevice::ReadOnly) || !candidate.load(file.read(ProviderMessages::maxQmBytes + 1)))
+            check->failed = true;
+        }
+      }
+    }
+    return QObject::eventFilter(object, event);
+  }
   explicit ProviderTextClient(QObject *parent) : QObject(parent) {
+    qApp->installEventFilter(this);
     // One shared wakeup bounds timers across providers. Precise timing avoids
     // waking before the deadline; flush rearms it for any later retry.
     m_retryTimer.setSingleShot(true);

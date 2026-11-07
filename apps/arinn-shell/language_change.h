@@ -5,7 +5,22 @@
 #include <QEvent>
 #include <QObject>
 #include <QTimer>
+#include <QString>
 #include <functional>
+
+// Synchronous preflight lets translation owners reject an invalid active
+// replacement before the language manager commits a reload or reports success.
+class TranslationReloadCheck final : public QEvent {
+public:
+  static Type typeId() {
+    static const auto type = static_cast<Type>(QEvent::registerEventType());
+    return type;
+  }
+  explicit TranslationReloadCheck(const QString &requestedLocale)
+      : QEvent(typeId()), locale(requestedLocale) {}
+  const QString locale;
+  bool failed = false;
+};
 
 // Plain QObject models do not receive the window's LanguageChange. Observe
 // the application and coalesce translator swaps into one presentation update.

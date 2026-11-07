@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "localization_manager.h"
 #include "local_translations.h"
+#include "language_change.h"
 #include <QCoreApplication>
 #include <QEvent>
 #include <QJsonObject>
@@ -86,13 +87,23 @@ void LocalizationManager::apply() {
   // Removal is intentional and enables fallback. An invalid replacement of
   // an active catalogue keeps the last good in-memory version instead.
   for (const auto &entry : m_translators) {
-    if (!entry->path.startsWith(QLatin1String(":/")) && wasActive(entry->path) &&
-        QFileInfo::exists(entry->path) &&
-        (QFileInfo(entry->path).size() <= 0 || QFileInfo(entry->path).size() > LocalTranslations::maxCatalogBytes)) {
+    if (entry->path.startsWith(QLatin1String(":/")) || !wasActive(entry->path)) continue;
+    const QFileInfo current(entry->path);
+    if (!current.exists() && !current.isSymLink()) continue;
+    if (!std::any_of(m_roots.cbegin(), m_roots.cend(), [&](const auto &root) {
+          return LocalTranslations::safeFile(root, entry->path, LocalTranslations::maxCatalogBytes);
+        })) {
       m_reloadFailed = true;
       emit changed();
       return;
     }
+  }
+  TranslationReloadCheck providerCheck(translationLocale);
+  QCoreApplication::sendEvent(QCoreApplication::instance(), &providerCheck);
+  if (providerCheck.failed) {
+    m_reloadFailed = true;
+    emit changed();
+    return;
   }
   for (const auto &domain : {QStringLiteral("arinn"), QStringLiteral("music")}) {
     QStringList paths;

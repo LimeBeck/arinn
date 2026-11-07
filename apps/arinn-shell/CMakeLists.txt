@@ -292,6 +292,7 @@ endforeach()
 qt_add_executable(arinn-download-catalog-test download_catalog_test.cpp
     download_catalog.cpp download_catalog.h)
 target_link_libraries(arinn-download-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+target_sources(arinn-download-catalog-test PRIVATE localization_manager.cpp localization_manager.h)
 add_test(NAME download-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-download-catalog-test>)
 qt_add_executable(arinn-system-status-test system_status_test.cpp
     system_status.cpp system_status.h)

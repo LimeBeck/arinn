@@ -71,6 +71,7 @@ TestCase {
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             // As Main stores the choice and MusicRoom lists an off source last (#842).
             function setSourceEnabled(source,enabled) {commands=commands.concat([source+":"+(enabled?"on":"off")]);
+                disabled=enabled?disabled.filter(id=>id!==source):disabled.concat([source]);
                 const rows=sources.map(row=>row.id!==source?row:Object.assign({},row,enabled?{status:"connected",actions:row.offActions||[],browsable:true}:{status:"off",offActions:row.actions,actions:[],browsable:false}));
                 sources=rows.filter(row=>row.status!=="off").concat(rows.filter(row=>row.status==="off"));}
             // Find over every source (#801): the query is kept; tests set the results.
@@ -1290,6 +1291,27 @@ TestCase {
         catalog.commands=[];sheet.act(room.sources[0],"off");wait(200);
         compare(room.commands.length,1);compare(catalog.commands,[]);
         compare(sheet.stopFailedText,"Too many sources are turned off to turn this one off too.");
+    }
+    // Codex review of #851: a command in flight may start the session, so
+    // Turn off asks and waits; a write that fails after the stop is told on
+    // the row; the setting's limit counts code points.
+    function test_turning_off_after_commands_and_failed_writes() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="";catalog.busy=true;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");sheet.open();tryCompare(sheet,"visible",true);
+        sheet.act(room.sources[1],"off");
+        tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);compare(room.commands,[]);
+        findChild(sheet,"musicTurnOffSource").activated();
+        // The command ends without a session of this source: it turns off.
+        catalog.busy=false;tryVerify(()=>room.commands.length===1);compare(room.commands[0],"account:off");
+        // The stored list drops it again (the write failed): the row says so.
+        room.disabled=[];tryCompare(sheet,"stopFailed","account");
+        compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
+        // 60 ids of 62 emoji fit in code points, though not in UTF-16 units.
+        const ids=[];for(let i=0;i<60;i++)ids.push("\u{1F3B5}".repeat(62)+String(i).padStart(2,"0"));
+        room.disabled=ids;verify(sheet.fits("local"));
+        room.disabled=ids.concat(["x".repeat(200)]);verify(!sheet.fits("local"));
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

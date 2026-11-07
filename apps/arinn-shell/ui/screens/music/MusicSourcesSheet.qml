@@ -54,14 +54,37 @@ FocusScope {
             return;
         }
         setEnabled(stopping, false);
+        // The write may still fail after it was sent: the stored list then
+        // drops the source again, and its row says so (Codex review of #851).
+        confirming = stopping;
+        confirmWatch.restart();
         stopping = "";
+    }
+    property string confirming: ""
+    Timer {
+        id: confirmWatch
+        interval: 15000
+        onTriggered: root.confirming = ""
+    }
+    readonly property var disabledList: (room && room.disabled) || []
+    onDisabledListChanged: {
+        if (confirming.length && !disabledList.includes(confirming)) {
+            stopFailedText = qsTr("The music stopped, but the source could not be turned off now.");
+            stopFailed = confirming;
+            confirming = "";
+            confirmWatch.stop();
+        }
     }
     // The turned-off list with this source still fits the setting: at most
     // 64 ids and 4096 characters, as the daemon accepts (Codex review of
     // #851). Checked before anything is stopped.
     function fits(id) {
         const list = ((room && room.disabled) || []).filter(known => known !== id).concat([id]);
-        return list.length <= 64 && JSON.stringify(list).length <= 4096;
+        // Counted in code points, as the daemon counts (Codex review of #851):
+        // a pair of UTF-16 surrogates is one.
+        const text = JSON.stringify(list);
+        const points = text.length - (text.match(/[\uDC00-\uDFFF]/g) || []).length;
+        return list.length <= 64 && points <= 4096;
     }
     function failStop(text) {
         stopWatch.stop();
@@ -235,7 +258,11 @@ FocusScope {
         } else if (action === "off" && !fits(source.id)) {
             stopFailedText = qsTr("Too many sources are turned off to turn this one off too.");
             stopFailed = source.id;
-        } else if (action === "off" && (source.id === playingSource || !sessionKnown)) {
+        } else if (action === "off" && (source.id === playingSource || !sessionKnown
+                                        || (catalog && catalog.transportBusy === true))) {
+            // A command in flight may start or change the session: the
+            // stop flow waits for it and decides then (Codex review of
+            // #851).
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
         } else if (action === "off" || action === "on") {

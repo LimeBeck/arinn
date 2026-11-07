@@ -39,8 +39,12 @@ class ProductSiteTest(unittest.TestCase):
         self.assertEqual(CHECKER.check(self.site), [])
         guide = (self.site / "guide/index.html").read_text()
         self.assertIn('href="../index.html"', guide)
-        self.assertEqual((self.site / "assets/screenshots/home.png").read_bytes(),
-                         (ROOT / "docs/design/showcase/home.png").read_bytes())
+        for name in BUILDER.SCREENS:
+            with self.subTest(screenshot=name):
+                self.assertEqual((self.site / f"assets/screenshots/{name}.png").read_bytes(),
+                                 (ROOT / f"docs/design/showcase/{name}.png").read_bytes())
+        self.assertEqual((ROOT / "docs/user/assets/home.png").read_bytes(),
+                         (self.site / "guide/assets/home.png").read_bytes())
 
     def test_handbook_brand_assets_match_approved_sources(self):
         for name, source in (

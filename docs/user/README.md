@@ -23,19 +23,15 @@ JavaScript and under a project prefix such as `/arinn/`.
 The handbook is published as part of the [product website](../site/README.md),
 under `guide/`. `.github/workflows/pages.yml` checks it in pull requests and, on
 relevant pushes to `master` or a manual run on `master`, deploys the site's
-explicit 17-file allowlist. PRs and manual runs on other branches never deploy.
+explicit allowlist in `scripts/build-site.py`. PRs and manual runs on other branches never deploy.
 Existing CI, package and release workflows are unchanged.
 
-The owner must first select **Settings → Pages → Build and deployment → Source →
-GitHub Actions** and confirm the `github-pages` environment permits `master`.
-The repository is private, so Pages availability depends on the owner's plan.
-The expected project URL is `https://limebeck.github.io/arinn/`; use the actual
-URL returned by the deployment job before advertising it as live. Repository
-visibility does not imply that the Pages site is private: confirm the intended
-site visibility before enabling deployment.
-
-This deployment workflow and repository settings need owner review and merging.
-It does not create release tags, publish releases or change repository visibility.
+The repository is public. The product site is published at
+`https://limebeck.github.io/arinn/`, with this handbook under `guide/`.
+For a new installation of the workflow, the owner selects **Settings → Pages →
+Build and deployment → Source → GitHub Actions** and permits `master` in the
+`github-pages` environment. Repository settings remain owner-managed.
+The workflow does not create release tags, publish releases or change visibility.
 Only the explicit site allowlist is uploaded; technical documentation, historical
 designs and repository files are not bundled.
 
@@ -43,10 +39,10 @@ designs and repository files are not bundled.
 
 Keep the guide consistent with the current implementation and link to technical
 contracts for detailed setup. The first-use walkthrough introduces Home and Back;
-application, browser, library and download chapters explain the connected flows.
+application, browser, library, music and download chapters explain the connected flows.
 Distinguish implemented features from real-TV qualification and from older
-package versions. In particular, do not describe planned pin/unpin controls as
-available while Home still shows the automatic application/shortcut list. Revisit the limits when their linked issues land;
+package versions. Home pin/unpin and ordering, the graphical folder picker and
+the music room are connected in current source. Revisit the limits when their linked issues land;
 do not call an acceptance criterion passed without evidence. The HTML and CSS
 are original documentation under CC-BY-SA-4.0, covered by existing `docs/**` REUSE
 annotations. No third-party fonts, scripts, logos or analytics are used.

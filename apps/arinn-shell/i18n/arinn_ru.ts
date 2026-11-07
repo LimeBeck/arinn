@@ -1104,6 +1104,22 @@
         <source>Loading…</source>
         <translation>Загрузка…</translation>
     </message>
+    <message>
+        <source>Station</source>
+        <translation>Станция</translation>
+    </message>
+    <message>
+        <source>Web shortcut</source>
+        <translation>Ярлык сайта</translation>
+    </message>
+    <message>
+        <source>Application</source>
+        <translation>Приложение</translation>
+    </message>
+    <message>
+        <source>Service</source>
+        <translation>Сервис</translation>
+    </message>
 </context>
 <context>
     <name>KeyboardButton</name>

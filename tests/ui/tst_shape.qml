@@ -45,25 +45,47 @@ TestCase {
 
     function test_artwork_focus_is_mat_then_rim() {
         const card = createTemporaryObject(cardFactory, suite);
+        const caption = findChild(card, "cardCaption");
+        const captionAtRest = caption.mapToItem(suite, 0, 0);
         card.forceActiveFocus();
         tryCompare(card, "activeFocus", true);
-        tryCompare(card, "scale", Ui.Theme.contentFocusScale);
-        compare(card.lift, Ui.Theme.contentFocusLift);
-        compare(card.transformOrigin, Item.Bottom);
+        // Only the image lifts, from its bottom edge; the caption keeps its
+        // place, so its text never jumps on focus (#837).
+        tryCompare(card, "imageScale", Ui.Theme.contentFocusScale);
+        compare(card.imageLift, Ui.Theme.contentFocusLift);
+        compare(card.scale, 1);
+        const captionFocused = caption.mapToItem(suite, 0, 0);
+        compare(captionFocused.x, captionAtRest.x);
+        compare(captionFocused.y, captionAtRest.y);
         const mat = findChild(card, "focusMat");
         const ring = findChild(card, "focusRing");
         const bounce = findChild(card, "focusBounce");
-        const cast = findChild(card, "castLight");
-        verify(mat !== null && ring !== null && bounce !== null && cast !== null);
+        verify(mat !== null && ring !== null && bounce !== null);
         tryCompare(mat, "opacity", 1);
         tryCompare(ring, "opacity", 1);
-        tryCompare(cast, "opacity", 1);
+        // No cast light between a captioned card and its caption, and no warm
+        // bounce on a card without artwork: both read as bars (#837).
+        compare(findChild(card, "castLight"), null);
+        verify(!card.artworkReady);
+        tryCompare(bounce, "opacity", 0);
         compare(mat.border.width, Ui.Theme.matThickness);
         verify(Qt.colorEqual(mat.border.color, Ui.Theme.mat));
         compare(ring.thickness, Ui.Theme.rimThickness);
         compare(findChild(card, "rowShade").opacity, 0);
     }
 
+    // Codex review of #852: status text on a card without artwork starts
+    // after the top-left chip, not across it.
+    function test_status_text_clears_the_chip() {
+        const card = createTemporaryObject(cardFactory, suite, {statusText: "Loading…"});
+        const chip = findChild(card, "cardChip");
+        const status = findChild(card, "cardStatus");
+        verify(chip.visible && status.visible);
+        const chipRect = chip.mapToItem(card, Qt.rect(0, 0, chip.width, chip.height));
+        const statusRect = status.mapToItem(card, Qt.rect(0, 0, status.width, status.height));
+        verify(statusRect.x >= chipRect.x + chipRect.width,
+               "status at " + statusRect.x + " overlaps the chip ending at " + (chipRect.x + chipRect.width));
+    }
     function test_action_plates() {
         const button = createTemporaryObject(buttonFactory, suite);
         verify(Qt.colorEqual(button.background.color, Ui.Theme.plateAction));

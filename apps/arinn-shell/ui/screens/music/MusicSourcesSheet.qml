@@ -21,6 +21,9 @@ FocusScope {
     // be the one that plays, so turning one off asks and stops first
     // (Codex review of #851).
     readonly property bool sessionKnown: !catalog || catalog.activeKnown !== false
+    // The choice can be stored now; otherwise Turn off and Turn on wait, and
+    // nothing is stopped (Codex review of #851).
+    readonly property bool switchable: !room || room.sourcesSwitchable !== false
     // The playing source being stopped before it turns off: it turns off
     // only once its session no longer plays (Codex review of #851). A
     // failed stop keeps it on and says so on its row.
@@ -207,6 +210,8 @@ FocusScope {
         if (action === "disconnect") {
             disconnecting = source.id;
             Qt.callLater(() => Ui.Focus.take(keepSource));
+        } else if ((action === "off" || action === "on") && !switchable) {
+            return;
         } else if (action === "off" && (source.id === playingSource || !sessionKnown)) {
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
@@ -396,6 +401,7 @@ FocusScope {
                                 text: root.label(modelData)
                                 busy: sourceRow.modelData.busy === true
                                     || (pillAction === "off" && root.stopping === sourceRow.modelData.id)
+                                enabled: (pillAction !== "off" && pillAction !== "on") || root.switchable
                                 KeyNavigation.left: index > 0 ? pills.itemAt(index - 1) : null
                                 KeyNavigation.right: index + 1 < pills.count ? pills.itemAt(index + 1) : null
                                 // Rows without an action are skipped both ways
@@ -449,6 +455,10 @@ FocusScope {
             onActivated: {
                 const id = root.turningOff;
                 root.turningOff = "";
+                if (!root.switchable) {
+                    Qt.callLater(root.focusFirst);
+                    return;
+                }
                 root.stopThenTurnOff(id);
                 Qt.callLater(root.focusFirst);
             }

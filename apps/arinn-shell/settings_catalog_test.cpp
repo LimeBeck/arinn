@@ -747,6 +747,7 @@ private slots:
     // stored and would overwrite a list not read yet: nothing changes.
     {
       SettingsCatalog early;
+      QVERIFY(!early.musicSourcesWritable());
       early.setMusicSourceEnabled(QStringLiteral("b"), false);
       QVERIFY(early.musicDisabledSources().isEmpty());
     }
@@ -754,6 +755,7 @@ private slots:
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("a")});
+    QVERIFY(catalog.musicSourcesWritable());
     for (const auto &value : catalog.rows())
       QVERIFY(value.toMap().value(QStringLiteral("id")).toString() !=
               QStringLiteral("music_disabled_sources"));
@@ -885,6 +887,7 @@ private slots:
     QVERIFY(registerBus(daemon));
     SettingsCatalog catalog;
     QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QVERIFY(!catalog.musicSourcesWritable());
     catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
     QVERIFY(catalog.musicDisabledSources().isEmpty());
     QTest::qWait(200);

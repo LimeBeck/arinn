@@ -57,6 +57,10 @@ class SettingsCatalog : public QObject {
   // (spec §5.3.1, #842): the change in flight, else the stored list.
   Q_PROPERTY(QStringList musicDisabledSources READ musicDisabledSources NOTIFY
                  preferencesChanged)
+  // The daemon is loaded and lists the setting, so a source can be turned
+  // off or on now (Codex review of #851).
+  Q_PROPERTY(bool musicSourcesWritable READ musicSourcesWritable NOTIFY
+                 preferencesChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
@@ -71,6 +75,7 @@ public:
     return m_musicDisabledWanting ? m_musicDisabledWanted : m_musicDisabled;
   }
   Q_INVOKABLE void setMusicSourceEnabled(const QString &providerId, bool enabled);
+  bool musicSourcesWritable() const { return m_musicWritable; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -140,6 +145,7 @@ private:
   QStringList m_musicDisabledWanted;
   bool m_musicDisabledWanting = false;
   bool m_musicDisabledScheduled = false;
+  bool m_musicWritable = false;
   // The list last written, until the stored one changes: a write that
   // succeeded waits for the refresh that brings it, and is not sent again.
   std::optional<QStringList> m_musicDisabledSent;

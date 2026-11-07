@@ -822,7 +822,12 @@ void SettingsCatalog::readPreferences() {
       QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
     }
   }
-  const bool musicChanged = musicDisabledSources() != shownBefore;
+  const auto *musicRow =
+      find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  const bool writable = m_loaded && !m_unreachable && musicRow && musicRow->enabled;
+  const bool musicChanged =
+      musicDisabledSources() != shownBefore || writable != m_musicWritable;
+  m_musicWritable = writable;
   if (light == m_lightField && follows == m_lightFollowsTime &&
       minutes == m_ambientMinutes && sounds == m_interfaceSounds) {
     if (musicChanged)

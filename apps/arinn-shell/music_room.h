@@ -41,6 +41,9 @@ class MusicRoom : public QObject {
   // Sources turned off in the Sources sheet, by provider id (spec §5.3.1,
   // #842): the room reads nothing from them and lists them last, `off`.
   Q_PROPERTY(QStringList disabled READ disabled WRITE setDisabled NOTIFY sourcesChanged)
+  // Whether the choice can be stored now: the Sources sheet offers Turn off
+  // and Turn on only then (Codex review of #851).
+  Q_PROPERTY(bool sourcesSwitchable MEMBER m_switchable NOTIFY sourcesChanged)
   // Find over every source (MH-10, #801): result shelves Artists, Albums
   // and Tracks, each source's results in its own relevance order, sources
   // in turn; nothing merged.
@@ -187,6 +190,7 @@ private:
   // listed last in `sources`. Whether each was this computer's is kept from
   // its last state, for its mark.
   QStringList m_disabled;
+  bool m_switchable = true;
   struct Off {
     QString id, name;
     bool local = false;

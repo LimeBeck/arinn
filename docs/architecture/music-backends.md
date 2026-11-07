@@ -528,7 +528,9 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   - `Main.musicPinRows` leaves its pinned stations out of Favourites; they
     stay stored.
   - In the sheet, every source that is on has *Turn off*, and one that is off
-    has *Turn on* under the *Off* group. Both go through
+    has *Turn on* under the *Off* group. Both are disabled while the choice
+    cannot be stored (`MusicRoom.sourcesSwitchable`, from
+    `SettingsCatalog.musicSourcesWritable`), and nothing is stopped then. Both go through
     `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.
   - Turning off the source whose session plays or is paused asks first, with
     Cancel focused. While the active session is unknown

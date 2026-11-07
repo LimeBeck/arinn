@@ -1011,6 +1011,7 @@ Window {
         MusicRoom { id: musicRoom; objectName: "musicRoom"; catalog: musicCatalog
                     active: root.musicRoomFollows(musicView.visible, backend.homeVisible, backend.favorites)
                     disabled: settingsCatalog.musicDisabledSources
+                    sourcesSwitchable: settingsCatalog.musicSourcesWritable
                     onSourceEnabledRequested: (source, enabled) => settingsCatalog.setMusicSourceEnabled(source, enabled) }
         // A section screen under the navigation is blurred by 6 px, as
         // Home's own stage is; the navigation's veil sets brightness 0.45

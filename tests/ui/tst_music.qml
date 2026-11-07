@@ -66,6 +66,7 @@ TestCase {
                 if(next.length)shelves=shelves.map(item=>item.id===shelf?Object.assign({},item,{entries:item.entries.concat(next)}):item);
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
+            property bool sourcesSwitchable: true
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             // As Main stores the choice and MusicRoom lists an off source last (#842).
             function setSourceEnabled(source,enabled) {commands=commands.concat([source+":"+(enabled?"on":"off")]);
@@ -1230,6 +1231,20 @@ TestCase {
         wait(500);compare(room.commands,[]);compare(catalog.commands,[]);
         catalog.activeKnown=true;
         tryVerify(()=>room.commands.length===1);compare(room.commands[0],"local:off");compare(catalog.commands,[]);
+    }
+    // Codex review of #851: while the choice cannot be stored, Turn off is
+    // disabled and nothing is stopped.
+    function test_turning_off_needs_a_writable_setting() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";room.sourcesSwitchable=false;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);verify(off().every(pill=>!pill.enabled));
+        sheet.act(room.sources[0],"off");wait(300);
+        compare(findChild(sheet,"musicTurnOffDialog").visible,false);compare(room.commands,[]);compare(catalog.commands,[]);
+        room.sourcesSwitchable=true;tryVerify(()=>off().every(pill=>pill.enabled));
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

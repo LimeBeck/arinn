@@ -64,7 +64,7 @@ target_link_libraries(arinn-ui-gallery PRIVATE Qt6::Quick)
 
 # The QML tests load screens directly; the keyboard panel needs its model.
 qt_add_executable(arinn-ui-test ../../tests/ui/main.cpp keyboard_model.cpp keyboard_model.h)
-target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Qml Qt6::Gui)
+target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml Qt6::Gui)
 # Each file runs in its own process: isolate QML singleton/input state and
 # keep the other screens running if one Qt Quick Test process aborts.
 # Register Hearth light once; it remains isolated from Home.

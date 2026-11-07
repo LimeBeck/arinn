@@ -817,10 +817,32 @@ FocusScope {
             if (!event.isAutoRepeat)
                 back();
             event.accepted = true;
-        } else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key)) {
-            catalog.transport(playing ? "pause" : "resume");
+        } else if (mediaKeys.includes(event.key)) {
+            // One action per press: a held media key sends nothing more (#831).
+            if (!event.isAutoRepeat)
+                mediaKey(event.key);
             event.accepted = true;
         }
+    }
+    // The input device's media keys (#831). Play and Pause keep their own
+    // meaning and do nothing when already so; the toggle keys toggle; Next
+    // and Previous go where the session offers them (transport sends only
+    // an advertised action).
+    readonly property var mediaKeys: [Qt.Key_MediaTogglePlayPause, Qt.Key_Play, Qt.Key_MediaPlay,
+                                      Qt.Key_MediaPause, Qt.Key_MediaNext, Qt.Key_MediaPrevious]
+    function mediaKey(key) {
+        if (key === Qt.Key_MediaNext)
+            catalog.transport("next");
+        else if (key === Qt.Key_MediaPrevious)
+            catalog.transport("previous");
+        else if (key === Qt.Key_MediaPlay) {
+            if (!playing)
+                catalog.transport("resume");
+        } else if (key === Qt.Key_MediaPause) {
+            if (playing)
+                catalog.transport("pause");
+        } else
+            catalog.transport(playing ? "pause" : "resume");
     }
     Rectangle {
         anchors.fill: parent

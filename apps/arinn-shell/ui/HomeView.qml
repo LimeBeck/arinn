@@ -530,25 +530,37 @@ FocusScope {
     // Play and Pause keep their meaning; only the toggle key toggles.
     // Otherwise it acts on a playing or paused music session, wherever focus
     // is on Home, and focus stays (M3, #803). True when it was handled.
-    function mediaKey(key) {
+    // A held key sends its action once: auto-repeats are taken without
+    // another request (#831). Next and Previous go to the music session.
+    function mediaKey(key, repeated) {
         if (screen !== "home" || navOpen)
             return false;
-        if (heroEntry && heroEntry.mediaId) {
-            mediaActionRequested(heroEntry.mediaId, key === Qt.Key_MediaPlay ? "play"
-                                 : key === Qt.Key_MediaPause ? "pause" : "playPause");
+        const skip = key === Qt.Key_MediaNext ? "next" : key === Qt.Key_MediaPrevious ? "previous" : "";
+        if (!skip.length && heroEntry && heroEntry.mediaId) {
+            if (!repeated)
+                mediaActionRequested(heroEntry.mediaId, key === Qt.Key_MediaPlay ? "play"
+                                     : key === Qt.Key_MediaPause ? "pause" : "playPause");
             return true;
         }
         // Each key only when the session can do what it asks: Play while
         // paused, Pause while playing, the toggle either way (Codex review of
         // #827); otherwise it passes on.
-        const music = musicKeyTarget;
-        const action = key === Qt.Key_MediaPlay ? "play" : key === Qt.Key_MediaPause ? "pause" : "toggle";
-        if (music && (action === "toggle" || (action === "play") === (music.musicState === "paused"))) {
-            musicKeyRequested(action);
+        const music = skip.length ? musicSkipTarget : musicKeyTarget;
+        const action = skip.length ? skip : key === Qt.Key_MediaPlay ? "play"
+                     : key === Qt.Key_MediaPause ? "pause" : "toggle";
+        if (music && (skip.length || action === "toggle" || (action === "play") === (music.musicState === "paused"))) {
+            if (!repeated)
+                musicKeyRequested(action);
             return true;
         }
         return false;
     }
+    readonly property var mediaKeys: [Qt.Key_MediaTogglePlayPause, Qt.Key_Play, Qt.Key_MediaPlay,
+                                      Qt.Key_MediaPause, Qt.Key_MediaNext, Qt.Key_MediaPrevious]
+    // A playing or paused music session; Next and Previous go to it, and the
+    // daemon sends them only where the session offers them.
+    readonly property var musicSkipTarget: (continueEntries || []).find(entry => entry && entry.kind === "music"
+        && entry.live === true) || null
     // A playing or paused music session that offers the action Play/Pause
     // needs; without it the key passes on (Codex review of #827).
     readonly property var musicKeyTarget: (continueEntries || []).find(entry => entry && entry.kind === "music"
@@ -815,8 +827,8 @@ FocusScope {
     Keys.onPressed: event => {
         if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key)) InputMode.keyPressed();
         if (event.key === Qt.Key_Home) { homeKey(); event.accepted = true; }
-        else if ([Qt.Key_MediaTogglePlayPause, Qt.Key_MediaPlay, Qt.Key_MediaPause].includes(event.key))
-            event.accepted = mediaKey(event.key);
+        else if (mediaKeys.includes(event.key))
+            event.accepted = mediaKey(event.key, event.isAutoRepeat);
         else if (event.key === Qt.Key_Menu) {
             menuKey();
             event.accepted = true;

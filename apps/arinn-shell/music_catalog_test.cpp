@@ -1332,11 +1332,14 @@ private slots:
     const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
     const auto pairsFunction = extract(QStringLiteral("pinnedMusicStations"));
     QVERIFY(!pairsFunction.isEmpty());
+    const auto keyFunction = extract(QStringLiteral("musicKeyCommand"));
+    QVERIFY(!keyFunction.isEmpty());
     QVERIFY(!rowsFunction.isEmpty());
     QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction + pairsFunction +
+                       keyFunction +
                        "    function rows(f, s, u, a, d) {\n"
                        "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id, d);\n"
                        "    }\n}")
@@ -1435,6 +1438,23 @@ private slots:
     QCOMPARE(qvariant_cast<QJSValue>(pairs).toVariant().toList(),
              (QVariantList{QVariant(QVariantList{"local", "station:library"}),
                            QVariant(QVariantList{"cloud", "station:wave"})}));
+    // #831: a media key from Home or Ambient as a music command; Next was
+    // sent as Pause before.
+    auto command = [&](const QString &action) {
+      QVariant value;
+      [&] {
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "musicKeyCommand",
+                                          Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, action)));
+      }();
+      return value;
+    };
+    QCOMPARE(command("toggle").toString(), QString());
+    QVERIFY(!command("toggle").isNull());
+    QCOMPARE(command("play").toString(), QStringLiteral("resume"));
+    QCOMPARE(command("pause").toString(), QStringLiteral("pause"));
+    QCOMPARE(command("next").toString(), QStringLiteral("next"));
+    QCOMPARE(command("previous").toString(), QStringLiteral("previous"));
+    QVERIFY(command("stop").isNull());
     const QVariantList noPins{favorites.first()};
     QVERIFY(follows(true, false, noPins));
     QVERIFY(follows(false, true, favorites));

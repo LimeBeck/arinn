@@ -1070,6 +1070,40 @@ TestCase {
     // playing chip and the Ember line; its hero names the state and the keys.
     SignalSpy { id: musicOpens; signalName: "musicRequested" }
     SignalSpy { id: musicKeys; signalName: "musicKeyRequested" }
+    // #831: the input device's media keys as real key events (QtTest's
+    // keyClick cannot send them): Play and Pause keep their meaning, Next
+    // and Previous reach the music session, and a held key acts once.
+    function test_real_media_keys_reach_music_on_home() {
+        musicKeys.target = home; musicKeys.clear();
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing")];
+        child("entry-a").forceActiveFocus(); focused("entry-a");
+        const item = child("entry-a");
+        verify(!realKeys.send(item, Qt.Key_MediaPlay));
+        compare(musicKeys.count, 0);
+        verify(realKeys.send(item, Qt.Key_MediaPause));
+        compare(musicKeys.signalArguments[0][0], "pause");
+        verify(realKeys.send(item, Qt.Key_MediaNext));
+        compare(musicKeys.signalArguments[1][0], "next");
+        verify(realKeys.send(item, Qt.Key_MediaPrevious));
+        compare(musicKeys.signalArguments[2][0], "previous");
+        // A held toggle: one request for the press and its five repeats.
+        verify(realKeys.send(item, Qt.Key_MediaTogglePlayPause, 5));
+        compare(musicKeys.count, 4);
+        compare(musicKeys.signalArguments[3][0], "toggle");
+        verify(realKeys.send(item, Qt.Key_Play));
+        compare(musicKeys.signalArguments[4][0], "toggle");
+        focused("entry-a");
+        // Paused: dedicated Pause passes on, Play resumes.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("paused")];
+        verify(!realKeys.send(item, Qt.Key_MediaPause));
+        verify(realKeys.send(item, Qt.Key_MediaPlay));
+        compare(musicKeys.signalArguments[musicKeys.count - 1][0], "play");
+        // Without a music session, Next passes on.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}];
+        const before = musicKeys.count;
+        verify(!realKeys.send(item, Qt.Key_MediaNext));
+        compare(musicKeys.count, before);
+    }
     function musicEntry(state, extra) {
         return Object.assign({id: "arinn-music-session", kind: "music", live: state === "playing" || state === "paused",
                               musicState: state, title: "Fixture song", subtitle: "Fixture artist · Fixture wave",

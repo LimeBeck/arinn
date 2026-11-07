@@ -1,0 +1,1 @@
+- Refresh the English/Russian README, product website and handbook for implemented music, Home favorites, graphical folders and current session/build setup. Replace the public UI previews with six reproducible captures of the current QML screens and record the open-issue status audit ([#866](https://github.com/LimeBeck/arinn/issues/866)).

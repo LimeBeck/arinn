@@ -237,6 +237,18 @@ constexpr PackagedName kProviderNames[] = {
     {"desktop", QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications")},
     {"mpris", QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions")},
 };
+// The daemon's list of turned-off music sources (#842).
+constexpr char kMusicDisabledSources[] = "music_disabled_sources";
+// A JSON array of provider ids; anything else is none.
+QStringList parseMusicDisabled(const QString &text) {
+  QStringList ids;
+  const auto array = QJsonDocument::fromJson(text.toUtf8()).array();
+  for (const auto &value : array)
+    if (value.isString() && !value.toString().isEmpty() &&
+        !ids.contains(value.toString()))
+      ids.append(value.toString());
+  return ids;
+}
 // The source line of a row: none for Arinn's own settings, which need no
 // source, else the provider's name in the shell's language.
 QString sourceName(const QString &providerId, const QString &pluginId,
@@ -349,6 +361,8 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
           [this](const QString &, const QString &, const QString &) {
             ++m_epoch;
             m_pending.clear();
+            // A write lost with the old daemon is written again.
+            m_musicDisabledSent.reset();
             m_deferred.clear();
             m_errors.clear();
             m_deferredGeneration.clear();
@@ -763,6 +777,7 @@ void SettingsCatalog::readPreferences() {
   QString sounds = m_interfaceSounds;
   QString language = m_uiLanguage;
   bool languageKnown = m_uiLanguageKnown;
+  QStringList disabled = m_musicDisabled;
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
       continue;
@@ -793,6 +808,10 @@ void SettingsCatalog::readPreferences() {
             parsed == QLatin1String("normal"))
           sounds = parsed;
       }
+      if (setting.id == QLatin1String(kMusicDisabledSources)) {
+        disabled = parseMusicDisabled(valueFor(setting.kind, setting.valueJson, false)
+                                          .toString());
+      }
     }
   }
   if (m_loaded && !m_unreachable)
@@ -804,14 +823,115 @@ void SettingsCatalog::readPreferences() {
     m_uiLanguageKnown = languageKnown;
     emit languagePreferenceChanged();
   }
+  const auto shownBefore = musicDisabledSources();
+  if (disabled != m_musicDisabled)
+    m_musicDisabledSent.reset();
+  m_musicDisabled = disabled;
+  if (m_musicDisabledWanting) {
+    const auto key = keyFor(QLatin1String(kDaemonProvider),
+                            QLatin1String(kMusicDisabledSources));
+    // Done only once no write is in flight and the stored list reflects the
+    // last write: a list reversed during a write would otherwise be dropped
+    // against the snapshot from before it (Codex review of #851).
+    // The stored list must come from the daemon now loaded: after a daemon
+    // change the cached one is stale until the new one answers.
+    if (m_loaded && !m_unreachable && m_musicDisabledWanted == m_musicDisabled &&
+        !m_pending.contains(key) &&
+        (!m_musicDisabledSent || *m_musicDisabledSent == m_musicDisabled)) {
+      m_musicDisabledWanting = false;
+    } else if (!m_pending.contains(key) && m_errors.contains(key)) {
+      // A refused write: its list shows the stored one again. A change made
+      // while it was in flight differs from it and is written next (Codex
+      // review of #851).
+      const auto failed = m_musicDisabledSent;
+      m_errors.remove(key);
+      m_musicDisabledSent.reset();
+      if (!failed || *failed == m_musicDisabledWanted) {
+        m_musicDisabledWanting = false;
+      } else if (m_loaded && !m_unreachable && !m_musicDisabledScheduled) {
+        m_musicDisabledScheduled = true;
+        QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
+      }
+    } else if (m_loaded && !m_unreachable && !m_pending.contains(key) &&
+               !m_musicDisabledScheduled &&
+               m_musicDisabledSent != m_musicDisabledWanted) {
+      m_musicDisabledScheduled = true;
+      QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
+    }
+  }
+  const auto *musicRow =
+      find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  const bool writable = m_loaded && !m_unreachable && musicRow && musicRow->enabled;
+  const bool musicChanged =
+      musicDisabledSources() != shownBefore || writable != m_musicWritable;
+  m_musicWritable = writable;
   if (light == m_lightField && follows == m_lightFollowsTime &&
-      minutes == m_ambientMinutes && sounds == m_interfaceSounds)
+      minutes == m_ambientMinutes && sounds == m_interfaceSounds) {
+    if (musicChanged)
+      emit preferencesChanged();
     return;
+  }
   m_lightField = light;
   m_lightFollowsTime = follows;
   m_ambientMinutes = minutes;
   m_interfaceSounds = sounds;
   emit preferencesChanged();
+}
+void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
+                                            bool enabled) {
+  // Not known yet, or the daemon is away: the change could not be stored
+  // and would overwrite a list not read yet, so nothing changes (Codex
+  // review of #851).
+  if (providerId.isEmpty() || !m_loaded || m_unreachable)
+    return;
+  // The daemon must list the setting, or the change could not be stored
+  // (Codex review of #851).
+  const auto *row =
+      find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  if (!row || !row->enabled)
+    return;
+  auto wanted = musicDisabledSources();
+  if (enabled)
+    wanted.removeAll(providerId);
+  else if (!wanted.contains(providerId))
+    wanted.append(providerId);
+  if (wanted == musicDisabledSources())
+    return;
+  m_musicDisabledWanted = wanted;
+  m_musicDisabledWanting = true;
+  emit preferencesChanged();
+  writeMusicDisabled();
+}
+// One write at a time: a change made while one is in flight is written when
+// that one ends (readPreferences schedules it).
+void SettingsCatalog::writeMusicDisabled() {
+  m_musicDisabledScheduled = false;
+  // A daemon that is loading again (it changed owner mid-write) or away:
+  // the change waits, and the publish after the load writes it (Codex
+  // review of #851).
+  if (!m_musicDisabledWanting || !m_loaded || m_unreachable)
+    return;
+  const auto key =
+      keyFor(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
+  if (m_pending.contains(key) || m_musicDisabledWanted == m_musicDisabled ||
+      m_musicDisabledSent == m_musicDisabledWanted)
+    return;
+  const auto text = m_musicDisabledWanted.isEmpty()
+                        ? QString()
+                        : QString::fromUtf8(QJsonDocument(QJsonArray::fromStringList(
+                                                              m_musicDisabledWanted))
+                                                .toJson(QJsonDocument::Compact));
+  setValue(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources), text);
+  // Sent only once the write is in flight (Codex review of #851). A write
+  // that could not be sent, the setting gone or the daemon away, shows the
+  // stored list again.
+  if (m_pending.contains(key)) {
+    m_musicDisabledSent = m_musicDisabledWanted;
+  } else {
+    m_musicDisabledWanting = false;
+    m_errors.remove(key);
+    emit preferencesChanged();
+  }
 }
 void SettingsCatalog::publish() {
   syncDeferred();
@@ -838,6 +958,13 @@ void SettingsCatalog::publish() {
         for (const auto &setting : provider.settings) {
           if (setting.category != categoryId)
             continue;
+          // The Sources sheet keeps this one, not the Settings screen (#842).
+          // It stays live, so its write in flight is kept.
+          if (provider.id == QLatin1String(kDaemonProvider) &&
+              setting.id == QLatin1String(kMusicDisabledSources)) {
+            live.insert(keyFor(provider.id, setting.id));
+            continue;
+          }
           auto constraints = constraintsFor(setting.kind, setting.constraints);
           const auto daemon = provider.id == QLatin1String(kDaemonProvider);
           const auto pluginId = !provider.generation.isEmpty() && m_pluginGenerations.value(provider.id) == provider.generation

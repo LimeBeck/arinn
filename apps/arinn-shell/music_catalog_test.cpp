@@ -909,6 +909,152 @@ private slots:
     publish("playing");QTRY_VERIFY(policy->property("mediaActive").toBool());
     daemon.active="null";catalog.refresh();QTRY_VERIFY(!policy->property("mediaActive").toBool());
   }
+  // #842: a turned-off source is read no more. Its entries leave the
+  // shelves, All and search; the Sources sheet lists it last as `off`; a
+  // session of it has no presence on Home. Turning it on brings it back.
+  void aTurnedOffSourceLeavesTheRoom() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.states["account"] = state({"albums"}, "connected");
+    auto album = [](const char *id) {
+      return QJsonObject{{"id", id}, {"kind", "album"}, {"title", id}, {"available", true}};
+    };
+    daemon.pages["local/albums"] = QJsonArray{album("album:a")};
+    daemon.pages["account/albums"] = QJsonArray{album("album:z")};
+    daemon.active = QString::fromUtf8(QJsonDocument(QJsonObject{
+        {"provider_id", "local"},
+        {"generation", "g1"},
+        {"state", QJsonObject{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
+                              {"actions", QJsonArray{"pause", "stop", "resume", "next", "previous"}},
+                              {"current", QJsonObject{{"occurrence", "o"},
+                                                      {"track", QJsonObject{{"id", "t1"},
+                                                                            {"kind", "track"},
+                                                                            {"title", "Synthetic"}}}}}}}})
+                                          .toJson(QJsonDocument::Compact));
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    QTRY_COMPARE(catalog.homeEntries().size(), 1);
+    const auto keys = [&room] {
+      QStringList out;
+      for (const auto &value : room.shelves())
+        for (const auto &entry : value.toMap().value("entries").toList())
+          out << entry.toMap().value("key").toString().replace(QLatin1Char('\n'), QLatin1Char(' '));
+      out.sort();
+      return out;
+    };
+    QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
+    // Codex review of #851: only answered session reads move activeReads,
+    // not a change of the turned-off sources.
+    QTRY_VERIFY(catalog.activeReads() > 0);
+    QVERIFY(catalog.activeKnown());
+    // Codex review of #851: a malformed answer leaves the session unknown
+    // and is no read.
+    {
+      const auto good = daemon.active;
+      const int before = catalog.activeReads();
+      daemon.active = QStringLiteral("{}");
+      catalog.refresh();
+      QTRY_VERIFY(!catalog.activeKnown());
+      QCOMPARE(catalog.activeReads(), before);
+      daemon.active = good;
+      catalog.refresh();
+      QTRY_VERIFY(catalog.activeKnown());
+    }
+    const int reads = catalog.activeReads();
+    QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
+    catalog.setDisabledSources({"local"});
+    QCOMPARE(catalog.activeReads(), reads);
+    // Codex review of #851: the catalogue no longer browses a turned-off
+    // source; it moves to one that is on.
+    QCOMPARE(catalog.sourceId(), QStringLiteral("account"));
+    catalog.refresh();
+    QTRY_VERIFY(catalog.activeReads() > reads);
+    room.setDisabled({"local"});
+    QTRY_COMPARE(keys(), QStringList{"account album:z"});
+    QCOMPARE(room.list("albums", QString()).size(), 1);
+    const auto rows = room.sources();
+    QCOMPARE(rows.size(), 2);
+    QCOMPARE(rows.at(0).toMap().value("id").toString(), QStringLiteral("account"));
+    QCOMPARE(rows.at(1).toMap().value("id").toString(), QStringLiteral("local"));
+    QCOMPARE(rows.at(1).toMap().value("status").toString(), QStringLiteral("off"));
+    QCOMPARE(rows.at(1).toMap().value("local").toBool(), true);
+    QVERIFY(rows.at(1).toMap().value("actions").toStringList().isEmpty());
+    // Its session has no presence on Home. Nothing starts or moves it, from
+    // Ambient or elsewhere, but it can still be paused or stopped, so music
+    // that sounds anyway can be silenced (reviews of #851).
+    daemon.commands.clear();
+    for (const auto *action : {"resume", "next", "previous"})
+      catalog.transport(QString::fromLatin1(action));
+    QTest::qWait(200);
+    QVERIFY(daemon.commands.isEmpty());
+    catalog.transport(QStringLiteral("pause"));
+    QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("pause")});
+    QTRY_VERIFY(!catalog.transportBusy());
+    catalog.transport(QStringLiteral("stop"));
+    QTRY_COMPARE(daemon.commands, (QStringList{QStringLiteral("pause"), QStringLiteral("stop")}));
+    QTRY_VERIFY(!catalog.transportBusy());
+    QVERIFY(catalog.homeEntries().isEmpty());
+    QVERIFY(catalog.nowPlaying().isEmpty());
+    QVERIFY(catalog.statusLine().isEmpty());
+    // Search asks only the sources that are on.
+    room.search(QStringLiteral("album"));
+    QTRY_VERIFY(room.searchPending().isEmpty());
+    QStringList found;
+    for (const auto &value : room.searchShelves())
+      for (const auto &entry : value.toMap().value("entries").toList())
+        found << entry.toMap().value("provider").toString();
+    QVERIFY(!found.contains(QStringLiteral("local")));
+    room.search(QString());
+    // Every source off: the room is settled, with no shelves, and the
+    // catalogue browses none.
+    catalog.setDisabledSources({"local", "account"});
+    QCOMPARE(catalog.sourceId(), QString());
+    room.setDisabled({"local", "account"});
+    QTRY_VERIFY(room.shelves().isEmpty());
+    QVERIFY(room.settled());
+    QVERIFY(!room.connected());
+    // On again: the source is read anew.
+    room.setDisabled({});
+    catalog.setDisabledSources({});
+    QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
+    QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
+    QTRY_COMPARE(catalog.homeEntries().size(), 1);
+  }
+  // Codex review of #851: a source off from the start is read once for its
+  // identity only, so its Off row keeps this computer's mark, and none of
+  // its entries reach the room.
+  void aSourceOffFromTheStartKeepsItsMark() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.states["account"] = state({"albums"}, "connected");
+    daemon.pages["local/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:a"}, {"kind", "album"}, {"title", "A"}, {"available", true}}};
+    daemon.pages["account/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:z"}, {"kind", "album"}, {"title", "Z"}, {"available", true}}};
+    MusicCatalog catalog;
+    // As Main binds both to the stored choice.
+    catalog.setDisabledSources({"local"});
+    MusicRoom room;
+    room.setDisabled({"local"});
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    const auto row = [&room] {
+      for (const auto &value : room.sources())
+        if (value.toMap().value("id") == "local")
+          return value.toMap();
+      return QVariantMap();
+    };
+    QTRY_COMPARE(row().value("status").toString(), QStringLiteral("off"));
+    QTRY_VERIFY(row().value("local").toBool());
+    for (const auto &value : room.shelves())
+      for (const auto &entry : value.toMap().value("entries").toList())
+        QVERIFY(entry.toMap().value("provider").toString() != QStringLiteral("local"));
+    QCOMPARE(daemon.pageReads.value("local"), 0);
+  }
   // The Home card names the source of the active session.
   void theHomeCardNamesTheActiveSource() {
     daemon.providers = {{"local", "Local music", "g1"}};
@@ -1184,13 +1330,15 @@ private slots:
     };
     const auto rowsFunction = extract(QStringLiteral("musicPinRows"));
     const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
+    const auto pairsFunction = extract(QStringLiteral("pinnedMusicStations"));
+    QVERIFY(!pairsFunction.isEmpty());
     QVERIFY(!rowsFunction.isEmpty());
     QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction +
-                       "    function rows(f, s, u, a) {\n"
-                       "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id);\n"
+    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction + pairsFunction +
+                       "    function rows(f, s, u, a, d) {\n"
+                       "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id, d);\n"
                        "    }\n}")
                           .toUtf8(),
                       QUrl());
@@ -1228,9 +1376,20 @@ private slots:
     QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, result),
                                       Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
                                       Q_ARG(QVariant, unresolved),
-                                      Q_ARG(QVariant, accounts)));
+                                      Q_ARG(QVariant, accounts), Q_ARG(QVariant, QVariant())));
     const auto rows = qvariant_cast<QJSValue>(result).toVariant().toList();
     QCOMPARE(rows.size(), 7);
+    // #842: a turned-off source's pins leave Favourites; the others and
+    // every other favourite stay.
+    QVariant offResult;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "rows", Q_RETURN_ARG(QVariant, offResult),
+                                      Q_ARG(QVariant, favorites), Q_ARG(QVariant, sources),
+                                      Q_ARG(QVariant, unresolved), Q_ARG(QVariant, accounts),
+                                      Q_ARG(QVariant, QVariant(QStringList{"local"}))));
+    QStringList offIds;
+    for (const auto &row : qvariant_cast<QJSValue>(offResult).toVariant().toList())
+      offIds << row.toMap().value("id").toString();
+    QCOMPARE(offIds, (QStringList{"app", "awaystation:x", "cloudstation:wave", "downstation:wave"}));
     QVERIFY(!rows[6].toMap().value("unavailable").toBool());
     QCOMPARE(rows[0].toMap().value("title").toString(), QStringLiteral("App"));
     QVERIFY(!rows[1].toMap().value("unavailable").toBool());
@@ -1261,6 +1420,21 @@ private slots:
       }();
       return value.toBool();
     };
+    // Home's pins come from the stored targets, also for a placeholder row
+    // whose MusicPins1 record is missing (Codex review of #836).
+    const QVariantList stored{
+        QVariantMap{{"id", "app"}, {"providerId", "apps"}, {"capability", "application"},
+                    {"localId", "a"}},
+        QVariantMap{{"id", "p1"}, {"providerId", "local"}, {"capability", "music-station"},
+                    {"localId", "station:library"}, {"musicStation", true}},
+        QVariantMap{{"id", "p2"}, {"providerId", "cloud"}, {"capability", "music-station"},
+                    {"localId", "station:wave"}, {"unavailable", true}}};
+    QVariant pairs;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "pinnedMusicStations",
+                                      Q_RETURN_ARG(QVariant, pairs), Q_ARG(QVariant, stored)));
+    QCOMPARE(qvariant_cast<QJSValue>(pairs).toVariant().toList(),
+             (QVariantList{QVariant(QVariantList{"local", "station:library"}),
+                           QVariant(QVariantList{"cloud", "station:wave"})}));
     const QVariantList noPins{favorites.first()};
     QVERIFY(follows(true, false, noPins));
     QVERIFY(follows(false, true, favorites));
@@ -1290,11 +1464,12 @@ private slots:
                         {"continuous", true}, {"pinned", false},
                         {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
                                                 {"title", "Wave"}}},
-                        {"actions", QJsonArray{"pause", "pin"}}};
-    daemon.active = QString::fromUtf8(
+                        {"actions", QJsonArray{"pause", "stop", "pin"}}};
+    const auto playing = QString::fromUtf8(
         QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
                                   {"state", current}})
             .toJson(QJsonDocument::Compact));
+    daemon.active = playing;
     MusicCatalog catalog;
     QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
     QTRY_VERIFY(!catalog.sources().isEmpty());
@@ -1304,9 +1479,52 @@ private slots:
     catalog.syncProviderPin("local", "station:wave", false);
     QTest::qWait(100);
     QCOMPARE(daemon.commands.size(), before);
+    // Codex review of #836: a mirror that meets another command in flight
+    // waits for it instead of being dropped. The fake answers on the next
+    // turn of the event loop, so the pin is asked while Pause is in flight.
+    catalog.transport("pause");
+    QVERIFY(catalog.transportBusy());
     catalog.syncProviderPin("local", "station:wave", true);
-    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    // Another station's change from the same read keeps it waiting.
+    catalog.syncProviderPin("local", "station:other", false);
+    QCOMPARE(daemon.commands.size(), before + 1);
+    QTRY_COMPARE(daemon.commands.size(), before + 2);
     QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 2);
+    // Codex review of #836: after Stop the mirror waits for the session as
+    // it is after the command, and a stopped one takes no pin.
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    // A malformed answer is not the session after Stop: still no pin
+    // (Codex review of #836).
+    daemon.active = QStringLiteral("{}");
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 3);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 3);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("stop"));
+    // Codex review of #836: a Stop that times out may have been applied
+    // while the daemon still reports the old session; reads in the next
+    // moments do not release the mirror, and the stopped session takes no
+    // pin once it shows.
+    daemon.active = playing;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    daemon.commandError = "Timeout";
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTRY_VERIFY(!catalog.transportBusy());
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(2500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.commandError.clear();
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

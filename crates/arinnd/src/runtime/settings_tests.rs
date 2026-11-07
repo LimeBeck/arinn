@@ -556,6 +556,89 @@ async fn ui_language_discovers_partial_files_and_keeps_a_removed_choice() {
     );
 }
 
+/// #842: the music sources turned off in the shell's Sources sheet, a
+/// string of the `arinn` source holding a JSON array of provider ids, stored
+/// in `config.toml` as a list. An empty string is none; a value that is not
+/// a list of distinct ids is refused and nothing is stored.
+#[tokio::test]
+async fn turned_off_music_sources_are_a_core_setting() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, settings) = api.get_settings("arinn").await.unwrap();
+    settings::validate_schema(&settings).unwrap();
+    let setting = settings
+        .iter()
+        .find(|s| s.id == "music_disabled_sources")
+        .cloned()
+        .unwrap();
+    assert_eq!(
+        (
+            setting.category.as_str(),
+            setting.kind.as_str(),
+            setting.value.as_str()
+        ),
+        ("media", "string", r#""""#)
+    );
+    let path = api
+        .set_value(
+            "arinn",
+            &generation,
+            "music_disabled_sources",
+            r#""[\"music-local\",\"fixture\"]""#,
+            &rid(),
+        )
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    let config = Config::load(&f.folder.join("config")).unwrap();
+    assert_eq!(config.music_disabled_sources, ["music-local", "fixture"]);
+    let (_, settings) = api.get_settings("arinn").await.unwrap();
+    assert_eq!(
+        settings
+            .iter()
+            .find(|s| s.id == "music_disabled_sources")
+            .unwrap()
+            .value,
+        r#""[\"music-local\",\"fixture\"]""#
+    );
+    for bad in [
+        r#""music-local""#,
+        r#""[\"a\",\"a\"]""#,
+        r#""[\"\"]""#,
+        r#""[1]""#,
+    ] {
+        let path = api
+            .set_value("arinn", &generation, "music_disabled_sources", bad, &rid())
+            .await
+            .unwrap();
+        assert!(f.wait(path).await.is_err(), "{bad}");
+    }
+    assert_eq!(
+        Config::load(&f.folder.join("config"))
+            .unwrap()
+            .music_disabled_sources,
+        ["music-local", "fixture"]
+    );
+    // Turning every source on again stores none.
+    let path = api
+        .set_value(
+            "arinn",
+            &generation,
+            "music_disabled_sources",
+            r#""""#,
+            &rid(),
+        )
+        .await
+        .unwrap();
+    f.wait(path).await.unwrap();
+    assert!(
+        Config::load(&f.folder.join("config"))
+            .unwrap()
+            .music_disabled_sources
+            .is_empty()
+    );
+}
+
 /// ADR-0136: Appearance › Light follows the time of day, a boolean of the
 /// `arinn` source, on by default and stored in `config.toml`.
 #[tokio::test]

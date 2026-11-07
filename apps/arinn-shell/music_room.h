@@ -38,6 +38,12 @@ class MusicRoom : public QObject {
   Q_PROPERTY(bool settled READ settled NOTIFY sourcesChanged)
   // The room polls only while it is shown.
   Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
+  // Sources turned off in the Sources sheet, by provider id (spec §5.3.1,
+  // #842): the room reads nothing from them and lists them last, `off`.
+  Q_PROPERTY(QStringList disabled READ disabled WRITE setDisabled NOTIFY sourcesChanged)
+  // Whether the choice can be stored now: the Sources sheet offers Turn off
+  // and Turn on only then (Codex review of #851).
+  Q_PROPERTY(bool sourcesSwitchable MEMBER m_switchable NOTIFY sourcesChanged)
   // Find over every source (MH-10, #801): result shelves Artists, Albums
   // and Tracks, each source's results in its own relevance order, sources
   // in turn; nothing merged.
@@ -57,6 +63,8 @@ public:
   bool settled() const;
   bool active() const { return m_timer.isActive(); }
   void setActive(bool active);
+  QStringList disabled() const { return m_disabled; }
+  void setDisabled(const QStringList &disabled);
   QVariantList searchShelves() const { return m_searchShelves; }
   QStringList searchPending() const;
   QString searchQuery() const { return m_searchQuery; }
@@ -76,6 +84,11 @@ public:
   // Connect, authorize, cancel, scan (Refresh) or disconnect, sent to one
   // source by its own state's capabilities (MH-5).
   Q_INVOKABLE void sourceCommand(const QString &source, const QString &action);
+  // Turn a source off or on (#842): the shell stores the choice and sets
+  // `disabled` from it.
+  Q_INVOKABLE void setSourceEnabled(const QString &source, bool enabled) {
+    emit sourceEnabledRequested(source, enabled);
+  }
   Q_INVOKABLE void refresh();
 
   // MH-9: each provider's personal entries first, providers in Sources
@@ -97,6 +110,7 @@ signals:
   void loadingChanged();
   // Some page arrived or a source left: lists read again.
   void listChanged();
+  void sourceEnabledRequested(const QString &source, bool enabled);
 
 private slots:
   void follow();
@@ -130,7 +144,7 @@ private:
     bool stateBusy = false, stateFailed = false, commandBusy = false,
          answered = false;
     QString stateError;
-    // Why the last housekeeping command failed; cleared by the next one.
+    // Normalized error code; translate when publishing, including language changes.
     QString commandError;
     quint64 catalogueRevision = 0, ticket = 0;
     std::map<QString, Facet> facets;
@@ -166,12 +180,26 @@ private:
   void reconcileSearch();
   quint64 m_searchTicket = 0;
   QVariantList m_searchShelves;
-  void publishSources();
+  void publishSources(bool presentationOnly = false);
   void publishLoading();
   QVariantList gather(const QString &shelf, const QString &source,
                       int limit) const;
   QPointer<QObject> m_catalog;
   QStringList m_order;
+  // Turned-off sources (#842): left out of everything the room reads, and
+  // listed last in `sources`. Whether each was this computer's is kept from
+  // its last state, for its mark.
+  QStringList m_disabled;
+  bool m_switchable = true;
+  struct Off {
+    QString id, name;
+    bool local = false;
+  };
+  QList<Off> m_off;
+  std::map<QString, bool> m_local;
+  // Identity reads in flight for turned-off sources whose mark is unknown.
+  QSet<QString> m_identityReads;
+  void readIdentity(const QString &id, const QString &path, const QString &generation);
   std::map<QString, Source> m_sources;
   QVariantList m_shelves, m_sourceRows;
   bool m_dated = false, m_loading = false;

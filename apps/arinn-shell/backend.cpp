@@ -207,6 +207,7 @@ Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
                 m_favoriteSaving = false;
             m_favoriteReconcile = false;
             m_favoriteTargets.clear();
+            m_musicPinBaseline = false;
             m_favoriteError.clear();
             m_musicPinsReading = m_musicPinsRetry = false;
             stopNativeFocusObservation();
@@ -1611,6 +1612,26 @@ void Backend::readFavorites() {
           return;
         }
         m_favoriteRevision = revision;
+        // Stations pinned or unpinned since the last list read: a stored
+        // change, whoever made it, never a request that may still fail.
+        QList<std::pair<QVariantMap, bool>> pinChanges;
+        if (m_musicPinBaseline) {
+          auto stations = [](const QVariantList &list) {
+            QVariantList rows;
+            for (const auto &target : list)
+              if (target.toMap().value("capability") == QLatin1String("music-station"))
+                rows.append(target);
+            return rows;
+          };
+          const auto before = stations(m_favoriteTargets), after = stations(targets);
+          for (const auto &target : after)
+            if (!before.contains(target))
+              pinChanges.append({target.toMap(), true});
+          for (const auto &target : before)
+            if (!after.contains(target))
+              pinChanges.append({target.toMap(), false});
+        }
+        m_musicPinBaseline = true;
         m_favoriteTargets = targets;
         if (m_favoritesError) m_favoriteError.clear();
         m_favoritesLoaded = true;
@@ -1625,6 +1646,9 @@ void Backend::readFavorites() {
           m_musicPinsRetry = false;
         }
         publishState();
+        for (const auto &[target, pinned] : pinChanges)
+          emit musicStationPinChanged(target.value("providerId").toString(),
+                                      target.value("localId").toString(), pinned);
       });
 }
 // MusicPin::validate (ADR-0143): IDs of 1..256 UTF-8 bytes without NUL, a

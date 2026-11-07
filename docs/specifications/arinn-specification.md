@@ -221,8 +221,16 @@ Like, Queue and More; More opens a sheet with the other actions. Owner decision 
 ([ADR-0142](../adr/0142-music-in-hearth-light.md)), replacing the single-row
 layout B selected in #707/#710. Browsing
 another source MUST preserve the active session; replacing its queue MUST ask
-for confirmation. Local music and Yandex account connection are the first
-implementation slice. The roadmap retains Spotify, SoundCloud and YouTube Music
+for confirmation. A source can be turned off from the *Sources* sheet and
+turned on again from its *Turned off* group. Turning off differs from *Disconnect*: it
+keeps the account. A turned-off source contributes nothing to the shelves, the
+*All* lists, search or the music presence on Home, and its pinned stations leave
+Favourites until it is turned on again; they stay stored. Turning off the
+source that plays asks first and then stops its session. With every source
+off, the room points to the *Sources* sheet. The choice persists by provider
+ID; the provider keeps running. Owner decision on 2026-11-06
+([#842](https://github.com/LimeBeck/arinn/issues/842)). Local music and Yandex
+account connection are the first implementation slice. The roadmap retains Spotify, SoundCloud and YouTube Music
 as candidates subject to their own integration qualification.
 
 The [music Hearth light brief](../design/briefs/music-hearth-light/README.md)

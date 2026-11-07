@@ -3,6 +3,7 @@
 #include "music_catalog.h"
 #include "asset_images.h"
 #include <QJsonArray>
+#include <algorithm>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlEngine>
@@ -95,6 +96,11 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
     m_registryBusy = m_pageBusy = m_stateBusy = m_commandBusy = m_activeBusy =
         m_commandWaitingRefresh = false;
     m_uncertainStart = false;
+    // A new daemon: its session is not known until it answers (#842).
+    if (m_activeKnown) {
+      m_activeKnown = false;
+      emit activeReadsChanged();
+    }
     m_path.clear();
     m_generation.clear();
     m_sources.clear();
@@ -113,6 +119,9 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   });
   m_timer.setInterval(1000);
   connect(&m_timer, &QTimer::timeout, this, &MusicCatalog::refresh);
+  // A pin mirror waits while another command is in flight (#804).
+  connect(this, &MusicCatalog::statusChanged, this, &MusicCatalog::mirrorPin);
+  connect(this, &MusicCatalog::activeChanged, this, &MusicCatalog::mirrorPin);
   m_timer.start();
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
@@ -132,7 +141,8 @@ QString MusicCatalog::statusText(const QString &status) const {
 }
 QVariantList MusicCatalog::homeEntries() const {
   const auto current = m_active.value("current").toMap();
-  if (current.isEmpty())
+  // A turned-off source has no presence on Home (#842).
+  if (current.isEmpty() || m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value("track").toMap();
   const auto playback = m_active.value("playback").toString();
@@ -297,16 +307,7 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
           emit sourcesChanged();
           emit activeChanged();
         }
-        QString selected = m_sourceId;
-        bool present = false;
-        for (const auto &row : rows)
-          if (row.toMap().value("id").toString() == selected)
-            present = true;
-        if (!present)
-          selected = rows.isEmpty()
-                         ? QString()
-                         : rows.first().toMap().value("id").toString();
-        choose(selected);
+        choose(browsableSource());
       });
 }
 // A provider that restarted or left may know its stations again: its
@@ -539,13 +540,18 @@ void MusicCatalog::readActive() {
     return;
   m_activeBusy = true;
   const auto epoch = m_epoch;
+  // A read asked after a command ended describes the session after it.
+  // A read asked while an uncertain command may still be settling does not
+  // count as the session after it.
+  const auto commandsDone =
+      m_activeFenceAfter.hasExpired() ? m_commandsDone : m_activeSeen;
   auto message = call(QStringLiteral("/org/arinn/Daemon1"),
                       "org.arinn.MusicController1", "GetActive");
   auto *pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(message, 3000), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, epoch](auto *watch) {
+      [this, epoch, commandsDone](auto *watch) {
         const auto reply = watch->reply();
         watch->deleteLater();
         if (epoch != m_epoch)
@@ -557,25 +563,48 @@ void MusicCatalog::readActive() {
             m_commandBusy = m_commandWaitingRefresh = false;
             emit statusChanged();
           }
+          // The session is not known now (#842, Codex review of #851).
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
           return;
         }
         if (m_commandWaitingRefresh) {
           m_commandBusy = m_commandWaitingRefresh = false;
           emit statusChanged();
         }
-        if (reply.arguments().first().toString() == QStringLiteral("null")) {
+        // One more session read answered (#842): counted before the state
+        // it brings is published.
+        const bool none =
+            reply.arguments().first().toString() == QStringLiteral("null");
+        const auto json = none ? QJsonObject() : object(reply);
+        // Only a whole answer counts as a read: none, or a session with its
+        // provider and state. Anything else leaves the session unknown
+        // (#842, Codex review of #851).
+        if (!none && (json.isEmpty() || !json.value("provider_id").isString() ||
+                      !json.value("state").isObject())) {
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
+          return;
+        }
+        ++m_activeReads;
+        m_activeKnown = true;
+        if (none) {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
+          m_activeSeen = std::max(m_activeSeen, commandsDone);
           emit activeChanged();
+          emit activeReadsChanged();
           return;
         }
-        const auto json = object(reply);
-        if (json.isEmpty())
-          return;
         m_active = json.value("state").toObject().toVariantMap();
         m_activeId = json.value("provider_id").toString();
         m_activeGeneration = json.value("generation").toString();
+        m_activeSeen = std::max(m_activeSeen, commandsDone);
         QString path;
         for (const auto &row : m_sources) {
           const auto source = row.toMap();
@@ -598,6 +627,7 @@ void MusicCatalog::readActive() {
           emit statusChanged();
         }
         emit activeChanged();
+        emit activeReadsChanged();
       });
 }
 void MusicCatalog::command(const QString &action, const QString &entity,
@@ -617,6 +647,12 @@ void MusicCatalog::send(const QString &action, const QString &entity,
     return;
   auto endpoint = m_path, generation = m_generation;
   auto state = m_state;
+  // A turned-off source's session can still be paused or stopped, so music
+  // that sounds anyway can always be silenced; nothing that starts or moves
+  // playback reaches it (#842, reviews of #851).
+  if (active && m_disabledSources.contains(m_activeId) &&
+      action != QLatin1String("pause") && action != QLatin1String("stop"))
+    return;
   if (active) {
     bool found = false;
     for (const auto &row : m_sources) {
@@ -672,6 +708,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             if (epoch != m_epoch) {
               m_commandBusy = false;
+              ++m_commandsDone;
               emit statusChanged();
               readActive();
               return;
@@ -698,6 +735,13 @@ void MusicCatalog::send(const QString &action, const QString &entity,
                 m_startGeneration = generation;
                 m_startSession = oldSession;
               }
+              ++m_commandsDone;
+              // A command that timed out may have been applied while the
+              // daemon still reports the session before it: only a read
+              // asked after the provider's next polls counts (Codex review
+              // of #836).
+              if (failure == "Timeout" || failure == "NoReply")
+                m_activeFenceAfter.setRemainingTime(2500);
               fail(failure);
               m_commandWaitingRefresh = true;
               m_stateBusy = false;
@@ -707,6 +751,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             m_commandBusy = false;
+            ++m_commandsDone;
             if (action == "radio" && m_unresolved.remove(station))
               emit unresolvedChanged();
             if (!active) {
@@ -737,15 +782,37 @@ QString MusicCatalog::artworkUrl(const QString &providerId,
 }
 void MusicCatalog::syncProviderPin(const QString &providerId,
                                    const QString &stationId, bool pinned) {
-  // The provider's own pin covers only the station that plays (`pinned` in
-  // its state); Arinn mirrors its pin there where the provider offers it.
-  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  // Only the playing station's change is kept: one favorites read may
+  // report several stations, and another station's must not replace a
+  // mirror still waiting (Codex review of #836).
   if (m_activeId != providerId ||
-      station.value(QStringLiteral("id")).toString() != stationId ||
-      m_active.value(QStringLiteral("pinned")).toBool() == pinned ||
-      !m_active.value(QStringLiteral("actions")).toStringList().contains(
-          QStringLiteral("pin")))
+      m_active.value(QStringLiteral("station")).toMap().value(QStringLiteral("id")).toString() !=
+          stationId)
     return;
+  m_pinMirror = PinMirror{providerId, stationId, pinned};
+  mirrorPin();
+}
+// The provider's own pin covers only the station that plays (`pinned` in its
+// state); Arinn mirrors its pin there where the provider offers it. While
+// another command is in flight the mirror waits for it (Codex review of
+// #836); a station that stopped playing drops it.
+void MusicCatalog::mirrorPin() {
+  // While a command is in flight, and until the session is read again after
+  // it, the active state may describe the session before the command: Stop
+  // or a new station (Codex review of #836).
+  if (!m_pinMirror || m_commandBusy || m_activeSeen < m_commandsDone)
+    return;
+  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  if (m_activeId != m_pinMirror->provider ||
+      station.value(QStringLiteral("id")).toString() != m_pinMirror->station ||
+      m_active.value(QStringLiteral("pinned")).toBool() == m_pinMirror->pinned ||
+      !m_active.value(QStringLiteral("actions")).toStringList().contains(
+          QStringLiteral("pin"))) {
+    m_pinMirror.reset();
+    return;
+  }
+  const auto stationId = m_pinMirror->station;
+  m_pinMirror.reset();
   transport(QStringLiteral("pin"), stationId);
 }
 
@@ -772,11 +839,37 @@ bool MusicCatalog::audible() const {
          playback == QStringLiteral("loading");
 }
 
+void MusicCatalog::setDisabledSources(const QStringList &sources) {
+  if (sources == m_disabledSources)
+    return;
+  m_disabledSources = sources;
+  // A turned-off source is read no more: the browsed source moves to one
+  // that is on, or to none (Codex review of #851).
+  choose(browsableSource());
+  emit activeChanged();
+  updateProblems();
+}
+// The source the catalogue reads: the current one while it is present and
+// on, else the first one that is on, else none (#842).
+QString MusicCatalog::browsableSource() const {
+  QString first;
+  for (const auto &row : m_sources) {
+    const auto id = row.toMap().value("id").toString();
+    if (m_disabledSources.contains(id))
+      continue;
+    if (id == m_sourceId)
+      return id;
+    if (first.isEmpty())
+      first = id;
+  }
+  return first;
+}
 QVariantMap MusicCatalog::nowPlaying() const {
   const auto current = m_active.value(QStringLiteral("current")).toMap();
   const auto playback = m_active.value(QStringLiteral("playback")).toString();
   const bool playing = playback == QStringLiteral("playing");
-  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")))
+  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")) ||
+      m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value(QStringLiteral("track")).toMap();
   const auto actions = m_active.value(QStringLiteral("actions")).toStringList();

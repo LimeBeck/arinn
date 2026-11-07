@@ -1,0 +1,1 @@
+- *Now playing*'s *More* sheet can pin the playing station to Home, or unpin it, for any station its source can pin. Where the source keeps its own pins, Arinn mirrors the change there once Home has saved it ([#804](https://github.com/LimeBeck/arinn/issues/804)).

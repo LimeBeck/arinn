@@ -812,7 +812,7 @@ TestCase {
         compare(child("heroTitle").font.pixelSize, 96);
         compare(child("heroTitle").height, 146);
         compare(child("heroMeta").text, "Return");
-        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "one-line gap " + gap());
+        tryVerify(() => Math.abs(gap() - 30) < 1, 2000, "one-line gap " + gap());
         const continueY = child("continue").y;
         const favoritesY = child("favorites").y;
         const newY = child("new").y;
@@ -825,13 +825,11 @@ TestCase {
         compare(child("continue").y, continueY);
         compare(child("favorites").y, favoritesY);
         compare(child("new").y, newY);
-        tryVerify(() => Math.abs(gap() - 44) < 1, 2000, "two-line gap " + gap());
+        tryVerify(() => Math.abs(gap() - 30) < 1, 2000, "two-line gap " + gap());
         verify(textTop() < oneLineTop - 20, "two-line title top " + textTop() + " grows up from " + oneLineTop);
-        // Absolute layout, not the properties that produce it. Hero y 150 is
-        // the brief. The gap under the meta is 44. Captions sit under the
-        // images, so each row is the picture plus its caption, and the next
-        // row starts one rowGap below. The New section label meets the bottom
-        // of the screen.
+        // Absolute layout, not the properties that produce it (#837): hero y
+        // 150 and the brief's row labels, Continue at y 404 and Favourites at
+        // y 836. The New label peeks at the bottom edge.
         compare(child("heroBox").y, 150);
         const menuBottom = child("menuButton").y + child("menuButton").height;
         compare(menuBottom, 108);
@@ -839,23 +837,92 @@ TestCase {
                "hero top " + child("heroBox").y + " clears the menu that ends at " + menuBottom);
         verify(child("heroBox").y + child("heroBox").height <= child("continue").y,
                "hero bottom overlaps Continue");
-        compare(child("continue").y, 418);
-        const stride = child("continue").height + Ui.Theme.rowGap;
-        compare(child("favorites").y, child("continue").y + stride);
-        // The shelf is a fixed step, so the New poster — not only its label —
-        // shows 94 px while Continue is focused (#725).
-        compare(child("new").y, child("favorites").y + 125);
+        compare(child("continue").y, 404);
+        compare(child("favorites").y, 836);
+        compare(child("new").y, child("favorites").y + 149);
         compare(home.homeOffset, 0);
-        const rowTop = child("new").mapToItem(home, 0, 0).y;
-        const posterTop = child("entry-n").mapToItem(home, 0, 0).y;
-        const visibleLabel = home.height - rowTop;
-        const visiblePoster = home.height - posterTop;
-        console.log("visible New label " + visibleLabel.toFixed(1)
-                    + " px, poster " + visiblePoster.toFixed(1)
-                    + " px (row y " + child("new").y.toFixed(1) + ")");
-        verify(Math.abs(visiblePoster - 94) < 0.5, "visible New poster " + visiblePoster);
+        const newTop = child("new").mapToItem(home, 0, 0).y;
+        verify(newTop < home.height - 30, "the New label peeks: row top " + newTop);
     }
 
+    // #837: a focused item stays in its row band and the safe area, its
+    // caption stays put, and focusing New leaves no empty band.
+    function rect(item) { return item.mapToItem(home, Qt.rect(0, 0, item.width, item.height)); }
+    function test_focus_stays_in_its_band_and_the_safe_area() {
+        home.continueEntries = [{id: "a", title: "Activity", subtitle: "Return", running: true},
+                                {id: "b", title: "Second", subtitle: "S1"}];
+        // The second card has no eyebrow: the rows still do not move.
+        const continueTop = child("continue").mapToItem(home, 0, 0).y;
+        child("entry-a").forceActiveFocus(); focused("entry-a");
+        const label = rect(child("continueLabel"));
+        const ring = findChild(child("entry-a"), "focusRing");
+        tryVerify(() => {
+            const r = rect(ring);
+            return r.x >= Ui.Theme.safeLeft - 0.01 && r.y >= label.y + label.height;
+        }, 2000, "the focused rim stays inside the safe area and below the row label: " + JSON.stringify(rect(ring)));
+        // The caption does not move when focus comes and goes.
+        const caption = findChild(child("entry-a"), "cardCaption");
+        const focusedCaption = rect(caption);
+        keyClick(Qt.Key_Right); focused("entry-b");
+        compare(child("heroEyebrow").text, "");
+        compare(child("continue").mapToItem(home, 0, 0).y, continueTop);
+        tryVerify(() => Math.abs(rect(caption).y - focusedCaption.y) < 0.01 && Math.abs(rect(caption).x - focusedCaption.x) < 0.01,
+                  2000, "caption moved: " + JSON.stringify(rect(caption)) + " from " + JSON.stringify(focusedCaption));
+        // The focused Favourites name stays under its label.
+        child("entry-f").forceActiveFocus(); focused("entry-f");
+        const shelfLabel = rect(child("favoritesLabel"));
+        tryVerify(() => rect(child("entry-f")).y >= shelfLabel.y + shelfLabel.height,
+                  2000, "the focused name overlaps Favorites: " + JSON.stringify(rect(child("entry-f"))));
+        // New moves the rows up: Favourites takes the first fully lit line
+        // under the header, so nothing leaves a blank band above it.
+        keyClick(Qt.Key_Down); focused("entry-n");
+        tryVerify(() => Math.abs(child("favorites").mapToItem(home, 0, 0).y - (home.headerClearance + home.headerFade)) < 0.5,
+                  3000, "Favorites under the header: " + child("favorites").mapToItem(home, 0, 0).y);
+        compare(child("favorites").opacity, 1);
+    }
+    // #837: a web service without artwork is one layout: identity light,
+    // the chip top-left and the running dot beside the caption.
+    function test_service_card_without_artwork_is_an_identity_tile() {
+        home.continueEntries = [{id: "svc", title: "Video", kind: "service", running: true, visualIdentity: "video.example"}];
+        focused("entry-svc");
+        const card = child("entry-svc");
+        verify(findChild(card, "cardIdentityGlow").visible);
+        const chip = findChild(card, "cardChip");
+        verify(chip.visible);
+        compare(chip.x, 24); compare(chip.y, 24);
+        const dot = findChild(card, "cardRunningDot");
+        verify(dot.visible);
+        const title = findChild(card, "cardTitle");
+        verify(rect(dot).y >= rect(findChild(card, "cardFrame")).y + findChild(card, "cardFrame").height,
+               "the running dot sits by the caption, under the image");
+        verify(rect(dot).x < rect(title).x, "the dot comes before the title");
+    }
+    // #837: the Russian "Open services" label fits the navigation on one line.
+    Component { id: navProbe; Ui.UiText { role: "control"; font.pixelSize: 32; text: "Открытые сервисы" } }
+    function test_navigation_label_fits_open_services() {
+        keyClick(Qt.Key_Menu);
+        tryCompare(home, "navOpen", true);
+        const labels = [];
+        for (let i = 0; i < 12; ++i) {
+            const nav = findChild(home, "nav-" + i);
+            if (nav) { const label = findChild(nav, "navLabel"); if (label) labels.push(label); }
+        }
+        verify(labels.length > 0);
+        const probe = createTemporaryObject(navProbe, suite);
+        for (const label of labels)
+            verify(probe.implicitWidth <= label.width, "label " + label.width + " < " + probe.implicitWidth);
+        // A count wide enough to grow the badge keeps the 12 px gap.
+        const many = [];
+        for (let i = 0; i < 1200; ++i) many.push({id: "s" + i, title: "S" + i, letter: "S"});
+        home.openServices = many;
+        const badge = child("openServicesBadge");
+        tryVerify(() => badge.visible && badge.width > 36);
+        const row = findChild(badge.parent, "navLabelRow");
+        const rowRight = row.mapToItem(home, row.width, 0).x;
+        const badgeLeft = badge.mapToItem(home, 0, 0).x;
+        verify(rowRight + 12 <= badgeLeft + 0.5, "label row ends at " + rowRight + ", badge starts at " + badgeLeft);
+        keyClick(Qt.Key_Escape);
+    }
     function test_hero_describes_the_focused_item() {
         home.continueEntries = [
             {id: "a", title: "Player", running: true},
@@ -868,7 +935,9 @@ TestCase {
         home.favoriteEntries = [
             {id: "f", title: "Favorite", group: "online"},
             {id: "g", title: "Game", group: "games", running: true},
-            {id: "s", title: "Search", hint: "Type an address or a search"}
+            {id: "s", title: "Search", hint: "Type an address or a search"},
+            {id: "w", title: "Site", webShortcut: true},
+            {id: "st", title: "Wave", musicStation: true}
         ];
         child("entry-a").forceActiveFocus(); focused("entry-a");
         compare(child("heroEyebrow").text, "Now running");
@@ -889,17 +958,28 @@ TestCase {
         compare(child("heroEyebrow").text, "Playing");
         compare(child("heroMeta").text, "Playing");
         child("entry-f").forceActiveFocus(); focused("entry-f");
-        compare(child("heroEyebrow").text, "Favorites · Online");
+        // The kind, never the row label "Favorites" (#837).
+        compare(child("heroEyebrow").text, "Application · Online");
         compare(child("heroTitle").text, "Favorite");
         compare(child("heroMeta").text, "Opens full screen");
         home.openShortcutIds = ["f"];
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-g");
-        compare(child("heroEyebrow").text, "Favorites · Games");
+        compare(child("heroEyebrow").text, "Application · Games");
         compare(child("heroMeta").text, "Running · Return");
         keyClick(Qt.Key_Right); focused("entry-s");
-        compare(child("heroEyebrow").text, "Favorites");
+        compare(child("heroEyebrow").text, "");
         compare(child("heroMeta").text, "Type an address or a search");
+        keyClick(Qt.Key_Right); focused("entry-w");
+        compare(child("heroEyebrow").text, "Web shortcut");
+        keyClick(Qt.Key_Right); focused("entry-st");
+        compare(child("heroEyebrow").text, "Station");
+        // A Continue entry never says "Continue" either: a web service says
+        // what it is, and Home without a focused item has no eyebrow.
+        compare(home.describe("continue", {id: "svc", kind: "service", title: "Video"}).eyebrow, "Service");
+        compare(home.describe("continue", {id: "other", title: "Other"}).eyebrow, "");
+        compare(home.describe("continue", null).eyebrow, "");
+        child("entry-s").forceActiveFocus(); focused("entry-s");
         // The hero follows the presented entry, not a stale snapshot.
         home.favoriteEntries = [{id: "f", title: "Favorite"}, {id: "g", title: "Game", group: "games"},
                                 {id: "s", title: "Renamed", hint: "Type an address or a search"}];
@@ -1096,6 +1176,15 @@ TestCase {
         home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("", {live: false})];
         tryCompare(findChild(card, "musicCardFace"), "visible", false);
         musicOpens.target = null; musicKeys.target = null;
+        // #837: the music card has no inner button; Right from it reaches the
+        // next card, and the card keeps its rim.
+        home.continueEntries = [{id: "a", title: "Activity", running: true}, musicEntry("playing"),
+                                {id: "b", title: "Saved", kind: "media"}];
+        const music = child("entry-arinn-music-session");
+        music.forceActiveFocus(); focused("entry-arinn-music-session");
+        compare(findChild(music, "cardSecondaryAction").visible, false);
+        tryCompare(findChild(music, "focusRing"), "opacity", 1);
+        keyClick(Qt.Key_Right); focused("entry-b");
     }
     // #803 (MH-4): while music plays, an Ember dot and "track · artist" sit
     // left of the network icon and the clock, at most 420 px.
@@ -1232,7 +1321,9 @@ TestCase {
         // they must not take the pointer. A click on an invisible card does
         // nothing, and a click on the menu button reaches the menu button.
         const hidden = child("entry-a");
-        const spot = hidden.mapToItem(home, hidden.width / 2, hidden.height - 20);
+        // Its caption's last line is the part still below the header once
+        // the rows move up for New (#837).
+        const spot = hidden.mapToItem(home, hidden.width / 2, hidden.height - 2);
         verify(spot.y > headerBottom, "the hidden card reaches below the header");
         mouseClick(home, spot.x, spot.y);
         wait(50);

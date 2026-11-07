@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "music_room.h"
 #include "asset_images.h"
+#include "language_change.h"
 #include <QCollator>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -93,6 +94,11 @@ Q_COREAPP_STARTUP_FUNCTION(registerRoom)
 } // namespace
 
 MusicRoom::MusicRoom(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] {
+    rebuild();
+    rebuildSearch();
+    publishSources(true);
+  });
   m_timer.setInterval(2000);
   connect(&m_timer, &QTimer::timeout, this, &MusicRoom::refresh);
   m_timer.start();
@@ -114,11 +120,29 @@ void MusicRoom::follow() {
   const auto rows =
       m_catalog ? m_catalog->property("sources").toList() : QVariantList();
   QStringList order;
+  QList<Off> off;
+  for (const auto &[id, source] : m_sources)
+    if (!source.state.isEmpty())
+      m_local[id] = source.state.value("account").toString() == QLatin1String("local");
   for (const auto &value : rows) {
     const auto row = value.toMap();
     const auto id = row.value(QStringLiteral("id")).toString();
-    if (id.isEmpty() || order.contains(id))
+    if (id.isEmpty() || order.contains(id) ||
+        std::any_of(off.cbegin(), off.cend(), [&id](const Off &o) { return o.id == id; }))
       continue;
+    // A turned-off source is read no more and leaves the shelves, search
+    // and All as a source that left does (#842).
+    if (m_disabled.contains(id)) {
+      const auto local = m_local.find(id);
+      off.append({id, row.value(QStringLiteral("name")).toString(),
+                  local != m_local.end() && local->second});
+      // Off from the start: one state read tells only whether it is this
+      // computer, for its mark; no pages or search (Codex review of #851).
+      if (local == m_local.end())
+        readIdentity(id, row.value(QStringLiteral("path")).toString(),
+                     row.value(QStringLiteral("generation")).toString());
+      continue;
+    }
     order.append(id);
     auto &source = m_sources[id];
     const auto path = row.value(QStringLiteral("path")).toString(),
@@ -144,9 +168,44 @@ void MusicRoom::follow() {
   for (auto it = m_sources.begin(); it != m_sources.end();)
     it = order.contains(it->first) ? std::next(it) : m_sources.erase(it);
   m_order = order;
+  m_off = off;
   publishSources();
   rebuild();
   refresh();
+}
+
+void MusicRoom::readIdentity(const QString &id, const QString &path,
+                             const QString &generation) {
+  if (path.isEmpty() || generation.isEmpty() || m_identityReads.contains(id))
+    return;
+  m_identityReads.insert(id);
+  auto message =
+      QDBusMessage::createMethodCall(service, path, "org.arinn.Music1", "GetState");
+  message << generation;
+  auto *pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 3500), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id](auto *watch) {
+            const auto reply = watch->reply();
+            watch->deleteLater();
+            m_identityReads.remove(id);
+            const auto json = object(reply);
+            if (json.isEmpty() || !json.contains("account"))
+              return;
+            const bool local = json.value("account").toString() == QLatin1String("local");
+            m_local[id] = local;
+            for (auto &source : m_off)
+              if (source.id == id)
+                source.local = local;
+            publishSources();
+          });
+}
+
+void MusicRoom::setDisabled(const QStringList &disabled) {
+  if (disabled == m_disabled)
+    return;
+  m_disabled = disabled;
+  follow();
 }
 
 void MusicRoom::setActive(bool active) {
@@ -166,7 +225,7 @@ bool MusicRoom::settled() const {
   // only once some source exists, so the room is not the first use yet
   // (Codex review of #812).
   if (m_sources.empty())
-    return false;
+    return !m_off.isEmpty();
   for (const auto &[id, source] : m_sources)
     if (!source.answered && source.ready)
       return false;
@@ -175,8 +234,9 @@ bool MusicRoom::settled() const {
 
 // The Sources sheet and the first use read these rows; the state polled
 // during playback changes every time (position_us), the rows do not.
-void MusicRoom::publishSources() {
-  reconcileSearch();
+void MusicRoom::publishSources(bool presentationOnly) {
+  if (!presentationOnly)
+    reconcileSearch();
   const auto rows = sources();
   if (rows == m_sourceRows)
     return;
@@ -757,7 +817,10 @@ QVariantList MusicRoom::sources() const {
                             {"account", account},
                             {"status", status},
                             {"reason", reason},
-                            {"error", source.commandError},
+                            {"error", source.commandError.isEmpty() ? QString()
+                                : source.commandError == QLatin1String("Timeout")
+                                    ? tr("The source did not respond. Try again.")
+                                    : tr("The source could not do that. Try again.")},
                             {"actions", actions},
                             {"prompt", source.state.value("prompt")},
                             {"busy", source.commandBusy},
@@ -766,6 +829,19 @@ QVariantList MusicRoom::sources() const {
                             {"browsable", !source.stateFailed &&
                                               browsable(source.state)}});
   }
+  for (const auto &source : m_off)
+    rows.append(QVariantMap{{"id", source.id},
+                            {"name", source.name},
+                            {"local", source.local},
+                            {"account", QString()},
+                            {"status", QStringLiteral("off")},
+                            {"reason", QString()},
+                            {"error", QString()},
+                            {"actions", QStringList()},
+                            {"prompt", QVariant()},
+                            {"busy", false},
+                            {"answered", true},
+                            {"browsable", false}});
   return rows;
 }
 
@@ -811,12 +887,10 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
             // A refused command says so in the Sources sheet (Codex review).
             const auto reply = watch->reply();
             const auto failure = reply.errorName().section('.', -1);
-            found->second.commandError =
-                object(reply).isEmpty()
-                    ? (failure == QLatin1String("Timeout")
-                           ? tr("The source did not respond. Try again.")
-                           : tr("The source could not do that. Try again."))
-                    : QString();
+            found->second.commandError = object(reply).isEmpty()
+                ? (failure == QLatin1String("Timeout") ? QStringLiteral("Timeout")
+                                                      : QStringLiteral("Internal"))
+                : QString();
             publishSources();
             // The confirmed state, catalogue included, is read again.
             readState(id);

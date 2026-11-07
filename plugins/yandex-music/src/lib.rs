@@ -53,6 +53,15 @@ pub struct Api {
     lease: Option<std::sync::Arc<std::sync::atomic::AtomicU8>>,
     expires_at: Option<u64>,
     deadline: Option<tokio::time::Instant>,
+    /// Whether each rotor station's info names an image, per connection:
+    /// a new account gets a new `Api` and asks again (#843).
+    station_images:
+        std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Option<String>>>>,
+    /// One lookup in flight per station: a second caller waits for it and
+    /// reads its answer (Codex review of #849).
+    station_lookups: std::sync::Arc<
+        std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>,
+    >,
 }
 
 fn authorization_header(token: &str) -> Result<HeaderValue, Error> {
@@ -144,6 +153,8 @@ impl Api {
             lease: None,
             expires_at: None,
             deadline: None,
+            station_images: Default::default(),
+            station_lookups: Default::default(),
             client,
             origin: Url::parse("https://api.music.yandex.net/").map_err(|_| Error::InvalidInput)?,
         })
@@ -257,6 +268,61 @@ impl Api {
             .request(Method::GET, &["users", uid, "playlists", "list"], &[])
             .await?;
         parse::collections(&result)
+    }
+
+    /// What the connection already knows about a station's image, without a
+    /// request: `None` when it has not asked yet (#843).
+    pub(crate) fn known_station_image(&self, key: &str) -> Option<Option<String>> {
+        self.station_images.lock().ok()?.get(key).cloned()
+    }
+
+    /// The image reference a rotor station's info names, or `None` (#843).
+    /// An answer, image or none, is kept for this connection; a failure is
+    /// not, so a later listing asks again.
+    pub(crate) async fn station_image(&self, key: &str) -> Result<Option<String>, Error> {
+        if parse::station_seed(key).ok().as_deref() != Some(key) {
+            return Err(Error::InvalidInput);
+        }
+        if let Some(known) = self.known_station_image(key) {
+            return Ok(known);
+        }
+        let lookup = {
+            let mut lookups = self
+                .station_lookups
+                .lock()
+                .map_err(|_| Error::Unavailable)?;
+            // Only idle locks are dropped, so a waiting caller keeps its own.
+            if lookups.len() >= 1024 {
+                lookups.retain(|_, lock| std::sync::Arc::strong_count(lock) > 1);
+            }
+            lookups.entry(key.to_owned()).or_default().clone()
+        };
+        let _turn = lookup.lock().await;
+        // The lookup that held the turn may have answered meanwhile.
+        if let Some(known) = self.known_station_image(key) {
+            return Ok(known);
+        }
+        let info = self
+            .request(Method::GET, &["rotor", "station", key, "info"], &[])
+            .await?;
+        // Only a reference the cover route accepts is kept: an allowed host
+        // and at most 16 KiB. Anything else could never be shown and counts
+        // as no image, so the memo stays small (Codex review of #849).
+        let image = parse::station_image(&info)?
+            .filter(|reference| stream::cover_url(reference).is_ok())
+            .map(str::to_owned);
+        let mut known = self.station_images.lock().map_err(|_| Error::Unavailable)?;
+        // A bounded memo with room for every pin (256), My Wave and the
+        // radios started in one connection; past that only one entry makes
+        // way, never the whole memo (Codex review of #849).
+        if known.len() >= 1024
+            && !known.contains_key(key)
+            && let Some(other) = known.keys().next().cloned()
+        {
+            known.remove(&other);
+        }
+        known.insert(key.into(), image.clone());
+        Ok(image)
     }
 
     pub async fn start_radio(&self, seed: &str) -> Result<RadioSession, Error> {

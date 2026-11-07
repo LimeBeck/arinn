@@ -37,8 +37,6 @@ Surface {
     // The bars move only while playing; the shell has no reduced-motion
     // setting yet, and one would stop them here.
     property bool motionEnabled: true
-    property real castHue: Theme.hearthHue
-    property bool castEnabled: true
     // Set by a row so the image stays 16:9 (or a poster) and the caption
     // sits below it. 0 uses the role's own image height.
     property real artworkHeight: 0
@@ -51,6 +49,19 @@ Surface {
     implicitWidth: 400
     implicitHeight: frameHeight + captionHeight
     cornerRadius: compact ? Theme.posterRadius : Theme.stillRadius
+    // Only the image lifts (ADR-0136): the caption keeps its place, so its
+    // text never jumps when focus moves (#837).
+    focusScale: 1
+    focusLift: 0
+    // Set by a row for its first card: the image grows from its left edge
+    // and the rim stays inside the row's start, the safe edge (#837).
+    property bool alignStart: false
+    property real imageFocus: activeFocus ? 1 : 0
+    Behavior on imageFocus {
+        NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing }
+    }
+    readonly property real imageScale: 1 + (pointerMode ? (Theme.contentFocusScale - 1) / 2 : Theme.contentFocusScale - 1) * imageFocus
+    readonly property real imageLift: (pointerMode ? -2 : Theme.contentFocusLift) * imageFocus
     contentItem: Item {
         Item {
             id: frame
@@ -58,6 +69,19 @@ Surface {
             z: 1
             width: parent.width
             height: root.frameHeight
+            transform: [
+                Scale {
+                    origin.x: root.alignStart ? 0 : frame.width / 2
+                    origin.y: frame.height
+                    xScale: root.imageScale
+                    yScale: root.imageScale
+                },
+                Translate {
+                    // The mat and the rim, scaled with the image.
+                    x: root.alignStart ? (Theme.matThickness + Theme.rimThickness) * root.imageScale * root.imageFocus : 0
+                    y: root.imageLift
+                }
+            ]
             Rectangle {
                 objectName: "cardPlate"
                 anchors.fill: parent
@@ -131,9 +155,45 @@ Surface {
                                                      picture.implicitHeight, width, height);
                 }
             }
+            // A card without artwork, such as a web service, is an identity-
+            // light tile as in Applications: a glow from below in its own
+            // hue, half at rest and full in focus (#837).
+            Canvas {
+                id: identityGlow
+                objectName: "cardIdentityGlow"
+                anchors.fill: parent
+                visible: !root.artworkReady && !root.musicFace
+                opacity: root.activeFocus ? 1 : 0.5
+                onWidthChanged: requestPaint()
+                onHeightChanged: requestPaint()
+                onVisibleChanged: requestPaint()
+                onPaint: {
+                    const ctx = getContext("2d");
+                    ctx.reset();
+                    if (width < 1 || height < 1)
+                        return;
+                    const c = root.accentColor;
+                    const cx = width / 2;
+                    const cy = height * 1.28;
+                    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(width, height) * 0.95);
+                    glow.addColorStop(0, Qt.rgba(c.r, c.g, c.b, 0.8));
+                    glow.addColorStop(0.72, Qt.rgba(c.r, c.g, c.b, 0));
+                    ctx.beginPath();
+                    ctx.roundedRect(0, 0, width, height, root.cornerRadius, root.cornerRadius);
+                    ctx.clip();
+                    ctx.fillStyle = glow;
+                    ctx.fillRect(0, 0, width, height);
+                }
+                Connections {
+                    target: root
+                    function onAccentColorChanged() { identityGlow.requestPaint(); }
+                }
+            }
+            // The chip, or the stack of chips, always sits top-left (#837).
             Row {
+                id: chipStack
                 objectName: "cardStack"
-                x: 26; y: 24
+                x: 24; y: 24
                 spacing: -18
                 visible: root.stack.length > 0
                 Repeater {
@@ -166,19 +226,15 @@ Surface {
                 }
             }
             Rectangle {
+                id: fallbackChip
                 visible: !root.artworkReady && root.stack.length === 0 && !root.musicFace
-                anchors.right: parent.right; anchors.top: parent.top
-                anchors.margins: 24
+                x: 24; y: 24
                 width: 60; height: 60; radius: 18
                 objectName: "cardChip"
                 // Neutral chip, never a hashed pastel (brief *Monograms*, #756 C19).
                 color: Theme.chip
                 border.width: 1; border.color: Theme.chipLine
                 UiText { anchors.centerIn: parent; text: root.text.trim().slice(0, 1).toUpperCase(); role: "control"; color: Theme.textSecondary }
-            }
-            Rectangle {
-                x: 24; y: 24; width: 12; height: 12; radius: 6
-                color: Theme.ember; visible: root.running && !root.busy && !root.musicFace
             }
             // Variant 1 of the music card (mh-04, mh-05): the cover blurred
             // by 28 px with a 30–55 % Charcoal shade, the cover centred at
@@ -352,23 +408,25 @@ Surface {
                 z: 8
                 Behavior on opacity { NumberAnimation { duration: Theme.focusDuration } }
             }
+            // The warm bounce lights artwork; on a card without any it read
+            // as a bright bar (#837).
             ArtworkFocus {
                 shown: root.activeFocus
+                bounce: root.artworkReady || root.musicFace
                 artworkRadius: root.cornerRadius
             }
         }
-        CastLight {
-            objectName: "castLight"
-            z: 0
-            shown: root.activeFocus && root.castEnabled
-            hue: root.castHue
-            width: frame.width * Theme.castWidthRatio
-            anchors.horizontalCenter: frame.horizontalCenter
-            anchors.top: frame.bottom
-            anchors.topMargin: -Math.round(Theme.castHeight * 0.4)
-        }
+        // No cast light under a captioned card: between the image and its
+        // caption it read as a coloured bar, and the floor pool already
+        // lights the focused card (#837).
+        // Status text starts after the top-left chip or chip stack, never
+        // across it (Codex review of #852).
         UiText {
-            x: 24; y: 20; width: parent.width - 120
+            readonly property real markRight: chipStack.visible ? chipStack.x + chipStack.width
+                : fallbackChip.visible ? fallbackChip.x + fallbackChip.width : 0
+            x: markRight > 0 ? markRight + 16 : 24
+            y: markRight > 0 ? 24 + (60 - height) / 2 : 20
+            width: parent.width - x - 96
             objectName: "cardStatus"
             text: root.statusText; visible: text.length > 0 && !root.musicFace
             role: "caption"; textFormat: Text.PlainText; z: 2
@@ -398,18 +456,31 @@ Surface {
             y: root.frameHeight + (root.compact ? 14 : 18)
             width: parent.width
             spacing: 4
-            UiText {
-                objectName: "cardTitle"
+            // A running entry's Ember dot sits before its caption, not
+            // floating on the image (#837).
+            Row {
                 width: parent.width
-                textFormat: Text.PlainText
-                text: root.busy ? qsTr("Loading…") : root.text
-                role: "caption"
-                font.pixelSize: root.compact ? 24 : 28
-                font.weight: root.compact ? 500 : 600
-                color: root.compact && !root.activeFocus ? Theme.textSecondary : Theme.textPrimary
-                wrapMode: Text.NoWrap
-                maximumLineCount: 1
-                elide: Text.ElideRight
+                spacing: 10
+                Rectangle {
+                    objectName: "cardRunningDot"
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 12; height: 12; radius: 6
+                    color: Theme.ember
+                    visible: root.running && !root.busy && !root.musicFace
+                }
+                UiText {
+                    objectName: "cardTitle"
+                    width: parent.width - (x > 0 ? x : 0)
+                    textFormat: Text.PlainText
+                    text: root.busy ? qsTr("Loading…") : root.text
+                    role: "caption"
+                    font.pixelSize: root.compact ? 24 : 28
+                    font.weight: root.compact ? 500 : 600
+                    color: root.compact && !root.activeFocus ? Theme.textSecondary : Theme.textPrimary
+                    wrapMode: Text.NoWrap
+                    maximumLineCount: 1
+                    elide: Text.ElideRight
+                }
             }
             UiText {
                 objectName: "cardSubtitle"

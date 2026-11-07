@@ -83,6 +83,20 @@ fn daemon_schema(
         value: r#""quiet""#.into(),
         constraints: serde_json::json!({ "options": sound_levels }).to_string(),
         enabled: true,
+    }, Setting {
+        // Written by the shell's music Sources sheet, not the Settings
+        // screen, which leaves it out (spec §5.3.1, #842).
+        id: "music_disabled_sources".into(),
+        category: "media".into(),
+        title: "Turned-off music sources".into(),
+        description: "The music sources turned off in the Sources sheet, as a JSON array of provider IDs".into(),
+        kind: settings::KIND_STRING.into(),
+        value: "\"\"".into(),
+        constraints: serde_json::json!({
+            "max_length": crate::storage::MUSIC_DISABLED_SOURCES_TEXT_MAX
+        })
+        .to_string(),
+        enabled: true,
     }];
     schema.push(Setting {
         id: "ui_language".into(),category: "appearance".into(),title:"Language".into(),
@@ -140,6 +154,14 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
         map.insert(
             "interface_sounds".into(),
             Value::String(config.interface_sounds.clone()),
+        );
+        map.insert(
+            "music_disabled_sources".into(),
+            Value::String(if config.music_disabled_sources.is_empty() {
+                String::new()
+            } else {
+                serde_json::to_string(&config.music_disabled_sources).unwrap_or_default()
+            }),
         );
         return map;
     }
@@ -453,6 +475,11 @@ impl Core {
                         .filter(|level| crate::storage::INTERFACE_SOUND_LEVELS.contains(level))
                         .ok_or(ErrorCode::InvalidArgument)?
                         .into()
+                }
+                "music_disabled_sources" => {
+                    config.music_disabled_sources = crate::storage::music_disabled_sources(
+                        value.as_str().ok_or(ErrorCode::InvalidArgument)?,
+                    )?
                 }
                 "search_engine" => config.search_engine = value.as_str().unwrap_or_default().into(),
                 _ => config.browser_application = value.as_str().unwrap_or_default().into(),

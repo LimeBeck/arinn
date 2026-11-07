@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QJsonObject>
 #include <QObject>
+#include <optional>
 #include <QSet>
 #include <QTimer>
 #include <QVariantList>
@@ -55,6 +56,14 @@ class SettingsCatalog : public QObject {
   Q_PROPERTY(QString uiLanguage READ uiLanguage NOTIFY languagePreferenceChanged)
   Q_PROPERTY(bool uiLanguageKnown READ uiLanguageKnown NOTIFY languagePreferenceChanged)
   Q_PROPERTY(QString translationLocale READ translationLocale WRITE setTranslationLocale NOTIFY translationLocaleChanged)
+  // The music sources turned off in the Sources sheet, by provider id
+  // (spec §5.3.1, #842): the change in flight, else the stored list.
+  Q_PROPERTY(QStringList musicDisabledSources READ musicDisabledSources NOTIFY
+                 preferencesChanged)
+  // The daemon is loaded and lists the setting, so a source can be turned
+  // off or on now (Codex review of #851).
+  Q_PROPERTY(bool musicSourcesWritable READ musicSourcesWritable NOTIFY
+                 preferencesChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
@@ -69,6 +78,11 @@ public:
   bool uiLanguageKnown() const { return m_uiLanguageKnown; }
   QString translationLocale() const { return m_translationLocale; }
   void setTranslationLocale(const QString &locale);
+  QStringList musicDisabledSources() const {
+    return m_musicDisabledWanting ? m_musicDisabledWanted : m_musicDisabled;
+  }
+  Q_INVOKABLE void setMusicSourceEnabled(const QString &providerId, bool enabled);
+  bool musicSourcesWritable() const { return m_musicWritable; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -129,6 +143,7 @@ private:
               const QString &error, bool deferred = false);
   void syncDeferred();
   void readPreferences();
+  void writeMusicDisabled();
   bool m_lightField = true;
   bool m_lightFollowsTime = true;
   int m_ambientMinutes = 10;
@@ -137,6 +152,15 @@ private:
   QString m_uiLanguage = QStringLiteral("system");
   QString m_translationLocale;
   bool m_uiLanguageKnown = false;
+  QStringList m_musicDisabled;
+  // A turn-off or turn-on not stored yet; written once the last write ends.
+  QStringList m_musicDisabledWanted;
+  bool m_musicDisabledWanting = false;
+  bool m_musicDisabledScheduled = false;
+  bool m_musicWritable = false;
+  // The list last written, until the stored one changes: a write that
+  // succeeded waits for the refresh that brings it, and is not sent again.
+  std::optional<QStringList> m_musicDisabledSent;
   QVariantList m_categories;
   QVariantList m_rows;
   // The screen state the last catalogChanged announced (#441).

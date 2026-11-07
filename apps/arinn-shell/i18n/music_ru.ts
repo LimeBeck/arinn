@@ -325,6 +325,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Здесь пока нет музыки. Попробуйте поиск или другой раздел.</translation>
     </message>
     <message>
+      <source>Pin to Home</source>
+      <translation>Закрепить на главной</translation>
+    </message>
+    <message>
       <source>Pin station</source>
       <translation>Закрепить станцию</translation>
     </message>
@@ -351,6 +355,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Save playlist</source>
       <translation>Сохранить плейлист</translation>
+    </message>
+    <message>
+      <source>Unpin from Home</source>
+      <translation>Открепить с главной</translation>
     </message>
     <message>
       <source>Unpin station</source>
@@ -517,6 +525,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicRoomView</name>
     <message>
+      <source>Music sources are off</source>
+      <translation>Источники музыки выключены</translation>
+    </message>
+    <message>
+      <source>Turn a source on in Sources.</source>
+      <translation>Включите источник в разделе «Источники».</translation>
+    </message>
+    <message>
       <source>Scanning the library…</source>
       <translation>Сканирование медиатеки…</translation>
     </message>
@@ -601,6 +617,42 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   </context>
   <context>
     <name>MusicSourcesSheet</name>
+    <message>
+      <source>Turn off</source>
+      <translation>Выключить</translation>
+    </message>
+    <message>
+      <source>Turn on</source>
+      <translation>Включить</translation>
+    </message>
+    <message>
+      <source>Off</source>
+      <translation>Выключен</translation>
+    </message>
+    <message>
+      <source>Turned off</source>
+      <translation>Выключенные</translation>
+    </message>
+    <message>
+      <source>Turn off this source?</source>
+      <translation>Выключить этот источник?</translation>
+    </message>
+    <message>
+      <source>The music from this source stops.</source>
+      <translation>Музыка из этого источника остановится.</translation>
+    </message>
+    <message>
+      <source>The music could not be stopped, so the source stays on.</source>
+      <translation>Не удалось остановить музыку, поэтому источник остаётся включённым.</translation>
+    </message>
+    <message>
+      <source>The music stopped, but the source could not be turned off now.</source>
+      <translation>Музыка остановлена, но выключить источник сейчас не удалось.</translation>
+    </message>
+    <message>
+      <source>Too many sources are turned off to turn this one off too.</source>
+      <translation>Выключено слишком много источников, чтобы выключить и этот.</translation>
+    </message>
     <message>
       <source>Connect</source>
       <translation>Подключить</translation>

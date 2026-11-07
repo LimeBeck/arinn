@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Arinn contributors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
+#include <QDeadlineTimer>
 #include <QMap>
 #include <QPair>
 #include <QObject>
@@ -8,6 +9,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <optional>
 class MusicCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
@@ -25,6 +27,16 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(bool transportBusy READ transportBusy NOTIFY statusChanged)
   Q_PROPERTY(bool more READ more NOTIFY statusChanged)
   Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY activeChanged)
+  // Sources turned off in the Sources sheet (#842): a session of one of
+  // them has no presence on Home or in the Quick menu.
+  Q_PROPERTY(QStringList disabledSources READ disabledSources WRITE
+                 setDisabledSources NOTIFY activeChanged)
+  // Session reads (GetActive) answered so far: a caller waiting for the
+  // state after a command counts these, not activeChanged (#842).
+  Q_PROPERTY(int activeReads READ activeReads NOTIFY activeReadsChanged)
+  // The last session read answered: until then, or after one failed, the
+  // active session is unknown (#842).
+  Q_PROPERTY(bool activeKnown READ activeKnown NOTIFY activeReadsChanged)
   Q_PROPERTY(QString sectionTitle READ sectionTitle CONSTANT)
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
@@ -66,6 +78,11 @@ public:
   QString sectionTitle() const;
   QVariantList homeEntries() const;
   QVariantMap nowPlaying() const;
+  QStringList disabledSources() const { return m_disabledSources; }
+  int activeReads() const { return m_activeReads; }
+  bool activeKnown() const { return m_activeKnown; }
+  void setDisabledSources(const QStringList &sources);
+  QString browsableSource() const;
   QString statusLine() const;
   QVariantList unresolvedStations() const;
   bool audible() const;
@@ -105,6 +122,7 @@ public:
                              const QString &text = QString());
   Q_INVOKABLE void refresh();
 signals:
+  void activeReadsChanged();
   void sourcesChanged();
   void entriesChanged();
   void stateChanged();
@@ -123,12 +141,27 @@ private:
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
   void forgetStaleUnresolved();
+  void mirrorPin();
+  // The provider pin still to mirror (#804).
+  struct PinMirror {
+    QString provider, station;
+    bool pinned = false;
+  };
+  std::optional<PinMirror> m_pinMirror;
+  // Commands that ended, and how many of them the last active read had seen
+  // end before it was asked.
+  quint64 m_commandsDone = 0, m_activeSeen = 0;
+  // Until then, after a command that timed out, active reads do not count.
+  QDeadlineTimer m_activeFenceAfter{0};
   // (provider ID, station ID) -> the provider generation that answered. A
   // pair, not a joined string: protocol IDs may hold any character but NUL.
   QMap<QPair<QString, QString>, QString> m_unresolved;
   void updateProblems();
   // The derived values last announced through problemsChanged.
   QVariantMap m_nowPlaying;
+  QStringList m_disabledSources;
+  int m_activeReads = 0;
+  bool m_activeKnown = false;
   QString m_playbackProblem, m_notice;
   void readState();
   void readActive();

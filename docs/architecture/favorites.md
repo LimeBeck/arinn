@@ -154,8 +154,26 @@ the station and the provider's own `pin` action are the shell's (#804).
   card in the music room does: the replace confirmation, then *Now playing*.
 - **The provider's own `pin`.** Where a provider offers it, Arinn mirrors a pin
   or an unpin to it for the station that plays now
-  (`MusicCatalog.syncProviderPin`). The Home shelf still comes from Arinn's
-  store.
-- **Pinning from the player.** The *Pin station to Home* action in the *More*
-  sheet arrives with #802.
+  (`MusicCatalog.syncProviderPin`). It mirrors only a stored change:
+  `Backend.musicStationPinChanged` reports the stations a favorites list read
+  pins or unpins compared with the previous read of the same daemon
+  connection, never a request that may still fail. Only the playing
+  station's change is kept. A mirror that meets another music command in
+  flight waits for it and for the next read of the active session after it
+(after a command that timed out, only a read asked 2.5 s later counts, since
+the daemon may still report the session from before it),
+  so a Stop or a new station drops it rather than pinning the old one. The Home shelf still comes from Arinn's store.
+- **Pinning from the player.** For a station the provider marks `pinnable`,
+  *Now playing*'s *More* sheet offers *Pin to Home* when the title is not
+  empty once control characters are removed (Home stores the title), and
+  *Unpin from Home* for a station Home holds, whatever its title now
+  (`MusicView.stationPinRequested`, then `Backend.pinMusicStation` or
+  `unpinMusicStation`). Whether Home holds the station comes from the stored
+  targets (`Main.pinnedMusicStations`) and the station's identity alone, so a
+  pin whose `MusicPins1` record is not read yet, or whose station is no
+  longer marked `pinnable`, can still be removed. The row waits while a favorites write
+  is in flight. A failed save shows on *Now playing* (`musicPinFailure`, the
+  shell's favourites write error) for the provider's station it was asked
+  for, until the player closes or the music screen hides.
+  Any other station keeps the provider's own *Pin station* row.
 

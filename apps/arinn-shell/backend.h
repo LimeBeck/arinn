@@ -163,6 +163,11 @@ private slots:
   void reloadShortcuts();
   void reloadFavorites();
 signals:
+  // A music station's Home pin changed in a favorites list read after the
+  // first one of this daemon connection: the change is stored, not only
+  // requested (#804). The shell mirrors it to the provider's own `pin`.
+  void musicStationPinChanged(const QString &providerId,
+                              const QString &stationId, bool pinned);
   void nativeFocusChanged();
   void changed();
   void itemsChanged();
@@ -225,6 +230,9 @@ private:
   // revision, is read again on a later status poll, at most five times in
   // a row.
   bool m_musicPinsReading = false;
+  // A favorites list was read in this daemon connection, so the next read
+  // can report the music stations it pins or unpins.
+  bool m_musicPinBaseline = false;
   bool m_musicPinsRetry = false;
   int m_musicPinRetries = 0;
   void readMusicPins();

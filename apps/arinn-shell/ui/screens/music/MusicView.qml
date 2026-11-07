@@ -204,6 +204,7 @@ FocusScope {
     }
     onVisibleChanged: if (!visible) {
         playerFromHome = false;
+        pinAskedFor = [];
         restoreEntity = "";
         restorePages = 0;
         searchKeyboard.finish();
@@ -389,11 +390,42 @@ FocusScope {
         mode = "queue";
         Qt.callLater(focusInitial);
     }
+    // Home pins (brief *Presence › Favourites*, #804): the [provider,
+    // station] pairs on Home, and whether a pin can be written now. Pinning
+    // is the shell's; the view only asks.
+    property var pinnedStations: []
+    property bool pinsWritable: false
+    // The shell's last favourites write error. Now playing shows it after a
+    // pin asked here, for that provider's station, until the player closes
+    // or the view hides, so a failed save is never silent (Codex review of
+    // #836).
+    property string pinWriteError: ""
+    property var pinAskedFor: []
+    readonly property string pinFailure: pinAskedFor.length === 2 && !!player.station
+                                         && pinAskedFor[0] === catalog.activeSourceId
+                                         && pinAskedFor[1] === player.station.id ? pinWriteError : ""
+    signal stationPinRequested(string providerId, string stationId, string title, string artwork, bool pinned)
+    // Home stores a new pin with its title, cleaned of control characters
+    // (MusicPins1): a station without one cannot be pinned, though a pin
+    // Home already holds can always be removed (Codex review of #836).
+    readonly property string stationPinTitle: player.station && player.station.title
+        ? String(player.station.title).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").trim() : ""
+    // Home membership follows the stable identity alone; a new pin needs
+    // the provider's `pinnable` mark and a title (Codex review of #836).
+    readonly property bool stationIdentified: !!player.station && !!player.station.id && !!catalog.activeSourceId
+    readonly property bool stationPinned: stationIdentified
+                                          && pinnedStations.some(pair => pair[0] === catalog.activeSourceId
+                                                                         && pair[1] === player.station.id)
+    readonly property bool stationPinnable: stationPinned
+                                            || (stationIdentified && player.station.pinnable === true
+                                                && stationPinTitle.length > 0)
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false
-    onModeChanged: if (mode !== "player")
-        moreOpen = false
+    onModeChanged: if (mode !== "player") {
+        moreOpen = false;
+        pinAskedFor = [];
+    }
     readonly property var moreActions: {
         const rows = [];
         // A command in flight blocks every row, visibly: each sends one,
@@ -404,7 +436,12 @@ FocusScope {
                        label: player.feedback === "disliked" ? qsTr("Disliked") : qsTr("Dislike")});
         if (supported("radio") && !!current.id)
             rows.push({id: "radio", icon: "radio", busy: busy, label: qsTr("Radio from this track")});
-        if (supported("pin") && player.station && player.station.id)
+        // A pinnable station pins to Home, which mirrors the provider's own
+        // pin; any other station keeps only the provider's pin.
+        if (stationPinnable)
+            rows.push({id: "homePin", icon: "push_pin", selected: stationPinned, busy: busy || !pinsWritable,
+                       label: stationPinned ? qsTr("Unpin from Home") : qsTr("Pin to Home")});
+        else if (supported("pin") && player.station && player.station.id)
             rows.push({id: "pin", icon: "push_pin", selected: player.pinned === true, busy: busy,
                        label: player.pinned === true ? qsTr("Unpin station") : qsTr("Pin station")});
         if (supported("retry"))
@@ -433,7 +470,13 @@ FocusScope {
             requestRadio(current.id || "", true);
             return;
         }
-        if (id === "pin")
+        if (id === "homePin") {
+            if (pinsWritable) {
+                pinAskedFor = [catalog.activeSourceId, player.station.id];
+                stationPinRequested(catalog.activeSourceId, player.station.id, stationPinTitle,
+                                    player.station.artwork || "", !stationPinned);
+            }
+        } else if (id === "pin")
             catalog.transport("pin", player.station ? player.station.id : "");
         else
             catalog.transport(id);
@@ -1735,11 +1778,23 @@ FocusScope {
             }
         }
         Ui.UiText {
+            objectName: "musicPinFailure"
+            x: 760
+            y: 880
+            width: 1064
+            visible: root.pinFailure.length > 0 && !root.playbackProblem.length
+            role: "caption"
+            color: Ui.Theme.textSecondary
+            maximumLineCount: 1
+            elide: Text.ElideRight
+            text: root.pinFailure
+        }
+        Ui.UiText {
             objectName: "musicRefill"
             x: 760
             y: 880
             width: 1064
-            visible: root.player.continuous === true && !root.playbackProblem.length
+            visible: root.player.continuous === true && !root.playbackProblem.length && !root.pinFailure.length
             role: "caption"
             color: Ui.Theme.textSecondary
             maximumLineCount: 1

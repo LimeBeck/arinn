@@ -233,19 +233,24 @@ FocusScope {
     property var focusedEntry: ({})
     property int navIndex: 0
     property var navigationOpener: null
-    readonly property real homeOffset: homeRow === "new" && newRow.visible ? -Math.min(360, Math.max(0, newRow.y - 570)) : 0
+    // Focusing New moves the rows up until the row above it starts at the
+    // first fully lit line under the header, so no empty band stays where
+    // the hero was (#837).
+    readonly property real homeOffset: homeRow === "new" && newRow.visible
+        ? -Math.max(0, (favoritesRow.visible ? favoritesRow.y : newRow.y) - (headerClearance + headerFade)) : 0
     // The hero starts at the brief's y 150 and reserves two lines at 68 px.
     // The title grows upward in that slot. The first row stays this far
     // under the block, so it does not move when the title wraps (#722).
-    // The menu ends at y 108; the block stays below it. Captions sit under
-    // the images, so Continue is the picture plus its caption. The shelf is
-    // a fixed 125 px step, not its own height plus a gap: that puts the New
-    // poster 94 px onto the 1080 canvas while Continue is focused (#725).
-    readonly property real heroRowGap: 44
+    // The menu ends at y 108; the block stays below it. Rows follow the
+    // brief (#837): the Continue label at y 404, the Favourites label at
+    // y 836, and the New label peeking at the bottom edge. Captions sit under
+    // the images; the shelf is a fixed step under the Favourites label.
     readonly property real heroTwoLineSlot: Math.round(68 * 1.07) * 2
-    readonly property real firstRowY: heroBox.y + heroBox.height + heroRowGap
-    readonly property real homeRowStride: continueRow.height + Theme.rowGap
-    readonly property real shelfStep: 125
+    // The rows never follow the hero's height: the Continue label is at the
+    // brief's y 404 whatever the hero shows (#837).
+    readonly property real firstRowY: heroBox.y + 254
+    readonly property real homeRowStride: Math.max(continueRow.height + Theme.rowGap, 432)
+    readonly property real shelfStep: 149
     readonly property real newRowStep: favoritesRow.variant === "shelf" ? shelfStep : favoritesRow.height + Theme.rowGap
     // The menu button and the status area end at y 108. A row fades out as
     // its on-screen top (the animated translation, not the target offset)
@@ -452,15 +457,25 @@ FocusScope {
     }
     // What the hero says about the focused Home item and what OK does
     // (#364, handoff 01–03).
+    // The eyebrow names the kind of the focused item and never repeats the
+    // row label above it (Hearth light brief, Home; #837).
+    function favoriteKind(entry) {
+        // A built-in action such as "Site or search" names itself.
+        if (entry.hint)
+            return "";
+        if (entry.musicStation)
+            return qsTr("Station");
+        return entry.webShortcut ? qsTr("Web shortcut") : qsTr("Application");
+    }
     function describe(row, entry) {
         if (!entry || !entry.id)
-            return {eyebrow: qsTr("Continue"), title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
+            return {eyebrow: "", title: qsTr("Make yourself at home"), meta: qsTr("Choose something to open"), live: false};
         if (row === "favorites") {
             const group = groupTitles[entry.group];
             const open = !!entry.running || openShortcutIds.indexOf(entry.id) >= 0;
             const unavailable = entry.unavailable || (browserUnavailable && entry.webShortcut);
             return {
-                eyebrow: group ? favoritesTitle + " · " + group : favoritesTitle,
+                eyebrow: [favoriteKind(entry), group || ""].filter(part => part.length > 0).join(" · "),
                 title: entry.title || "",
                 meta: unavailable ? (browserUnavailable && entry.webShortcut ? qsTr("Unavailable") : entry.subtitle || "")
                     : entry.hint ? entry.hint : open ? qsTr("Running · Return") : qsTr("Opens full screen"),
@@ -502,7 +517,8 @@ FocusScope {
         if (entry.running)
             return {eyebrow: qsTr("Now running"), title: entry.title || "",
                     meta: entry.kind === "service" && entry.subtitle ? entry.subtitle : qsTr("Return"), live: true};
-        return {eyebrow: qsTr("Continue"), title: entry.title || "", meta: entry.subtitle || "", live: false};
+        return {eyebrow: entry.kind === "service" ? qsTr("Service") : "", title: entry.title || "",
+                meta: entry.subtitle || "", live: false};
     }
     // The focused entry as currently presented; a stale snapshot otherwise.
     readonly property var heroEntry: {
@@ -933,14 +949,19 @@ FocusScope {
                 }
                 // Two-line title slot at 68 px, bottom-aligned, so a one-line
                 // title sits lower and a two-line title grows upward. The
-                // block stays at y 150. The rows stay heroRowGap under it.
+                // block stays at y 150; the rows start at firstRowY (y 404).
                 Column {
                     id: heroBox
                     objectName: "heroBox"
                     x: 120; y: 150; width: 1300; spacing: 4
                     opacity: root.homeRow === "new" && newRow.visible ? 0 : 1
+                    // An empty eyebrow keeps its line, so the title and meta
+                    // never move when it comes and goes (#837).
                     Row {
+                        objectName: "heroEyebrowLine"
                         spacing: 12
+                        height: eyebrowProbe.implicitHeight
+                        UiText { id: eyebrowProbe; role: "eyebrow"; text: " "; visible: false }
                         Rectangle {
                             objectName: "heroLiveDot"
                             anchors.verticalCenter: parent.verticalCenter
@@ -977,7 +998,6 @@ FocusScope {
                     visible: count > 0
                     title: qsTr("Continue"); entries: root.continuePresentation; busyEntryIds: root.busyEntryIds
                     closingIds: root.closingIds
-                    castHue: isNaN(ambient.hue) ? Theme.hearthHue : ambient.hue
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled && root.rowClearsHeader(continueRow)
                     onSelected: entry => root.remember(continueRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -1029,7 +1049,6 @@ FocusScope {
                     visible: count > 0
                     title: activeFocus ? qsTr("New") + " · " + (root.focusedEntry.title || "") : qsTr("New")
                     variant: "poster"; entries: root.newEntries; busyEntryIds: root.busyEntryIds
-                    castHue: isNaN(ambient.hue) ? Theme.hearthHue : ambient.hue
                     pointerMode: root.pointerMode; hoverFocusEnabled: root.hoverFocusEnabled
                     onSelected: entry => root.remember(newRow, entry)
                     onActivated: entryId => root.activate(entryId)
@@ -1368,10 +1387,15 @@ FocusScope {
                             width: 10; height: 10; radius: 5; color: Theme.ember
                             visible: navButton.sectionDot || navButton.activityDot
                         }
+                        // The label runs up to the count badge (at least 36 wide,
+                        // 20 from the edge) with a 12 px gap, so the Russian "Open
+                        // services" fits on one line; a wider count takes its own
+                        // width (#837).
                         Row {
+                            objectName: "navLabelRow"
                             x: 24
                             anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width - 120
+                            width: parent.width - 24 - 20 - Math.max(36, navBadge.width) - 12
                             spacing: 22
                             LineIcon {
                                 width: 36; height: 36
@@ -1384,6 +1408,7 @@ FocusScope {
                                 spacing: 2
                                 anchors.verticalCenter: parent.verticalCenter
                                 UiText {
+                                    objectName: "navLabel"
                                     width: parent.width
                                     text: modelData
                                     role: "control"
@@ -1406,6 +1431,7 @@ FocusScope {
                             }
                         }
                         Rectangle {
+                            id: navBadge
                             objectName: index === root.sections.length ? "openServicesBadge"
                                       : index === root.sections.length + 1 ? "runningBadge" : ""
                             visible: (index === root.sections.length && root.openServiceCount > 0)

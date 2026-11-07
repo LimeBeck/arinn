@@ -38,7 +38,7 @@ Honor an explicit local-only request: prepare and verify local changes without p
 
 ## Verification
 
-[CONTRIBUTING.md — Required checks](CONTRIBUTING.md#required-checks) is the canonical list of commands and their scope. Use the documentation-only checks for Markdown/changelog changes and the full checks for code changes. Record failures, skipped checks and environmental limitations; a failed check is not a pass because an isolated rerun passed. Real-desktop operator tests always require explicit permission.
+[CONTRIBUTING.md — Required checks](CONTRIBUTING.md#required-checks) is the canonical list of commands and their scope. Select the documented Markdown, public-website, visual-fixture or full scope from the actual diff; unknown/mixed native changes require full checks. Record failures, skipped checks and environmental limitations; a failed check is not a pass because an isolated rerun passed. Real-desktop operator tests always require explicit permission.
 
 ## Code discovery
 

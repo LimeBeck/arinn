@@ -5,6 +5,9 @@
 #include "asset_images.h"
 #include "main_qml_test_support.h"
 #include "backend.h"
+#include "localization_manager.h"
+#include "language_change.h"
+#include "settings_catalog.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
 #include <QKeyEvent>
@@ -12,8 +15,19 @@
 #include <QQmlContext>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QScopeGuard>
 #include <QtTest>
 namespace {
+class RejectRussianReload final : public QObject {
+protected:
+  bool eventFilter(QObject *, QEvent *event) override {
+    if (event->type() == TranslationReloadCheck::typeId()) {
+      auto *check = static_cast<TranslationReloadCheck *>(event);
+      if (check->locale == QLatin1String("ru")) check->failed = true;
+    }
+    return false;
+  }
+};
 QQuickItem *findItem(QQuickItem *root, const QString &name) {
   if (root->objectName() == name)
     return root;
@@ -27,6 +41,7 @@ class BackendTest : public QObject {
   Q_OBJECT
 private slots:
   void typedWireAndLocalFocus() {
+    LocalizationManager localization({}, {}, QLocale(QStringLiteral("en_US")));
     Backend backend;
     QTRY_VERIFY_WITH_TIMEOUT(backend.connected(), 5000);
     QTRY_VERIFY_WITH_TIMEOUT(backend.available(), 5000);
@@ -35,6 +50,8 @@ private slots:
              QString("demo.activity"));
     configureShellWindows();
     QQmlApplicationEngine engine;
+    localization.attachEngine(&engine);
+    engine.rootContext()->setContextProperty(QStringLiteral("shellLocalization"), &localization);
     auto *sessionGuard = createSessionLifecycle(&engine);
     InterfaceSounds interfaceSounds;
 
@@ -94,6 +111,78 @@ private slots:
       if (item->objectName() == QStringLiteral("favorites"))
         inFavorites = true;
     QVERIFY(inFavorites);
+    second->forceActiveFocus();
+    QTRY_VERIFY(second->hasActiveFocus());
+    auto *settings = window->findChild<SettingsCatalog *>(QStringLiteral("settingsCatalog"));
+    QVERIFY(settings);
+    QTRY_VERIFY(settings->uiLanguageKnown());
+    auto *continueRow = findItem(window->contentItem(), QStringLiteral("continue"));
+    QVERIFY(continueRow);
+    localization.setLanguage(QStringLiteral("ru"));
+    QTRY_COMPARE(continueRow->property("title").toString(), QStringLiteral("Продолжить"));
+    QTRY_VERIFY(second->hasActiveFocus());
+    QCOMPARE(home->property("screen").toString(), QStringLiteral("home"));
+    localization.setLanguage(QStringLiteral("en"));
+    QTRY_COMPARE(continueRow->property("title").toString(), QStringLiteral("Continue"));
+    QTRY_VERIFY(second->hasActiveFocus());
+    QVERIFY(QMetaObject::invokeMethod(home, "openNavigation"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName().startsWith(QStringLiteral("nav-")));
+    QTest::keyClick(window, Qt::Key_Down);
+    const auto navigationId = window->activeFocusItem()->objectName();
+    const auto navigationText = window->activeFocusItem()->property("text").toString();
+    localization.setLanguage(QStringLiteral("ru"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName() == navigationId);
+    QTRY_VERIFY(window->activeFocusItem()->property("text").toString() != navigationText);
+    localization.setLanguage(QStringLiteral("en"));
+    QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->objectName() == navigationId);
+    QTRY_COMPARE(window->activeFocusItem()->property("text").toString(), navigationText);
+    QTest::keyClick(window, Qt::Key_Escape);
+    QTRY_VERIFY(second->hasActiveFocus());
+    // A confirmed language preference can be valid while its local files
+    // exceed the client's cache budget. Exercise actual Main/Settings wiring:
+    // the desired preference stays saved, and the failed application is shown.
+    auto *settingsView = window->findChild<QQuickItem *>("productionSettings");
+    QVERIFY(settingsView);
+    auto *toastTimer = settingsView->findChild<QObject *>("settingsToastTimer");
+    QVERIFY(toastTimer);
+    QVariantMap languageRow;
+    for (const auto &value : settings->rows()) {
+      const auto row = value.toMap();
+      if (row.value("providerId").toString() == QLatin1String("arinn") &&
+          row.value("id").toString() == QLatin1String("ui_language")) languageRow = row;
+    }
+    QVERIFY(!languageRow.isEmpty());
+    const auto originalLanguage = settings->uiLanguage();
+    RejectRussianReload reject;
+    qApp->installEventFilter(&reject);
+    const auto restoreLanguage = qScopeGuard([&] {
+      qApp->removeEventFilter(&reject);
+      settings->setValue("arinn", "ui_language", originalLanguage);
+    });
+    QVERIFY(home->setProperty("screen", "settings"));
+    QTRY_VERIFY(settingsView->isVisible());
+    QVERIFY(QMetaObject::invokeMethod(settingsView, "beginSave", Q_ARG(QVariant, languageRow),
+        Q_ARG(QVariant, QStringLiteral("ru")), Q_ARG(QVariant, QStringLiteral("Русский"))));
+    QTRY_COMPARE(settings->uiLanguage(), QStringLiteral("ru"));
+    QTRY_VERIFY(settingsView->property("awaitingKey").toString().isEmpty());
+    QVERIFY(localization.reloadFailed());
+    QCOMPARE(localization.language(), QStringLiteral("ru"));
+    QCOMPARE(continueRow->property("title").toString(), QStringLiteral("Continue"));
+    QTRY_COMPARE(settingsView->property("toastTitle").toString(), QStringLiteral("Unable to reload translations"));
+    QVERIFY(settingsView->property("toastIsError").toBool());
+    QVERIFY(toastTimer->setProperty("running", false));
+    QVERIFY(settingsView->setProperty("toastTitle", QString()));
+    QSignalSpy toastStarts(toastTimer, SIGNAL(runningChanged()));
+    QVERIFY(toastStarts.isValid());
+    QVERIFY(QMetaObject::invokeMethod(settingsView, "translationsReloadRequested"));
+    QTRY_COMPARE(settingsView->property("toastTitle").toString(), QStringLiteral("Unable to reload translations"));
+    QTest::qWait(50);
+    QCOMPARE(toastStarts.count(), 1);
+    qApp->removeEventFilter(&reject);
+    settings->setValue("arinn", "ui_language", originalLanguage);
+    QTRY_COMPARE(settings->uiLanguage(), originalLanguage);
+    QTRY_VERIFY(!localization.reloadFailed());
+    QVERIFY(home->setProperty("screen", "home"));
     second->forceActiveFocus();
     QTRY_VERIFY(second->hasActiveFocus());
     // Autorepeat releases while holding Select must not activate the tile.

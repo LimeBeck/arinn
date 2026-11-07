@@ -1652,6 +1652,14 @@
         <source>This station is no longer available</source>
         <translation>Эта станция больше недоступна</translation>
     </message>
+    <message>
+        <source>Unable to reload translations</source>
+        <translation>Не удалось обновить переводы</translation>
+    </message>
+    <message>
+        <source>The previous translation is still in use. Check the file and try again.</source>
+        <translation>Используется предыдущий перевод. Проверьте файл и повторите попытку.</translation>
+    </message>
 </context>
 <context>
     <name>MediaCatalog</name>
@@ -2675,6 +2683,18 @@
         <translation>Медиасеансы</translation>
     </message>
     <message>
+        <source>Language</source>
+        <translation>Язык</translation>
+    </message>
+    <message>
+        <source>Language of the interface and fixed provider labels; content stays unchanged</source>
+        <translation>Язык интерфейса и подписей провайдеров. На содержимое не влияет</translation>
+    </message>
+    <message>
+        <source>As in the system</source>
+        <translation>Как в системе</translation>
+    </message>
+    <message>
         <source>Yandex Music</source>
         <translation>Яндекс Музыка</translation>
     </message>
@@ -2908,6 +2928,10 @@
             <numerusform>недоступно: %n</numerusform>
             <numerusform>недоступно: %n</numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Reload translations</source>
+        <translation>Обновить переводы</translation>
     </message>
 </context>
 <context>

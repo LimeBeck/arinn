@@ -59,6 +59,7 @@ public:
   void setCatalog(QObject *catalog);
   QVariantList sources() const;
   QVariantList shelves() const { return m_shelves; }
+  Q_INVOKABLE QString shelfTitle(const QString &id) const;
   bool connected() const;
   bool loading() const;
   bool dated() const { return m_dated; }
@@ -109,6 +110,8 @@ signals:
   void searchChanged();
   void sourcesChanged();
   void shelvesChanged();
+  // Cached presentation changed locally; consumers must not page providers.
+  void presentationChanged();
   void loadingChanged();
   // Some page arrived or a source left: lists read again.
   void listChanged();
@@ -118,6 +121,9 @@ private slots:
   void follow();
 
 private:
+  struct Source;
+  void retranslatePresentation();
+  QVariantMap presentEntry(QVariantMap row, const Source &source, quint64 revision) const;
   struct Facet {
     QVariantList entries;
     QString next;
@@ -146,7 +152,7 @@ private:
     bool stateBusy = false, stateFailed = false, commandBusy = false,
          answered = false;
     QString stateError;
-    // Why the last housekeeping command failed; cleared by the next one.
+    // Normalized error code; translate when publishing, including language changes.
     QString commandError;
     quint64 catalogueRevision = 0, ticket = 0;
     std::map<QString, Facet> facets;
@@ -158,13 +164,14 @@ private:
   // goes on once this facet's read (or its resume) ends.
   void readPage(const QString &id, const QString &facet, bool append,
                 bool chained = false);
-  void rebuild();
+  void rebuild(bool presentationOnly = false);
   void startSearch(const QString &id);
   void readSearch(const QString &id);
   void continueSearch(const QString &id);
   void rebuildSearch();
   struct Search {
     std::map<QString, QVariantList> facets;
+    std::map<QString, quint64> revisions;
     QStringList pending;
     bool busy = false;
     // Replies to an earlier run of this source's search are dropped.
@@ -182,7 +189,7 @@ private:
   void reconcileSearch();
   quint64 m_searchTicket = 0;
   QVariantList m_searchShelves;
-  void publishSources();
+  void publishSources(bool presentationOnly = false);
   void publishLoading();
   QVariantList gather(const QString &shelf, const QString &source,
                       int limit) const;

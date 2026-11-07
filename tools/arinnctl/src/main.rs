@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 mod cli;
+mod translations;
 
 use arinn_protocol::{
     browser::{BrowserApiProxy, TabPage},
@@ -328,6 +329,9 @@ async fn run() -> Result<(), u8> {
     if !cli::valid(&args) {
         eprintln!("{}", cli::usage_error(&args));
         return Err(2);
+    }
+    if args[0] == "translations" {
+        return translations::run(&args[1..], json).await;
     }
     let c = zbus::connection::Builder::session()
         .map_err(|_| 3)?

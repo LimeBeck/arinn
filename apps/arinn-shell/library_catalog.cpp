@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "library_catalog.h"
+#include "language_change.h"
 #include <QLocale>
 #include "asset_images.h"
 #include <QDeadlineTimer>
@@ -113,6 +114,7 @@ struct LibraryCatalog::Catalog {
 };
 
 LibraryCatalog::LibraryCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { publish(true); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "Changed", this, SLOT(refresh()));
   bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
@@ -222,8 +224,8 @@ void LibraryCatalog::setOperation(const QString &state) {
   m_operation = state;
   emit operationChanged();
 }
-void LibraryCatalog::publish() {
-  requestDescription(m_descriptionEntryId);
+void LibraryCatalog::publish(bool presentationOnly) {
+  if (!presentationOnly) requestDescription(m_descriptionEntryId);
   QVariantList tabs;
   tabs.reserve(m_collections.size());
   for (const auto &collection : m_collections) {

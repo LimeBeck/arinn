@@ -43,9 +43,14 @@ QtObject {
     property bool followsTime: true
     property string clockText: ""
     property int hour: -1
+    // Production supplies an hour independently of localized display text.
+    // Standalone screens keep the existing clock/explicit-hour test seam.
+    property int shellHour: -1
     readonly property int shownHour: {
         if (hour >= 0 && hour <= 23)
             return hour;
+        if (shellHour >= 0 && shellHour <= 23)
+            return shellHour;
         const match = /^(\d{1,2}):(\d{2})$/.exec(clockText || "");
         if (match) {
             const parsed = parseInt(match[1], 10);

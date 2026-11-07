@@ -6,6 +6,7 @@
 #include "backend.h"
 #include "input_bindings.h"
 #include "interface_sounds.h"
+#include "localization_manager.h"
 #include "sessionlifecycle.h"
 #include "shell_window.h"
 #include "startup_home.h"
@@ -24,16 +25,7 @@ int main(int argc, char **argv) {
   QGuiApplication app(argc, argv);
   app.setApplicationName("arinn-shell");
   app.setDesktopFileName("org.arinn.Shell");
-  // The interface follows the system locale; English strings are the source
-  // and the fallback (#363).
-  QTranslator translator;
-  if (translator.load(QLocale(), QStringLiteral("arinn"), QStringLiteral("_"),
-                      QStringLiteral(":/i18n")))
-    app.installTranslator(&translator);
-  QTranslator musicTranslator;
-  if (musicTranslator.load(QLocale(), QStringLiteral("music"), QStringLiteral("_"),
-                           QStringLiteral(":/i18n")))
-    app.installTranslator(&musicTranslator);
+  LocalizationManager localization;
   // The desktop entry names the icon (#289); X11 also needs it on the window.
   app.setWindowIcon(QIcon::fromTheme(QStringLiteral("org.arinn.Shell"),
                                      QIcon(QStringLiteral(":/brand/arinn-mark.svg"))));
@@ -65,8 +57,10 @@ int main(int argc, char **argv) {
                      QDBusConnection::ExportAllProperties);
   configureShellWindows();
   QQmlApplicationEngine engine;
+  localization.attachEngine(&engine);
   installAssetImageProvider(&engine);
   engine.rootContext()->setContextProperty("backend", &backend);
+  engine.rootContext()->setContextProperty("shellLocalization", &localization);
   engine.rootContext()->setContextProperty("sessionGuard", sessionGuard);
   // The home folder for `~` in a Settings path (#479), from the environment
   // only: the shell never reads the file system itself (R-05).

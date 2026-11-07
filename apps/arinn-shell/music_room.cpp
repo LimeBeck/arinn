@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "music_room.h"
 #include "asset_images.h"
+#include "language_change.h"
+#include "provider_text_client.h"
 #include <QCollator>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -93,9 +95,33 @@ Q_COREAPP_STARTUP_FUNCTION(registerRoom)
 } // namespace
 
 MusicRoom::MusicRoom(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { retranslatePresentation(); });
+  ProviderTextClient::instance()->observe(this, [this] { retranslatePresentation(); });
   m_timer.setInterval(2000);
   connect(&m_timer, &QTimer::timeout, this, &MusicRoom::refresh);
   m_timer.start();
+}
+void MusicRoom::retranslatePresentation() {
+  const auto rows = m_catalog ? m_catalog->property("sources").toList() : QVariantList();
+  for (const auto &value : rows) {
+    const auto row = value.toMap();
+    const auto id = row.value("id").toString();
+    const auto found = m_sources.find(id);
+    if (found != m_sources.end() && found->second.generation == row.value("generation").toString())
+      found->second.name = row.value("name").toString();
+    for (auto &off : m_off) if (off.id == id) off.name = row.value("name").toString();
+  }
+  rebuild(true);
+  rebuildSearch();
+  publishSources(true);
+  emit presentationChanged();
+}
+QVariantMap MusicRoom::presentEntry(QVariantMap row, const Source &source, quint64 revision) const {
+  row.insert("providerName", source.name);
+  row.insert("title", ProviderTextClient::instance()->translate(source.id, source.generation,
+      QStringLiteral("music.entity"), row.value("id").toString(), revision,
+      QStringLiteral("title"), row.value("title").toString()));
+  return row;
 }
 
 void MusicRoom::setCatalog(QObject *catalog) {
@@ -228,8 +254,9 @@ bool MusicRoom::settled() const {
 
 // The Sources sheet and the first use read these rows; the state polled
 // during playback changes every time (position_us), the rows do not.
-void MusicRoom::publishSources() {
-  reconcileSearch();
+void MusicRoom::publishSources(bool presentationOnly) {
+  if (!presentationOnly)
+    reconcileSearch();
   const auto rows = sources();
   if (rows == m_sourceRows)
     return;
@@ -617,7 +644,7 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
             !row.value("available", true).toBool())
           continue;
         if (row.value("kind").toString() == QLatin1String(shelf->kind)) {
-          own.append(value);
+          own.append(presentEntry(row, found->second, selections->second.revision));
           ids.insert(row.value("id").toString());
         }
       }
@@ -629,7 +656,7 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
           // A personal entry the source also lists as ordinary shows once.
           if (row.value("kind").toString() == QLatin1String(shelf->kind) &&
               !ids.contains(row.value("id").toString()))
-            rest.append(value);
+            rest.append(presentEntry(row, found->second, facet->second.revision));
         }
     personal.append(own);
     ordinary.append(rest);
@@ -640,7 +667,12 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
   return result;
 }
 
-void MusicRoom::rebuild() {
+QString MusicRoom::shelfTitle(const QString &id) const {
+  return ::shelfTitle(id);
+}
+
+void MusicRoom::rebuild(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("shelves"));
   QVariantList shelves;
   bool dated = false;
   for (const auto &shelf : shelfDefs) {
@@ -665,7 +697,8 @@ void MusicRoom::rebuild() {
   if (changed)
     emit shelvesChanged();
   publishLoading();
-  emit listChanged();
+  if (!presentationOnly)
+    emit listChanged();
 }
 
 // The empty states follow `loading`; it changes with pages that leave the
@@ -680,6 +713,7 @@ void MusicRoom::publishLoading() {
 
 QVariantList MusicRoom::list(const QString &shelf, const QString &source,
                              bool alphabetical) const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("all"));
   auto entries = gather(shelf, source, 0);
   if (alphabetical) {
     QCollator collator;
@@ -810,7 +844,10 @@ QVariantList MusicRoom::sources() const {
                             {"account", account},
                             {"status", status},
                             {"reason", reason},
-                            {"error", source.commandError},
+                            {"error", source.commandError.isEmpty() ? QString()
+                                : source.commandError == QLatin1String("Timeout")
+                                    ? tr("The source did not respond. Try again.")
+                                    : tr("The source could not do that. Try again.")},
                             {"actions", actions},
                             {"prompt", source.state.value("prompt")},
                             {"busy", source.commandBusy},
@@ -877,12 +914,10 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
             // A refused command says so in the Sources sheet (Codex review).
             const auto reply = watch->reply();
             const auto failure = reply.errorName().section('.', -1);
-            found->second.commandError =
-                object(reply).isEmpty()
-                    ? (failure == QLatin1String("Timeout")
-                           ? tr("The source did not respond. Try again.")
-                           : tr("The source could not do that. Try again."))
-                    : QString();
+            found->second.commandError = object(reply).isEmpty()
+                ? (failure == QLatin1String("Timeout") ? QStringLiteral("Timeout")
+                                                      : QStringLiteral("Internal"))
+                : QString();
             publishSources();
             // The confirmed state, catalogue included, is read again.
             readState(id);
@@ -1051,6 +1086,7 @@ void MusicRoom::readSearch(const QString &id) {
                 entries.append(row);
               }
             search.facets[facet] = entries;
+            search.revisions[facet] = json.value("revision").toVariant().toULongLong();
             continueSearch(id);
             rebuildSearch();
           });
@@ -1082,6 +1118,7 @@ void MusicRoom::continueSearch(const QString &id) {
 }
 
 void MusicRoom::rebuildSearch() {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("search"));
   QVariantList shelves;
   const std::pair<const char *, const char *> kinds[] = {
       {"artists", "artist"}, {"albums", "album"}, {"tracks", "track"}};
@@ -1095,9 +1132,11 @@ void MusicRoom::rebuildSearch() {
       if (entries == found->second.facets.end())
         continue;
       QVariantList own;
+      const auto source = m_sources.find(id);
+      if (source == m_sources.end()) continue;
       for (const auto &entry : entries->second)
         if (entry.toMap().value("kind").toString() == QLatin1String(kind))
-          own.append(entry);
+          own.append(presentEntry(entry.toMap(), source->second, found->second.revisions.at(QLatin1String(facet))));
       lists.append(own);
     }
     const auto entries = alternate(lists);

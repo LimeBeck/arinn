@@ -19,6 +19,21 @@ import "ui/screens/settings" as Settings
 
 Window {
     id: root
+    readonly property var localization: typeof shellLocalization === "undefined" ? null : shellLocalization
+    property bool translationFailurePending: false
+    function showPendingTranslationFailure() {
+        if (!translationFailurePending) return;
+        if (!localization || !localization.reloadFailed) {
+            translationFailurePending = false;
+            return;
+        }
+        if (settingsView.awaitingKey.length) return;
+        translationFailurePending = false;
+        settingsView.showToast(qsTr("Unable to reload translations"), qsTr("The previous translation is still in use. Check the file and try again."), true);
+    }
+    property var clockNow: new Date()
+    Timer { interval: 1000; running: true; repeat: true; onTriggered: root.clockNow = new Date() }
+    Binding { target: Ui.Theme; property: "shellHour"; value: root.clockNow.getHours() }
     width: 1920; height: 1080
     visibility: (backend.homeVisible || mediaCatalog.inputLayerActive || leavingPlayback
                  || leavingStopPending || (playerOpen && leaveError !== "")) && !sessionGuard.blocked ? Window.FullScreen : Window.Hidden
@@ -196,12 +211,16 @@ Window {
         onTriggered: {
             // Keep selection fenced: the eventual row still belongs to the
             // exact launch whose exit was requested.
-            root.leaveError = qsTr("Playback is not available yet. Press Home to leave, or wait to stop the launched session.");
+            root.leaveErrorKind = "waiting";
             playerView.osdVisible = true;
         }
     }
     property bool leavingStopPending: false
-    property string leaveError: ""
+    property string leaveErrorKind: ""
+    readonly property string leaveError: leaveErrorKind === "waiting"
+        ? qsTr("Playback is not available yet. Press Home to leave, or wait to stop the launched session.")
+        : leaveErrorKind === "stop" ? qsTr("Unable to stop playback. Press Back to retry.")
+        : leaveErrorKind === "unavailable" ? qsTr("Playback is unavailable. Press Home to leave, or wait to stop the launched session.") : ""
     property bool libraryDetailFromHome: false
     // Watch on Downloads opened the library: Back from its Detail, or from
     // the library while that Detail is still pending, returns to Downloads
@@ -359,7 +378,7 @@ Window {
             showPlaybackHome();
             mediaCatalog.requestHome();
         } else {
-            leaveError = "";
+            leaveErrorKind = "";
             playerOpen = false;
             sessionFromLibrary = false;
             home.showHome();
@@ -369,7 +388,7 @@ Window {
     function showPlaybackHome() {
         if (leavingStopPending)
             return;
-        leaveError = "";
+        leaveErrorKind = "";
         if (!mediaCatalog.inputLayerActive)
             return;
         presentationReturning = false;
@@ -408,7 +427,7 @@ Window {
     function openMediaSession(entryId, fromLibrary, launched) {
         if (leavingStopPending)
             return;
-        leaveError = "";
+        leaveErrorKind = "";
         presentationReturning = false;
         presentationFocusBound.stop();
         presentationFocusConfirmed = false;
@@ -450,7 +469,7 @@ Window {
             return;
         presentationReturning = false;
         presentationFocusBound.stop();
-        leaveError = "";
+        leaveErrorKind = "";
         if (mediaCatalog.inputLayerActive) {
             leavingPlayback = true;
             leavingBound.restart();
@@ -478,7 +497,7 @@ Window {
         if (mediaCatalog.operationState === "succeeded")
             finishPlaybackExit();
         else {
-            leaveError = qsTr("Unable to stop playback. Press Back to retry.");
+            leaveErrorKind = "stop";
             playerView.osdVisible = true;
         }
     }
@@ -935,10 +954,36 @@ Window {
         objectName: "downloadCatalog"
         onDownloadImported: message => downloadsView.showToast(message)
     }
-    SettingsCatalog { id: settingsCatalog; objectName: "settingsCatalog" }
+    SettingsCatalog {
+        id: settingsCatalog
+        objectName: "settingsCatalog"
+        translationLocale: root.localization ? root.localization.translationLocale : ""
+    }
+    Connections {
+        target: root.localization
+        function onChanged() {
+            root.translationFailurePending = root.localization && root.localization.reloadFailed;
+            if (root.translationFailurePending) Qt.callLater(root.showPendingTranslationFailure);
+            if (root.focusedScreen !== "home" || !home.navOpen) return;
+            Qt.callLater(() => {
+                if (root.focusedScreen === "home" && home.navOpen) home.restoreFocus();
+            });
+        }
+    }
+    Connections {
+        target: settingsView
+        function onAwaitingKeyChanged() {
+            if (root.translationFailurePending && !settingsView.awaitingKey.length)
+                Qt.callLater(root.showPendingTranslationFailure);
+        }
+    }
     Connections {
         target: settingsCatalog
         function onPreferencesChanged() { root.playStartupIgnite(); }
+        function onLanguagePreferenceChanged() {
+            if (root.localization && settingsCatalog.uiLanguageKnown)
+                root.localization.setLanguage(settingsCatalog.uiLanguage);
+        }
     }
     Binding {
         target: interfaceSounds
@@ -1182,8 +1227,13 @@ Window {
             statusTitle: homeState === "unavailable" ? qsTr("Home is unavailable") : homeState === "loading" ? qsTr("Loading Home…") : homeState === "error" ? qsTr("Home could not be loaded") : homeState === "updated" ? qsTr("Arinn was updated") : qsTr("Your Home starts here")
             statusDescription: homeState === "empty" ? qsTr("No favorites are available yet.") : homeState === "updated" ? qsTr("Restart it to finish. Navigation remains available.") : qsTr("Navigation remains available. Home reconnects automatically.")
             sectionDescription: screen === "applications" ? ((applicationEntries.length || runningEntries.length) ? qsTr("Choose an application or an open window.") : qsTr("No applications are available.")) : qsTr("This section is not available yet.")
-            clockText: Qt.formatTime(new Date(), "hh:mm")
-            Timer { interval: 1000; running: true; repeat: true; onTriggered: home.clockText = Qt.formatTime(new Date(), "hh:mm") }
+            clockText: {
+                if (root.localization) {
+                    root.localization.revision;
+                    return root.localization.clockText(root.clockNow);
+                }
+                return Qt.formatTime(root.clockNow, "hh:mm");
+            }
             onEntryRequested: entryId => { if (entryId === "arinn-browse") root.showBrowse(); else backend.launch(entryId); }
             onRunningRequested: entryId => backend.activate(entryId)
             onReturnRequested: root.returnToActivity()
@@ -1367,6 +1417,11 @@ Window {
                 libraryFoldersView.open();
             }
             onRetryRequested: settingsCatalog.refresh()
+            translationsAvailable: root.localization !== null
+            onTranslationsReloadRequested: {
+                root.localization.reload();
+                settingsCatalog.refresh();
+            }
         }
         FolderBrowser { id: folderBrowser; objectName: "folderBrowser" }
         Settings.LibraryFoldersView {
@@ -1654,7 +1709,7 @@ Window {
             }
             function onSessionChanged() {
                 if (root.leavingWaitForSession && mediaCatalog.sessionState === "unavailable") {
-                    root.leaveError = qsTr("Playback is unavailable. Press Home to leave, or wait to stop the launched session.");
+                    root.leaveErrorKind = "unavailable";
                     playerView.osdVisible = true;
                 }
                 if (root.leavingWaitForSession && mediaCatalog.sessionState === "ready") {
@@ -1944,7 +1999,7 @@ Window {
             z: 30
             focus: root.focusedScreen === "ambient"
             clockText: home.clockText
-            dateText: { home.clockText; return Qt.locale().toString(new Date(), "dddd, d MMMM"); }
+            dateText: Qt.locale(root.localization ? root.localization.formatLocale : "").toString(root.clockNow, "dddd, d MMMM")
             onActiveChanged: if (!active) root.finishAmbient()
             // The track line and Play/Pause without waking (ADR-0142 MH-8).
             // A turned-off source's session is not shown on Ambient (#842,

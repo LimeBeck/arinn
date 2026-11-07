@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "media_catalog.h"
+#include "language_change.h"
+#include "provider_text_client.h"
 #include "asset_images.h"
 #include <QDeadlineTimer>
 #include <QJsonDocument>
@@ -253,6 +255,8 @@ struct MediaCatalog::Catalog {
 };
 
 MediaCatalog::MediaCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { publish(true); emit tracksChanged(); });
+  ProviderTextClient::instance()->observe(this, [this] { publish(true); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, QString(), "org.arinn.MediaWindow1", "Changed", this,
               SLOT(windowChanged(QString)));
@@ -317,7 +321,11 @@ QString MediaCatalog::sessionState() const {
 }
 QString MediaCatalog::sessionTitle() const {
   const auto *row = selected();
-  return row ? row->title : QString();
+  return row ? displayTitle(*row) : QString();
+}
+QString MediaCatalog::displayTitle(const SessionRow &row) const {
+  return ProviderTextClient::instance()->translate(row.providerId, row.generation,
+      QStringLiteral("media.session"), row.localId, row.revision, QStringLiteral("title"), row.title);
 }
 QString MediaCatalog::sessionSubtitle() const {
   const auto *row = selected();
@@ -553,7 +561,8 @@ void MediaCatalog::syncClock() {
     m_clock.stop();
   }
 }
-void MediaCatalog::publish() {
+void MediaCatalog::publish(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("sessions"));
   if (const auto *row = findId(m_releaseRow.id);
       row && row->generation != m_releaseRow.generation)
     m_releaseRow = {};
@@ -581,7 +590,7 @@ void MediaCatalog::publish() {
       continue;
     QVariantMap entry{
         {QStringLiteral("id"), row.id},
-        {QStringLiteral("title"), row.title},
+        {QStringLiteral("title"), displayTitle(row)},
         {QStringLiteral("subtitle"), row.subtitle},
         {QStringLiteral("kind"), QStringLiteral("media")},
         {QStringLiteral("running"), row.state == QLatin1String("playing")},
@@ -635,6 +644,7 @@ void MediaCatalog::publish() {
     emit sessionEntriesChanged();
   }
   emit sessionChanged();
+  if (presentationOnly) return;
   emit positionChanged();
   syncClock();
   loadExtensions();

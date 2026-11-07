@@ -58,6 +58,7 @@ private:
     QString providerId;
     QString path;
     QString generation;
+    quint64 revision = 0;
     QString localId;
     QString title;
     QString state;
@@ -109,7 +110,8 @@ private:
   struct Failure {
     QString state;
     QString generation;
-    QString message;
+    QString action;
+    QString error;
   };
   QHash<QString, Failure> m_failures;
   // The command in flight per presentation id: its ticket and the provider

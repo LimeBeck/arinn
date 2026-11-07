@@ -42,6 +42,113 @@ fn job(id: &str, completed: bool, outputs: usize) -> Job {
             .collect(),
     }
 }
+
+#[derive(Clone)]
+struct DownloadTexts {
+    seen: Arc<StdMutex<Vec<arinn_protocol::localization::TextRequest>>>,
+}
+#[zbus::interface(name = "org.arinn.ProviderTexts1")]
+impl DownloadTexts {
+    fn get_catalog(&self, _generation: &str) -> String {
+        r#"{"formatVersion":1,"pluginId":"downloads","sourceLocale":"en","locales":[],"messages":{"failure":{"revision":1,"source":"Connection failed"}}}"#.into()
+    }
+    fn get_translation(&self, _generation: &str, _locale: &str) -> Vec<u8> {
+        vec![]
+    }
+    fn resolve(&self, _generation: &str, requests: &str) -> String {
+        use arinn_protocol::localization::{self, Catalog, Reference, ResolvedText};
+        let requests = localization::requests_from_json(requests).unwrap();
+        *self.seen.lock().unwrap() = requests.clone();
+        let resolved: Vec<_> = requests
+            .iter()
+            .enumerate()
+            .map(|(index, request)| ResolvedText {
+                request_index: index as u32,
+                fallback_text: request.fallback_text.clone(),
+                message: Reference {
+                    message_key: "failure".into(),
+                    message_revision: 1,
+                    arguments: BTreeMap::new(),
+                    count: None,
+                },
+            })
+            .collect();
+        localization::resolved_to_json(
+            &Catalog::from_json(&self.get_catalog("")).unwrap(),
+            &requests,
+            &resolved,
+        )
+        .unwrap()
+    }
+}
+
+#[tokio::test]
+async fn text_references_use_original_job_revisions_and_touch_the_projected_snapshot() {
+    use arinn_protocol::localization::{self, Scope, TextRequest, TextsProxy};
+    let mut failed = job("job", false, 0);
+    failed.state = "error".into();
+    failed.error_code = "Unavailable".into();
+    failed.error_message = "Connection failed".into();
+    let f = Fixture::new(vec![failed]).await;
+    *f.fake.revision.lock().unwrap() = 40;
+    let seen = Arc::new(StdMutex::new(Vec::new()));
+    f.provider
+        .object_server()
+        .at(
+            production::PROVIDER_PATH,
+            DownloadTexts { seen: seen.clone() },
+        )
+        .await
+        .unwrap();
+    f.core.export_texts().await.unwrap();
+    served(&f.client, &f.provider).await;
+    f.sync().await;
+    let first = f.api().await.get_downloads("").await.unwrap().0;
+    let requests = vec![TextRequest {
+        scope: Scope::DownloadJob,
+        object_id: "job".into(),
+        revision: first.revision,
+        field: "error_message".into(),
+        fallback_text: "Connection failed".into(),
+    }];
+    let api = TextsProxy::new(&f.client).await.unwrap();
+    let payload = localization::requests_to_json(&requests).unwrap();
+    assert_ne!(first.revision, 40);
+    assert_ne!(
+        api.resolve("downloads", &f.generation, &payload)
+            .await
+            .unwrap(),
+        "[]"
+    );
+    assert_eq!(seen.lock().unwrap()[0].revision, 40);
+    // Only provenance changes; every plain job and projected row stays equal.
+    *f.fake.revision.lock().unwrap() = 41;
+    f.sync().await;
+    let second = f.api().await.get_downloads("").await.unwrap().0;
+    assert_eq!(first.downloads, second.downloads);
+    assert!(second.revision > first.revision);
+    assert_eq!(
+        api.resolve("downloads", &f.generation, &payload)
+            .await
+            .unwrap(),
+        "[]"
+    );
+    let current = vec![TextRequest {
+        revision: second.revision,
+        ..requests[0].clone()
+    }];
+    assert_ne!(
+        api.resolve(
+            "downloads",
+            &f.generation,
+            &localization::requests_to_json(&current).unwrap()
+        )
+        .await
+        .unwrap(),
+        "[]"
+    );
+    assert_eq!(seen.lock().unwrap()[0].revision, 41);
+}
 #[derive(Clone)]
 struct FakeDownload {
     generation: String,
@@ -338,6 +445,7 @@ impl Fixture {
                 .import(revision, jobs.clone())
                 .unwrap();
             d.jobs = jobs;
+            d.source_revision = revision;
             p.info.backend_state = backend;
             d.next_import = None;
         }

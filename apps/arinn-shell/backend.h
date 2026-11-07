@@ -82,7 +82,7 @@ public:
     return m_favoritesLoaded && !m_favoritesError && m_connected;
   }
   bool favoriteSaving() const { return m_favoriteSaving; }
-  QString favoriteError() const { return m_favoriteError; }
+  QString favoriteError() const { return translateSource(m_favoriteError); }
   Q_INVOKABLE void setFavorite(const QString &id, bool pinned);
   // Pinned music stations (ADR-0143, #804): MusicPins1 keeps the title and
   // artwork; the station sits in the favorites order.
@@ -103,10 +103,10 @@ public:
   Q_INVOKABLE void restartArinn();
   QString applicationsState() const;
   QStringList busyEntryIds() const { return m_pendingIds.values(); }
-  QString message() const { return m_message; }
+  QString message() const { return translateSource(m_message); }
   QVariantMap shortcutEditor() const { return m_shortcutEditor; }
   bool shortcutSaving() const { return m_shortcutSaving; }
-  QString shortcutError() const { return m_shortcutError; }
+  QString shortcutError() const { return translateSource(m_shortcutError); }
   Q_INVOKABLE void editShortcut(const QString &id = {});
   Q_INVOKABLE void closeShortcutEditor();
   Q_INVOKABLE void saveShortcut(const QString &title, const QString &url);
@@ -203,6 +203,12 @@ signals:
   void operationStarted(const QString &id, const QString &method);
 
 private:
+  // Only shell-owned status strings enter these fields. Keep their source
+  // until presentation so an open error follows a LanguageChange as well.
+  static QString errorSource(const QString &code);
+  static QString translateSource(const QString &source) {
+    return source.isEmpty() ? QString() : tr(source.toUtf8().constData());
+  }
   const NativeShellFocusIdentity m_focusIdentity;
   QString m_nativeFocus = QStringLiteral("unknown");
   quint64 m_focusRequest = 0, m_focusApplied = 0, m_focusObservation = 0;

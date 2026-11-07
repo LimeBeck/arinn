@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "backend.h"
+#include "language_change.h"
 #include "build_identity.h"
 #include "icon_references.h"
 #include "web_icon_references.h"
@@ -121,25 +122,26 @@ QString errorCodeOf(const QString &name) {
 // A daemon error code (an operation's `error` or an `org.arinn.Error1`
 // name) as the translated Home message (§15). Neither the code word nor a
 // D-Bus error text reaches the screen.
-QString Backend::errorText(const QString &code) {
+QString Backend::errorSource(const QString &code) {
   if (code == QLatin1String("NotFound"))
-    return tr("It is no longer available");
+    return QString::fromUtf8(QT_TR_NOOP("It is no longer available"));
   if (code == QLatin1String("Unavailable"))
-    return tr("Not available right now");
+    return QString::fromUtf8(QT_TR_NOOP("Not available right now"));
   if (code == QLatin1String("Unsupported"))
-    return tr("Not supported");
+    return QString::fromUtf8(QT_TR_NOOP("Not supported"));
   if (code == QLatin1String("PermissionDenied"))
-    return tr("Not allowed");
+    return QString::fromUtf8(QT_TR_NOOP("Not allowed"));
   if (code == QLatin1String("Timeout"))
-    return tr("Arinn did not reply. Try again.");
+    return QString::fromUtf8(QT_TR_NOOP("Arinn did not reply. Try again."));
   if (code == QLatin1String("InvalidArgument"))
-    return tr("This request is not valid");
+    return QString::fromUtf8(QT_TR_NOOP("This request is not valid"));
   if (code == QLatin1String("Conflict"))
-    return tr("Something changed. Try again.");
+    return QString::fromUtf8(QT_TR_NOOP("Something changed. Try again."));
   if (code == QLatin1String("Cancelled"))
-    return tr("Cancelled");
-  return tr("Something went wrong");
+    return QString::fromUtf8(QT_TR_NOOP("Cancelled"));
+  return QString::fromUtf8(QT_TR_NOOP("Something went wrong"));
 }
+QString Backend::errorText(const QString &code) { return translateSource(errorSource(code)); }
 struct Backend::Catalog {
   quint64 epoch;
   QString snapshot;
@@ -153,6 +155,7 @@ struct Backend::Catalog {
 };
 Backend::Backend(QObject *parent, NativeShellFocusIdentity identity)
     : QObject(parent), m_focusIdentity(std::move(identity)) {
+  new LanguageChangeObserver(this, [this] { publishState(); });
   m_focusPoll.setInterval(500);
   connect(&m_focusPoll, &QTimer::timeout, this, [this] {
     if (!m_focusPending) requestNativeFocus();
@@ -602,7 +605,7 @@ void Backend::reloadCatalog() {
               m_loaded = false;
               m_snapshotError = false;
               clearShortcuts();
-              setConnectionBanner(tr("Daemon is unavailable · reconnecting"));
+              setConnectionBanner(QString::fromUtf8(QT_TR_NOOP("Daemon is unavailable · reconnecting")));
               publishState();
               return;
             }
@@ -652,10 +655,10 @@ void Backend::reloadCatalog() {
             const auto replaceable = m_message.isEmpty() || m_connectionBanner;
             if (!platform) {
               if (replaceable)
-                setConnectionBanner(tr("KWin adapter is not connected"));
+                setConnectionBanner(QString::fromUtf8(QT_TR_NOOP("KWin adapter is not connected")));
             } else if (!m_available) {
               if (replaceable)
-                setConnectionBanner(tr("Provider is unavailable"));
+                setConnectionBanner(QString::fromUtf8(QT_TR_NOOP("Provider is unavailable")));
             } else if (m_connectionBanner) {
               setConnectionBanner(QString());
             }
@@ -903,7 +906,7 @@ void Backend::back() {
   connect(call, &QDBusPendingCallWatcher::finished, this, [this](auto *call) {
     if (call->isError()) {
       m_returnFlow.finish(FlowTrace::outcome(call->error().name().section('.', -1)));
-      setResultMessage(errorText(errorCodeOf(call->error().name())));
+      setResultMessage(errorSource(errorCodeOf(call->error().name())));
       publishState();
     }
     call->deleteLater();
@@ -1021,7 +1024,7 @@ void Backend::launch(const QString &id) {
       return;
     }
   }
-  setResultMessage(tr("Shortcut is no longer available"));
+  setResultMessage(QString::fromUtf8(QT_TR_NOOP("Shortcut is no longer available")));
   publishState();
 }
 void Backend::activate(const QString &id) {
@@ -1053,8 +1056,8 @@ void Backend::runApplication(const QString &id, const QVariantList &entries,
            .value(QByteArray(method) == "Terminate" ? "terminable" : "enabled",
                   true)
            .toBool()) {
-    setResultMessage(selected.isEmpty() ? tr("Shortcut is no longer available")
-                                        : QStringLiteral("Unavailable"));
+    setResultMessage(selected.isEmpty() ? QString::fromUtf8(QT_TR_NOOP("Shortcut is no longer available"))
+                                        : errorSource(QStringLiteral("Unavailable")));
     publishState();
     return;
   }
@@ -1190,7 +1193,7 @@ void Backend::cancelLaunch() {
             } else {
               launch->cancelling = false;
               if (reply.type() == QDBusMessage::ErrorMessage)
-                setResultMessage(tr("The launch could not be stopped"));
+                setResultMessage(QString::fromUtf8(QT_TR_NOOP("The launch could not be stopped")));
             }
             publishState();
           });
@@ -1246,7 +1249,7 @@ void Backend::openShortcut(const QString &id) {
     }
   }
   if (!found) {
-    setResultMessage(tr("Shortcut is no longer available"));
+    setResultMessage(QString::fromUtf8(QT_TR_NOOP("Shortcut is no longer available")));
     publishState();
     return;
   }
@@ -1275,7 +1278,7 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
   // A launch already has its overlay; a toast would be a third progress
   // indicator (#756 C19).
   if (!m_launches.contains(id)) {
-    m_message = tr("Working…");
+    m_message = QString::fromUtf8(QT_TR_NOOP("Working…"));
     m_connectionBanner = false;
   }
   publishState();
@@ -1295,8 +1298,8 @@ void Backend::beginOperation(const QString &id, const QDBusMessage &msg) {
                                         ? reply.errorName().section('.', -1)
                                         : QStringLiteral("Unavailable"));
               setResultMessage(reply.type() == QDBusMessage::ErrorMessage
-                                   ? errorText(errorCodeOf(reply.errorName()))
-                                   : tr("Operation is unavailable"));
+                                   ? errorSource(errorCodeOf(reply.errorName()))
+                                   : QString::fromUtf8(QT_TR_NOOP("Operation is unavailable")));
               publishState();
               operationEnded(id, method, QStringLiteral("failed"));
               return;
@@ -1363,7 +1366,7 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                         m_pendingIds.remove(id);
                         if (auto *launch = shown())
                           failLaunch(*launch, QStringLiteral("Unavailable"));
-                        setResultMessage(tr("Operation is unavailable"));
+                        setResultMessage(QString::fromUtf8(QT_TR_NOOP("Operation is unavailable")));
                         timer->deleteLater();
                         publishState();
                         operationEnded(id, method, QStringLiteral("failed"));
@@ -1410,10 +1413,10 @@ void Backend::watchOperation(const QString &id, const QString &operationPath,
                           m_launches.remove(launch->id);
                         }
                       }
-                      setResultMessage(state == "succeeded" ? tr("Done")
+                      setResultMessage(state == "succeeded" ? QString::fromUtf8(QT_TR_NOOP("Done"))
                                        : state == "cancelled"
-                                           ? tr("Launch cancelled")
-                                           : errorText(error));
+                                           ? QString::fromUtf8(QT_TR_NOOP("Launch cancelled"))
+                                           : errorSource(error));
                       timer->deleteLater();
                       if (next)
                         dismissed();
@@ -1430,7 +1433,7 @@ void Backend::editShortcut(const QString &id) {
     return;
   if (!m_connected || !m_shortcutsLoaded || m_shortcutsError ||
       (!id.isEmpty() && !m_shortcutRecords.contains(id))) {
-    setResultMessage(tr("Shortcuts are unavailable. Refresh and try again."));
+    setResultMessage(QString::fromUtf8(QT_TR_NOOP("Shortcuts are unavailable. Refresh and try again.")));
     publishState();
     return;
   }
@@ -1504,20 +1507,20 @@ void Backend::mutateShortcut(const char *method, const QVariantList &args) {
           const auto code = reply.errorName().section('.', -1);
           // Never display arbitrary remote messages that may contain user URLs.
           m_shortcutError =
-              code == "Conflict" ? tr("Shortcuts changed. Close and reopen the "
-                                      "editor before saving.")
+              code == "Conflict" ? QString::fromUtf8(QT_TR_NOOP("Shortcuts changed. Close and reopen the "
+                                      "editor before saving."))
               : code == "InvalidArgument"
-                  ? tr("Check the title and address. Use HTTPS, or HTTP for a "
-                       "local service.")
+                  ? QString::fromUtf8(QT_TR_NOOP("Check the title and address. Use HTTPS, or HTTP for a "
+                       "local service."))
               : code == "NoReply" || code == "Timeout"
-                  ? tr("No reply. Check the shortcut list before trying again.")
+                  ? QString::fromUtf8(QT_TR_NOOP("No reply. Check the shortcut list before trying again."))
                   // Any other code: generic text, never the code (§15).
-                  : tr("The shortcut could not be saved. Try again.");
+                  : QString::fromUtf8(QT_TR_NOOP("The shortcut could not be saved. Try again."));
         } else if ((adding && (reply.signature() != "s" ||
                                reply.arguments().at(0).toString().isEmpty())) ||
                    (!adding && !reply.signature().isEmpty())) {
           m_shortcutError =
-              tr("Invalid reply. Check the shortcut list before trying again.");
+              QString::fromUtf8(QT_TR_NOOP("Invalid reply. Check the shortcut list before trying again."));
         } else {
           closeShortcutEditor();
         }
@@ -1553,7 +1556,7 @@ void Backend::readFavorites() {
           m_favoritesError = true;
           m_favoritesLoaded = false;
           m_favoritesRequested = false;
-          m_favoriteError = tr("Favorites unavailable. Refresh the list before editing.");
+          m_favoriteError = QString::fromUtf8(QT_TR_NOOP("Favorites unavailable. Refresh the list before editing."));
           publishState();
         };
         if (reply.type() == QDBusMessage::ErrorMessage ||
@@ -1821,11 +1824,11 @@ void Backend::sendMusicPin(QDBusMessage message) {
                 reply.signature() != "t") {
               m_favoriteError =
                   code == "Conflict"
-                      ? tr("Favorites changed. Refresh before trying again.")
-                      : tr("Favorites could not be saved. Refresh the list "
-                           "before trying again.");
+                      ? QString::fromUtf8(QT_TR_NOOP("Favorites changed. Refresh before trying again."))
+                      : QString::fromUtf8(QT_TR_NOOP("Favorites could not be saved. Refresh the list "
+                           "before trying again."));
             } else
-              setResultMessage(tr("Favorites saved"));
+              setResultMessage(QString::fromUtf8(QT_TR_NOOP("Favorites saved")));
             readFavorites();
             publishState();
           });
@@ -1872,11 +1875,11 @@ void Backend::setFavorite(const QString &id, bool pinned) {
                 reply.signature() != "t") {
               m_favoriteError =
                   code == "Conflict"
-                      ? tr("Favorites changed. Refresh before trying again.")
-                      : tr("Favorites could not be saved. Refresh the list "
-                           "before trying again.");
+                      ? QString::fromUtf8(QT_TR_NOOP("Favorites changed. Refresh before trying again."))
+                      : QString::fromUtf8(QT_TR_NOOP("Favorites could not be saved. Refresh the list "
+                           "before trying again."));
             } else
-              setResultMessage(tr("Favorites saved"));
+              setResultMessage(QString::fromUtf8(QT_TR_NOOP("Favorites saved")));
             // Reconcile after every outcome; never retry a write or change
             // selection optimistically.
             readFavorites();

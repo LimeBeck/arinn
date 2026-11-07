@@ -97,6 +97,7 @@ mod progress;
 mod settings_routing;
 mod system_control;
 mod system_status;
+mod texts_routing;
 mod web_icons;
 
 /// Capability sets the daemon routes; anything else is incompatible.
@@ -136,6 +137,7 @@ pub struct Core {
     progress: Arc<Mutex<progress::Progress>>,
     /// Serializes settings writes to config.toml (ADR-0065).
     settings_lock: Arc<Mutex<()>>,
+    texts: Arc<texts_routing::Router>,
     download_import_lock: Arc<Mutex<()>>,
     downloads: Arc<Mutex<BTreeMap<String, download_routing::DownloadState>>>,
     /// Packaged search engines for `Browse1` (ADR-0066).
@@ -190,6 +192,7 @@ impl Core {
             browser_launch: Arc::new(Mutex::new(())),
             progress: Arc::default(),
             settings_lock: Arc::default(),
+            texts: Arc::default(),
             download_import_lock: Arc::default(),
             downloads: Arc::default(),
             search_engines: Arc::default(),
@@ -727,6 +730,7 @@ impl Core {
                 state.library_additions.remove(id);
                 state.library_additions_seen.remove(id);
                 self.music.forget(id).await;
+                self.texts.forget(id).await;
             }
             if let Some(p) = state.providers.get_mut(id) {
                 if p.owner != owner {

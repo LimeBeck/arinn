@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "settings_catalog.h"
+#include "language_change.h"
+#include "local_translations.h"
+#include "provider_text_client.h"
 #include <QDeadlineTimer>
 #include <QInputDevice>
 #include <QJsonArray>
@@ -183,6 +186,9 @@ QVariantMap constraintsFor(const QString &kind, const QString &json) {
 // shown as the provider sends them.
 constexpr auto kDaemonProvider = "arinn";
 [[maybe_unused]] constexpr const char *kDaemonTexts[] = {
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Language"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "Language of the interface and fixed provider labels; content stays unchanged"),
+    QT_TRANSLATE_NOOP("SettingsCatalog", "As in the system"),
     QT_TRANSLATE_NOOP("SettingsCatalog", "Browser application"),
     QT_TRANSLATE_NOOP("SettingsCatalog",
                       "Application ID launched when a web shortcut opens with "
@@ -267,10 +273,10 @@ QString daemonText(const QString &providerId, const QString &text) {
 // unit or option title is not a translation.
 QString translatedText(const QJsonObject &table, const QString &settingId,
                        const QString &field, const QString &source,
+                       const QString &locale,
                        const QString &option = {}) {
-  const auto locale = QLocale().name();
-  const auto language = locale.section(QLatin1Char('_'), 0, 0);
-  for (const auto &key : {locale, language}) {
+  for (auto key : LocalTranslations::locales(locale)) {
+    key.replace(QLatin1Char('-'), QLatin1Char('_'));
     const auto entry = table.value(key).toObject().value(settingId).toObject();
     const auto value =
         option.isEmpty()
@@ -324,6 +330,7 @@ struct SettingsCatalog::RootScan {
   QHash<QString, QString> found;
   // Every provider's plugin id, from the same listing.
   QHash<QString, QString> plugins;
+  QHash<QString, QString> generations;
 };
 
 struct SettingsCatalog::Load {
@@ -333,6 +340,8 @@ struct SettingsCatalog::Load {
 };
 
 SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { publish(true); });
+  ProviderTextClient::instance()->observe(this, [this] { publish(true); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(QString::fromLatin1(service), QString::fromLatin1(path),
               QString::fromLatin1(settingsInterface),
@@ -366,6 +375,7 @@ SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
             // Plugin identities belong to the old daemon: until the new
             // listing answers, the instance id stands in (review of #779).
             m_pluginIds.clear();
+            m_pluginGenerations.clear();
             m_rootsReading.clear();
             m_rootsAgain.clear();
             m_roots.clear();
@@ -598,6 +608,7 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
               // of #779).
               if (!m_pluginIds.isEmpty()) {
                 m_pluginIds.clear();
+                m_pluginGenerations.clear();
                 if (m_loaded)
                   publish();
               }
@@ -621,8 +632,10 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
                   capabilities >> runtime >> backend >> generation >> revision >>
                   error >> errorAt >> recovered >> restarts >> cumulative;
               arg.endStructure();
-              if (!id.isEmpty() && !plugin.isEmpty())
+              if (!id.isEmpty() && !plugin.isEmpty()) {
                 scan->plugins.insert(id, plugin);
+                scan->generations.insert(id, generation);
+              }
               if (capabilities.contains(QLatin1String("library")) &&
                   runtime == QLatin1String("ready") && !id.isEmpty() &&
                   !endpoint.path().isEmpty()) {
@@ -638,8 +651,9 @@ void SettingsCatalog::readLibraryProviders(const std::shared_ptr<RootScan> &scan
             }
             const bool libraryChanged = m_libraryPaths != scan->found;
             m_libraryPaths = scan->found;
-            const bool pluginsChanged = m_pluginIds != scan->plugins;
+            const bool pluginsChanged = m_pluginIds != scan->plugins || m_pluginGenerations != scan->generations;
             m_pluginIds = scan->plugins;
+            m_pluginGenerations = scan->generations;
             if ((libraryChanged || pluginsChanged) && m_loaded)
               publish();
             QStringList gone;
@@ -752,17 +766,30 @@ void SettingsCatalog::dropRoots(const QString &providerId) {
   if (m_roots.remove(providerId))
     publish();
 }
+void SettingsCatalog::setTranslationLocale(const QString &locale) {
+  if (m_translationLocale == locale || (!locale.isEmpty() && !LocalTranslations::validLocale(locale))) return;
+  m_translationLocale = locale;
+  emit translationLocaleChanged();
+  publish(true);
+}
 void SettingsCatalog::readPreferences() {
   bool light = m_lightField;
   bool follows = m_lightFollowsTime;
   int minutes = m_ambientMinutes;
   QString sounds = m_interfaceSounds;
+  QString language = m_uiLanguage;
+  bool languageKnown = m_uiLanguageKnown;
   QStringList disabled = m_musicDisabled;
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
       continue;
     for (const auto &setting : provider.settings) {
       const auto value = valueFor(setting.kind, setting.valueJson, false);
+      if (setting.id == QLatin1String("ui_language") &&
+          (value.toString() == QLatin1String("system") || LocalTranslations::validLocale(value.toString()))) {
+        language = value.toString();
+        languageKnown = true;
+      }
       if (setting.id == QLatin1String("light_field") &&
           value.typeId() == QMetaType::Bool)
         light = value.toBool();
@@ -794,6 +821,11 @@ void SettingsCatalog::readPreferences() {
     m_interfaceSoundsKnown = true;
   if (m_interfaceSoundsKnown && sounds.isEmpty())
     sounds = QStringLiteral("quiet");
+  if (language != m_uiLanguage || languageKnown != m_uiLanguageKnown) {
+    m_uiLanguage = language;
+    m_uiLanguageKnown = languageKnown;
+    emit languagePreferenceChanged();
+  }
   const auto shownBefore = musicDisabledSources();
   if (disabled != m_musicDisabled)
     m_musicDisabledSent.reset();
@@ -910,11 +942,18 @@ void SettingsCatalog::writeMusicDisabled() {
     emit preferencesChanged();
   }
 }
-void SettingsCatalog::publish() {
-  syncDeferred();
-  readPreferences();
+void SettingsCatalog::publish(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("names"));
+  if (!presentationOnly) {
+    syncDeferred();
+    readPreferences();
+  }
   QVariantList categories;
   QVariantList rows;
+  // Parse each local envelope once per publication, including missing files.
+  QHash<QString, QJsonObject> localSettings;
+  const auto locale = m_translationLocale.isEmpty() ? LocalTranslations::currentLocaleTag() : m_translationLocale;
+  const auto translationRoots = LocalTranslations::roots();
   QSet<QString> live;
   if (m_loaded && !m_unreachable) {
     for (const auto &category : kCategories) {
@@ -940,12 +979,18 @@ void SettingsCatalog::publish() {
           }
           auto constraints = constraintsFor(setting.kind, setting.constraints);
           const auto daemon = provider.id == QLatin1String(kDaemonProvider);
+          const auto pluginId = !provider.generation.isEmpty() && m_pluginGenerations.value(provider.id) == provider.generation
+              ? m_pluginIds.value(provider.id) : QString();
           // The daemon's texts from the shell's catalogue (ADR-0112), a
           // provider's from its own translations (ADR-0129).
           const auto text = [&](const QString &field, const QString &source) {
+            QString local;
+            if (!daemon && LocalTranslations::settingText(translationRoots, locale,
+                  pluginId, setting.id, field, source, {}, &local, &localSettings))
+              return local;
             return daemon ? daemonText(provider.id, source)
                           : translatedText(provider.translations, setting.id,
-                                           field, source);
+                                           field, source, locale);
           };
           if (constraints.contains(QStringLiteral("options"))) {
             QVariantList options;
@@ -953,11 +998,19 @@ void SettingsCatalog::publish() {
                  constraints.value(QStringLiteral("options")).toList()) {
               auto map = option.toMap();
               const auto title = map.value(QStringLiteral("title")).toString();
+              const auto optionValue = map.value(QStringLiteral("value")).toString();
+              QString local;
+              const bool ownLanguage = daemon && setting.id == QLatin1String("ui_language");
+              const bool overridden = !daemon && LocalTranslations::settingText(
+                  translationRoots, locale,
+                  pluginId, setting.id, {}, title, optionValue, &local, &localSettings);
               map.insert(QStringLiteral("title"),
-                         daemon ? daemonText(provider.id, title)
+                         ownLanguage ? (optionValue == QLatin1String("system") ? tr("As in the system")
+                                        : LocalTranslations::nativeName(LocalTranslations::roots(), optionValue))
+                         : overridden ? local : daemon ? daemonText(provider.id, title)
                                 : translatedText(
                                       provider.translations, setting.id, {},
-                                      title,
+                                      title, locale,
                                       map.value(QStringLiteral("value")).toString()));
               options.append(map);
             }
@@ -975,13 +1028,14 @@ void SettingsCatalog::publish() {
           live.insert(key);
           const auto currentValue =
               valueFor(setting.kind, setting.valueJson, multiple);
+          const auto originalName = sourceName(provider.id,
+              m_pluginIds.value(provider.id, provider.id), provider.name);
+          const auto providerName = daemon ? originalName : ProviderTextClient::instance()->translate(
+              provider.id, provider.generation, QStringLiteral("provider"), QStringLiteral("self"), 0,
+              QStringLiteral("name"), provider.name, originalName);
           QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
-              {QStringLiteral("providerName"), sourceName(provider.id,
-                          // Until Daemon1.Providers answers, the default
-                          // instance, whose id is its plugin's.
-                          m_pluginIds.value(provider.id, provider.id),
-                          provider.name)},
+              {QStringLiteral("providerName"), providerName},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
               {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},
@@ -1018,25 +1072,27 @@ void SettingsCatalog::publish() {
       }
     }
   }
-  QSet<QString> stalePending;
-  for (const auto &key : m_pending)
-    if (!live.contains(key))
-      stalePending.insert(key);
-  for (const auto &key : stalePending)
-    m_pending.remove(key);
-  QStringList staleErrors;
-  for (auto it = m_errors.cbegin(); it != m_errors.cend(); ++it)
-    if (!live.contains(it.key()))
-      staleErrors.append(it.key());
-  for (const auto &key : staleErrors)
-    m_errors.remove(key);
-  QStringList staleDeferred;
-  for (const auto &key : m_deferred)
-    if (!live.contains(key))
-      staleDeferred.append(key);
-  for (const auto &key : staleDeferred) {
-    m_deferred.remove(key);
-    m_deferredGeneration.remove(key);
+  if (!presentationOnly) {
+    QSet<QString> stalePending;
+    for (const auto &key : m_pending)
+      if (!live.contains(key))
+        stalePending.insert(key);
+    for (const auto &key : stalePending)
+      m_pending.remove(key);
+    QStringList staleErrors;
+    for (auto it = m_errors.cbegin(); it != m_errors.cend(); ++it)
+      if (!live.contains(it.key()))
+        staleErrors.append(it.key());
+    for (const auto &key : staleErrors)
+      m_errors.remove(key);
+    QStringList staleDeferred;
+    for (const auto &key : m_deferred)
+      if (!live.contains(key))
+        staleDeferred.append(key);
+    for (const auto &key : staleDeferred) {
+      m_deferred.remove(key);
+      m_deferredGeneration.remove(key);
+    }
   }
   // A category without rows is not shown, so Settings opens on the first
   // category that has one (#756). System stays: About lives there even when

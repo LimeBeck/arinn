@@ -170,12 +170,12 @@ FocusScope {
     }
     function chosen(path) {
         if (indexOfPath(folders, path) >= 0) {
-            picker.errorText = library ? qsTr("This folder is already in the library")
-                                       : qsTr("This folder is already in the list");
+            picker.errorText = Qt.binding(() => library ? qsTr("This folder is already in the library")
+                                                       : qsTr("This folder is already in the list"));
             return;
         }
         if (busy) {
-            picker.errorText = busyText;
+            picker.errorText = Qt.binding(() => root.busyText);
             return;
         }
         picker.visible = false;

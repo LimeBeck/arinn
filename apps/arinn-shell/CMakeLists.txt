@@ -11,7 +11,8 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/platform/keyboard"
     "${CMAKE_CURRENT_BINARY_DIR}/platform-keyboard")
 
 qt_add_executable(arinn-shell main.cpp backend.cpp backend.h input_bindings.cpp input_bindings.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h interface_sounds.cpp interface_sounds.h)
-target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h)
+target_sources(arinn-shell PRIVATE startup_home.cpp startup_home.h
+    localization_manager.cpp localization_manager.h)
 qt_add_resources(arinn-shell ui PREFIX "/" FILES Main.qml)
 set(ARINN_UI_SOUND_NAMES tap edge select back open close ignite kindle error)
 set(ARINN_UI_SOUND_FILES)
@@ -35,6 +36,7 @@ add_test(NAME interface-sounds COMMAND arinn-interface-sounds-test)
 set_tests_properties(interface-sounds PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 qt_add_executable(arinn-shell-test backend_test.cpp backend.cpp backend.h browser_catalog.cpp browser_catalog.h return_association.cpp return_association.h media_catalog.cpp media_catalog.h library_catalog.cpp library_catalog.h settings_catalog.cpp settings_catalog.h folder_browser.cpp folder_browser.h asset_images.cpp asset_images.h)
+target_sources(arinn-shell-test PRIVATE localization_manager.cpp localization_manager.h)
 qt_add_resources(arinn-shell-test test_ui PREFIX "/" FILES Main.qml)
 target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quick Qt6::Qml Qt6::DBus Qt6::Test)
 
@@ -291,6 +293,7 @@ endforeach()
 qt_add_executable(arinn-download-catalog-test download_catalog_test.cpp
     download_catalog.cpp download_catalog.h)
 target_link_libraries(arinn-download-catalog-test PRIVATE Qt6::DBus Qt6::Qml Qt6::Test)
+target_sources(arinn-download-catalog-test PRIVATE localization_manager.cpp localization_manager.h)
 add_test(NAME download-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-download-catalog-test>)
 qt_add_executable(arinn-system-status-test system_status_test.cpp
     system_status.cpp system_status.h)
@@ -352,7 +355,15 @@ qt_add_lrelease(TS_FILES ${ARINN_TS_FILES}
 qt_add_executable(arinn-translations-test translations_test.cpp)
 target_link_libraries(arinn-translations-test PRIVATE Qt6::Core Qt6::Test)
 add_test(NAME translations COMMAND arinn-translations-test)
-foreach(target arinn-shell arinn-translations-test arinn-ui-test)
+qt_add_executable(arinn-localization-manager-test localization_manager_test.cpp
+    localization_manager.cpp localization_manager.h keyboard_model.cpp keyboard_model.h)
+target_link_libraries(arinn-localization-manager-test PRIVATE Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-localization-manager-test PRIVATE
+    ARINN_LRELEASE_BINARY="$<TARGET_FILE:Qt6::lrelease>"
+    ARINN_SHELL_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME localization-manager COMMAND arinn-localization-manager-test)
+set_tests_properties(localization-manager PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+foreach(target arinn-shell arinn-shell-test arinn-translations-test arinn-ui-test arinn-localization-manager-test)
     qt_add_resources(${target} translations PREFIX "/i18n"
         BASE "${CMAKE_CURRENT_BINARY_DIR}" FILES ${ARINN_QM_FILES})
 endforeach()
@@ -372,6 +383,12 @@ target_compile_definitions(arinn-music-catalog-test PRIVATE
     ARINN_HOME_QML="${CMAKE_CURRENT_SOURCE_DIR}/ui/HomeView.qml"
     ARINN_DAEMON_XML="${PROJECT_SOURCE_DIR}/docs/plugin-api/daemon1.xml")
 add_test(NAME music-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-catalog-test>)
+qt_add_executable(arinn-music-localization-test music_localization_test.cpp
+    music_room.cpp music_room.h asset_images.cpp asset_images.h)
+target_link_libraries(arinn-music-localization-test PRIVATE Qt6::DBus Qt6::Quick Qt6::Test)
+target_compile_definitions(arinn-music-localization-test PRIVATE ARINN_SHELL_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}")
+add_test(NAME music-localization COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-localization-test>)
+set_tests_properties(music-localization PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 # Music has its own catalogue while #718 updates the shared shell translations.
 set(ARINN_MUSIC_TS "${CMAKE_CURRENT_SOURCE_DIR}/i18n/music_ru.ts")

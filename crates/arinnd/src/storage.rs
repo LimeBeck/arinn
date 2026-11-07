@@ -199,6 +199,9 @@ pub struct Config {
     /// default.
     #[serde(default = "interface_sounds")]
     pub interface_sounds: String,
+    /// Requested interface language, independent of process locale.
+    #[serde(default = "ui_language")]
+    pub ui_language: String,
     /// Music sources turned off in the shell's Sources sheet, by provider id
     /// (spec §5.3.1, #842): presentation only, the providers keep running.
     /// A hand-edited value that is not a list of ids reads as none.
@@ -248,11 +251,15 @@ fn ambient_timeout() -> u32 {
 fn interface_sounds() -> String {
     "quiet".into()
 }
+fn ui_language() -> String {
+    "system".into()
+}
 
 static WARNED_LIGHT_FIELD: std::sync::Once = std::sync::Once::new();
 static WARNED_LIGHT_FOLLOWS_TIME: std::sync::Once = std::sync::Once::new();
 static WARNED_AMBIENT_TIMEOUT: std::sync::Once = std::sync::Once::new();
 static WARNED_INTERFACE_SOUNDS: std::sync::Once = std::sync::Once::new();
+static WARNED_UI_LANGUAGE: std::sync::Once = std::sync::Once::new();
 static WARNED_MUSIC_DISABLED_SOURCES: std::sync::Once = std::sync::Once::new();
 
 /// Owner decision on #488: an invalid hand-edited preference never makes
@@ -290,6 +297,14 @@ fn drop_invalid_preferences(table: &mut toml::Table) -> Vec<&'static str> {
             dropped.push("interface_sounds");
         }
     }
+    if table.get("ui_language").is_some_and(|value| {
+        !value
+            .as_str()
+            .is_some_and(crate::localization::valid_language)
+    }) {
+        table.remove("ui_language");
+        dropped.push("ui_language");
+    }
     if let Some(value) = table.get("music_disabled_sources") {
         let valid = value.as_array().is_some_and(|ids| {
             let texts: Option<Vec<String>> = ids
@@ -312,6 +327,7 @@ fn warn_invalid_preference(key: &'static str) {
         "light_field" => &WARNED_LIGHT_FIELD,
         "light_follows_time" => &WARNED_LIGHT_FOLLOWS_TIME,
         "ambient_timeout" => &WARNED_AMBIENT_TIMEOUT,
+        "ui_language" => &WARNED_UI_LANGUAGE,
         "music_disabled_sources" => &WARNED_MUSIC_DISABLED_SOURCES,
         _ => &WARNED_INTERFACE_SOUNDS,
     };
@@ -356,6 +372,7 @@ impl Default for Config {
             light_follows_time: true,
             ambient_timeout: ambient_timeout(),
             interface_sounds: interface_sounds(),
+            ui_language: ui_language(),
             music_disabled_sources: Vec::new(),
         }
     }
@@ -382,6 +399,9 @@ impl Config {
             return Err(ErrorCode::InvalidArgument);
         }
         if !INTERFACE_SOUND_LEVELS.contains(&self.interface_sounds.as_str()) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if !crate::localization::valid_language(&self.ui_language) {
             return Err(ErrorCode::InvalidArgument);
         }
         check_music_disabled_sources(&self.music_disabled_sources)?;

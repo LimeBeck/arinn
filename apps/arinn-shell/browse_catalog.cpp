@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "browse_catalog.h"
+#include "language_change.h"
 #include <QRegularExpression>
 #include <QTimer>
 #include <QUrl>
@@ -63,6 +64,7 @@ void registerBrowse() {
 Q_COREAPP_STARTUP_FUNCTION(registerBrowse)
 } // namespace
 BrowseCatalog::BrowseCatalog(QObject *parent) : QObject(parent) {
+  new LanguageChangeObserver(this, [this] { emit changed(); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, "org.arinn.Browse1", "RecentChanged", this,
               SLOT(refreshRecent()));

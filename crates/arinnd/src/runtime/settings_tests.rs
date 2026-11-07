@@ -493,6 +493,69 @@ async fn the_shell_preferences_are_core_settings() {
     );
 }
 
+#[tokio::test]
+async fn ui_language_discovers_partial_files_and_keeps_a_removed_choice() {
+    let f = Fixture::new().await;
+    let api = f.api().await;
+    let (generation, schema) = api.get_settings("arinn").await.unwrap();
+    let language = schema.iter().find(|s| s.id == "ui_language").unwrap();
+    assert_eq!(
+        (
+            language.category.as_str(),
+            language.kind.as_str(),
+            language.value.as_str()
+        ),
+        ("appearance", "enum", r#""system""#)
+    );
+    for value in ["system", "en", "ru"] {
+        assert!(
+            language
+                .constraints
+                .contains(&format!(r#""value":"{value}""#))
+        );
+    }
+    let directory = f.folder.join("data/translations/overrides/de/shell");
+    std::fs::create_dir_all(&directory).unwrap();
+    let file = directory.join("arinn.qm");
+    std::fs::write(&file, b"opaque local catalogue").unwrap();
+    let (_, schema) = api.get_settings("arinn").await.unwrap();
+    assert!(
+        schema
+            .iter()
+            .find(|s| s.id == "ui_language")
+            .unwrap()
+            .constraints
+            .contains(r#""value":"de""#)
+    );
+    let operation = api
+        .set_value("arinn", &generation, "ui_language", r#""de""#, &rid())
+        .await
+        .unwrap();
+    f.wait(operation).await.unwrap();
+    assert_eq!(
+        Config::load(&f.folder.join("config")).unwrap().ui_language,
+        "de"
+    );
+    std::fs::remove_file(file).unwrap();
+    let (_, schema) = api.get_settings("arinn").await.unwrap();
+    let language = schema.iter().find(|s| s.id == "ui_language").unwrap();
+    assert_eq!(language.value, r#""de""#);
+    assert!(language.constraints.contains(r#""value":"de""#));
+    for invalid in [r#""../ru""#, r#""en_US""#, "42", r#""unavailable""#] {
+        assert_eq!(
+            error_name(
+                api.set_value("arinn", &generation, "ui_language", invalid, &rid())
+                    .await
+            ),
+            "org.arinn.Error1.InvalidArgument"
+        );
+    }
+    assert_eq!(
+        Config::load(&f.folder.join("config")).unwrap().ui_language,
+        "de"
+    );
+}
+
 /// #842: the music sources turned off in the shell's Sources sheet, a
 /// string of the `arinn` source holding a JSON array of provider ids, stored
 /// in `config.toml` as a list. An empty string is none; a value that is not
@@ -769,7 +832,7 @@ fn the_daemon_schema_is_valid_and_lists_the_search_engine_under_applications() {
         title: "Example Search".into(),
         template: "https://search.example/?q={query}".into(),
     }];
-    let schema = daemon_schema(&engines);
+    let schema = daemon_schema(&engines, &crate::localization::languages(&[], "system"));
     assert_eq!(settings::validate_schema(&schema), Ok(()));
     let engine = schema.iter().find(|s| s.id == "search_engine").unwrap();
     assert_eq!(engine.category, "applications");

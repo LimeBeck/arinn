@@ -19,7 +19,10 @@ const APPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// `ambient_timeout` (ADR-0112), `light_follows_time` and `interface_sounds`
 /// (ADR-0136) are the shell's presentation preferences. Titles are English
 /// source texts; the shell translates them.
-fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
+fn daemon_schema(
+    engines: &[crate::browse::Engine],
+    languages: &[(String, String)],
+) -> Vec<Setting> {
     let timeouts: Vec<Value> = crate::storage::AMBIENT_TIMEOUTS
         .iter()
         .map(|minutes| serde_json::json!({"value": minutes.to_string(), "title": format!("{minutes} min")}))
@@ -95,6 +98,13 @@ fn daemon_schema(engines: &[crate::browse::Engine]) -> Vec<Setting> {
         .to_string(),
         enabled: true,
     }];
+    schema.push(Setting {
+        id: "ui_language".into(),category: "appearance".into(),title:"Language".into(),
+        description:"Language of the interface and fixed provider labels; content stays unchanged".into(),
+        kind:settings::KIND_ENUM.into(),value:r#""system""#.into(),
+        constraints:serde_json::json!({"options":languages.iter().map(|(value,title)|serde_json::json!({"value":value,"title":title})).collect::<Vec<_>>()}).to_string(),
+        enabled:true,
+    });
     if let Some(first) = engines.first() {
         let options: Vec<Value> = engines
             .iter()
@@ -129,6 +139,10 @@ fn stored_values(config: &Config, provider: &str) -> Map<String, Value> {
             );
         }
         map.insert("light_field".into(), Value::Bool(config.light_field));
+        map.insert(
+            "ui_language".into(),
+            Value::String(config.ui_language.clone()),
+        );
         map.insert(
             "light_follows_time".into(),
             Value::Bool(config.light_follows_time),
@@ -215,9 +229,19 @@ impl Core {
         id: &str,
     ) -> Result<(String, Vec<Setting>, String), ErrorCode> {
         if id == DAEMON_PROVIDER_ID {
+            let paths = self.paths.clone();
+            let languages = tokio::task::spawn_blocking(move || {
+                let config = Config::load(&paths.config)?;
+                Ok::<_, ErrorCode>(crate::localization::languages(
+                    &crate::localization::roots(&paths.data),
+                    &config.ui_language,
+                ))
+            })
+            .await
+            .map_err(|_| ErrorCode::Internal)??;
             return Ok((
                 self.epoch.clone(),
-                daemon_schema(&self.search_engines),
+                daemon_schema(&self.search_engines, &languages),
                 "{}".to_owned(),
             ));
         }
@@ -431,6 +455,13 @@ impl Core {
             // The value already passed the schema check.
             match setting {
                 "light_field" => config.light_field = value.as_bool().unwrap_or(true),
+                "ui_language" => {
+                    config.ui_language = value
+                        .as_str()
+                        .filter(|v| crate::localization::valid_language(v))
+                        .ok_or(ErrorCode::InvalidArgument)?
+                        .into()
+                }
                 "light_follows_time" => config.light_follows_time = value.as_bool().unwrap_or(true),
                 "ambient_timeout" => {
                     config.ambient_timeout = value

@@ -5,6 +5,8 @@
 #include "asset_images.h"
 #include "main_qml_test_support.h"
 #include "library_catalog.h"
+#include <QEvent>
+#include <QTranslator>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
@@ -637,6 +639,18 @@ private slots:
     daemon.staleDescription = false; daemon.rejectDescription = true;
     catalog.requestDescription(first); QTRY_COMPARE(daemon.descriptionReads, 6);
     QTest::qWait(50); QVERIFY(catalog.descriptionText().isEmpty());
+    class Translator : public QTranslator {
+    public:
+      bool isEmpty() const override { return false; }
+      QString translate(const char *context, const char *source, const char *, int) const override {
+        return QByteArray(context) == "LibraryCatalog" && QByteArray(source) == "Films"
+            ? QStringLiteral("Filme") : QString();
+      }
+    } translator;
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    QTRY_COMPARE(catalog.tabs().first().toMap().value(QStringLiteral("title")).toString(), QStringLiteral("Filme"));
+    QCOMPARE(daemon.descriptionReads, 6);
+    QVERIFY(QCoreApplication::removeTranslator(&translator));
     QCOMPARE(catalog.entries().size(), 2);
     catalog.requestDescription(QString()); QVERIFY(catalog.descriptionEntryId().isEmpty());
   }

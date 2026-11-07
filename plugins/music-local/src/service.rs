@@ -12,8 +12,8 @@ use arinn_music_common::{
     player::{Player, Source},
 };
 use arinn_plugin_sdk::runtime::{
-    MusicCatalogue, MusicHandler, MusicService, SettingsHandler, run_music_on, serve_settings,
-    startup_settings,
+    MusicCatalogue, MusicHandler, MusicService, SettingsHandler, TextsHandler, run_music_on,
+    serve_settings, serve_texts, startup_settings,
 };
 use arinn_protocol::{
     music::{Command, Entity, Query, State},
@@ -45,19 +45,10 @@ struct View {
 /// another one, so the shell may pin it (ADR-0142 MH-6, #811).
 pub const LIBRARY_STATION: &str = "station:library";
 fn library_station(available: bool) -> Entity {
-    let russian = ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
-        .is_some_and(|locale| locale.starts_with("ru"));
     Entity {
         id: LIBRARY_STATION.into(),
         kind: "station".into(),
-        title: if russian {
-            "Вся моя музыка вперемешку"
-        } else {
-            "All my music, shuffled"
-        }
-        .into(),
+        title: "All my music, shuffled".into(),
         available,
         pinnable: true,
         ..Entity::default()
@@ -690,6 +681,76 @@ impl MusicHandler for LocalService {
         })
     }
 }
+impl TextsHandler for LocalService {
+    fn catalog(&self) -> arinn_protocol::localization::Catalog {
+        arinn_music_common::fixed_texts::catalog(
+            "music-local",
+            &[
+                (
+                    "provider.name",
+                    "Local music",
+                    "The installed source name, not a library title",
+                ),
+                (
+                    "station.library",
+                    "All my music, shuffled",
+                    "The fixed station over the entire local library",
+                ),
+            ],
+        )
+    }
+    fn translations(&self) -> BTreeMap<String, Vec<u8>> {
+        BTreeMap::from([("ru".into(), include_bytes!("../i18n/ru.qm").to_vec())])
+    }
+    fn resolve(
+        &self,
+        _generation: String,
+        requests: Vec<arinn_protocol::localization::TextRequest>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<arinn_protocol::localization::ResolvedText>, ErrorCode>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            use arinn_music_common::fixed_texts::{provider_name, resolved};
+            use arinn_protocol::localization::Scope;
+            let state = if requests.iter().any(|r| r.scope == Scope::MusicStation) {
+                Some(self.state().await?)
+            } else {
+                None
+            };
+            let view = self.view.read().await;
+            let mut result = Vec::new();
+            for (index, request) in requests.iter().enumerate() {
+                let key = if provider_name(request, "Local music") {
+                    Some("provider.name")
+                } else if request.field == "title"
+                    && request.object_id == LIBRARY_STATION
+                    && request.fallback_text == library_station(true).title
+                    && (request.scope == Scope::MusicEntity && request.revision == view.revision
+                        || request.scope == Scope::MusicStation
+                            && state.as_ref().is_some_and(|s| {
+                                s.revision == request.revision
+                                    && s.station.as_ref().is_some_and(|station| {
+                                        station.id == LIBRARY_STATION
+                                            && station.title == request.fallback_text
+                                    })
+                            }))
+                {
+                    Some("station.library")
+                } else {
+                    None
+                };
+                if let Some(key) = key {
+                    result.push(resolved(index, request, key));
+                }
+            }
+            Ok(result)
+        })
+    }
+}
 pub fn schema() -> Vec<Setting> {
     vec![Setting {
         id: "roots".into(),
@@ -754,6 +815,13 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         .unwrap_or_default();
     let local = Local::open(&id, roots).await?;
     let service = MusicService::new(LocalService(local.clone()));
+    serve_texts(
+        &connection,
+        LocalService(local.clone()),
+        service.registrations(),
+    )
+    .await
+    .map_err(|_| ErrorCode::Internal)?;
     serve_settings(&connection, Settings, service.registrations())
         .await
         .map_err(|_| ErrorCode::Internal)?;
@@ -978,6 +1046,61 @@ mod tests {
             search: String::new(),
             token: String::new(),
         }
+    }
+    #[tokio::test]
+    async fn fixed_texts_bind_the_library_station_and_omit_content_or_stale_revisions() {
+        use arinn_protocol::localization::{Scope, TextRequest, validate_resolved};
+        let directory =
+            std::env::temp_dir().join(format!("arinn-local-texts-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&directory).unwrap();
+        let local = Local::open_in(
+            directory.join("music"),
+            &directory,
+            "/nonexistent-arinn-test-player".into(),
+            vec![],
+        )
+        .await
+        .unwrap();
+        let service = LocalService(local);
+        let page = service.catalogue(query("selections")).await.unwrap();
+        let station = &page.entries[0];
+        assert_eq!(station.title, "All my music, shuffled");
+        let fixed = TextRequest {
+            scope: Scope::MusicEntity,
+            object_id: station.id.clone(),
+            revision: page.revision,
+            field: "title".into(),
+            fallback_text: station.title.clone(),
+        };
+        let mut content = fixed.clone();
+        content.object_id = "track:fixture".into();
+        let mut stale = fixed.clone();
+        stale.revision += 1;
+        let requests = vec![
+            TextRequest {
+                scope: Scope::Provider,
+                object_id: "self".into(),
+                revision: 0,
+                field: "name".into(),
+                fallback_text: "Local music".into(),
+            },
+            fixed,
+            content,
+            stale,
+        ];
+        let result = TextsHandler::resolve(&service, "authorized-by-sdk".into(), requests.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            result.iter().map(|r| r.request_index).collect::<Vec<_>>(),
+            [0, 1]
+        );
+        let catalog = TextsHandler::catalog(&service);
+        validate_resolved(&catalog, &requests, &result).unwrap();
+        assert_eq!(catalog.locales, ["ru"]);
+        assert!(!TextsHandler::translations(&service)["ru"].is_empty());
+        drop(service);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     /// #811: the library station has the same ID and is pinnable after
     /// every provider start, so a pin stored by the shell starts it again.

@@ -150,20 +150,12 @@ fn playlist(uid: &str, p: crate::Collection) -> Entity {
         ..Entity::default()
     }
 }
-fn station_title(seed: &str, locale: &str) -> &'static str {
-    let russian = locale.split(['_', '-', '.']).next() == Some("ru");
-    match (seed == "user:onyourwave", russian) {
-        (true, true) => "Моя волна",
-        (false, true) => "Радио по треку",
-        (true, false) => "My Wave",
-        (false, false) => "Track radio",
+fn station_title(seed: &str) -> &'static str {
+    if seed == "user:onyourwave" {
+        "My Wave"
+    } else {
+        "Track radio"
     }
-}
-fn message_locale() -> String {
-    ["LC_ALL", "LC_MESSAGES", "LANG"]
-        .into_iter()
-        .find_map(|key| std::env::var(key).ok().filter(|v| !v.is_empty()))
-        .unwrap_or_default()
 }
 // Every station here derives its ID from the service's own station key
 // (`user:onyourwave`, `track:<id>`), so the ID survives a provider restart
@@ -273,6 +265,59 @@ fn feedback_batch(batch: &Batch) -> Batch {
 }
 
 impl Runtime {
+    pub(crate) async fn fixed_entity(
+        &self,
+        request: &arinn_protocol::localization::TextRequest,
+    ) -> Option<&'static str> {
+        // This entity is constructed locally before stored pins or remote
+        // playlists are appended. Stored pin titles keep unknown provenance.
+        if request.object_id != "station:wave"
+            || request.field != "title"
+            || request.fallback_text != station_title("user:onyourwave")
+        {
+            return None;
+        }
+        let data = self.data.lock().await;
+        data.cache
+            .iter()
+            .any(|cache| {
+                cache.revision == request.revision
+                    && cache.error.is_none()
+                    && cache.entries.iter().any(|entry| {
+                        entry.id == "station:wave"
+                            && entry.kind == "station"
+                            && entry.title == request.fallback_text
+                    })
+            })
+            .then_some("station.wave")
+    }
+    pub(crate) async fn fixed_station(
+        &self,
+        state: &State,
+        request: &arinn_protocol::localization::TextRequest,
+    ) -> Option<&'static str> {
+        if request.revision != state.revision || request.field != "title" {
+            return None;
+        }
+        let station = state.station.as_ref()?;
+        if station.id != request.object_id || station.title != request.fallback_text {
+            return None;
+        }
+        if station.id == "station:wave" && station.title == station_title("user:onyourwave") {
+            return Some("station.wave");
+        }
+        let data = self.data.lock().await;
+        // The live rotor session was made by start_radio, which assigns the
+        // fixed label. An arbitrary/restored pin with identical text is not
+        // enough evidence and is deliberately omitted.
+        (station.id.starts_with("station:track:")
+            && station.title == station_title("track")
+            && data
+                .radio
+                .as_ref()
+                .is_some_and(|radio| radio.wire == state.session))
+        .then_some("station.track-radio")
+    }
     pub fn new(player: Player, pins: Storage) -> Result<Arc<Self>, ErrorCode> {
         let mut saved: Vec<Entity> = pins
             .read()
@@ -559,7 +604,7 @@ impl Runtime {
         if let Some(station) = &mut state.station
             && station.id == "station:wave"
         {
-            station.title = station_title("user:onyourwave", &message_locale()).into();
+            station.title = station_title("user:onyourwave").into();
         }
         state.account = if expired { "expired" } else { "connected" }.into();
         state.revision = state.revision.saturating_add(d.revision);
@@ -793,15 +838,12 @@ impl Runtime {
             }
             tracks
         } else if query.facet == "selections" {
-            let mut entries = vec![station(
-                "station:wave",
-                station_title("user:onyourwave", &message_locale()),
-            )];
+            let mut entries = vec![station("station:wave", station_title("user:onyourwave"))];
             let pins = self.data.lock().await.pins.clone();
             for mut pin in pins {
                 if !entries.iter().any(|e| e.id == pin.id) {
                     if pin.id == "station:wave" {
-                        pin.title = station_title("user:onyourwave", &message_locale()).into();
+                        pin.title = station_title("user:onyourwave").into();
                     }
                     entries.push(pin);
                 }
@@ -1009,7 +1051,7 @@ impl Runtime {
         let session = self
             .prepare_radio(epoch, async { api.start_radio(&seed).await.map_err(error) })
             .await?;
-        let title = station_title(&seed, &message_locale());
+        let title = station_title(&seed);
         let station_id = if seed == "user:onyourwave" {
             "station:wave".into()
         } else {
@@ -1239,6 +1281,75 @@ mod tests {
             ]}))
             .unwrap(),
         }
+    }
+    #[tokio::test]
+    async fn fixed_texts_require_a_source_owned_entity_or_live_rotor_session() {
+        use arinn_protocol::localization::{Scope, TextRequest};
+        let fixture = Fixture::new();
+        let wave = TextRequest {
+            scope: Scope::MusicEntity,
+            object_id: "station:wave".into(),
+            revision: 10,
+            field: "title".into(),
+            fallback_text: "My Wave".into(),
+        };
+        fixture.runtime.data.lock().await.cache.push_back(Cache {
+            key: "selections".into(),
+            revision: 10,
+            entries: vec![
+                station("station:wave", "My Wave"),
+                station("station:track:123", "Track radio"),
+            ],
+            tracks: vec![],
+            error: None,
+            bytes: 0,
+            incomplete: false,
+            fetched: tokio::time::Instant::now(),
+            announced: false,
+        });
+        assert_eq!(
+            fixture.runtime.fixed_entity(&wave).await,
+            Some("station.wave")
+        );
+        let mut stale = wave.clone();
+        stale.revision += 1;
+        assert_eq!(fixture.runtime.fixed_entity(&stale).await, None);
+        let mut pin = wave.clone();
+        pin.object_id = "station:track:123".into();
+        pin.fallback_text = "Track radio".into();
+        assert_eq!(fixture.runtime.fixed_entity(&pin).await, None); // stored pin provenance is unknown
+        let state = State {
+            revision: 20,
+            session: "owned-session".into(),
+            station: Some(station("station:track:123", "Track radio")),
+            ..State::default()
+        };
+        let current = TextRequest {
+            scope: Scope::MusicStation,
+            revision: 20,
+            ..pin
+        };
+        assert_eq!(fixture.runtime.fixed_station(&state, &current).await, None);
+        fixture.runtime.data.lock().await.radio = Some(Radio {
+            wire: state.session.clone(),
+            session: radio_response(),
+            batches: VecDeque::new(),
+            request: 0,
+            pending: false,
+        });
+        assert_eq!(
+            fixture.runtime.fixed_station(&state, &current).await,
+            Some("station.track-radio")
+        );
+        let mut replaced = state.clone();
+        replaced.session = "different-session".into();
+        assert_eq!(
+            fixture.runtime.fixed_station(&replaced, &current).await,
+            None
+        );
+        let mut content = current.clone();
+        content.fallback_text = "Custom title".into();
+        assert_eq!(fixture.runtime.fixed_station(&state, &content).await, None);
     }
     #[tokio::test(start_paused = true)]
     async fn radio_start_accepts_session_and_initial_feedback_after_three_seconds() {
@@ -2169,11 +2280,9 @@ mod tests {
         assert!(mock.finish().is_empty());
     }
     #[test]
-    fn built_in_station_titles_follow_message_locale_without_changing_identity() {
-        assert_eq!(station_title("user:onyourwave", "ru_RU.UTF-8"), "Моя волна");
-        assert_eq!(station_title("track:123", "ru-RU"), "Радио по треку");
-        assert_eq!(station_title("user:onyourwave", "en_US.UTF-8"), "My Wave");
-        assert_eq!(station_title("user:onyourwave", "C"), "My Wave");
+    fn fixed_station_fallbacks_are_language_independent() {
+        assert_eq!(station_title("user:onyourwave"), "My Wave");
+        assert_eq!(station_title("track:123"), "Track radio");
     }
     #[tokio::test]
     async fn artwork_admission_is_checked_before_sending_any_http_request() {

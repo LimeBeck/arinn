@@ -12,6 +12,13 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 RU = {
+    # Live interface language and local catalogue reload (#845).
+    "Language": "Язык",
+    "Language of the interface and fixed provider labels; content stays unchanged": "Язык интерфейса и подписей провайдеров. На содержимое не влияет",
+    "As in the system": "Как в системе",
+    "Reload translations": "Обновить переводы",
+    "Unable to reload translations": "Не удалось обновить переводы",
+    "The previous translation is still in use. Check the file and try again.": "Используется предыдущий перевод. Проверьте файл и повторите попытку.",
     # Pinned music stations on Favourites (#804)
     "Music source not connected": "Источник музыки не подключён",
     "This station is no longer available": "Эта станция больше недоступна",

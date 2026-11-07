@@ -53,6 +53,9 @@ class SettingsCatalog : public QObject {
                  preferencesChanged)
   Q_PROPERTY(bool interfaceSoundsLevelKnown READ interfaceSoundsLevelKnown NOTIFY
                  preferencesChanged)
+  Q_PROPERTY(QString uiLanguage READ uiLanguage NOTIFY languagePreferenceChanged)
+  Q_PROPERTY(bool uiLanguageKnown READ uiLanguageKnown NOTIFY languagePreferenceChanged)
+  Q_PROPERTY(QString translationLocale READ translationLocale WRITE setTranslationLocale NOTIFY translationLocaleChanged)
   // The music sources turned off in the Sources sheet, by provider id
   // (spec §5.3.1, #842): the change in flight, else the stored list.
   Q_PROPERTY(QStringList musicDisabledSources READ musicDisabledSources NOTIFY
@@ -74,6 +77,10 @@ public:
   int ambientTimeoutMinutes() const { return m_ambientMinutes; }
   QString interfaceSoundsLevel() const { return m_interfaceSounds; }
   bool interfaceSoundsLevelKnown() const { return m_interfaceSoundsKnown; }
+  QString uiLanguage() const { return m_uiLanguage; }
+  bool uiLanguageKnown() const { return m_uiLanguageKnown; }
+  QString translationLocale() const { return m_translationLocale; }
+  void setTranslationLocale(const QString &locale);
   QStringList musicDisabledSources() const {
     return m_musicDisabledWanting ? m_musicDisabledWanted : m_musicDisabled;
   }
@@ -93,6 +100,8 @@ public slots:
 signals:
   void catalogChanged();
   void preferencesChanged();
+  void languagePreferenceChanged();
+  void translationLocaleChanged();
 
 private:
   struct SettingRecord {
@@ -131,7 +140,7 @@ private:
                       const QVariant &value) const;
   void readProvider(const std::shared_ptr<Load> &load, int index);
   void finishLoad(const std::shared_ptr<Load> &load);
-  void publish();
+  void publish(bool presentationOnly = false);
   void watchOperation(const QString &key, const QString &objectPath,
                       quint64 ticket, quint64 epoch);
   void settle(const QString &key, quint64 ticket, quint64 epoch,
@@ -144,6 +153,9 @@ private:
   int m_ambientMinutes = 10;
   QString m_interfaceSounds;
   bool m_interfaceSoundsKnown = false;
+  QString m_uiLanguage = QStringLiteral("system");
+  QString m_translationLocale;
+  bool m_uiLanguageKnown = false;
   QStringList m_musicDisabled;
   // A turn-off or turn-on not stored yet; written once the last write ends.
   QStringList m_musicDisabledWanted;
@@ -170,6 +182,7 @@ private:
   // Provider instance id → plugin id, from Daemon1.Providers: Settings1
   // lists only the instance id and name.
   QHash<QString, QString> m_pluginIds;
+  QHash<QString, QString> m_pluginGenerations;
   // Root availability per library provider (path → available), only for a
   // provider whose GetRoots answered. No entry means no unavailable state.
   QHash<QString, QHash<QString, bool>> m_roots;

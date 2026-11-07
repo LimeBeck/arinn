@@ -379,6 +379,7 @@ fn shell_preferences_default_and_validate() {
     let loaded = arinnd::storage::Config::load(&dir).unwrap();
     assert_eq!((loaded.light_field, loaded.ambient_timeout), (true, 10));
     assert_eq!(loaded.interface_sounds, "quiet");
+    assert_eq!(loaded.ui_language, "system");
     let mut config = loaded;
     for minutes in arinnd::storage::AMBIENT_TIMEOUTS {
         config.ambient_timeout = minutes;
@@ -398,6 +399,36 @@ fn shell_preferences_default_and_validate() {
         assert!(config.validate().is_err(), "{level}");
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn language_preference_retains_an_uninstalled_locale_and_recovers_invalid_edits() {
+    let fixture = Fixture::new();
+    let dir = fixture.paths().config;
+    let mut config = arinnd::storage::Config {
+        ui_language: "de-AT".into(),
+        ..Default::default()
+    };
+    config.save(&dir).unwrap();
+    assert_eq!(
+        arinnd::storage::Config::load(&dir).unwrap().ui_language,
+        "de-AT"
+    );
+    for invalid in ["../ru", "en_US", "EN", "en-us"] {
+        config.ui_language = invalid.into();
+        assert!(config.validate().is_err());
+    }
+    for invalid in ["42", "\"../ru\"", "\"ru_RU\""] {
+        std::fs::write(
+            dir.join("config.toml"),
+            format!("schema_version = 1\nui_language = {invalid}\nlight_field = false\n"),
+        )
+        .unwrap();
+        let (loaded, warnings) = arinnd::storage::Config::load_reporting(&dir).unwrap();
+        assert_eq!(loaded.ui_language, "system");
+        assert!(!loaded.light_field);
+        assert_eq!(warnings, vec!["ui_language"]);
+    }
 }
 
 /// Owner decision on #488: an invalid hand-edited preference reads as its

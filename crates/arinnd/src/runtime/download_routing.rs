@@ -16,6 +16,9 @@ const IMPORT_RETRY: Duration = Duration::from_secs(5);
 
 #[derive(Default)]
 pub(super) struct DownloadState {
+    source_revision: u64,
+    published_source_revision: u64,
+    published_revision: u64,
     jobs: Vec<Job>,
     source: Option<JobSnapshots>,
     cache: Option<RowStore<DownloadRows>>,
@@ -24,6 +27,23 @@ pub(super) struct DownloadState {
     next_import: Option<Instant>,
 }
 impl DownloadState {
+    pub(super) fn text_request(
+        &self,
+        request: &arinn_protocol::localization::TextRequest,
+    ) -> Option<arinn_protocol::localization::TextRequest> {
+        if self.source_revision == 0
+            || self.source_revision != self.published_source_revision
+            || request.revision != self.published_revision
+            || !self.rows.iter().any(|row| {
+                row.id == request.object_id && row.error_message == request.fallback_text
+            })
+        {
+            return None;
+        }
+        let mut original = request.clone();
+        original.revision = self.source_revision;
+        Some(original)
+    }
     pub(super) fn disconnect(&mut self, owner: &str) {
         if let Some(cache) = self.cache.as_mut() {
             cache.disconnect(owner);
@@ -251,6 +271,7 @@ impl Core {
                         .map_or(Ok(()), |jobs| cache.import(revision, jobs.clone()))
                     {
                         Ok(()) => {
+                            d.source_revision = revision;
                             let refresh = jobs.is_some()
                                 || d.next_import.is_none_or(|next| Instant::now() >= next);
                             if let Some(jobs) = jobs {
@@ -328,7 +349,14 @@ impl Core {
         let cache = d
             .cache
             .get_or_insert_with(|| RowStore::new(generation).unwrap());
-        let revision = match cache.publish(rows.clone()) {
+        let revision = match cache.publish(rows.clone()).and_then(|revision| {
+            if d.source_revision != d.published_source_revision && revision == d.published_revision
+            {
+                cache.touch()
+            } else {
+                Ok(revision)
+            }
+        }) {
             Ok(revision) => revision,
             Err(error) => {
                 failed(&mut p.info, error);
@@ -336,6 +364,8 @@ impl Core {
             }
         };
         d.rows = rows;
+        d.published_source_revision = d.source_revision;
+        d.published_revision = revision;
         let changed = p.info.revision != revision;
         p.info.revision = revision;
         drop(downloads);

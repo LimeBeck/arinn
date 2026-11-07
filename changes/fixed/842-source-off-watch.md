@@ -1,0 +1,1 @@
+- Turning off a music source: a failed save is still reported while the change waits for the daemon (for example while it restarts), and every source a failed save turns back on gets its own note ([#842](https://github.com/LimeBeck/arinn/issues/842)).

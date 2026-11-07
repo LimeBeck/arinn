@@ -558,6 +558,11 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
         selections != facets.end())
       for (const auto &value : selections->second.entries) {
         const auto row = value.toMap();
+        // A station the source cannot supply is absent, not an unavailable
+        // card (brief: a shelf no source can supply is absent; #838).
+        if (row.value("kind").toString() == QLatin1String("station") &&
+            !row.value("available", true).toBool())
+          continue;
         if (row.value("kind").toString() == QLatin1String(shelf->kind)) {
           own.append(value);
           ids.insert(row.value("id").toString());

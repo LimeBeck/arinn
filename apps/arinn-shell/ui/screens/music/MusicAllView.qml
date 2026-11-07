@@ -14,6 +14,9 @@ FocusScope {
     property string shelfId: ""
     property string title: ""
     property string playingKey: ""
+    // The cover of the track that plays, for a playing station without its
+    // own (#843, Codex review of #848).
+    property string playingImage: ""
     property string source: ""
     property bool alphabetical: false
     // Bumped when a page arrives, so the list is read again.
@@ -125,11 +128,16 @@ FocusScope {
         }
     }
     Ui.AmbientGlow {
+        objectName: "musicAllGlow"
         anchors.fill: parent
         veilEnabled: false
         strength: 0.6
         lit: !!root.focusedEntry && grid.activeFocus
-        source: root.focusedEntry ? (root.focusedEntry.image || "") : ""
+        // The artwork the card shows: a playing station without its own
+        // cover shows the playing track's (#843, Codex review of #848).
+        source: root.focusedEntry ? (root.focusedEntry.image
+            || (root.focusedEntry.kind === "station" && root.focusedEntry.key === root.playingKey
+                ? root.playingImage : "")) : ""
         anchor: grid.currentItem
     }
     Ui.UiText {
@@ -214,38 +222,76 @@ FocusScope {
         }
     }
     }
-    GridView {
-        id: grid
-        objectName: "musicAllGrid"
-        x: Ui.Theme.safeLeft
-        y: 320
-        width: parent.width - Ui.Theme.safeLeft - Ui.Theme.safeRight + 32
+    // The grid's clip, larger than the grid by a focused card's growth, its
+    // mat and rim: a focused card on the first column or row stays whole
+    // (#838).
+    Item {
+        id: allClip
+        objectName: "musicAllClip"
+        // A focused card grows from its bottom edge by the content focus
+        // scale, lifts, and has the mat and rim around it: the padding is
+        // that, from the card's own size, so a wide station card fits too
+        // (review of #848).
+        readonly property real bleed: Ui.Theme.matThickness + Ui.Theme.rimThickness + 2
+        readonly property real padX: Math.ceil(root.cardWidth * (Ui.Theme.contentFocusScale - 1) / 2 + bleed)
+        readonly property real padTop: Math.ceil((root.cardHeight + Ui.Theme.contentCaptionHeight)
+            * (Ui.Theme.contentFocusScale - 1) - Ui.Theme.contentFocusLift + bleed)
+        x: Ui.Theme.safeLeft - padX
+        y: 320 - padTop
+        width: grid.width + 2 * padX
         height: parent.height - y
-        cellWidth: root.cardWidth + 32
-        cellHeight: root.cardHeight + Ui.Theme.contentCaptionHeight + 40
         clip: true
-        keyNavigationEnabled: true
-        model: root.entries.length
-        highlightRangeMode: GridView.ApplyRange
-        preferredHighlightBegin: 0
-        preferredHighlightEnd: height - cellHeight
-        Keys.onUpPressed: event => {
-            if (currentIndex < Math.floor(width / cellWidth))
-                Ui.Focus.take(tabs.itemAt(0));
-            else
-                event.accepted = false;
+        GridView {
+            id: grid
+            objectName: "musicAllGrid"
+            x: allClip.padX
+            y: allClip.padTop
+            width: root.width - Ui.Theme.safeLeft - Ui.Theme.safeRight + 32
+            height: allClip.height - y
+            cellWidth: root.cardWidth + 32
+            cellHeight: root.cardHeight + Ui.Theme.contentCaptionHeight + 40
+            // The clip is the parent, a little larger: a focused card grows
+            // and lifts past the grid and stays whole (#838).
+            clip: false
+            keyNavigationEnabled: true
+            model: root.entries.length
+            highlightRangeMode: GridView.ApplyRange
+            preferredHighlightBegin: 0
+            preferredHighlightEnd: height - cellHeight
+            Keys.onUpPressed: event => {
+                if (currentIndex < Math.floor(width / cellWidth))
+                    Ui.Focus.take(tabs.itemAt(0));
+                else
+                    event.accepted = false;
+            }
+            onCurrentIndexChanged: root.pageIfNeeded()
+            delegate: MusicCard {
+                required property int index
+                objectName: "musicAllCard"
+                entry: root.entries[index] || ({})
+                focus: GridView.isCurrentItem
+                artworkWidth: root.cardWidth
+                artworkHeight: root.cardHeight
+                round: root.round
+                playing: entry.key === root.playingKey
+                playingImage: root.playingImage
+                onActivated: root.entryActivated(entry)
+            }
         }
-        onCurrentIndexChanged: root.pageIfNeeded()
-        delegate: MusicCard {
-            required property int index
-            objectName: "musicAllCard"
-            entry: root.entries[index] || ({})
-            focus: GridView.isCurrentItem
-            artworkWidth: root.cardWidth
-            artworkHeight: root.cardHeight
-            round: root.round
-            playing: entry.key === root.playingKey
-            onActivated: root.entryActivated(entry)
+        // A row scrolled up fades in the band above the grid instead of
+        // showing a cut caption (#838).
+        Rectangle {
+            objectName: "musicAllTopFade"
+            width: parent.width
+            height: allClip.padTop
+            z: 3
+            // Never over a focused card on the top row, which lifts into it.
+            visible: grid.contentY > grid.originY + 0.5 && !!grid.currentItem
+                && grid.currentItem.y - grid.contentY >= grid.cellHeight / 2
+            gradient: Gradient {
+                GradientStop { position: 0; color: Ui.Theme.background }
+                GradientStop { position: 1; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0) }
+            }
         }
     }
     Ui.UiText {

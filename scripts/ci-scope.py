@@ -4,33 +4,70 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Decide which CI jobs a run needs (ADR-0044, ADR-0049, ADR-0102).
+"""Decide which CI jobs a run needs (ADR-0044, ADR-0102, proposed ADR-0145).
 
     python scripts/ci-scope.py            classify the current CI event
     python scripts/ci-scope.py PATH...    classify the given changed paths
 
-Only a pull request whose changes are all documentation is docs-only:
-Markdown files anywhere and changelog fragments under changes/. A pull
-request never builds the Arch and Debian packages; pushes to master, the
-nightly, releases and manual runs do (ADR-0102). Every event other than a
-pull request, and any doubt about a pull request's paths, means a full run
-of the other jobs.
-Writes docs_only=true|false and package=true|false to $GITHUB_OUTPUT.
+Pull requests use one of four scopes: docs, website, visual or full. Only
+explicit public-site and visual-fixture paths qualify for the two scoped
+checks. Native build inputs, unknown/mixed paths and failed path discovery
+use the full pipeline. Every non-PR event remains full, including packages
+(ADR-0102). Command-line paths simulate a pull request.
+Writes the scope and boolean job flags to $GITHUB_OUTPUT.
 """
 
 import os
 import subprocess
 import sys
+from pathlib import PurePosixPath
+
+
+SITE_TOOLS = frozenset({
+    "scripts/build-site.py", "scripts/check-site.py", "scripts/check-user-site.py",
+    "tests/ci/test_site.py",
+})
+VISUAL_TOOLS = frozenset({"scripts/ui-compare.py", "tests/ci/test_ui_compare.py"})
+SITE_EXTENSIONS = frozenset({".html", ".css", ".js", ".svg", ".png"})
+
+
+def known_path(path: str) -> bool:
+    return bool(path) and not path.startswith("/") and ".." not in PurePosixPath(path).parts
 
 
 def is_doc(path: str) -> bool:
-    # Non-Markdown files under docs/ are inputs of the build (interface XML,
-    # design assets), so they never count as documentation here.
-    return path.endswith(".md") or path.startswith("changes/")
+    return known_path(path) and path.endswith(".md")
+
+
+def is_site(path: str) -> bool:
+    if not known_path(path):
+        return False
+    suffix = PurePosixPath(path).suffix
+    return path in SITE_TOOLS or (
+        path.startswith(("docs/site/", "docs/user/")) and suffix in SITE_EXTENSIONS
+    ) or (path.startswith("docs/design/showcase/") and suffix == ".png")
+
+
+def is_visual(path: str) -> bool:
+    return known_path(path) and (path in VISUAL_TOOLS or (
+        path.startswith("tests/ui/visual/") and PurePosixPath(path).suffix in {".qml", ".json"}
+    ))
 
 
 def docs_only(paths: list[str]) -> bool:
     return bool(paths) and all(is_doc(path) for path in paths)
+
+
+def scope(paths: list[str] | None, pull_request: bool) -> str:
+    if not pull_request or not paths:
+        return "full"
+    if docs_only(paths):
+        return "docs"
+    if all(is_doc(path) or is_site(path) for path in paths):
+        return "website"
+    if all(is_doc(path) or is_site(path) or is_visual(path) for path in paths):
+        return "visual"
+    return "full"
 
 
 def package(pull_request: bool) -> bool:
@@ -63,9 +100,17 @@ def main() -> int:
         paths = pull_request_paths()
     else:
         paths = None
-    result = docs_only(paths or [])
-    build = not result and package(pull_request)
-    lines = [f"docs_only={'true' if result else 'false'}", f"package={'true' if build else 'false'}"]
+    selected = scope(paths, pull_request)
+    unknown_diff = pull_request and not paths
+    flags = {
+        "docs_only": selected == "docs",
+        "native": selected == "full",
+        # Mixed native changes retain the relevant site/render checks too.
+        "website": unknown_diff or (pull_request and any(is_site(path) or is_visual(path) for path in paths or [])),
+        "visual": unknown_diff or (pull_request and any(is_visual(path) for path in paths or [])),
+        "package": selected == "full" and package(pull_request),
+    }
+    lines = [f"scope={selected}", *(f"{key}={str(value).lower()}" for key, value in flags.items())]
     print("\n".join(lines))
     output = os.environ.get("GITHUB_OUTPUT")
     if output:

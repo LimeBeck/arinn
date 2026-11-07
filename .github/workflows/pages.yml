@@ -11,6 +11,7 @@ on:
       - docs/site/**
       - docs/user/**
       - docs/design/current-ui/*.png
+      - docs/design/showcase/*.png
       - docs/design/handoff/assets/arinn-mark.svg
       - scripts/build-site.py
       - scripts/check-site.py
@@ -22,6 +23,7 @@ on:
       - docs/site/**
       - docs/user/**
       - docs/design/current-ui/*.png
+      - docs/design/showcase/*.png
       - docs/design/handoff/assets/arinn-mark.svg
       - scripts/build-site.py
       - scripts/check-site.py

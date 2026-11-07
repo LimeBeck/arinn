@@ -22,7 +22,7 @@ Running Arinn and the operator tests is described in the [Phase 0 runbook](docs/
 
 ## Required checks
 
-This section is the canonical local check list. Choose the scope below from the actual diff, following the CI scope rules ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md), [ADR-0049](docs/adr/0049-ci-minutes.md)).
+This section is the canonical local check list. Choose the scope below from the actual diff, following the CI scope rules ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md), [ADR-0049](docs/adr/0049-ci-minutes.md), proposed [ADR-0145](docs/adr/0145-scoped-website-and-visual-pr-checks.md)).
 
 For changes consisting only of Markdown files and changelog fragments, run:
 
@@ -36,7 +36,26 @@ reuse lint
 cargo deny check licenses
 ```
 
-For code, tests, configuration, issue templates or build changes, run the full list before marking the pull request ready:
+For an explicitly allowlisted public-website change, run the common checks above and:
+
+```sh
+python scripts/check-user-site.py
+python scripts/build-site.py
+python scripts/check-site.py
+```
+
+For a change limited to visual-capture fixtures/helpers (optionally with website/Markdown files), run those common and website checks, then:
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build --target arinn-ui-test
+python scripts/ui-compare.py --check
+env -u ARINN_CAPTURE_ONLY python scripts/ui-compare.py --build-dir build --output build/visual-ci
+```
+
+The exact allowlists and conservative fallback are documented in [CI scope selection](docs/architecture/ci-scope.md). Production QML, the native test harness, protocol XML, handoff/build assets and arbitrary files under `docs/` are not lightweight. Use `python scripts/ci-scope.py PATH...` to classify a proposed PR diff. A mixed, unknown or failed classification uses full checks. Non-PR CI remains full.
+
+For other code, tests, configuration, issue templates, workflows or build changes, run the full list before marking the pull request ready:
 
 ```sh
 cargo fmt --all --check
@@ -58,6 +77,8 @@ reuse lint
 cargo deny check licenses
 ```
 
+When the classifier prints `website=true` or `visual=true`, run those scoped checks as well, including when `native=true` (mixed or undiscoverable PR diffs).
+
 During development, run focused checks first. A draft pull request may record outstanding checks or blockers; it is not ready to merge until the applicable local checks and required CI checks pass. Report the exact command and reason for an unavailable or failed check. Record an initial failure and any rerun separately instead of treating a passing rerun as proof of a clean full run. These lists exclude operator tests, which always require explicit owner permission.
 
 To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/release.py version)/ -o packaging/arch/arinn-$(python scripts/release.py version).tar.gz HEAD && (cd packaging/arch && makepkg -f)`, then install the package and run `ARINN_TEST_MANAGER=/absolute/path/to/private-systemd dbus-run-session -- python tests/package/smoke.py`. Use the test helper built under the package source tree at `target/release/examples/private-systemd`; it is not installed as a production service.
@@ -66,7 +87,7 @@ To test packaging locally on Arch: `git archive --prefix=arinn-$(python scripts/
 
 ## Continuous integration
 
-Every pull request runs the pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing and documentation. The Arch and Debian packages are built, installed into a clean system and smoke-tested only for `master`, the nightly, releases and manual runs; run CI manually on your branch to check a packaging change ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A pull request that changes only Markdown files and changelog fragments skips the build jobs and runs only licensing and documentation; pushes to `master` always run everything ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md)). The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released. A failed push or nightly run on `master` opens an issue labelled `ci-red` that the next green run of the same kind closes; while one is open, merge only pull requests that fix it or change only documentation and changelog fragments ([ADR-0121](docs/adr/0121-red-master-and-nightly-alerts.md)).
+Every pull request runs the pipeline described in [ADR-0033](docs/adr/0033-ci-cd-and-releases.md): Rust, the Qt build and integration suite on Arch Linux, licensing and documentation. The Arch and Debian packages are built, installed into a clean system and smoke-tested only for `master`, the nightly, releases and manual runs; run CI manually on your branch to check a packaging change ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). Pull requests use docs, website, visual-fixture or full scopes from the entire diff. Markdown/changelog runs common checks; allowlisted website changes add site validation; isolated capture changes build/render only the Qt fixture target. Native/mixed/unknown inputs keep all checks. Existing required check names still report, and scope failure falls back to full checks. Pushes to `master` always run everything ([ADR-0044](docs/adr/0044-docs-only-ci-scope.md), proposed [ADR-0145](docs/adr/0145-scoped-website-and-visual-pr-checks.md)). The same pipeline runs nightly on `master` against the latest Arch packages. A pull request is merged only when every check is green; a failing nightly is fixed before anything else is released. A failed push or nightly run on `master` opens an issue labelled `ci-red` that the next green run of the same kind closes; while one is open, merge only pull requests that fix it or change only documentation and changelog fragments ([ADR-0121](docs/adr/0121-red-master-and-nightly-alerts.md)).
 
 ## Releases
 

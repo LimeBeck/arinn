@@ -727,6 +727,203 @@ private slots:
     QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"a\\\"b\""));
     QCOMPARE(daemon.sets.at(1).value, QStringLiteral("[\"/videos\",\"/music\"]"));
   }
+  // #842: the music sources turned off in the Sources sheet, a JSON array of
+  // provider ids in the daemon's `music_disabled_sources`. A change shows at
+  // once; one made while a write is in flight is written after it, and a
+  // written list is not sent twice. The Settings screen leaves the row out.
+  void musicSourcesTurnedOffAreWrittenInTurn() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"[\\\"a\\\"]\""),
+                 QStringLiteral("{\"max_length\":4096}"), true),
+         setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("true"),
+                 QStringLiteral("{}"), true)});
+    daemon.holdOperation = true;
+    // Codex review of #851: before the daemon answers, a change could not be
+    // stored and would overwrite a list not read yet: nothing changes.
+    {
+      SettingsCatalog early;
+      QVERIFY(!early.musicSourcesWritable());
+      early.setMusicSourceEnabled(QStringLiteral("b"), false);
+      QVERIFY(early.musicDisabledSources().isEmpty());
+    }
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("a")});
+    QVERIFY(catalog.musicSourcesWritable());
+    for (const auto &value : catalog.rows())
+      QVERIFY(value.toMap().value(QStringLiteral("id")).toString() !=
+              QStringLiteral("music_disabled_sources"));
+    QVERIFY(!rowAt(catalog, QStringLiteral("arinn"), QStringLiteral("light_field")).isEmpty());
+    QVERIFY(!catalog.musicDisabledPending());
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QCOMPARE(catalog.musicDisabledSources(), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+    QVERIFY(catalog.musicDisabledPending());
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    QCOMPARE(daemon.sets.at(0).setting, QStringLiteral("music_disabled_sources"));
+    QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"[\\\"a\\\",\\\"b\\\"]\""));
+    // A second change while the first is in flight shows at once and is
+    // written when the first ends.
+    catalog.setMusicSourceEnabled(QStringLiteral("a"), true);
+    QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTest::qWait(200);
+    QCOMPARE(daemon.sets.size(), 1);
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\"]\""));
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTRY_VERIFY(!catalog.musicDisabledPending());
+    QTest::qWait(500);
+    QCOMPARE(daemon.sets.size(), 2);
+    // Every source on again: an empty string.
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    QTRY_COMPARE(daemon.sets.size(), 3);
+    QCOMPARE(daemon.sets.at(2).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+  }
+  // Codex review of #851: a toggle reversed while its write is in flight is
+  // written once the stored list shows the first write, not dropped against
+  // the list from before it.
+  void aReversedToggleIsWrittenAfterTheFirst() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"\""),
+                 QStringLiteral("{\"max_length\":4096}"), true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+    QTest::qWait(500);
+    QCOMPARE(daemon.sets.size(), 2);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+  }
+  // Codex review of #851: a daemon that changes owner during a write: the
+  // change stays shown and is written to the new daemon once it has loaded.
+  void musicSourcesAreWrittenAgainAfterADaemonRestart() {
+    const auto rows = QList<SettingWire>{
+        setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                QStringLiteral("string"), QStringLiteral("\"\""),
+                QStringLiteral("{\"max_length\":4096}"), true)};
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    first.settings.insert(QStringLiteral("arinn"), rows);
+    first.holdOperation = true;
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(first.sets.size(), 1);
+    // The daemon goes away mid-write and another one takes the name.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings.insert(QStringLiteral("arinn"), rows);
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(second.sets.size(), 1);
+    QCOMPARE(second.sets.at(0).value, QStringLiteral("\"[\\\"b\\\"]\""));
+    QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+  }
+  // Codex review of #851: a toggle made while a write is in flight survives
+  // that write's failure: only the failed list rolls back, and the later
+  // one is written next.
+  void aQueuedToggleSurvivesAFailedWrite() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"\""),
+                 QStringLiteral("{\"max_length\":4096}"), true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("c"), false);
+    daemon.operationState = QStringLiteral("failed");
+    daemon.operationError = QStringLiteral("Conflict");
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    daemon.operationState = QStringLiteral("succeeded");
+    daemon.operationError.clear();
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\",\\\"c\\\"]\""));
+    QTRY_COMPARE(catalog.musicDisabledSources(),
+                 (QStringList{QStringLiteral("b"), QStringLiteral("c")}));
+  }
+  // Codex review of #851: a toggle reversed during a write survives a
+  // daemon change after the first write was stored: the new daemon's list is
+  // read first, and the reversal is written to it.
+  void aReversalSurvivesADaemonRestart() {
+    const auto rows = [](const QString &value) {
+      return QList<SettingWire>{
+          setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                  QStringLiteral("string"), value,
+                  QStringLiteral("{\"max_length\":4096}"), true)};
+    };
+    SettingsDaemon first;
+    first.ownConnection = true;
+    first.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    first.settings.insert(QStringLiteral("arinn"), rows(QStringLiteral("\"\"")));
+    first.holdOperation = true;
+    QVERIFY(registerBus(first));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(first.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    // The first write was stored; then the daemon is replaced.
+    auto own = ownBus();
+    own.unregisterObject(QStringLiteral("/org/arinn"), QDBusConnection::UnregisterTree);
+    own.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    SettingsDaemon second;
+    second.providers = first.providers;
+    second.settings.insert(QStringLiteral("arinn"),
+                           rows(QStringLiteral("\"[\\\"b\\\"]\"")));
+    QVERIFY(registerBus(second));
+    QTRY_COMPARE(second.sets.size(), 1);
+    QCOMPARE(second.sets.at(0).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+  }
+  // Codex review of #851: a daemon that does not list the setting cannot
+  // store a turned-off source, so nothing changes and nothing is written.
+  void musicSourcesNeedTheCoreSetting() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+                 QStringLiteral("boolean"), QStringLiteral("true"),
+                 QStringLiteral("{}"), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QVERIFY(!catalog.musicSourcesWritable());
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+    QTest::qWait(200);
+    QVERIFY(daemon.sets.isEmpty());
+  }
   // ADR-0112: the light field and the ambient timeout come from the daemon's
   // own settings; the same ids from another provider do not count.
   void shellPreferencesFromTheCoreSource() {

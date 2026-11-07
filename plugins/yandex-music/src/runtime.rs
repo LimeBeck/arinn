@@ -100,6 +100,10 @@ struct Data {
 impl Data {
     fn invalidate_listings(&mut self) {
         self.cache.clear();
+        // A refresh still running belongs to the old generation and is
+        // dropped when it ends: its key no longer blocks a new fetch (Codex
+        // review of #849).
+        self.pending.clear();
         self.listings_generation += 1;
     }
 }
@@ -655,15 +659,16 @@ impl Runtime {
                 if d.epoch != epoch {
                     return;
                 }
-                d.pending.remove(&key);
-                d.revision += 1;
                 // A scan, a pin change or a reconnect cleared the listings
                 // while this one ran: its result, success or failure,
-                // describes the time before and is dropped; the new revision
-                // makes the shell ask again (Codex review of #849).
+                // describes the time before and is dropped. Its pending key
+                // was released then, and may now be a newer fetch's (Codex
+                // review of #849).
                 if d.listings_generation != generation {
                     return;
                 }
+                d.pending.remove(&key);
+                d.revision += 1;
                 let (mut entries, mut tracks, mut error, incomplete) = match result {
                     Ok((e, t, complete)) => (e, t, None, !complete),
                     Err(e) => (vec![], vec![], Some(e), false),
@@ -1869,13 +1874,17 @@ mod tests {
         // the listings while it runs, and the refresh then fails.
         assert!(listing().await.is_ok());
         fixture.runtime.data.lock().await.invalidate_listings();
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !fixture.runtime.data.lock().await.pending.is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
+        // The scan released the pending key at once; wait for the dropped
+        // refresh itself to finish its requests.
+        let requests = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || mock.finish()),
+        )
         .await
+        .unwrap()
         .unwrap();
+        assert_eq!(requests.len(), 4);
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(
             !fixture
                 .runtime
@@ -1886,7 +1895,6 @@ mod tests {
                 .iter()
                 .any(|c| c.error.is_none() && c.incomplete)
         );
-        mock.finish();
     }
     /// Codex review of #849: a refresh that succeeds after a scan or pin
     /// change cleared the listings is dropped too; the next request fetches
@@ -1918,22 +1926,28 @@ mod tests {
         let revision = {
             let mut d = fixture.runtime.data.lock().await;
             d.invalidate_listings();
+            // The scan releases the running refresh's key at once, so the
+            // listing after it can start without waiting (Codex review of
+            // #849).
+            assert!(d.pending.is_empty());
             d.revision
         };
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while !fixture.runtime.data.lock().await.pending.is_empty() {
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        })
+        // The scan released the pending key at once; wait for the dropped
+        // refresh itself to finish its requests.
+        let requests = tokio::time::timeout(
+            Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || mock.finish()),
+        )
         .await
+        .unwrap()
         .unwrap();
+        assert_eq!(requests.len(), 6);
+        tokio::time::sleep(Duration::from_millis(50)).await;
         let d = fixture.runtime.data.lock().await;
-        // Nothing from before the scan is cached, and a new revision asks
-        // the shell to fetch again.
+        // Nothing from before the scan is cached.
         assert!(d.cache.is_empty());
-        assert!(d.revision > revision);
+        assert!(d.revision >= revision);
         drop(d);
-        mock.finish();
     }
     /// Codex review of #849: only a reference the cover route accepts is
     /// remembered; an oversized one or one on another host counts as no

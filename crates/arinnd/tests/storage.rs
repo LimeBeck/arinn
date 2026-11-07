@@ -436,6 +436,31 @@ fn invalid_hand_edited_preferences_fall_back_to_defaults() {
             10,
             vec!["interface_sounds"],
         ),
+        // #842: a list of ids, each valid and listed once.
+        (
+            "music_disabled_sources = \"music-local\"\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"a\", \"a\"]\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"a\", 3]\n",
+            true,
+            10,
+            vec!["music_disabled_sources"],
+        ),
+        (
+            "music_disabled_sources = [\"music-local\"]\n",
+            true,
+            10,
+            vec![],
+        ),
     ] {
         std::fs::write(
             dir.join("config.toml"),
@@ -998,4 +1023,30 @@ fn favorites_set_keeps_pins_consistent() {
         store.replace_favorites(5, &reordered),
         Err(ErrorCode::NotFound)
     );
+}
+
+/// #842, Codex review of #851: a list of turned-off music sources is stored
+/// only when it fits the setting's string, so the daemon never accepts more
+/// than the shell can send, and never refuses what fits.
+#[test]
+fn turned_off_music_sources_fit_the_setting_string() {
+    use arinnd::storage::{MUSIC_DISABLED_SOURCES_TEXT_MAX, music_disabled_sources};
+    let ids = |count: usize, length: usize| -> Vec<String> {
+        (0..count)
+            .map(|i| format!("{i:03}{}", "x".repeat(length - 3)))
+            .collect()
+    };
+    let text = |list: &[String]| serde_json::to_string(list).unwrap();
+    // Fifteen ids of 256 characters fit; sixteen do not.
+    let fits = ids(15, 256);
+    assert!(text(&fits).chars().count() <= MUSIC_DISABLED_SOURCES_TEXT_MAX);
+    assert_eq!(music_disabled_sources(&text(&fits)).unwrap(), fits);
+    let over = ids(16, 256);
+    assert!(text(&over).chars().count() > MUSIC_DISABLED_SOURCES_TEXT_MAX);
+    assert!(music_disabled_sources(&text(&over)).is_err());
+    // Short ids up to the count limit fit.
+    let many = ids(64, 8);
+    assert_eq!(music_disabled_sources(&text(&many)).unwrap(), many);
+    assert!(music_disabled_sources(&text(&ids(65, 8))).is_err());
+    assert!(music_disabled_sources("").unwrap().is_empty());
 }

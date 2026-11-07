@@ -872,6 +872,9 @@ void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
     return;
   m_musicDisabledWanted = wanted;
   m_musicDisabledWanting = true;
+  // Published as pending, so its end is announced too (Codex review of
+  // #867).
+  m_musicPendingShown = true;
   emit preferencesChanged();
   writeMusicDisabled();
 }
@@ -902,6 +905,7 @@ void SettingsCatalog::writeMusicDisabled() {
     m_musicDisabledSent = m_musicDisabledWanted;
   } else {
     m_musicDisabledWanting = false;
+    m_musicPendingShown = false;
     m_errors.remove(key);
     emit preferencesChanged();
   }

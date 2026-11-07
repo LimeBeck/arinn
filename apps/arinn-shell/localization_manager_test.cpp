@@ -283,7 +283,7 @@ private slots:
 
   void unsafeActiveReplacementsKeepTheirLastGoodBytes_data() {
     QTest::addColumn<QString>("replacement");
-    for (const auto &kind : {"directory", "outside-link", "dangling-link", "unreadable"})
+    for (const auto &kind : {"directory", "outside-link", "other-root-link", "dangling-link", "unreadable"})
       QTest::newRow(kind) << QString::fromLatin1(kind);
   }
 
@@ -293,7 +293,9 @@ private slots:
     QVERIFY(root.isValid() && outside.isValid());
     const auto local = root.filePath("overrides/ru/shell/arinn.qm");
     QVERIFY(catalogue(local, QStringLiteral("Личный перевод")));
-    LocalizationManager manager({root.path()}, {}, QLocale(QStringLiteral("en_US")));
+    QStringList roots{root.path()};
+    if (replacement == QLatin1String("other-root-link")) roots.append(outside.path());
+    LocalizationManager manager(roots, {}, QLocale(QStringLiteral("en_US")));
     manager.setLanguage("ru");
     QCOMPARE(caption(), QStringLiteral("Личный перевод"));
     const auto before = manager.revision();
@@ -305,7 +307,7 @@ private slots:
       if (replacement == QLatin1String("directory")) QVERIFY(QDir().mkpath(local));
       else {
         const auto target = outside.filePath("arinn.qm");
-        if (replacement == QLatin1String("outside-link"))
+        if (replacement == QLatin1String("outside-link") || replacement == QLatin1String("other-root-link"))
           QVERIFY(catalogue(target, QStringLiteral("Внешний перевод")));
         QVERIFY(QFile::link(target, local));
         QVERIFY(QFileInfo(local).isSymLink());

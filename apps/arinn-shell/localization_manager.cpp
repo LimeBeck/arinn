@@ -84,15 +84,28 @@ void LocalizationManager::apply() {
     return m_language == m_appliedLanguage && std::any_of(
         m_translators.begin(), m_translators.end(), [&](const auto &entry) { return entry->path == path; });
   };
-  // Removal is intentional and enables fallback. An invalid replacement of
-  // an active catalogue keeps the last good in-memory version instead.
+  QStringList paths;
+  for (const auto &domain : {QStringLiteral("arinn"), QStringLiteral("music")}) {
+    for (auto language : languages) {
+      language.replace(QLatin1Char('_'), QLatin1Char('-'));
+      if (!LocalTranslations::validLocale(language)) continue;
+      paths.append(LocalTranslations::catalogPaths(m_roots, domain, language));
+      for (auto locale : LocalTranslations::locales(language)) {
+        locale.replace(QLatin1Char('-'), QLatin1Char('_'));
+        const auto resource = QStringLiteral(":/i18n/%1_%2.qm").arg(domain, locale);
+        if (QFileInfo::exists(resource)) paths.append(resource);
+      }
+    }
+  }
+  paths.removeDuplicates();
+  // Removal is intentional. A still-present active path omitted by the
+  // actual discovery rules is an invalid replacement, even when its target
+  // happens to be inside another configured translation root.
   for (const auto &entry : m_translators) {
     if (entry->path.startsWith(QLatin1String(":/")) || !wasActive(entry->path)) continue;
     const QFileInfo current(entry->path);
     if (!current.exists() && !current.isSymLink()) continue;
-    if (!std::any_of(m_roots.cbegin(), m_roots.cend(), [&](const auto &root) {
-          return LocalTranslations::safeFile(root, entry->path, LocalTranslations::maxCatalogBytes);
-        })) {
+    if (!paths.contains(entry->path)) {
       m_reloadFailed = true;
       emit changed();
       return;
@@ -105,40 +118,26 @@ void LocalizationManager::apply() {
     emit changed();
     return;
   }
-  for (const auto &domain : {QStringLiteral("arinn"), QStringLiteral("music")}) {
-    QStringList paths;
-    for (auto language : languages) {
-      language.replace(QLatin1Char('_'), QLatin1Char('-'));
-      if (!LocalTranslations::validLocale(language)) continue;
-      paths.append(LocalTranslations::catalogPaths(m_roots, domain, language));
-      for (auto locale : LocalTranslations::locales(language)) {
-        locale.replace(QLatin1Char('-'), QLatin1Char('_'));
-        const auto resource = QStringLiteral(":/i18n/%1_%2.qm").arg(domain, locale);
-        if (QFileInfo::exists(resource)) paths.append(resource);
-      }
-    }
-    paths.removeDuplicates();
-    for (const auto &path : paths) {
-      auto entry = std::make_unique<LoadedTranslation>();
-      entry->path = path;
-      QFile file(path);
-      if (file.open(QIODevice::ReadOnly))
-        entry->bytes = file.read(LocalTranslations::maxCatalogBytes + 1);
-      const bool resource = path.startsWith(QLatin1String(":/"));
-      entry->translator = std::make_unique<QTranslator>();
-      const bool valid = !entry->bytes.isEmpty() &&
-          entry->bytes.size() <= LocalTranslations::maxCatalogBytes &&
-          (resource || externalBytes + entry->bytes.size() <= 8 * LocalTranslations::maxCatalogBytes) &&
-          LocalTranslations::selfContainedQm(entry->bytes) &&
-          entry->translator->load(reinterpret_cast<const uchar *>(entry->bytes.constData()), entry->bytes.size());
-      if (valid) {
-        if (!resource) externalBytes += entry->bytes.size();
-        prepared.push_back(std::move(entry));
-      } else if (wasActive(path)) {
-        m_reloadFailed = true;
-        emit changed();
-        return;
-      }
+  for (const auto &path : paths) {
+    auto entry = std::make_unique<LoadedTranslation>();
+    entry->path = path;
+    QFile file(path);
+    if (file.open(QIODevice::ReadOnly))
+      entry->bytes = file.read(LocalTranslations::maxCatalogBytes + 1);
+    const bool resource = path.startsWith(QLatin1String(":/"));
+    entry->translator = std::make_unique<QTranslator>();
+    const bool valid = !entry->bytes.isEmpty() &&
+        entry->bytes.size() <= LocalTranslations::maxCatalogBytes &&
+        (resource || externalBytes + entry->bytes.size() <= 8 * LocalTranslations::maxCatalogBytes) &&
+        LocalTranslations::selfContainedQm(entry->bytes) &&
+        entry->translator->load(reinterpret_cast<const uchar *>(entry->bytes.constData()), entry->bytes.size());
+    if (valid) {
+      if (!resource) externalBytes += entry->bytes.size();
+      prepared.push_back(std::move(entry));
+    } else if (wasActive(path)) {
+      m_reloadFailed = true;
+      emit changed();
+      return;
     }
   }
   for (const auto &translator : m_translators)

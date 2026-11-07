@@ -198,7 +198,7 @@ jobs:
           test -s build/visual-ci/summary.md
       - name: Save visual fixture evidence
         if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.visual == 'true' }}
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: visual-fixture-renders
           path: build/visual-ci

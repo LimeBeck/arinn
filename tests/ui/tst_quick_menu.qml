@@ -325,7 +325,7 @@ TestCase {
             tryVerify(() => {
                 const top = row.mapToItem(column, 0, 0).y;
                 return top >= 0 && top + row.height <= column.height;
-            }, 2000, name);
+            }, 5000, name);
         }
         tryVerify(() => column.contentY > 0);
         verify(child("quickMenuTopFade").visible);

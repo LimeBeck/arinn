@@ -81,8 +81,10 @@ FocusScope {
         const start = Math.max(root.inset, Ui.Theme.edgeFadeEnd + focusBleed);
         if (left < start)
             list.contentX = Math.max(-list.leftMargin, item.x - start);
-        else if (left + item.width > list.width - Ui.Theme.safeRight)
-            list.contentX = item.x + item.width - list.width + Ui.Theme.safeRight;
+        // The right edge keeps the focus growth, mat and rim inside the safe
+        // area too (Codex review of #851).
+        else if (left + item.width + focusBleed > list.width - Ui.Theme.safeRight)
+            list.contentX = item.x + item.width + focusBleed - list.width + Ui.Theme.safeRight;
     }
     onShelfChanged: sync()
     onActiveFocusChanged: if (!activeFocus) Qt.callLater(sync)

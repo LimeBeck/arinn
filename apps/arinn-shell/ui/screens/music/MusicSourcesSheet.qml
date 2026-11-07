@@ -45,11 +45,24 @@ FocusScope {
         stopWatch.elapsed = 0;
         stopWatch.restart();
     }
-    function failStop() {
+    // The music has stopped: the choice is stored only if it still can be;
+    // otherwise the source stays on and its row says so (Codex review of
+    // #851).
+    function finishTurnOff() {
+        if (!switchable) {
+            failStop(qsTr("The music stopped, but the source could not be turned off now."));
+            return;
+        }
+        setEnabled(stopping, false);
+        stopping = "";
+    }
+    function failStop(text) {
         stopWatch.stop();
+        stopFailedText = text || qsTr("The music could not be stopped, so the source stays on.");
         stopFailed = stopping;
         stopping = "";
     }
+    property string stopFailedText: ""
     Timer {
         id: stopWatch
         interval: 100
@@ -90,8 +103,7 @@ FocusScope {
                     return;
                 }
                 stop();
-                root.setEnabled(root.stopping, false);
-                root.stopping = "";
+                root.finishTurnOff();
                 return;
             }
             // The catalogue ends a command only after reading the session
@@ -100,8 +112,7 @@ FocusScope {
             // review of #851).
             if (root.stopAction === "stop" ? !active : !sounding) {
                 stop();
-                root.setEnabled(root.stopping, false);
-                root.stopping = "";
+                root.finishTurnOff();
                 return;
             }
             // Not ended yet: decide only after two reads since the command
@@ -372,7 +383,7 @@ FocusScope {
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
                         text: sourceRow.modelData.id === root.stopFailed
-                            ? qsTr("The music could not be stopped, so the source stays on.")
+                            ? root.stopFailedText
                             : (sourceRow.modelData.error || "")
                     }
                     // A pending sign-in shows where to confirm and its code.

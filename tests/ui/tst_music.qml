@@ -1245,6 +1245,28 @@ TestCase {
         sheet.act(room.sources[0],"off");wait(300);
         compare(findChild(sheet,"musicTurnOffDialog").visible,false);compare(room.commands,[]);compare(catalog.commands,[]);
         room.sourcesSwitchable=true;tryVerify(()=>off().every(pill=>pill.enabled));
+        // Codex review of #851: the setting stops being writable while the
+        // stop is in flight: the source stays on, and its row says so.
+        catalog.busyOnTransport=true;sheet.stopThenTurnOff("local");tryCompare(catalog,"commands",["stop"]);
+        room.sourcesSwitchable=false;
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryCompare(sheet,"stopFailed","local");compare(room.commands,[]);
+        compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
+    }
+    // Codex review of #851: a card scrolled against the right edge keeps its
+    // focus growth, mat and rim inside the safe area.
+    function test_right_edge_keeps_the_focus_rim() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const many=[];for(let i=0;i<12;i++)many.push(room.card("local","album:"+i,"album","Album "+i));
+        room.shelves=[{id:"albums",title:"Albums",kind:"album",entries:many}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        for(let i=0;i<7;i++){keyClick(Qt.Key_Right);
+            const card=findChild(albums.focusedCard,"musicShelfCard");tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+            const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
+            tryVerify(()=>mat.mapToItem(view,mat.width,0).x+Ui.Theme.rimThickness<=1920-Ui.Theme.safeRight,
+                      2000,"card "+(i+1)+": "+mat.mapToItem(view,mat.width,0).x);}
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

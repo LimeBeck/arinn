@@ -17,6 +17,10 @@ FocusScope {
     property string playingSource: ""
     // The music catalogue, to stop that session.
     property var catalog: null
+    // Whether the active session is known: while it is not, any source may
+    // be the one that plays, so turning one off asks and stops first
+    // (Codex review of #851).
+    readonly property bool sessionKnown: !catalog || catalog.activeKnown !== false
     // The playing source being stopped before it turns off: it turns off
     // only once its session no longer plays (Codex review of #851). A
     // failed stop keeps it on and says so on its row.
@@ -58,7 +62,8 @@ FocusScope {
                 root.failStop();
                 return;
             }
-            if (music.transportBusy)
+            // Not known yet: wait for a read, within the deadline.
+            if (music.transportBusy || music.activeKnown === false)
                 return;
             const state = music.activeState || ({});
             const mine = music.activeSourceId === root.stopping;
@@ -202,7 +207,7 @@ FocusScope {
         if (action === "disconnect") {
             disconnecting = source.id;
             Qt.callLater(() => Ui.Focus.take(keepSource));
-        } else if (action === "off" && source.id === playingSource) {
+        } else if (action === "off" && (source.id === playingSource || !sessionKnown)) {
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
         } else if (action === "off" || action === "on") {

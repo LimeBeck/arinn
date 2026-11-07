@@ -801,7 +801,11 @@ void SettingsCatalog::readPreferences() {
   if (m_musicDisabledWanting) {
     const auto key = keyFor(QLatin1String(kDaemonProvider),
                             QLatin1String(kMusicDisabledSources));
-    if (m_musicDisabledWanted == m_musicDisabled) {
+    // Done only once no write is in flight and the stored list reflects the
+    // last write: a list reversed during a write would otherwise be dropped
+    // against the snapshot from before it (Codex review of #851).
+    if (m_musicDisabledWanted == m_musicDisabled && !m_pending.contains(key) &&
+        (!m_musicDisabledSent || *m_musicDisabledSent == m_musicDisabled)) {
       m_musicDisabledWanting = false;
     } else if (!m_pending.contains(key) && m_errors.contains(key)) {
       // A refused write: the stored list shows again.

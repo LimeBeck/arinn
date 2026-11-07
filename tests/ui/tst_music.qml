@@ -39,6 +39,7 @@ TestCase {
             property bool busyOnTransport: false
             // Session reads answered (#842); tests raise it with each read.
             property int activeReads: 0
+            property bool activeKnown: true
             function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);if(busyOnTransport)busy=true;}
         }
     }
@@ -1212,6 +1213,23 @@ TestCase {
         wait(5000);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
         catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
         tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
+    }
+    // Codex review of #851: while the active session is unknown, any source
+    // may be the one that plays: Turn off asks, and decides once a read has
+    // answered; a source that does not play then turns off without a stop.
+    function test_turning_off_waits_for_an_unknown_session() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeKnown=false;catalog.activeSourceId="";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);off()[0].activated();
+        tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);
+        keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        wait(500);compare(room.commands,[]);compare(catalog.commands,[]);
+        catalog.activeKnown=true;
+        tryVerify(()=>room.commands.length===1);compare(room.commands[0],"local:off");compare(catalog.commands,[]);
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

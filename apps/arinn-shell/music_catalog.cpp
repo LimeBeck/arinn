@@ -95,6 +95,11 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
     m_registryBusy = m_pageBusy = m_stateBusy = m_commandBusy = m_activeBusy =
         m_commandWaitingRefresh = false;
     m_uncertainStart = false;
+    // A new daemon: its session is not known until it answers (#842).
+    if (m_activeKnown) {
+      m_activeKnown = false;
+      emit activeReadsChanged();
+    }
     m_path.clear();
     m_generation.clear();
     m_sources.clear();
@@ -549,6 +554,11 @@ void MusicCatalog::readActive() {
             m_commandBusy = m_commandWaitingRefresh = false;
             emit statusChanged();
           }
+          // The session is not known now (#842, Codex review of #851).
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
           return;
         }
         if (m_commandWaitingRefresh) {
@@ -558,6 +568,7 @@ void MusicCatalog::readActive() {
         // One more session read answered (#842): counted before the state
         // it brings is published.
         ++m_activeReads;
+        m_activeKnown = true;
         if (reply.arguments().first().toString() == QStringLiteral("null")) {
           m_active.clear();
           m_activeId.clear();

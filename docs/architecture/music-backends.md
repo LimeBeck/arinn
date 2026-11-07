@@ -530,7 +530,10 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     has *Turn on* under the *Off* group. Both go through
     `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.
   - Turning off the source whose session plays or is paused asks first, with
-    Cancel focused. Then the sheet sends `stop`, which ends a playing or a
+    Cancel focused. While the active session is unknown
+    (`MusicCatalog.activeKnown`: no read has answered yet, or the last one
+    failed), any source may be that one, so turning one off asks too and
+    decides once a read answers. Then the sheet sends `stop`, which ends a playing or a
     paused session. Without `stop`, it sends `pause` to a playing session; a
     paused one is silent already.
   - The source turns off only once its session has ended (after `stop`) or

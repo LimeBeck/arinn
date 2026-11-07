@@ -46,7 +46,9 @@ characters; a hand-edited invalid list reads as none.
   the stored list again.
 - `setMusicSourceEnabled` writes it one write at a time; a change made while
   a write is in flight is written after it, and a refused write shows the
-  stored list again.
+  stored list again. A change is done only once no write is in flight and
+  the stored list shows the last write, so a toggle reversed during a write
+  is written after it.
 
 The same source lists `browser_application` and, when search engines are
 packaged, `search_engine` under Applications. The daemon checks its own schema

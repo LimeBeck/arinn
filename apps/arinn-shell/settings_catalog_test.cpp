@@ -781,6 +781,33 @@ private slots:
     QCOMPARE(daemon.sets.at(2).value, QStringLiteral("\"\""));
     QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
   }
+  // Codex review of #851: a toggle reversed while its write is in flight is
+  // written once the stored list shows the first write, not dropped against
+  // the list from before it.
+  void aReversedToggleIsWrittenAfterTheFirst() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"\""),
+                 QStringLiteral("{\"max_length\":4096}"), true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), true);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"\""));
+    QTRY_VERIFY(catalog.musicDisabledSources().isEmpty());
+    QTest::qWait(500);
+    QCOMPARE(daemon.sets.size(), 2);
+    QVERIFY(catalog.musicDisabledSources().isEmpty());
+  }
   // Codex review of #851: a daemon that changes owner during a write: the
   // change stays shown and is written to the new daemon once it has loaded.
   void musicSourcesAreWrittenAgainAfterADaemonRestart() {

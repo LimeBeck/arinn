@@ -949,6 +949,7 @@ private slots:
     // Codex review of #851: only answered session reads move activeReads,
     // not a change of the turned-off sources.
     QTRY_VERIFY(catalog.activeReads() > 0);
+    QVERIFY(catalog.activeKnown());
     const int reads = catalog.activeReads();
     QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
     catalog.setDisabledSources({"local"});

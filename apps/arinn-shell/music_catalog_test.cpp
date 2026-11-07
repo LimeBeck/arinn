@@ -1298,6 +1298,41 @@ private slots:
     QVERIFY(catalog.artworkUrl("away", "cover:wave").isEmpty());
     QVERIFY(catalog.artworkUrl("local", QString()).isEmpty());
   }
+  // Codex review of #836: a mirror that transport refuses, because the
+  // active provider restarted before the sources caught up, is kept and
+  // sent once they do.
+  void aRefusedPinMirrorWaitsForTheSources() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    QJsonObject current{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
+                        {"continuous", true}, {"pinned", false},
+                        {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
+                                                {"title", "Wave"}}},
+                        {"actions", QJsonArray{"pause", "pin"}}};
+    auto active = [&](const QString &generation) {
+      return QString::fromUtf8(
+          QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", generation},
+                                    {"state", current}})
+              .toJson(QJsonDocument::Compact));
+    };
+    daemon.active = active("g1");
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    QTRY_VERIFY(!catalog.sources().isEmpty());
+    // The provider restarted: the session already reports g2, the sources
+    // still g1.
+    daemon.active = active("g2");
+    catalog.refresh();
+    QTest::qWait(300);
+    const auto before = daemon.commands.size();
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTest::qWait(200);
+    QCOMPARE(daemon.commands.size(), before);
+    daemon.providers[0].generation = QStringLiteral("g2");
+    catalog.refresh();
+    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
+  }
   // #804: Arinn's pin is mirrored to the provider's `pin` only for the
   // station that plays, and only when the provider's state differs.
   void aPinIsMirroredToTheProviderForThePlayingStation() {

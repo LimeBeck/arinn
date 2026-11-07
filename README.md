@@ -23,8 +23,8 @@
 > [!WARNING]
 > **Arinn is pre-alpha.** Current source builds connect apps, websites, local media, music, playback, downloads and settings. Hardware and service compatibility still need qualification. Published packages can lag behind `master`. See the [roadmap](ROADMAP.md).
 
-KDE Plasma 6/Wayland and XFCE/X11 are MVP targets; real desktop/TV qualification
-is still pending. The [X11/EWMH guide](docs/architecture/x11-ewmh.md) covers XFCE
+KDE Plasma 6/Wayland and XFCE/X11 are MVP targets. Current-TV acceptance is
+recorded below; additional-platform and hardware qualification is still pending. The [X11/EWMH guide](docs/architecture/x11-ewmh.md) covers XFCE
 and experimental setups with other window managers. An optional KDE Plasma 6/X11
 mode has separate [setup and qualification limits](docs/architecture/kde-x11.md).
 

@@ -45,6 +45,10 @@ FocusScope {
         const track = player.current && player.current.track ? player.current.track.id : "";
         return activeSource + "\n" + (station || track || "");
     }
+    // The cover of the track that plays, for a playing station without its
+    // own (#843).
+    readonly property string playingImage: player.current && player.current.track
+        ? (player.current.track.image || "") : ""
     signal entryActivated(var entry)
     signal allRequested(string shelfId)
     signal findRequested()
@@ -98,10 +102,13 @@ FocusScope {
         }
         return Ui.Focus.take(sourcesButton);
     }
+    // The band at the top of the shelves where rows scrolling up fade out
+    // (#838, as Home's header band): a revealed shelf starts below it.
+    readonly property real topFade: 60
     function revealShelf(shelf) {
         const top = shelf.y;
-        if (top < shelfArea.contentY)
-            shelfArea.contentY = top;
+        if (top - (top > 0 ? topFade : 0) < shelfArea.contentY)
+            shelfArea.contentY = Math.max(0, top - topFade);
         else if (top + shelf.height > shelfArea.contentY + shelfArea.height)
             shelfArea.contentY = Math.max(0, top + shelf.height - shelfArea.height);
     }
@@ -124,7 +131,11 @@ FocusScope {
         veilEnabled: false
         strength: 0.6
         lit: !!root.focusedEntry && !root.sheetOpen
-        source: root.focusedEntry ? (root.focusedEntry.image || "") : ""
+        // The artwork the card shows: a playing station without its own
+        // cover shows the playing track's (#843, Codex review of #848).
+        source: root.focusedEntry ? (root.focusedEntry.image
+            || (root.focusedEntry.kind === "station" && root.focusedEntry.key === root.playingKey
+                ? root.playingImage : "")) : ""
         anchor: root.focusedShelf ? root.focusedShelf.focusedCard : null
     }
     // The top bar as on Home: the lockup; the status area is the shell's.
@@ -272,9 +283,12 @@ FocusScope {
     Flickable {
         id: shelfArea
         objectName: "musicShelves"
-        x: Ui.Theme.safeLeft
+        // Full width: a shelf insets its own content by the safe area, so a
+        // focused first card grows past it unclipped, and cards scrolled
+        // left fade out at the screen edge (#838).
+        x: 0
         y: 420
-        width: parent.width - Ui.Theme.safeLeft
+        width: parent.width
         height: parent.height - y
         contentHeight: shelfColumn.height + 120
         interactive: false
@@ -297,6 +311,7 @@ FocusScope {
                     room: root.room
                     shelf: root.shelves.find(item => item.id === shelfKey) || ({})
                     playingKey: root.playingKey
+                    playingImage: root.playingImage
                     rowBrightness: activeFocus ? 0.82 : 0.62
                     onActiveFocusChanged: if (activeFocus) {
                         root.focusedShelf = shelfItem;
@@ -364,6 +379,21 @@ FocusScope {
     onFirstUseChanged: Qt.callLater(settleFocus)
     onShelvesChanged: syncShelves()
     Component.onCompleted: syncShelves()
+    // Rows scrolling up fade out under the hero instead of a hard cut at
+    // the shelves' top (#838, as Home's header band).
+    Rectangle {
+        objectName: "musicShelvesTopFade"
+        x: 0
+        y: shelfArea.y
+        z: 1
+        width: parent.width
+        height: root.topFade
+        visible: shelfArea.visible && shelfArea.contentY > 0
+        gradient: Gradient {
+            GradientStop { position: 0; color: Ui.Theme.background }
+            GradientStop { position: 1; color: Qt.rgba(Ui.Theme.background.r, Ui.Theme.background.g, Ui.Theme.background.b, 0) }
+        }
+    }
     MusicSourcesSheet {
         id: sourcesSheet
         objectName: "musicSourcesOverlay"

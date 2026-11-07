@@ -2084,6 +2084,7 @@ FocusScope {
         focus: visible
         room: root.room
         playingKey: roomView.playingKey
+        playingImage: roomView.playingImage
         onEntryActivated: entry => root.openFromRoom(entry, true)
     }
     // Find over every source (#801, MH-10).
@@ -2096,6 +2097,7 @@ FocusScope {
         visible: root.mode === "search" && !!root.room
         room: root.room
         playingKey: roomView.playingKey
+        playingImage: roomView.playingImage
         onUpRequested: Ui.Focus.take(search)
         onEntryActivated: entry => root.openFromRoom(entry, false, true)
     }

@@ -453,6 +453,12 @@ private slots:
     daemon->resolveDelayMs = 20;
     QObject presentation;
     auto *client = ProviderTextClient::instance();
+    daemon->providers.clear();
+    for (int i = 0; i < 65; ++i) {
+      ProviderWire provider;
+      provider.id = QStringLiteral("provider-%1").arg(i);
+      daemon->providers.append(provider);
+    }
     const auto publish = [&] {
       for (int i = 0; i < 65; ++i)
         client->translate(QStringLiteral("provider-%1").arg(i), generation1, "download.job", "content", 3, "error_message", "Content failure");
@@ -527,6 +533,12 @@ private slots:
     output.close();
     daemon->texts = true;
     daemon->translations.insert("de", german);
+    daemon->providers.clear();
+    for (int i = 0; i < 35; ++i) {
+      ProviderWire provider;
+      provider.id = i == 0 ? QStringLiteral("aaa") : QStringLiteral("provider-%1").arg(i, 2, 10, QLatin1Char('0'));
+      daemon->providers.append(provider);
+    }
     translationLocale("de");
     QObject presentation;
     auto *client = ProviderTextClient::instance();
@@ -546,6 +558,24 @@ private slots:
     QTRY_COMPARE(labels.value("aaa"), QStringLiteral("Личный Music"));
     QCOMPARE(daemon->resolves, resolves);
     QCOMPARE(labels.value("provider-01"), QStringLiteral("Личный Music"));
+  }
+
+  void staleConsumerCannotEvictTheCurrentGenerationWhileMetadataIsPending() {
+    daemon->texts = true;
+    daemon->resolveDelayMs = 80;
+    daemon->pageGeneration = generation2;
+    daemon->providers[0].generation = generation2;
+    QObject presentation;
+    auto *client = ProviderTextClient::instance();
+    const auto publish = [&] {
+      client->translate("dl", generation2, "download.job", "content", 3, "error_message", "Content failure");
+      client->translate("dl", generation1, "download.job", "content", 3, "error_message", "Content failure");
+    };
+    client->observe(&presentation, publish);
+    QTRY_VERIFY(([&] { publish(); return daemon->resolves == 1; })());
+    for (int i = 0; i < 8; ++i) { publish(); QTest::qWait(20); }
+    QCOMPARE(daemon->catalogReads, 1);
+    QCOMPARE(daemon->resolves, 1);
   }
   void cleanup() {
     QDBusConnection::sessionBus().unregisterObject(

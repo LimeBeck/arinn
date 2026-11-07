@@ -11,6 +11,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusServiceWatcher>
 #include <QPointer>
+#include <QScopeGuard>
 #include <QTimer>
 #include <functional>
 
@@ -56,6 +57,9 @@ class ProviderTextClient final : public QObject {
   int m_pending = 0;
   bool m_flushScheduled = false, m_notifyScheduled = false;
   bool m_registryPending = false, m_registryDirty = false;
+  bool m_registryKnown = false;
+  qint64 m_registryRetryAt = 0;
+  QMap<QString, QPair<QString, QString>> m_identities;
   static constexpr auto service = "org.arinn.Daemon1";
   static constexpr auto path = "/org/arinn/Daemon1";
   static constexpr auto interface = "org.arinn.Texts1";
@@ -67,7 +71,8 @@ class ProviderTextClient final : public QObject {
     return LocalTranslations::validLocale(raw) ? raw : LocalTranslations::currentLocaleTag();
   }
   bool current(const std::shared_ptr<Provider> &p, quint64 epoch) const {
-    return epoch == m_epoch && !m_owner.isEmpty() && m_providers.value({p->id, p->generation}) == p;
+    return epoch == m_epoch && !m_owner.isEmpty() && m_providers.value({p->id, p->generation}) == p &&
+           (!m_registryKnown || m_identities.value(p->id).first == p->generation);
   }
   void notify() {
     if (m_notifyScheduled) return;
@@ -90,9 +95,13 @@ class ProviderTextClient final : public QObject {
     ++m_epoch;
     m_owner = owner;
     m_providers.clear();
-    m_registryPending = m_registryDirty = false;
+    m_registryPending = m_registryKnown = false;
+    m_registryDirty = true;
+    m_registryRetryAt = 0;
+    m_identities.clear();
     // Old calls still consume their slot until their bounded reply arrives.
     notify();
+    schedule();
   }
   void call(const char *method, const QVariantList &arguments,
             std::function<void(const QDBusMessage &)> finished, const char *api = interface) {
@@ -121,6 +130,14 @@ class ProviderTextClient final : public QObject {
     call("Providers", {token}, [this, registry, epoch](const QDBusMessage &reply) {
       if (epoch != m_epoch) return;
       m_registryPending = false;
+      bool successful = false;
+      const auto retry = qScopeGuard([&] {
+        if (!successful) {
+          m_registryDirty = true;
+          m_registryRetryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+          QTimer::singleShot(3000, this, [this] { schedule(); });
+        }
+      });
       if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != QLatin1String("(sa(sssssoasssststttt)s)") || reply.arguments().size() != 1) return;
       const auto arg = qvariant_cast<QDBusArgument>(reply.arguments().first());
       QString snapshot, next;
@@ -147,10 +164,14 @@ class ProviderTextClient final : public QObject {
       if (!next.isEmpty()) {
         if (next.toUtf8().size() > 4096 || registry->tokens.contains(next)) return;
         registry->tokens.insert(next);
+        successful = true;
         readRegistry(registry, next);
         return;
       }
-      bool changed = false;
+      bool changed = !m_registryKnown || m_identities != registry->identities;
+      m_identities = registry->identities;
+      m_registryKnown = true;
+      m_registryRetryAt = 0;
       for (auto it = m_providers.begin(); it != m_providers.end();) {
         const auto identity = registry->identities.constFind(it.key().first);
         if (identity == registry->identities.end() || identity->first != it.key().second ||
@@ -159,6 +180,7 @@ class ProviderTextClient final : public QObject {
           changed = true;
         } else ++it;
       }
+      successful = true;
       if (changed) notify();
     }, service);
   }
@@ -320,10 +342,11 @@ class ProviderTextClient final : public QObject {
   }
   void flush() {
     if (m_owner.isEmpty()) return;
-    if (m_registryDirty && !m_registryPending && m_pending < 4) {
+    if (m_registryDirty && !m_registryPending && m_pending < 4 && m_registryRetryAt <= QDateTime::currentMSecsSinceEpoch()) {
       m_registryDirty = false;
       readRegistry(std::make_shared<Registry>());
     }
+    if (!m_registryKnown) return;
     const auto providers = m_providers;
     for (const auto &p : providers) {
       if (m_pending >= 4) return;
@@ -389,11 +412,10 @@ public:
                     std::optional<QString> displayFallback = {}) {
     const auto plain = displayFallback.value_or(fallback);
     if (m_owner.isEmpty() || generation.isEmpty() || !ProviderMessages::text(fallback)) return plain;
+    if (m_registryKnown && m_identities.value(provider).first != generation) return plain;
     const Key identity{provider, generation};
     auto p = m_providers.value(identity);
     if (!p) {
-      for (auto it = m_providers.begin(); it != m_providers.end();)
-        it = it.key().first == provider ? m_providers.erase(it) : std::next(it);
       if (m_providers.size() >= 64) return plain;
       p = std::make_shared<Provider>();
       p->id = provider;

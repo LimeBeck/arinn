@@ -13,6 +13,7 @@ use std::{
 const MAX_ENTRIES: usize = 512;
 const MAX_CHOICES: usize = 64;
 const MAX_QM_BYTES: u64 = 1024 * 1024;
+const MAX_PROVIDER_CHECKS: usize = 8192;
 
 pub fn valid_language(value: &str) -> bool {
     if value == "system" {
@@ -111,10 +112,57 @@ fn native_name(root: &Path, locale: &str) -> Option<String> {
     (!name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control))
         .then(|| name.into())
 }
+fn provider_directories(root: &Path, directory: &Path) -> Vec<PathBuf> {
+    let contained = |path: &Path| match (root.canonicalize(), path.canonicalize()) {
+        (Ok(root), Ok(path)) => path.starts_with(root) && path.is_dir(),
+        _ => false,
+    };
+    if !contained(directory) {
+        return vec![];
+    }
+    let mut result: Vec<_> = entries(directory)
+        .into_iter()
+        .filter(|path| contained(path))
+        .collect();
+    let hashed = directory.join("by-id");
+    if contained(&hashed) {
+        result.extend(entries(&hashed).into_iter().filter(|path| {
+            contained(path)
+                && path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.len() == 64
+                            && name
+                                .bytes()
+                                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                    })
+        }));
+    }
+    result
+}
+fn provider_override(root: &Path, directory: &Path, remaining: &mut usize) -> bool {
+    if *remaining == 0 {
+        return false;
+    }
+    for provider in provider_directories(root, directory) {
+        for (name, maximum) in [("settings.json", 256 * 1024), ("messages.qm", 240 * 1024)] {
+            if *remaining == 0 {
+                return false;
+            }
+            *remaining -= 1;
+            if safe_file(root, &provider.join(name), maximum) {
+                return true;
+            }
+        }
+    }
+    false
+}
 
 /// The saved, well-formed choice survives package removal. This makes it a
 /// valid enum value without overwriting the user's desired preference.
 pub fn languages(directories: &[PathBuf], saved: &str) -> Vec<(String, String)> {
+    let mut remaining_provider_checks = MAX_PROVIDER_CHECKS;
     let mut found = BTreeMap::from([
         ("en".to_string(), "English".to_string()),
         ("ru".to_string(), "Русский".to_string()),
@@ -149,15 +197,48 @@ pub fn languages(directories: &[PathBuf], saved: &str) -> Vec<(String, String)> 
             let shell = ["arinn.qm", "music.qm"]
                 .iter()
                 .any(|name| safe_file(root, &path.join("shell").join(name), MAX_QM_BYTES));
-            let providers = path.join("providers");
-            let provider = entries(&providers)
-                .iter()
-                .chain(entries(&providers.join("by-id")).iter())
-                .any(|p| safe_file(root, &p.join("settings.json"), 256 * 1024));
-            if shell || provider {
+            let provider = provider_override(
+                root,
+                &path.join("providers"),
+                &mut remaining_provider_checks,
+            );
+            if shell || provider || native_name(root, locale).is_some() {
                 found
                     .entry(locale.into())
                     .or_insert_with(|| native_name(root, locale).unwrap_or_else(|| locale.into()));
+            }
+        }
+        for provider in provider_directories(root, &root.join("providers")) {
+            if remaining_provider_checks == 0 {
+                break;
+            }
+            for path in entries(&provider) {
+                if remaining_provider_checks == 0 {
+                    break;
+                }
+                remaining_provider_checks -= 1;
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                let candidate = name
+                    .strip_prefix("messages_")
+                    .and_then(|s| s.strip_suffix(".qm"))
+                    .map(|s| (s, 240 * 1024))
+                    .or_else(|| {
+                        name.strip_prefix("settings_")
+                            .and_then(|s| s.strip_suffix(".json"))
+                            .map(|s| (s, 256 * 1024))
+                    });
+                let Some((locale, maximum)) = candidate else {
+                    continue;
+                };
+                let locale = locale.replace('_', "-");
+                if locale != "system" && valid_language(&locale) && safe_file(root, &path, maximum)
+                {
+                    found
+                        .entry(locale.clone())
+                        .or_insert_with(|| native_name(root, &locale).unwrap_or(locale));
+                }
             }
         }
     }
@@ -290,6 +371,48 @@ mod tests {
         for expected in ["system", "en", "ru", "zz"] {
             assert!(choices.iter().any(|(code, _)| code == expected));
         }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn provider_only_personal_and_community_languages_are_discovered() {
+        let root =
+            std::env::temp_dir().join(format!("arinn-provider-languages-{}", uuid::Uuid::new_v4()));
+        for path in [
+            "overrides/es/providers/radio/messages.qm".to_string(),
+            format!(
+                "overrides/pt-BR/providers/by-id/{}/messages.qm",
+                "a".repeat(64)
+            ),
+            "providers/radio/messages_fr_CA.qm".to_string(),
+            format!("providers/by-id/{}/settings_qaa.json", "b".repeat(64)),
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, b"bounded opaque resource").unwrap();
+        }
+        fs::create_dir_all(root.join("overrides/de")).unwrap();
+        fs::write(
+            root.join("overrides/de/language.json"),
+            br#"{"formatVersion":1,"locale":"de","nativeName":"Deutsch"}"#,
+        )
+        .unwrap();
+        let choices = languages(std::slice::from_ref(&root), "system");
+        for locale in ["es", "pt-BR", "fr-CA", "qaa"] {
+            assert!(choices.iter().any(|(code, _)| code == locale), "{locale}");
+        }
+        assert!(choices.contains(&("de".into(), "Deutsch".into())));
+        fs::write(
+            root.join("providers/radio/messages_tr.qm"),
+            vec![0; 240 * 1024 + 1],
+        )
+        .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(std::env::temp_dir(), root.join("providers/outside")).unwrap();
+        assert!(
+            !languages(std::slice::from_ref(&root), "system")
+                .iter()
+                .any(|(code, _)| code == "tr")
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

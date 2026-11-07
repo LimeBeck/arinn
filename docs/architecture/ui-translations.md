@@ -226,8 +226,10 @@ These settings JSON files use the same source-checked envelope. Personal
 community files in the same root. A missing string can still come from the
 community file or provider package. Copy a partial TS/JSON/QM set by any ordinary
 channel, retain editable sources, and use Reload translations after updating it.
-For a provider-only new language, include `overrides/<locale>/language.json` so
-the language picker can discover it. No provider executable, manifest change,
+A provider-only language is discovered from either resource layout, including
+hashed plugin directories; optional `overrides/<locale>/language.json` supplies
+its native name and can also announce a language before its resources arrive.
+No provider executable, manifest change,
 central registry or application rebuild is involved in installing a translation.
 
 The client pins daemon owner, provider generation and original scope/id/revision/

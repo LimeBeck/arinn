@@ -1,0 +1,1 @@
+- After a rescan or a pin change, the Yandex Music station listing loads again at once instead of waiting for an earlier refresh to finish ([#855](https://github.com/LimeBeck/arinn/issues/855)).

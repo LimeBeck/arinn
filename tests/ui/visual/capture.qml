@@ -720,15 +720,16 @@ TestCase {
             return settingsScene(null, view => settingsRow(view, "arinn-ambient_timeout"), {
                 rows: [
                     {id: "light_field", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Light field",
-                     description: "A warm floor and a pool of light under the focused item. Off removes the floor and the pool.",
+                     description: "A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off",
                      type: "boolean", currentValue: true, constraints: {}, enabled: true},
                     {id: "light_follows_time", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Light follows the time of day",
-                     description: "Dim and warm the light in the evening and at night.",
+                     description: "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look",
                      type: "boolean", currentValue: true, constraints: {}, enabled: true},
                     {id: "ambient_timeout", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Ambient after",
+                     description: "Idle time on an Arinn screen before the ambient screen appears",
                      type: "enum", currentValue: "10", constraints: {options: [
-                         {value: "5", title: "5 minutes"}, {value: "10", title: "10 minutes"},
-                         {value: "15", title: "15 minutes"}, {value: "30", title: "30 minutes"}, {value: "60", title: "60 minutes"}
+                         {value: "5", title: "5 min"}, {value: "10", title: "10 min"},
+                         {value: "15", title: "15 min"}, {value: "30", title: "30 min"}, {value: "60", title: "60 min"}
                      ]}, enabled: true}
                 ]
             });

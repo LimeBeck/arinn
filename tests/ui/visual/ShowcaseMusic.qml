@@ -23,8 +23,8 @@ Item {
         property var activeState: ({session: "fixture-session", playback: "playing", continuous: true,
             station: {id: "station:library", kind: "station", title: "From this library", pinnable: true},
             current: {occurrence: "1", track: {id: "track:low-tide", kind: "track", title: "Low tide",
-                artist: "Mira Vale", album: "Small hours", image: root.artwork, duration_us: 245000000, liked: true}},
-            position_us: 82000000, actions: ["pause", "previous", "next", "seek", "stop", "like"], upcoming: []})
+                artist: "Mira Vale", album: "Small hours", image: root.artwork, duration_us: 245000000}},
+            position_us: 82000000, actions: ["pause", "previous", "next", "seek", "stop"], upcoming: []})
         property string activeSourceName: "Local music"
         property string activeSourceId: "music-local"
         property string errorText: ""

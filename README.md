@@ -40,7 +40,7 @@ Current source builds include:
 - **Local library and playback.** Scan local or already mounted folders, browse films and series, and play with mpv. The playback overlay offers seeking, audio/subtitle selection and transport controls when the provider supports them.
 - **Music.** Browse a shared music room, source shelves and search, then open Now playing. Local music and Yandex Music providers are implemented; account, stream and audio-device compatibility still need qualification. Other planned music services are not implemented. See the [music setup and limits](docs/architecture/music-backends.md).
 - **Downloads.** View a connected Transmission queue, control jobs and open imported media in the library. Transmission must be installed and configured separately.
-- **Settings.** Edit provider settings and library folder lists. The graphical folder picker offers places and subfolders, with typed paths and the on-screen keyboard when needed. Appearance controls include the Hearth light field, time-of-day lighting and ambient timeout.
+- **Settings.** Edit provider settings and library folder lists. The graphical folder picker offers places and subfolders. Text and supported single-path settings have on-screen keyboard editors. Appearance controls include the Hearth light field, time-of-day lighting and ambient timeout.
 - **Controls over an app.** Global Home, the quick menu and the on-screen keyboard are available through configurable shortcuts. Power actions depend on the desktop/session and the capabilities it reports.
 
 Arinn uses one shared household space, with no Arinn accounts or profiles. Keyboard-compatible remotes, a keyboard and an air mouse can navigate the shell; controls inside external applications remain those applications' responsibility.
@@ -76,7 +76,7 @@ Appearance settings for the light field, time-of-day lighting and ambient timeou
 <details>
 <summary>Library folders</summary>
 
-The graphical folder picker, with fictional places and subfolders, a path field and an action to select the current folder.
+The graphical folder picker, with fictional places and subfolders, the current path and an action to select the current folder.
 
 ![Arinn graphical folder picker with fictional places and subfolders](docs/design/showcase/library-folders.png)
 

@@ -15,7 +15,8 @@ roadmap gates, issue reproductions or newer agent claims.
 - GitHub repository metadata reports public visibility. Recent snapshot assets omit `.deb`; the tagged `v0.2.0` release contains it.
 - During the audit, #862 merged as `602a1fe` and was integrated into the documentation branch. New PRs #867 (source-off follow-up) and #868 (daemon text routing, #859) opened. The rows retain the initial snapshot for reproducibility.
 - Active PRs and comments are time-sensitive: the references below describe the snapshot, not a perpetual status feed.
-- No real desktop, TV, remote, account or listening test was run. No phase/gate was marked passed, owner decision inferred, release published or active development claim taken over.
+- Owner evidence added during the audit: on 2026-11-07 the owner confirmed successful music listening on the TV. The source/account/build was not stated; preserve the successful use without extending it to all providers or edge cases. Music parent issues #677/#707 and interface-sound task #727 record this distinction.
+- No agent-run real desktop, TV, remote, account or listening test was run. No phase/gate was marked passed, owner decision inferred, release published or active development claim taken over.
 
 Two completed implementation increments are closed (#719 contract/SDK, #723 light).
 The 23 other stale issue bodies get a dated status section; the original request
@@ -84,6 +85,34 @@ Owner decisions and real-device qualification remain open even when code is merg
 | [#857](https://github.com/LimeBeck/arinn/issues/857) | retain open | Open implementation follow-up. No merged fix or acceptance evidence was found in the audited default branch; preserve the original reproduction and scope. |
 | [#858](https://github.com/LimeBeck/arinn/issues/858) | retain open | Open implementation follow-up. No merged fix or acceptance evidence was found in the audited default branch; preserve the original reproduction and scope. |
 | [#859](https://github.com/LimeBeck/arinn/issues/859) | retain open | Daemon Texts1 routing is claimed on `codex/859-texts-routing`. Contract #853 is merged; daemon integration is still pending. Preserve the active claim. |
+
+## Owner checks still recorded as pending
+
+Successful music listening on the TV is already confirmed; do not request that
+basic check again. These are the narrower remaining checks, consolidated from
+the issues and roadmap. A passing code test is separate from these observations.
+
+| Check | Remaining observation | Tracker |
+| --- | --- | --- |
+| TV design and remote navigation | Read titles/actions/focus at 3 m; revisit the corrected screens against the current brief | #756, AC-02/AC-14, G-5.1 |
+| Music card refresh | Home updates from track A to B after natural advance and explicit Next; preserve focus | #834 |
+| Interface sounds | Quiet/Normal levels, system mute and normal feedback suppressed over music/video; late-audio restart status | #727 |
+| Power and recovery | Suspend/wake, lock-screen safety, Ambient and provider reconnect; one physical power-key press produces one action | #148, #519 |
+| Dedicated-session round trip | Log in to Arinn → Switch to desktop → Return to Arinn, including confirmation/cancellation | #438, G-5.8 |
+| Quick menu and text input | Menu/Back over real apps/video; OSK with the remote in every text flow and global keyboard input in managed Chrome | #507, G-5.6/G-5.7/G-5.9 |
+| Managed video | Play/pause/seek, audio/subtitles, resume and Home/Return on the TV | AC-16, G-4.1 |
+| Downloads controls | Pause/resume/start now/retry and error/service-unavailable states; queue visibility and Watch already have owner evidence | AC-17 |
+| Device measurements | Quantitative Activity background lifecycle/performance report; retain the earlier qualitative item-7 pass | #149, G-5.2/G-5.4 |
+| Additional platform matrix | XFCE/X11 acceptance; special power cases such as another graphical session and late power-manager startup | #186, #519, G-5.5 |
+| Native diagnostics qualification | Matching a real allowlisted event to the exact installed package's uploaded symbols, with existing consent boundaries | #370 |
+
+The music-key fix #831 / PR #864 still needs to land before asking for its
+post-fix TV check. A live Yandex-specific flow is not inferred from unspecified
+music playback. Do not request the package installation/upgrade/uninstall checks
+again: the owner explicitly accepted/deferred that checklist item in #74.
+Debian snapshot installation awaits the missing asset under #692. Future
+Android/post-MVP work and unresolved product decisions are not ready-to-run TV
+checks. No operator action is authorized by this list itself.
 
 ## Follow-up use
 

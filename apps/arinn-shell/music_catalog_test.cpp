@@ -19,16 +19,18 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QtDBus>
+#include <QTranslator>
 #include <QtTest>
 namespace {
 struct ProviderRow {
   QString id;
   QString name;
   QString generation;
+  QString plugin = QStringLiteral("plugin");
 };
 QDBusArgument &operator<<(QDBusArgument &argument, const ProviderRow &row) {
   argument.beginStructure();
-  argument << row.id << QStringLiteral("plugin") << QStringLiteral("system")
+  argument << row.id << row.plugin << QStringLiteral("system")
            << row.name << QStringLiteral("1")
            << QDBusObjectPath(QStringLiteral("/org/arinn/Daemon1/providers/p_") + row.id)
            << QStringList{QStringLiteral("music")} << QStringLiteral("ready")
@@ -255,6 +257,55 @@ private slots:
              (QStringList{"a1", "a2", "b1", "b2"}));
     QCOMPARE(keys(MusicRoom::stable(list({"a1", "b1", "a2"}), list({"a1", "a2"}))),
              (QStringList{"a1", "a2"}));
+  }
+  // #838: a source this repository ships is named in the shell's language
+  // (spec §5.6), matched by plugin id and name; a third-party source with
+  // the same name keeps it. A station no source can supply is absent from
+  // the Stations shelf, not an unavailable card.
+  void shippedSourcesAreNamedAndUnavailableStationsAbsent() {
+    struct Names : QTranslator {
+      bool isEmpty() const override { return false; }
+      QString translate(const char *context, const char *source, const char *,
+                        int) const override {
+        if (qstrcmp(context, "MusicCatalog") == 0 && qstrcmp(source, "Yandex Music") == 0)
+          return QStringLiteral("Яндекс Музыка");
+        return {};
+      }
+    } names;
+    QVERIFY(QCoreApplication::installTranslator(&names));
+    const auto remove = qScopeGuard([&] { QCoreApplication::removeTranslator(&names); });
+    daemon.providers = {{"yandex", "Yandex Music", "g1", "yandex-music"},
+                        {"other", "Yandex Music", "g1", "third-party"}};
+    daemon.states["yandex"] = state({"selections"}, "connected");
+    daemon.states["other"] = state({"selections"}, "connected");
+    auto station = [](const char *id, const char *title, bool available) {
+      return QJsonObject{{"id", id}, {"kind", "station"}, {"title", title}, {"available", available}};
+    };
+    daemon.pages["yandex/selections"] = QJsonArray{station("station:wave", "Wave", true),
+                                                    station("station:gone", "Gone", false)};
+    daemon.pages["other/selections"] = QJsonArray{station("station:mix", "Mix", true)};
+    MusicCatalog catalog;
+    MusicRoom room;
+    room.setCatalog(&catalog);
+    QTRY_COMPARE(catalog.sources().size(), 2);
+    QCOMPARE(catalog.sources().at(0).toMap().value("name").toString(), QStringLiteral("Яндекс Музыка"));
+    QCOMPARE(catalog.sources().at(1).toMap().value("name").toString(), QStringLiteral("Yandex Music"));
+    QTRY_VERIFY(!room.shelves().isEmpty());
+    QTRY_VERIFY(!room.loading());
+    QStringList stations;
+    for (const auto &value : room.shelves()) {
+      const auto shelf = value.toMap();
+      if (shelf.value("id") == "stations")
+        for (const auto &entry : shelf.value("entries").toList())
+          stations << entry.toMap().value("key").toString().replace(QLatin1Char('\n'), QLatin1Char(' '));
+    }
+    stations.sort();
+    QCOMPARE(stations, (QStringList{"other station:mix", "yandex station:wave"}));
+    QCOMPARE(room.list("stations", "yandex").size(), 1);
+    for (const auto &value : room.shelves())
+      for (const auto &entry : value.toMap().value("entries").toList())
+        if (entry.toMap().value("provider") == "yandex")
+          QCOMPARE(entry.toMap().value("providerName").toString(), QStringLiteral("Яндекс Музыка"));
   }
   // #800 (MH-1, MH-5, MH-10): one room over every source. Each source is
   // paged on its own, shelves gather them with source marks, identical ids

@@ -507,14 +507,34 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   in their registry order; then the ordinary entries, those with `added_at`
   newest first, then the undated ones one source after another in turn
   (`MusicRoom::order`). A personal entry the source also lists as ordinary
-  shows once. A shelf no source supplies is absent. Shelves show at most 24
+  shows once. A shelf no source supplies is absent, and so is a station its
+  source marks unavailable (#838). Shelves show at most 24
   entries (*Recent tracks* 12) of the pages read so far, so a date order covers
   each source's first page; the *All* list pages further.
 - Entries carry `provider`, `providerName`, `local` and a `key` of provider and
-  entity id, so the same id from two sources stays two cards (no merging).
+  entity id. `providerName` is the source's name in the shell's language for
+  the sources this repository ships (`Local music`, `Yandex Music`), matched by
+  plugin id and name as in Settings (§5.6, #838), so the same id from two sources stays two cards (no merging).
   The source mark draws `screen` for a source whose account is `local` and
   `public` otherwise; no provider has its own icon yet, so a service's card
   also names the service after the mark.
+- **Layout (#838).** The shelves span the screen.
+  - Each shelf insets its title and first card by the safe area, so a focused
+    first card, its mat and its rim stay whole.
+  - Cards scrolled left fade out from x 24 to x 112, as on Home. The current
+    card stays between the safe areas.
+  - Rows scrolled up fade under the hero in a 60 px band, and a revealed shelf
+    starts below it.
+  - Every music card has the content focus treatment: the mat, the rim and
+    the lift.
+  - The focused *All* tile keeps a light label on its dark container plate.
+  - The *All* grid's clip is larger than the grid by a focused card's growth,
+    so a focused card on the first row and column stays whole.
+- **Placeholders (#843).** A card draws one glyph without artwork:
+  `MusicArtwork.placeholder` is off where the card draws its own chip, and an
+  unavailable card dims as one layer. A playing station without its own cover
+  shows the playing track's cover, then the neutral chip with the station
+  glyph.
 - Late entries never move focus: a shelf holding focus keeps the cards it
   shows in place and appends new ones (`MusicRoom.stable`), and shelves are
   keyed by id, so a shelf is not recreated when another changes. A card or

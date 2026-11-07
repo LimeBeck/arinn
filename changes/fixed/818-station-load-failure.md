@@ -1,0 +1,1 @@
+- Keep continuous music stations moving past tracks that fail to resolve or load, retaining the error until playback recovers. Finite queues still stop on a failed track, and an exhausted station can resume when its provider supplies another batch ([#818](https://github.com/LimeBeck/arinn/issues/818)).

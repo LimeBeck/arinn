@@ -11,6 +11,8 @@ FocusScope {
     id: root
     property var room: null
     property string playingKey: ""
+    // The cover of the track that plays, for a playing station (#843).
+    property string playingImage: ""
     readonly property var shelves: (room && room.searchShelves) || []
     readonly property var pending: (room && room.searchPending) || []
     readonly property var places: room ? room.sources.filter(source => source.browsable !== false)
@@ -106,9 +108,10 @@ FocusScope {
     Flickable {
         id: area
         objectName: "musicSearchShelves"
-        x: Ui.Theme.safeLeft
+        // Full width: each shelf insets its content (#838).
+        x: 0
         y: 96
-        width: parent.width - Ui.Theme.safeLeft
+        width: parent.width
         height: parent.height - y
         contentHeight: column.height + 96
         interactive: false
@@ -137,6 +140,7 @@ FocusScope {
                     showAll: false
                     shelf: root.shelves.find(item => item.id === shelfKey) || ({})
                     playingKey: root.playingKey
+                    playingImage: root.playingImage
                     rowBrightness: activeFocus ? 0.82 : 0.62
                     onActiveFocusChanged: if (activeFocus)
                         area.reveal(shelfItem)

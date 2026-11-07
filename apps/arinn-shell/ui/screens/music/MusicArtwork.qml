@@ -8,6 +8,9 @@ Item {
     id: root
     property url source: ""
     property real radius: Ui.Theme.stillRadius
+    // The note drawn while there is no image; off where the caller draws its
+    // own placeholder, so only one glyph shows (#843).
+    property bool placeholder: true
     readonly property bool loaded: picture.status === Image.Ready
     property int retryInterval: 1000
     property int attempts: 0
@@ -66,7 +69,7 @@ Item {
         height: width
         name: "music_note"
         color: Ui.Theme.textHint
-        visible: picture.status !== Image.Ready
+        visible: root.placeholder && picture.status !== Image.Ready
     }
     Canvas {
         id: frame

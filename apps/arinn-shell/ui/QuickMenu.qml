@@ -159,7 +159,14 @@ FocusScope {
         }
         if (!Focus.take(row)) return false;
         reveal(row);
+        // A row may change height with focus, and the rows above it as focus
+        // leaves them: reveal again once the column has laid out.
+        Qt.callLater(revealCurrent);
         return true;
+    }
+    function revealCurrent() {
+        const row = currentRow();
+        if (row) reveal(row);
     }
     // Focus the first available row, as when the sheet opens: the column
     // starts at the top, with focus on play/pause.
@@ -423,6 +430,8 @@ FocusScope {
         Column {
             id: columnContent
             x: 24; y: 12
+            // Rows that change height keep the focused one in view.
+            onHeightChanged: Qt.callLater(root.revealCurrent)
             spacing: 6
             // The media card (mh-06): the session the precedence order puts
             // first, while it plays or is paused.

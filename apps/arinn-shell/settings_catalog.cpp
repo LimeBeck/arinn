@@ -811,10 +811,18 @@ void SettingsCatalog::readPreferences() {
         (!m_musicDisabledSent || *m_musicDisabledSent == m_musicDisabled)) {
       m_musicDisabledWanting = false;
     } else if (!m_pending.contains(key) && m_errors.contains(key)) {
-      // A refused write: the stored list shows again.
+      // A refused write: its list shows the stored one again. A change made
+      // while it was in flight differs from it and is written next (Codex
+      // review of #851).
+      const auto failed = m_musicDisabledSent;
       m_errors.remove(key);
-      m_musicDisabledWanting = false;
       m_musicDisabledSent.reset();
+      if (!failed || *failed == m_musicDisabledWanted) {
+        m_musicDisabledWanting = false;
+      } else if (m_loaded && !m_unreachable && !m_musicDisabledScheduled) {
+        m_musicDisabledScheduled = true;
+        QTimer::singleShot(0, this, &SettingsCatalog::writeMusicDisabled);
+      }
     } else if (m_loaded && !m_unreachable && !m_pending.contains(key) &&
                !m_musicDisabledScheduled &&
                m_musicDisabledSent != m_musicDisabledWanted) {

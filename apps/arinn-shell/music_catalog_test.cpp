@@ -950,6 +950,19 @@ private slots:
     // not a change of the turned-off sources.
     QTRY_VERIFY(catalog.activeReads() > 0);
     QVERIFY(catalog.activeKnown());
+    // Codex review of #851: a malformed answer leaves the session unknown
+    // and is no read.
+    {
+      const auto good = daemon.active;
+      const int before = catalog.activeReads();
+      daemon.active = QStringLiteral("{}");
+      catalog.refresh();
+      QTRY_VERIFY(!catalog.activeKnown());
+      QCOMPARE(catalog.activeReads(), before);
+      daemon.active = good;
+      catalog.refresh();
+      QTRY_VERIFY(catalog.activeKnown());
+    }
     const int reads = catalog.activeReads();
     QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
     catalog.setDisabledSources({"local"});

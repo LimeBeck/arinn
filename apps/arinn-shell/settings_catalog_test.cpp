@@ -840,6 +840,34 @@ private slots:
     QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
   }
+  // Codex review of #851: a toggle made while a write is in flight survives
+  // that write's failure: only the failed list rolls back, and the later
+  // one is written next.
+  void aQueuedToggleSurvivesAFailedWrite() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"\""),
+                 QStringLiteral("{\"max_length\":4096}"), true)});
+    daemon.holdOperation = true;
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QTRY_COMPARE(daemon.sets.size(), 1);
+    catalog.setMusicSourceEnabled(QStringLiteral("c"), false);
+    daemon.operationState = QStringLiteral("failed");
+    daemon.operationError = QStringLiteral("Conflict");
+    daemon.holdOperation = false;
+    QTRY_COMPARE(daemon.sets.size(), 2);
+    daemon.operationState = QStringLiteral("succeeded");
+    daemon.operationError.clear();
+    QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\",\\\"c\\\"]\""));
+    QTRY_COMPARE(catalog.musicDisabledSources(),
+                 (QStringList{QStringLiteral("b"), QStringLiteral("c")}));
+  }
   // Codex review of #851: a toggle reversed during a write survives a
   // daemon change after the first write was stored: the new daemon's list is
   // read first, and the reversal is written to it.

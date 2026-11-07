@@ -567,9 +567,23 @@ void MusicCatalog::readActive() {
         }
         // One more session read answered (#842): counted before the state
         // it brings is published.
+        const bool none =
+            reply.arguments().first().toString() == QStringLiteral("null");
+        const auto json = none ? QJsonObject() : object(reply);
+        // Only a whole answer counts as a read: none, or a session with its
+        // provider and state. Anything else leaves the session unknown
+        // (#842, Codex review of #851).
+        if (!none && (json.isEmpty() || !json.value("provider_id").isString() ||
+                      !json.value("state").isObject())) {
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
+          return;
+        }
         ++m_activeReads;
         m_activeKnown = true;
-        if (reply.arguments().first().toString() == QStringLiteral("null")) {
+        if (none) {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
@@ -577,9 +591,6 @@ void MusicCatalog::readActive() {
           emit activeReadsChanged();
           return;
         }
-        const auto json = object(reply);
-        if (json.isEmpty())
-          return;
         m_active = json.value("state").toObject().toVariantMap();
         m_activeId = json.value("provider_id").toString();
         m_activeGeneration = json.value("generation").toString();

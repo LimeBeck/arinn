@@ -210,7 +210,10 @@ open player". Play/Pause, Play and Pause act only when the session can do what
 each asks; otherwise the key passes on. OK opens *Now playing*, Back
 returns to the card, and Play/Pause on Home acts on the music session
 without moving focus unless the focused card is linked to a media session
-(`HomeView.mediaKey`). The shell has no reduced-motion setting yet; the
+(`HomeView.mediaKey`). Next and Previous go to the music session too, and
+the daemon sends them only where it offers them; `Key_Play` is a toggle, as
+in Ambient. A held media key acts once: its auto-repeats are taken without
+another request ([#831](https://github.com/LimeBeck/arinn/issues/831)). The shell has no reduced-motion setting yet; the
 bars stop with `motionEnabled`.
 `HomeView` limits Continue to one Activity plus four further cards (spec §5.1,
 handoff 02); New availability and provider state stay with the caller. Optional

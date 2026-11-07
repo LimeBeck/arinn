@@ -808,6 +808,18 @@ Window {
     }
     // `artworkUrl(provider, artworkId)` gives the image URL of a stored
     // artwork ID while its source is present.
+    // A media key from Home or Ambient as a music command (#831): Play
+    // resumes, Pause pauses, Next and Previous skip, the toggle toggles
+    // ("" here, MusicCatalog.togglePlayback).
+    function musicKeyCommand(action) {
+        return action === "toggle" ? "" : action === "play" ? "resume"
+             : ["pause", "next", "previous"].includes(action) ? action : null;
+    }
+    function musicKey(action) {
+        const command = musicKeyCommand(action);
+        if (command === "") musicCatalog.togglePlayback();
+        else if (command) musicCatalog.transport(command);
+    }
     // A pinned station of a turned-off source leaves Favourites and stays
     // stored: it returns when the source is turned on (#842).
     function musicPinRows(favorites, sources, unresolved, accounts, artworkUrl, disabled) {
@@ -1129,10 +1141,7 @@ Window {
             // Music presence on Home (#803, MH-4): the status line while it
             // plays, and Play/Pause without moving focus.
             musicStatusLine: musicCatalog.statusLine
-            onMusicKeyRequested: action => {
-                if (action === "toggle") musicCatalog.togglePlayback();
-                else musicCatalog.transport(action === "play" ? "resume" : "pause");
-            }
+            onMusicKeyRequested: action => root.musicKey(action)
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows
@@ -1942,10 +1951,7 @@ Window {
             // Codex review of #851).
             music: musicCatalog.disabledSources.includes(musicCatalog.activeSourceId)
                 ? ({}) : musicCatalog.activeState
-            onMusicKeyRequested: action => {
-                if (action === "toggle") musicCatalog.togglePlayback();
-                else musicCatalog.transport(action === "play" ? "resume" : "pause");
-            }
+            onMusicKeyRequested: action => root.musicKey(action)
         }
     }
 }

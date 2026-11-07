@@ -159,7 +159,9 @@ the station and the provider's own `pin` action are the shell's (#804).
   pins or unpins compared with the previous read of the same daemon
   connection, never a request that may still fail. Only the playing
   station's change is kept. A mirror that meets another music command in
-  flight waits for it and for the next read of the active session after it,
+  flight waits for it and for the next read of the active session after it
+(after a command that timed out, only a read asked 2.5 s later counts, since
+the daemon may still report the session from before it),
   so a Stop or a new station drops it rather than pinning the old one. The Home shelf still comes from Arinn's store.
 - **Pinning from the player.** For a station the provider marks `pinnable`,
   *Now playing*'s *More* sheet offers *Pin to Home* when the title is not

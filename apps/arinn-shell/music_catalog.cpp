@@ -544,7 +544,10 @@ void MusicCatalog::readActive() {
   m_activeBusy = true;
   const auto epoch = m_epoch;
   // A read asked after a command ended describes the session after it.
-  const auto commandsDone = m_commandsDone;
+  // A read asked while an uncertain command may still be settling does not
+  // count as the session after it.
+  const auto commandsDone =
+      m_activeFenceAfter.hasExpired() ? m_commandsDone : m_activeSeen;
   auto message = call(QStringLiteral("/org/arinn/Daemon1"),
                       "org.arinn.MusicController1", "GetActive");
   auto *pending = new QDBusPendingCallWatcher(
@@ -711,6 +714,12 @@ void MusicCatalog::send(const QString &action, const QString &entity,
                 m_startSession = oldSession;
               }
               ++m_commandsDone;
+              // A command that timed out may have been applied while the
+              // daemon still reports the session before it: only a read
+              // asked after the provider's next polls counts (Codex review
+              // of #836).
+              if (failure == "Timeout" || failure == "NoReply")
+                m_activeFenceAfter.setRemainingTime(2500);
               fail(failure);
               m_commandWaitingRefresh = true;
               m_stateBusy = false;

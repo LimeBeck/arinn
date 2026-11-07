@@ -1308,10 +1308,11 @@ private slots:
                         {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
                                                 {"title", "Wave"}}},
                         {"actions", QJsonArray{"pause", "stop", "pin"}}};
-    daemon.active = QString::fromUtf8(
+    const auto playing = QString::fromUtf8(
         QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
                                   {"state", current}})
             .toJson(QJsonDocument::Compact));
+    daemon.active = playing;
     MusicCatalog catalog;
     QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
     QTRY_VERIFY(!catalog.sources().isEmpty());
@@ -1349,6 +1350,24 @@ private slots:
     QTest::qWait(100);
     QCOMPARE(daemon.commands.size(), before + 3);
     QCOMPARE(daemon.commands.last(), QStringLiteral("stop"));
+    // Codex review of #836: a Stop that times out may have been applied
+    // while the daemon still reports the old session; reads in the next
+    // moments do not release the mirror, and the stopped session takes no
+    // pin once it shows.
+    daemon.active = playing;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    daemon.commandError = "Timeout";
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTRY_VERIFY(!catalog.transportBusy());
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(2500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.commandError.clear();
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

@@ -67,6 +67,7 @@ TestCase {
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             property bool sourcesSwitchable: true
+            property bool switchPending: false
             property var disabled: []
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             // As Main stores the choice and MusicRoom lists an off source last (#842).
@@ -1427,6 +1428,22 @@ TestCase {
         // The first one's write fails later: its row says so.
         room.disabled=room.disabled.filter(id=>id!=="local");
         tryCompare(sheet,"stopFailed","local");verify(!sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
+        // A failed write that takes back several sources gives each its own
+        // note (Codex review of #851).
+        sheet.stopThenTurnOff("local");tryVerify(()=>sheet.isConfirming("local"));
+        room.disabled=[];
+        tryVerify(()=>!!sheet.failureFor("local")&&!!sheet.failureFor("account"));
+        // Codex review of #867: an id that names an Object property has no
+        // note it was not given, and keeps the one it is given.
+        compare(sheet.failureFor("constructor"),"");compare(sheet.failureFor("__proto__"),"");
+        sheet.fail("constructor","Note");compare(sheet.failureFor("constructor"),"Note");
+        sheet.clearFailure("constructor");compare(sheet.failureFor("constructor"),"");
+        // While the choice is still being stored, a watch outlives its
+        // deadline (a daemon being replaced); it ends once nothing is pending.
+        room.switchPending=true;room.disabled=["local"];
+        sheet.confirming=[{id:"local",until:Date.now()-1}];
+        wait(1500);verify(sheet.isConfirming("local"));
+        room.switchPending=false;tryVerify(()=>!sheet.isConfirming("local"),3000);
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

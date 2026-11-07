@@ -833,9 +833,11 @@ void SettingsCatalog::readPreferences() {
   const auto *musicRow =
       find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
   const bool writable = m_loaded && !m_unreachable && musicRow && musicRow->enabled;
-  const bool musicChanged =
-      musicDisabledSources() != shownBefore || writable != m_musicWritable;
+  const bool musicChanged = musicDisabledSources() != shownBefore ||
+                            writable != m_musicWritable ||
+                            m_musicDisabledWanting != m_musicPendingShown;
   m_musicWritable = writable;
+  m_musicPendingShown = m_musicDisabledWanting;
   if (light == m_lightField && follows == m_lightFollowsTime &&
       minutes == m_ambientMinutes && sounds == m_interfaceSounds) {
     if (musicChanged)

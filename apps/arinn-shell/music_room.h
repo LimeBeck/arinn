@@ -44,6 +44,8 @@ class MusicRoom : public QObject {
   // Whether the choice can be stored now: the Sources sheet offers Turn off
   // and Turn on only then (Codex review of #851).
   Q_PROPERTY(bool sourcesSwitchable MEMBER m_switchable NOTIFY sourcesChanged)
+  // A turn-off or turn-on is still being stored (#842).
+  Q_PROPERTY(bool switchPending MEMBER m_switchPending NOTIFY sourcesChanged)
   // Find over every source (MH-10, #801): result shelves Artists, Albums
   // and Tracks, each source's results in its own relevance order, sources
   // in turn; nothing merged.
@@ -191,6 +193,7 @@ private:
   // its last state, for its mark.
   QStringList m_disabled;
   bool m_switchable = true;
+  bool m_switchPending = false;
   struct Off {
     QString id, name;
     bool local = false;

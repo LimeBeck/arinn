@@ -5,9 +5,12 @@
 
 The daemon implements the additive `org.arinn.Texts1` interface at its root,
 following [ADR-0135](../adr/0135-localized-provider-texts.md) and the existing
-[wire contract](../plugin-api/provider-texts.md). This is the daemon increment
-of #846, tracked in #859. It does not implement shell rendering or provider
-adapters, change existing snapshots or choose a client's language.
+[wire contract](../plugin-api/provider-texts.md). This guide describes the daemon
+part of the integrated localization implementation in #863 (#845/#846/#859).
+The shell's private rendering, local overlays and Local music/Yandex Music
+adapters are also implemented; see [UI translations](ui-translations.md) for
+their architecture and installed-copy workflow. Routing preserves existing
+content records and leaves the language choice to the client.
 
 ## Catalogue and resource lifetime
 

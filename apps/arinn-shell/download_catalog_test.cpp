@@ -33,6 +33,7 @@ QString presentationId(const QString &local) {
 }
 struct ProviderWire {
   QString id = QStringLiteral("dl");
+  QString plugin = QStringLiteral("plugin");
   QString name = QStringLiteral("name");
   QDBusObjectPath path{providerPath};
   QStringList capabilities{QStringLiteral("download")};
@@ -65,7 +66,7 @@ struct DownloadWire {
 };
 QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
   a.beginStructure();
-  a << p.id << QStringLiteral("plugin") << QString() << p.name
+  a << p.id << p.plugin << QString() << p.name
     << QStringLiteral("1") << p.path << p.capabilities << p.runtime << p.backend
     << p.generation << qulonglong(1) << QString() << qulonglong(0)
     << qulonglong(0) << qulonglong(0) << qulonglong(0);
@@ -162,6 +163,9 @@ public:
       }
       if (member == QLatin1String("GetCatalog")) {
         auto source = QJsonDocument::fromJson(R"JSON({"formatVersion":1,"pluginId":"plugin","sourceLocale":"en","locales":[],"messages":{"connect":{"revision":1,"source":"Could not connect to %1","arguments":{"service":{"position":1,"type":"text"}}}}})JSON").object();
+        const auto id = message.arguments().value(0).toString();
+        for (const auto &provider : std::as_const(providers))
+          if (provider.id == id) source.insert("pluginId", provider.plugin);
         QJsonArray locales;
         for (auto it = translations.begin(); it != translations.end(); ++it) locales.append(it.key());
         source.insert("locales", locales);
@@ -298,8 +302,9 @@ QVariantMap jobById(const DownloadCatalog &catalog, const QString &local) {
   }
   return {};
 }
-bool messageQm(const QString &root, const QString &locale, const QString &translation) {
-  const auto directory = QDir(root).filePath(QStringLiteral("arinn/translations/overrides/%1/providers/plugin").arg(locale));
+bool messageQm(const QString &root, const QString &locale, const QString &translation,
+               const QString &plugin = QStringLiteral("plugin")) {
+  const auto directory = QDir(root).filePath(QStringLiteral("arinn/translations/overrides/%1/providers/%2").arg(locale, plugin));
   if (!QDir().mkpath(directory)) return false;
   QFile source(QDir(directory).filePath(QStringLiteral("messages.ts")));
   if (!source.open(QIODevice::WriteOnly)) return false;
@@ -310,6 +315,24 @@ bool messageQm(const QString &root, const QString &locale, const QString &transl
   compiler.start(QLibraryInfo::path(QLibraryInfo::BinariesPath) + QStringLiteral("/lrelease"),
       {QStringLiteral("-idbased"), QStringLiteral("-nounfinished"), source.fileName(), QStringLiteral("-qm"), QDir(directory).filePath(QStringLiteral("messages.qm"))});
   return compiler.waitForFinished(10000) && compiler.exitCode() == 0;
+}
+QByteArray paddedMessageQm(const QString &root, const QString &locale, const QString &translation,
+                         const QString &plugin = QStringLiteral("plugin"),
+                         qsizetype total = ProviderMessages::maxQmBytes) {
+  if (!messageQm(root, locale, translation, plugin)) return {};
+  QFile file(QDir(root).filePath(QStringLiteral("arinn/translations/overrides/%1/providers/%2/messages.qm").arg(locale, plugin)));
+  if (!file.open(QIODevice::ReadOnly)) return {};
+  auto bytes = file.readAll();
+  file.close();
+  if (total < bytes.size() + 5 || total > ProviderMessages::maxQmBytes) return {};
+  const auto padding = quint32(total - bytes.size() - 5);
+  bytes.append(char(0x99));
+  char size[4];
+  qToBigEndian(padding, size);
+  bytes.append(size, 4);
+  bytes.append(QByteArray(padding, '\0'));
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) || file.write(bytes) != bytes.size()) return {};
+  return bytes;
 }
 void translationLocale(const QString &locale) {
   qApp->setProperty("arinn.translationLocale", locale);
@@ -791,6 +814,169 @@ private slots:
     QCOMPARE(daemon->translationReads, 36);
     QCOMPARE(daemon->reads, 0);
     QVERIFY(daemon->commands.isEmpty());
+  }
+
+  void sameLocalePersonalDictionaryWinsWhenRemoteCacheIsFull_data() {
+    QTest::addColumn<bool>("replacing");
+    QTest::newRow("new") << false;
+    QTest::newRow("growing") << true;
+  }
+
+  void sameLocalePersonalDictionaryWinsWhenRemoteCacheIsFull() {
+    QFETCH(bool, replacing);
+    QTemporaryDir root, sources;
+    QVERIFY(root.isValid() && sources.isValid());
+    const auto previousHome = qgetenv("XDG_DATA_HOME");
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      if (previousHome.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME", previousHome);
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    qputenv("XDG_DATA_HOME", root.path().toUtf8());
+    const auto packaged = paddedMessageQm(sources.path(), "de", "Package %1");
+    QVERIFY(!packaged.isEmpty());
+    if (replacing) QVERIFY(messageQm(root.path(), "de", "Previous %1", "personal"));
+    daemon->texts = true;
+    daemon->translations.insert("de", packaged);
+    daemon->providers.clear();
+    for (int i = 0; i < 34; ++i) {
+      ProviderWire provider;
+      provider.id = i == 33 ? QStringLiteral("target") : QStringLiteral("provider-%1").arg(i);
+      if (i == 33) provider.plugin = "personal";
+      daemon->providers.append(provider);
+    }
+    LocalizationManager manager({}, {}, QLocale(QStringLiteral("en")));
+    manager.setLanguage("de");
+    QObject owner;
+    auto *client = ProviderTextClient::instance();
+    QMap<QString, QString> labels;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      for (const auto &provider : std::as_const(daemon->providers))
+        labels[provider.id] = client->translate(provider.id, generation1, "download.job", "fixed", 3, "error_message", daemon->fixedError);
+    };
+    client->observe(&owner, publish);
+    publish();
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->translationReads, 34, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->resolves, 34, 10000);
+    QTRY_COMPARE(labels.value("target"), replacing ? QStringLiteral("Previous Music") : QStringLiteral("Package Music"));
+    QVERIFY(!paddedMessageQm(root.path(), "de", "Personal %1", "personal").isEmpty());
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QTRY_COMPARE(labels.value("target"), QStringLiteral("Personal Music"));
+    QTest::qWait(3300);
+    QCOMPARE(daemon->translationReads, 34);
+    QCOMPARE(daemon->resolves, 34);
+    QCOMPARE(daemon->reads, 0);
+    QVERIFY(daemon->commands.isEmpty());
+  }
+
+  void growingLocalDictionaryUsesSpaceFreedInTheSameReload() {
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto previousHome = qgetenv("XDG_DATA_HOME");
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      if (previousHome.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME", previousHome);
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    qputenv("XDG_DATA_HOME", root.path().toUtf8());
+    QVERIFY(!paddedMessageQm(root.path(), "de", "Bulk %1", "bulk").isEmpty());
+    QVERIFY(!paddedMessageQm(root.path(), "de", "Old grow %1", "grow", 100 * 1024).isEmpty());
+    QVERIFY(!paddedMessageQm(root.path(), "de", "Old shrink %1", "shrink", 172 * 1024).isEmpty());
+    daemon->texts = true;
+    daemon->providers.clear();
+    for (int i = 0; i < 35; ++i) {
+      ProviderWire provider;
+      provider.id = i == 0 ? QStringLiteral("aaa") : i == 34 ? QStringLiteral("zzz") : QStringLiteral("bulk-%1").arg(i);
+      provider.plugin = i == 0 ? QStringLiteral("grow") : i == 34 ? QStringLiteral("shrink") : QStringLiteral("bulk");
+      daemon->providers.append(provider);
+    }
+    LocalizationManager manager({}, {}, QLocale(QStringLiteral("en")));
+    manager.setLanguage("de");
+    QObject owner;
+    auto *client = ProviderTextClient::instance();
+    QMap<QString, QString> labels;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      for (const auto &provider : std::as_const(daemon->providers))
+        labels[provider.id] = client->translate(provider.id, generation1, "download.job", "fixed", 3, "error_message", daemon->fixedError);
+    };
+    client->observe(&owner, publish);
+    publish();
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->resolves, 35, 10000);
+    QTRY_COMPARE(labels.value("aaa"), QStringLiteral("Old grow Music"));
+    QTRY_COMPARE(labels.value("zzz"), QStringLiteral("Old shrink Music"));
+    QVERIFY(!paddedMessageQm(root.path(), "de", "New grow %1", "grow", 200 * 1024).isEmpty());
+    QVERIFY(!paddedMessageQm(root.path(), "de", "New shrink %1", "shrink", 72 * 1024).isEmpty());
+    manager.reload();
+    QVERIFY(!manager.reloadFailed());
+    QTRY_COMPARE(labels.value("aaa"), QStringLiteral("New grow Music"));
+    QTRY_COMPARE(labels.value("zzz"), QStringLiteral("New shrink Music"));
+    QCOMPARE(daemon->translationReads, 0);
+    QCOMPARE(daemon->resolves, 35);
+    QCOMPARE(daemon->reads, 0);
+  }
+
+  void oversizedLocalWorkingSetRejectsReloadBeforeEvictingAnything_data() {
+    QTest::addColumn<QString>("requested");
+    QTest::newRow("same-locale") << QStringLiteral("de");
+    QTest::newRow("new-locale") << QStringLiteral("ru");
+  }
+
+  void oversizedLocalWorkingSetRejectsReloadBeforeEvictingAnything() {
+    QFETCH(QString, requested);
+    QTemporaryDir root, sources;
+    QVERIFY(root.isValid() && sources.isValid());
+    const auto previousHome = qgetenv("XDG_DATA_HOME");
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      if (previousHome.isNull()) qunsetenv("XDG_DATA_HOME"); else qputenv("XDG_DATA_HOME", previousHome);
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    qputenv("XDG_DATA_HOME", root.path().toUtf8());
+    const auto packaged = paddedMessageQm(sources.path(), "de", "Package %1");
+    QVERIFY(!packaged.isEmpty());
+    daemon->texts = true;
+    daemon->translations.insert("de", packaged);
+    daemon->providers.clear();
+    for (int i = 0; i < 35; ++i) {
+      ProviderWire provider;
+      provider.id = QStringLiteral("provider-%1").arg(i);
+      daemon->providers.append(provider);
+    }
+    LocalizationManager manager({}, {}, QLocale(QStringLiteral("en")));
+    manager.setLanguage("de");
+    QObject owner;
+    auto *client = ProviderTextClient::instance();
+    QMap<QString, QString> labels;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      for (const auto &provider : std::as_const(daemon->providers))
+        labels[provider.id] = client->translate(provider.id, generation1, "download.job", "fixed", 3, "error_message", daemon->fixedError);
+    };
+    client->observe(&owner, publish);
+    publish();
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->resolves, 35, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->translationReads, 35, 10000);
+    QTRY_COMPARE(labels.values().count(QStringLiteral("Package Music")), 34);
+    const auto before = labels;
+    const auto revision = manager.revision();
+    QVERIFY(!paddedMessageQm(root.path(), requested, "Personal %1").isEmpty());
+    if (requested == QLatin1String("de")) manager.reload(); else manager.setLanguage(requested);
+    QVERIFY(manager.reloadFailed());
+    QCOMPARE(manager.revision(), revision);
+    QCOMPARE(labels, before);
+    QTest::qWait(100);
+    QCOMPARE(daemon->translationReads, 35);
+    QCOMPARE(daemon->resolves, 35);
+    QCOMPARE(daemon->reads, 0);
   }
 
   void staleConsumerCannotEvictTheCurrentGenerationWhileMetadataIsPending() {

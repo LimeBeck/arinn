@@ -237,8 +237,14 @@ field/fallback. It retains typed references across language switches, so changin
 language does not repeat Resolve or read content pages. Metadata calls have a
 three-second deadline, at most four are active, and batches hold at most 128
 fields/240 KiB. The presentation cache admits at most 64 provider identities,
-512 associations and 4 MiB of encoded references, plus 8 MiB of QM bytes. Excess
-fields preserve plaintext. Models retain the fields of each current presentation
+512 associations and 4 MiB of encoded references, plus 8 MiB of QM bytes. Valid
+local provider dictionaries displace lower-priority remote QMs when needed.
+Reload checks the complete requested local set before changing it; a set that
+alone exceeds the QM budget reports failure and keeps the previous state.
+Old local sets are retired together before admission, so space freed by a
+shrinking dictionary is available to a growing one in the same reload. Evicted
+remote QMs wait until capacity is available, without periodic download retries.
+Excess fields preserve plaintext. Models retain the fields of each current presentation
 in at most 512 separate channels; different valid facet revisions coexist. Replacing
 a presentation retires fields no view retains, while its own repaint notices
 do not evict the same working set. Registry discovery removes departed

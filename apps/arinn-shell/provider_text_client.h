@@ -37,11 +37,12 @@ class ProviderTextClient final : public QObject {
     bool owned = false;
     qsizetype cost = 0;
   };
+  using Dictionaries = QMap<QString, std::shared_ptr<ProviderMessages::Dictionary>>;
   struct Provider {
     QString id, generation;
     std::optional<ProviderMessages::Catalog> catalog;
     QMap<QByteArray, Cached> fields;
-    QMap<QString, std::shared_ptr<ProviderMessages::Dictionary>> dictionaries;
+    Dictionaries dictionaries;
     QStringList localPaths;
     QSet<QString> remotePending, remoteAbsent;
     QMap<QString, qsizetype> remoteBlocked;
@@ -275,7 +276,23 @@ class ProviderTextClient final : public QObject {
       if (!retired) return false;
     }
   }
-  void loadLocal(const std::shared_ptr<Provider> &p) {
+  bool reserveLocalDictionary(qsizetype bytes) {
+    qsizetype localBytes = bytes;
+    for (const auto &p : m_providers)
+      for (auto it = p->dictionaries.cbegin(); it != p->dictionaries.cend(); ++it)
+        if (!it.key().startsWith(":remote:")) localBytes += it.value()->byteSize();
+    if (localBytes > dictionaryBudget) return false;
+    for (const auto &p : m_providers) {
+      for (auto it = p->dictionaries.begin(); it != p->dictionaries.end() && dictionaryBytes() + bytes > dictionaryBudget;) {
+        if (it.key().startsWith(":remote:")) {
+          p->remoteBlocked.insert(it.key().mid(8), it.value()->byteSize());
+          it = p->dictionaries.erase(it);
+        } else ++it;
+      }
+    }
+    return dictionaryBytes() + bytes <= dictionaryBudget;
+  }
+  void loadLocal(const std::shared_ptr<Provider> &p, const Dictionaries &previous = {}) {
     if (!p->catalog) return;
     const auto requested = locale();
     const auto chain = LocalTranslations::locales(requested);
@@ -285,8 +302,11 @@ class ProviderTextClient final : public QObject {
     }
     const auto roots = LocalTranslations::roots();
     const auto paths = LocalTranslations::providerCatalogPaths(roots, p->catalog->pluginId, requested, false);
-    const auto oldDictionaries = p->dictionaries;
-    for (const auto &old : p->localPaths) p->dictionaries.remove(old);
+    auto oldDictionaries = previous;
+    for (const auto &old : p->localPaths) {
+      if (p->dictionaries.contains(old)) oldDictionaries.insert(old, p->dictionaries.value(old));
+      p->dictionaries.remove(old);
+    }
     for (const auto &fileName : paths) {
       auto dictionary = std::make_shared<ProviderMessages::Dictionary>(p->catalog->pluginId);
       QFile file(fileName);
@@ -295,11 +315,11 @@ class ProviderTextClient final : public QObject {
             return LocalTranslations::safeFile(root, fileName, ProviderMessages::maxQmBytes);
           }) && file.open(QIODevice::ReadOnly)) {
         const auto bytes = file.read(ProviderMessages::maxQmBytes + 1);
-        loaded = dictionaryBytes() + bytes.size() <= dictionaryBudget && dictionary->load(bytes);
+        loaded = dictionary->load(bytes) && reserveLocalDictionary(bytes.size());
       }
       if (loaded) p->dictionaries.insert(fileName, dictionary);
       else if (p->locale == requested && QFileInfo::exists(fileName) && oldDictionaries.contains(fileName) &&
-               dictionaryBytes() + oldDictionaries.value(fileName)->byteSize() <= dictionaryBudget)
+               reserveLocalDictionary(oldDictionaries.value(fileName)->byteSize()))
         p->dictionaries.insert(fileName, oldDictionaries.value(fileName));
     }
     p->localPaths = paths;
@@ -443,18 +463,23 @@ class ProviderTextClient final : public QObject {
     if (object == qApp && event->type() == TranslationReloadCheck::typeId()) {
       auto *check = static_cast<TranslationReloadCheck *>(event);
       const auto roots = LocalTranslations::roots();
+      qsizetype localBytes = 0;
       for (const auto &p : m_providers) {
-        if (p->locale != check->locale || !p->catalog) continue;
-        for (const auto &path : p->localPaths) {
-          if (!p->dictionaries.contains(path)) continue;
+        if (!p->catalog) continue;
+        const auto paths = LocalTranslations::providerCatalogPaths(roots, p->catalog->pluginId, check->locale, false);
+        for (const auto &path : paths) {
+          const bool active = p->locale == check->locale && p->dictionaries.contains(path);
           const QFileInfo current(path);
           if (!current.exists() && !current.isSymLink()) continue;
           QFile file(path);
           ProviderMessages::Dictionary candidate(p->catalog->pluginId);
-          if (!std::any_of(roots.cbegin(), roots.cend(), [&](const auto &root) {
+          const bool valid = std::any_of(roots.cbegin(), roots.cend(), [&](const auto &root) {
                 return LocalTranslations::safeFile(root, path, ProviderMessages::maxQmBytes);
-              }) || !file.open(QIODevice::ReadOnly) || !candidate.load(file.read(ProviderMessages::maxQmBytes + 1)))
-            check->failed = true;
+              }) && file.open(QIODevice::ReadOnly) && candidate.load(file.read(ProviderMessages::maxQmBytes + 1));
+          if (valid) localBytes += candidate.byteSize();
+          else if (active) check->failed = true;
+          if (localBytes > dictionaryBudget) check->failed = true;
+          if (check->failed) return false;
         }
       }
     }
@@ -491,14 +516,22 @@ class ProviderTextClient final : public QObject {
       // new local dictionary, so iteration order cannot defeat precedence.
       const auto requested = locale();
       const auto chain = LocalTranslations::locales(requested);
-      for (const auto &p : m_providers) {
+      QMap<Key, Dictionaries> previous;
+      for (auto provider = m_providers.begin(); provider != m_providers.end(); ++provider) {
+        const auto &p = provider.value();
         for (auto it = p->dictionaries.begin(); it != p->dictionaries.end();) {
           const bool remote = it.key().startsWith(":remote:");
-          if ((remote && !chain.contains(it.key().mid(8))) || (!remote && p->locale != requested)) it = p->dictionaries.erase(it);
+          if (!remote) {
+            previous[provider.key()].insert(it.key(), it.value());
+            it = p->dictionaries.erase(it);
+          } else if (!chain.contains(it.key().mid(8))) it = p->dictionaries.erase(it);
           else ++it;
         }
       }
-      for (const auto &p : m_providers) loadLocal(p);
+      // Retire every old local set before admission, so a growing catalogue
+      // can use space freed by another shrinking one in this same reload.
+      for (auto provider = m_providers.begin(); provider != m_providers.end(); ++provider)
+        loadLocal(provider.value(), previous.value(provider.key()));
       notify();
       schedule();
     });

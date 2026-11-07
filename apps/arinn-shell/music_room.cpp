@@ -95,9 +95,10 @@ Q_COREAPP_STARTUP_FUNCTION(registerRoom)
 
 MusicRoom::MusicRoom(QObject *parent) : QObject(parent) {
   new LanguageChangeObserver(this, [this] {
-    rebuild();
+    rebuild(true);
     rebuildSearch();
     publishSources(true);
+    emit presentationChanged();
   });
   m_timer.setInterval(2000);
   connect(&m_timer, &QTimer::timeout, this, &MusicRoom::refresh);
@@ -647,7 +648,11 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
   return result;
 }
 
-void MusicRoom::rebuild() {
+QString MusicRoom::shelfTitle(const QString &id) const {
+  return ::shelfTitle(id);
+}
+
+void MusicRoom::rebuild(bool presentationOnly) {
   QVariantList shelves;
   bool dated = false;
   for (const auto &shelf : shelfDefs) {
@@ -672,7 +677,8 @@ void MusicRoom::rebuild() {
   if (changed)
     emit shelvesChanged();
   publishLoading();
-  emit listChanged();
+  if (!presentationOnly)
+    emit listChanged();
 }
 
 // The empty states follow `loading`; it changes with pages that leave the

@@ -57,6 +57,7 @@ public:
   void setCatalog(QObject *catalog);
   QVariantList sources() const;
   QVariantList shelves() const { return m_shelves; }
+  Q_INVOKABLE QString shelfTitle(const QString &id) const;
   bool connected() const;
   bool loading() const;
   bool dated() const { return m_dated; }
@@ -107,6 +108,8 @@ signals:
   void searchChanged();
   void sourcesChanged();
   void shelvesChanged();
+  // Cached presentation changed locally; consumers must not page providers.
+  void presentationChanged();
   void loadingChanged();
   // Some page arrived or a source left: lists read again.
   void listChanged();
@@ -156,7 +159,7 @@ private:
   // goes on once this facet's read (or its resume) ends.
   void readPage(const QString &id, const QString &facet, bool append,
                 bool chained = false);
-  void rebuild();
+  void rebuild(bool presentationOnly = false);
   void startSearch(const QString &id);
   void readSearch(const QString &id);
   void continueSearch(const QString &id);

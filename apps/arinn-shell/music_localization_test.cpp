@@ -4,6 +4,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QQmlComponent>
+#include <QQmlContext>
+#include <QQmlEngine>
+#include <QQuickItem>
+#include <QQuickWindow>
 #include <QTranslator>
 #include <QtDBus>
 #include <QtTest>
@@ -20,6 +25,8 @@ signals:
 class Script : public QDBusVirtualObject {
 public:
   int reads = 0, commands = 0;
+  int entryCount = 1;
+  bool continuation = false;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
     if (message.member() == QLatin1String("Command")) {
@@ -39,11 +46,13 @@ public:
       const auto facet = query.value("facet").toString();
       const auto kind = facet == QLatin1String("albums") ? "album"
                       : facet == QLatin1String("artists") ? "artist" : "track";
-      const QJsonArray entries = facet == QLatin1String("selections") ? QJsonArray()
-          : QJsonArray{QJsonObject{{"id", facet + ":1"}, {"kind", kind},
-                                  {"title", "Content title"}, {"available", true}}};
+      QJsonArray entries;
+      if (facet != QLatin1String("selections"))
+        for (int index = 0; index < entryCount; ++index)
+          entries.append(QJsonObject{{"id", facet + ":" + QString::number(index + 1)}, {"kind", kind},
+                                    {"title", "Content title"}, {"available", true}});
       result = {{"generation", "generation"}, {"revision", 1},
-                {"entries", entries}, {"next_token", ""}};
+                {"entries", entries}, {"next_token", continuation ? "next" : ""}};
     } else {
       return false;
     }
@@ -55,13 +64,124 @@ class Translation : public QTranslator {
 public:
   bool isEmpty() const override { return false; }
   QString translate(const char *context, const char *source, const char *, int) const override {
-    return qstrcmp(context, "MusicRoom") == 0 ? QStringLiteral("Translated: ") + QString::fromUtf8(source) : QString();
+    return qstrcmp(context, "MusicRoom") == 0 || qstrcmp(context, "MusicAllView") == 0
+        ? QStringLiteral("Translated: ") + QString::fromUtf8(source) : QString();
   }
 };
+// Arrange a near-end list before making the provider's real continuation
+// eligible. The view and the language observer still use the actual MusicRoom.
+class PagingRoom : public MusicRoom {
+  Q_OBJECT
+public:
+  bool allowPaging = false;
+  Q_INVOKABLE bool more(const QString &shelf, const QString &source = QString()) const {
+    return allowPaging && MusicRoom::more(shelf, source);
+  }
+};
+QQuickItem *namedItem(QQuickItem *parent, const QString &name) {
+  if (parent->objectName() == name)
+    return parent;
+  for (auto *child : parent->childItems())
+    if (auto *found = namedItem(child, name))
+      return found;
+  return nullptr;
+}
 }
 class MusicLocalizationTest : public QObject {
   Q_OBJECT
 private slots:
+  void openAllListRetranslatesAndKeepsItsCardAndTabWithoutPaging() {
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    Script script;
+    script.entryCount = 36;
+    script.continuation = true;
+    QVERIFY(bus.registerVirtualObject(QStringLiteral("/synthetic/music"), &script));
+    const auto cleanup = qScopeGuard([&] {
+      bus.unregisterObject(QStringLiteral("/synthetic/music"));
+      bus.unregisterService(QStringLiteral("org.arinn.Daemon1"));
+    });
+    SourceList catalog;
+    catalog.rows = {QVariantMap{{"id", "source"}, {"name", "Provider content name"},
+                               {"path", "/synthetic/music"}, {"generation", "generation"}, {"ready", true}}};
+    PagingRoom room;
+    room.setActive(false);
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(!room.loading());
+    QTRY_COMPARE(room.list(QStringLiteral("albums")).size(), 36);
+    QVERIFY(room.MusicRoom::more(QStringLiteral("albums"), QString()));
+    QQmlEngine engine;
+    QQuickWindow window;
+    engine.rootContext()->setContextProperty(QStringLiteral("testRoom"), &room);
+    QQmlComponent component(&engine);
+    component.setData(R"(
+      import QtQuick
+      import "ui/screens/music" as Music
+      Music.MusicAllView { room: testRoom }
+    )", QUrl::fromLocalFile(QStringLiteral(ARINN_SHELL_SOURCE) + QStringLiteral("/music-all-language-fixture.qml")));
+    QScopedPointer<QObject> object(component.create());
+    QVERIFY2(object, qPrintable(component.errorString()));
+    auto *item = qobject_cast<QQuickItem *>(object.data());
+    QVERIFY(item);
+    item->setParentItem(window.contentItem());
+    window.resize(1920, 1080);
+    window.show();
+    window.requestActivate();
+    QVERIFY(QMetaObject::invokeMethod(object.data(), "open", Q_ARG(QVariant, QStringLiteral("albums")), Q_ARG(QVariant, QStringLiteral("Albums"))));
+    auto *grid = namedItem(item, QStringLiteral("musicAllGrid"));
+    auto *title = namedItem(item, QStringLiteral("musicAllTitle"));
+    QVERIFY(grid && title);
+    QTRY_VERIFY(grid->hasActiveFocus());
+    QVERIFY(QMetaObject::invokeMethod(object.data(), "focusKey", Q_ARG(QVariant, QStringLiteral("source\nalbums:36"))));
+    QTest::qWait(100);
+    QCOMPARE(grid->property("currentIndex").toInt(), 35);
+    QCOMPARE(title->property("text").toString(), QStringLiteral("Albums"));
+    const auto focused = window.activeFocusItem();
+    const int reads = script.reads;
+    room.allowPaging = true;
+    QVERIFY(room.more(QStringLiteral("albums"), QString()));
+    QSignalSpy pages(&room, &MusicRoom::listChanged);
+    Translation translator;
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    const auto remove = qScopeGuard([&] { QCoreApplication::removeTranslator(&translator); });
+    engine.retranslate();
+    QTest::qWait(100);
+    QCOMPARE(script.reads, reads);
+    QCOMPARE(pages.count(), 0);
+    QTRY_COMPARE(title->property("text").toString(), QStringLiteral("Translated: Albums"));
+    QTRY_VERIFY(namedItem(item, QStringLiteral("musicAllTab-1")) && namedItem(item, QStringLiteral("musicAllTab-1"))->property("text").toString().contains(QStringLiteral("Translated: This computer")));
+    QTest::qWait(100);
+    QCOMPARE(window.activeFocusItem(), focused);
+    QCOMPARE(grid->property("currentIndex").toInt(), 35);
+    QCOMPARE(object->property("source").toString(), QString());
+
+    auto *tab = namedItem(item, QStringLiteral("musicAllTab-1"));
+    QVERIFY(tab);
+    tab->forceActiveFocus();
+    QCoreApplication::removeTranslator(&translator);
+    engine.retranslate();
+    QTRY_COMPARE(title->property("text").toString(), QStringLiteral("Albums"));
+    QTRY_VERIFY(window.activeFocusItem() && window.activeFocusItem()->objectName() == QStringLiteral("musicAllTab-1"));
+    QTRY_COMPARE(window.activeFocusItem()->property("text").toString(), QStringLiteral("This computer"));
+    QCOMPARE(object->property("source").toString(), QString());
+    QCOMPARE(script.reads, reads);
+    room.allowPaging = false;
+    QVERIFY(object->setProperty("source", QStringLiteral("source")));
+    QVERIFY(object->setProperty("alphabetical", true));
+    QTest::qWait(100);
+    room.allowPaging = true;
+    QQuickItem other(window.contentItem());
+    other.forceActiveFocus();
+    QVERIFY(QCoreApplication::installTranslator(&translator));
+    engine.retranslate();
+    QTest::qWait(100);
+    QCOMPARE(window.activeFocusItem(), &other);
+    QCOMPARE(object->property("source").toString(), QStringLiteral("source"));
+    QVERIFY(object->property("alphabetical").toBool());
+    QCOMPARE(object->property("focusedEntry").toMap().value("key").toString(), QStringLiteral("source\nalbums:36"));
+    QCOMPARE(script.reads, reads);
+  }
+
   void cachedRoomAndSearchLabelsChangeWithoutProviderReads() {
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));

@@ -12,7 +12,13 @@ FocusScope {
     id: root
     property var room: null
     property string shelfId: ""
-    property string title: ""
+    property string openedTitle: ""
+    property int presentationRevision: 0
+    readonly property string title: {
+        presentationRevision;
+        return room && typeof room.shelfTitle === "function" ? room.shelfTitle(shelfId) : openedTitle;
+    }
+    property bool presenting: false
     property string playingKey: ""
     // The cover of the track that plays, for a playing station without its
     // own (#843, Codex review of #848).
@@ -50,7 +56,8 @@ FocusScope {
             return;
         const at = Math.max(0, tabList.findIndex(tab => tab.id === focusTab));
         focusTab = null;
-        Ui.Focus.take(tabs.itemAt(at));
+        if (visible && enabled && activeFocus)
+            Ui.Focus.take(tabs.itemAt(at));
     }
     onSourcesChanged: {
         if (source.length && !sources.some(row => row.id === source && row.browsable !== false))
@@ -73,7 +80,7 @@ FocusScope {
     height: Ui.Theme.canvasHeight
     function open(shelf, shelfTitle) {
         shelfId = shelf;
-        title = shelfTitle;
+        openedTitle = shelfTitle;
         source = "";
         alphabetical = false;
         grid.currentIndex = 0;
@@ -95,7 +102,7 @@ FocusScope {
             focusInitial();
     }
     function pageIfNeeded() {
-        if (visible && room && shelfId.length && grid.currentIndex > grid.count - 16
+        if (!presenting && visible && room && shelfId.length && grid.currentIndex > grid.count - 16
                 && room.more(shelfId, source))
             room.loadMore(shelfId, source);
     }
@@ -114,17 +121,28 @@ FocusScope {
         target: root.room
         ignoreUnknownSignals: true
         function onListChanged() {
-            const key = root.focusedEntry ? root.focusedEntry.key : "";
-            root.revision++;
+            root.updateEntries();
             // A page may add no card of this kind (selections mix kinds):
             // page on while the end is near (Codex review of #812).
             Qt.callLater(root.pageIfNeeded);
-            // A late page keeps focus on its entry.
-            if (key.length) {
-                const at = root.entries.findIndex(entry => entry.key === key);
-                if (at >= 0)
-                    grid.currentIndex = at;
-            }
+        }
+        function onPresentationChanged() {
+            root.presenting = true;
+            root.presentationRevision++;
+            root.syncTabs();
+            root.updateEntries();
+            Qt.callLater(root.finishPresentation);
+        }
+    }
+    function finishPresentation() { presenting = false; }
+    function updateEntries() {
+        const key = focusedEntry ? focusedEntry.key : "";
+        revision++;
+        // Preserve the same card when locale-aware ordering changes.
+        if (key.length) {
+            const at = entries.findIndex(entry => entry.key === key);
+            if (at >= 0)
+                grid.currentIndex = at;
         }
     }
     Ui.AmbientGlow {

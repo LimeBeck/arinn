@@ -44,6 +44,7 @@ class ProviderTextClient final : public QObject {
     QMap<QString, std::shared_ptr<ProviderMessages::Dictionary>> dictionaries;
     QStringList localPaths;
     QSet<QString> remotePending, remoteAbsent;
+    QMap<QString, qsizetype> remoteBlocked;
     QString locale;
     bool catalogPending = false, unsupported = false;
     qint64 retryAt = 0;
@@ -157,7 +158,7 @@ class ProviderTextClient final : public QObject {
         if (!successful) {
           m_registryDirty = true;
           m_registryRetryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
-          QTimer::singleShot(3000, this, [this] { schedule(); });
+          wakeForRetry(m_registryRetryAt);
         }
       });
       if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != QLatin1String("(sa(sssssoasssststttt)s)") || reply.arguments().size() != 1) return;
@@ -330,6 +331,7 @@ class ProviderTextClient final : public QObject {
     });
   }
   void fetchDictionary(const std::shared_ptr<Provider> &p, const QString &tag) {
+    p->remoteBlocked.remove(tag);
     p->remotePending.insert(tag);
     const auto epoch = m_epoch;
     call("GetTranslation", {p->id, p->generation, tag}, [this, p, epoch, tag](const QDBusMessage &reply) {
@@ -347,7 +349,7 @@ class ProviderTextClient final : public QObject {
       if (dictionaryBytes() + bytes.size() <= dictionaryBudget) {
         p->dictionaries.insert(QStringLiteral(":remote:") + tag, dictionary);
         notify();
-      } else retry(p);
+      } else p->remoteBlocked.insert(tag, bytes.size());
     });
   }
   void resolve(const std::shared_ptr<Provider> &p) {
@@ -412,21 +414,27 @@ class ProviderTextClient final : public QObject {
   }
   void flush() {
     if (m_owner.isEmpty()) return;
-    if (m_registryDirty && !m_registryPending && m_pending < 4 && m_registryRetryAt <= QDateTime::currentMSecsSinceEpoch()) {
-      m_registryDirty = false;
-      readRegistry(std::make_shared<Registry>());
+    if (m_registryDirty && !m_registryPending && m_pending < 4) {
+      if (m_registryRetryAt > QDateTime::currentMSecsSinceEpoch()) wakeForRetry(m_registryRetryAt);
+      else {
+        m_registryDirty = false;
+        readRegistry(std::make_shared<Registry>());
+      }
     }
     if (!m_registryKnown) return;
     const auto providers = m_providers;
     for (const auto &p : providers) {
       if (m_pending >= 4) return;
-      if (p->unsupported) continue;
+      if (p->unsupported || p->fields.isEmpty()) continue;
       if (p->retryAt > QDateTime::currentMSecsSinceEpoch()) { wakeForRetry(p->retryAt); continue; }
       if (!p->catalog) { if (!p->catalogPending) fetchCatalog(p); continue; }
       for (const auto &tag : LocalTranslations::locales(locale())) {
         if (m_pending >= 4) break;
         if (p->catalog->locales.contains(tag) && !p->dictionaries.contains(QStringLiteral(":remote:") + tag) &&
-            !p->remotePending.contains(tag) && !p->remoteAbsent.contains(tag)) fetchDictionary(p, tag);
+            !p->remotePending.contains(tag) && !p->remoteAbsent.contains(tag)) {
+          if (p->remoteBlocked.contains(tag) && dictionaryBytes() + p->remoteBlocked.value(tag) > dictionaryBudget) continue;
+          fetchDictionary(p, tag);
+        }
       }
       if (m_pending < 4) resolve(p);
     }

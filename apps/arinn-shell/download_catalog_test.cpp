@@ -143,18 +143,20 @@ public:
                      const QDBusConnection &bus) override {
     QDBusArgument body;
     const auto member = message.member();
-    if (message.interface() == QLatin1String("org.arinn.Texts1")) {
-      if (!texts) {
-        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unsupported"), QStringLiteral("fixture")));
-        return true;
-      }
+    if (texts) {
       if (member == QLatin1String("GetCatalog")) ++catalogReads;
       if (member == QLatin1String("GetTranslation")) ++translationReads;
       if (member == QLatin1String("Resolve")) ++resolves;
-      if (member == failingTextMethod && textFailures > 0) {
-        --textFailures;
-        bus.send(malformedTextReply ? message.createReply(QVariantList{})
-            : message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+    }
+    if (member == failingTextMethod && textFailures > 0) {
+      --textFailures;
+      bus.send(malformedTextReply ? message.createReply(QVariantList{})
+          : message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+      return true;
+    }
+    if (message.interface() == QLatin1String("org.arinn.Texts1")) {
+      if (!texts) {
+        bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unsupported"), QStringLiteral("fixture")));
         return true;
       }
       if (member == QLatin1String("GetCatalog")) {
@@ -411,7 +413,7 @@ private slots:
   void transientTextFailuresRecoverWithoutAnotherPresentationEvent_data() {
     QTest::addColumn<QString>("method");
     QTest::addColumn<bool>("malformed");
-    for (const auto &method : {"GetCatalog", "GetTranslation", "Resolve"}) {
+    for (const auto &method : {"Providers", "GetCatalog", "GetTranslation", "Resolve"}) {
       QTest::newRow(qPrintable(QString::fromLatin1(method) + "-error")) << QString::fromLatin1(method) << false;
       QTest::newRow(qPrintable(QString::fromLatin1(method) + "-malformed")) << QString::fromLatin1(method) << true;
     }
@@ -667,6 +669,63 @@ private slots:
     QTRY_COMPARE(labels.value("aaa"), QStringLiteral("Личный Music"));
     QCOMPARE(daemon->resolves, resolves);
     QCOMPARE(labels.value("provider-01"), QStringLiteral("Личный Music"));
+  }
+
+  void dictionaryBudgetStaysIdleUntilCapacityIsFreed() {
+    QTemporaryDir sources;
+    QVERIFY(sources.isValid());
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    QVERIFY(messageQm(sources.path(), "de", "Deutsch %1"));
+    QFile input(sources.filePath("arinn/translations/overrides/de/providers/plugin/messages.qm"));
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    auto dictionary = input.readAll();
+    const auto padding = quint32(ProviderMessages::maxQmBytes - dictionary.size() - 5);
+    dictionary.append(char(0x99));
+    char size[4];
+    qToBigEndian(padding, size);
+    dictionary.append(size, 4);
+    dictionary.append(QByteArray(padding, '\0'));
+    ProviderMessages::Dictionary probe("plugin");
+    QVERIFY(probe.load(dictionary));
+    daemon->texts = true;
+    daemon->translations.insert("de", dictionary);
+    daemon->providers.clear();
+    for (int i = 0; i < 35; ++i) {
+      ProviderWire provider;
+      provider.id = QStringLiteral("provider-%1").arg(i, 2, 10, QLatin1Char('0'));
+      daemon->providers.append(provider);
+    }
+    translationLocale("de");
+    QObject owner;
+    auto *client = ProviderTextClient::instance();
+    QMap<QString, QString> labels;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      for (const auto &provider : std::as_const(daemon->providers))
+        labels[provider.id] = client->translate(provider.id, generation1, "download.job", "fixed", 3, "error_message", daemon->fixedError);
+    };
+    client->observe(&owner, publish);
+    publish();
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->resolves, 35, 10000);
+    QTRY_COMPARE_WITH_TIMEOUT(daemon->translationReads, 35, 10000);
+    QTRY_COMPARE(labels.values().count(QStringLiteral("Deutsch Music")), 34);
+    QCOMPARE(labels.value("provider-34"), daemon->fixedError);
+    // A valid immutable dictionary rejected by capacity must not be fetched
+    // repeatedly while the same 34 dictionaries still occupy the budget.
+    QTest::qWait(3300);
+    QCOMPARE(daemon->translationReads, 35);
+    daemon->providers.removeFirst();
+    auto changed = QDBusMessage::createSignal("/org/arinn/Daemon1", "org.arinn.Daemon1", "ProvidersChanged");
+    QVERIFY(QDBusConnection::sessionBus().send(changed));
+    QTRY_COMPARE(labels.value("provider-34"), QStringLiteral("Deutsch Music"));
+    QCOMPARE(daemon->translationReads, 36);
+    QCOMPARE(daemon->reads, 0);
+    QVERIFY(daemon->commands.isEmpty());
   }
 
   void staleConsumerCannotEvictTheCurrentGenerationWhileMetadataIsPending() {

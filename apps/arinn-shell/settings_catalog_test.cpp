@@ -339,6 +339,20 @@ QVariantMap rowAt(const SettingsCatalog &catalog, const QString &provider,
 class SettingsCatalogTest : public QObject {
   Q_OBJECT
 private slots:
+  void olderCoreSchemaDoesNotConfirmTheDefaultLanguage() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings[QStringLiteral("arinn")] = {setting(QStringLiteral("light_field"), QStringLiteral("appearance"),
+        QStringLiteral("boolean"), QStringLiteral("true"), QStringLiteral("{}"), true)};
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QSignalSpy changes(&catalog, &SettingsCatalog::languagePreferenceChanged);
+    catalog.refresh();
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QVERIFY(!catalog.uiLanguageKnown());
+    QCOMPARE(changes.count(), 0);
+  }
+
   void languagePreferenceComesOnlyFromCoreAndSurvivesAnUnavailableDaemon() {
     SettingsDaemon daemon;
     daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")},

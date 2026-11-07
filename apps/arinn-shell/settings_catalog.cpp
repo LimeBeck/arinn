@@ -781,12 +781,13 @@ void SettingsCatalog::readPreferences() {
   for (const auto &provider : m_providers) {
     if (!provider.ok || provider.id != QLatin1String(kDaemonProvider))
       continue;
-    languageKnown = true;
     for (const auto &setting : provider.settings) {
       const auto value = valueFor(setting.kind, setting.valueJson, false);
       if (setting.id == QLatin1String("ui_language") &&
-          (value.toString() == QLatin1String("system") || LocalTranslations::validLocale(value.toString())))
+          (value.toString() == QLatin1String("system") || LocalTranslations::validLocale(value.toString()))) {
         language = value.toString();
+        languageKnown = true;
+      }
       if (setting.id == QLatin1String("light_field") &&
           value.typeId() == QMetaType::Bool)
         light = value.toBool();

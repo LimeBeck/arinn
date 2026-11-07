@@ -74,6 +74,57 @@ only include strings you want to change. Qt Linguist can edit it. For example:
 </TS>
 ```
 
+### Export, check and compile without a checkout
+
+The installed `arinnctl` embeds the shell's editable source snapshot. Export a
+template for either domain, edit it in Qt Linguist, then compile it separately:
+
+```sh
+arinnctl translations export-shell de arinn
+arinnctl translations export-shell de music
+arinnctl translations check ~/.local/share/arinn/translations/overrides/de/shell/arinn.ts
+arinnctl translations compile ~/.local/share/arinn/translations/overrides/de/shell/arinn.ts
+```
+
+Exports default to the personal XDG override directory. An optional final output
+path chooses another destination. Export never overwrites an existing editable
+file; export an updated source snapshot to another path and merge your work in
+Qt Linguist. Every exported translation starts unfinished, including plural
+messages. There is no coverage threshold.
+
+For a registered provider, use its instance id from `arinnctl providers`:
+
+```sh
+arinnctl translations export-provider radio de
+arinnctl translations export-settings radio de
+```
+
+The provider-message command requires the optional `ProviderTexts1` contract. It
+exports id-based TS messages as `key@revision`, with source text, argument roles
+and numerus metadata, including languages the provider does not supply. Settings
+export uses the existing Settings1 schema and does not copy current values or
+credentials. It writes a source-checked JSON template whose `translation: null`
+fields remain inactive; replace a null with a string to translate that field.
+An empty description string intentionally hides that description. Settings JSON
+is used directly and needs no compilation.
+
+Both provider exports derive the stable plugin id and safe directory from the
+daemon, and recheck registration identity after reading. They never start or
+restart a provider. A legacy provider without fixed-message support can still
+use settings overlays. A failed export leaves existing translations alone.
+
+`check` validates TS structure, lookup keys, completed labels and Qt placeholders,
+or the settings JSON envelope and text bounds. It reports finished/unfinished
+counts. `compile` requires Qt 6 Linguist's `lrelease`, excludes unfinished
+messages and selects id-based compilation for provider sources. It checks the
+compiled resource's bounds/self-containment and replaces the destination `.qm`
+atomically. Failed checking/compilation preserves the previous `.qm`. File-only
+commands work while the daemon is stopped; runtime loading never runs a compiler.
+
+After compilation or a JSON edit, select *Reload translations* in the language
+picker. Source files remain beside compiled files for later corrections and
+sharing.
+
 Compile with the Qt 6 Linguist `lrelease` executable (some distributions name it
 `lrelease6`):
 
@@ -150,8 +201,9 @@ name or the locale tag is used otherwise. A saved locale stays selected if its
 files temporarily disappear; missing text falls back to English. Discovery is
 bounded to 16 roots, 512 entries per directory and 64 language choices; system,
 English, Russian and the saved choice are retained. Share these files/directories
-by any ordinary channel. Versioned bundle import/selection and source export
-tools belong to the next #846 increment; no central service is required.
+by any ordinary channel. Versioned bundle import/selection is an optional later
+extension; local source export and compilation use the commands above. No central
+service is required.
 
 ## Adding or changing strings
 

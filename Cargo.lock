@@ -245,8 +245,10 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "arinn-protocol",
+ "quick-xml",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "uuid",
  "zbus",

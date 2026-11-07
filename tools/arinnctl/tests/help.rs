@@ -26,6 +26,9 @@ fn help_succeeds_offline_on_stdout_for_root_groups_and_commands() {
         vec!["help", "browser", "activate"],
         vec!["shortcuts", "edit", "--help"],
         vec!["status", "--help"],
+        vec!["translations", "--help"],
+        vec!["translations", "export-provider", "--help"],
+        vec!["help", "translations", "compile"],
     ] {
         let output = cli(&args);
         assert_eq!(output.status.code(), Some(0), "{args:?}: {output:?}");
@@ -42,6 +45,71 @@ fn help_succeeds_offline_on_stdout_for_root_groups_and_commands() {
     let text = String::from_utf8(cli(&["browser", "activate", "--help"]).stdout).unwrap();
     assert!(text.contains("browser activate <provider> <tab>"));
     assert!(text.contains("Tab ID from"));
+}
+
+#[test]
+fn shell_translation_export_and_check_work_offline_and_preserve_edits() {
+    let root = std::env::temp_dir().join(format!(
+        "arinn-translation-offline-{}",
+        uuid::Uuid::new_v4()
+    ));
+    let source = root.join("arinn_de.ts");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_arinnctl"))
+            .args(args)
+            .env(
+                "DBUS_SESSION_BUS_ADDRESS",
+                "deliberately-invalid-test-address",
+            )
+            .output()
+            .unwrap()
+    };
+    std::fs::create_dir(&root).unwrap();
+    let output = run(&[
+        "--json",
+        "translations",
+        "export-shell",
+        "de",
+        "arinn",
+        source.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let before = std::fs::read(&source).unwrap();
+    let check = run(&["--json", "translations", "check", source.to_str().unwrap()]);
+    assert_eq!(check.status.code(), Some(0), "{check:?}");
+    let report: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(report["locale"], "de");
+    assert_eq!(report["finished"], 0);
+    assert!(report["unfinished"].as_u64().unwrap() > 100);
+    assert_eq!(
+        run(&[
+            "translations",
+            "export-shell",
+            "de",
+            "arinn",
+            source.to_str().unwrap()
+        ])
+        .status
+        .code(),
+        Some(1)
+    );
+    assert_eq!(std::fs::read(&source).unwrap(), before);
+    let malformed = root.join("malformed.ts");
+    std::fs::write(
+        &malformed,
+        "<TS language='de'><unexpected\u{1b}]52;test/></TS>",
+    )
+    .unwrap();
+    let rejected = run(&["translations", "check", malformed.to_str().unwrap()]);
+    assert_eq!(rejected.status.code(), Some(1));
+    assert!(!rejected.stderr.contains(&0x1b));
+    assert_eq!(
+        run(&["translations", "export-provider", "radio", "de"])
+            .status
+            .code(),
+        Some(3)
+    );
+    std::fs::remove_dir_all(root).unwrap();
 }
 #[test]
 fn invalid_usage_has_code_two_and_concise_stderr_guidance() {

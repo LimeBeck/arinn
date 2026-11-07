@@ -21,6 +21,41 @@ macro_rules! command {
 }
 // Help and validation share the supported command paths and argument counts.
 const COMMANDS: &[Command] = &[
+    command!(
+        "translations export-shell",
+        "<locale> <domain> [output]",
+        2,
+        3,
+        "Export editable installed shell sources (domain: arinn or music)"
+    ),
+    command!(
+        "translations export-provider",
+        "<provider> <locale> [output]",
+        2,
+        3,
+        "Export an installed provider's fixed-message TS sources"
+    ),
+    command!(
+        "translations export-settings",
+        "<provider> <locale> [output]",
+        2,
+        3,
+        "Export a provider's source-checked settings overlay template"
+    ),
+    command!(
+        "translations check",
+        "<file>",
+        1,
+        1,
+        "Check a local TS catalogue or provider settings JSON"
+    ),
+    command!(
+        "translations compile",
+        "<file> [output]",
+        1,
+        2,
+        "Check and atomically compile a TS catalogue with Qt 6 lrelease"
+    ),
     command!("status", "", 0, 0, "Show daemon status (default command)"),
     command!("providers", "", 0, 0, "List providers and their state"),
     command!("capabilities", "", 0, 0, "List registered capabilities"),
@@ -224,6 +259,10 @@ fn render(path: &str, commands: &[&Command]) -> String {
                 "browser <COMMAND>".into(),
                 "List, activate or close browser tabs",
             ));
+            rows.push((
+                "translations <COMMAND>".into(),
+                "Export, check and compile local translations",
+            ));
         }
         let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
         for (label, description) in rows {
@@ -235,6 +274,16 @@ fn render(path: &str, commands: &[&Command]) -> String {
         out.push_str("\nArguments and IDs:\n");
     }
     let argument_help = [
+        (
+            "locale",
+            "Canonical language tag, for example de, pt-BR or sr-Latn",
+        ),
+        ("domain", "Shell catalogue: arinn or music"),
+        ("file", "Local editable .ts catalogue or settings.json"),
+        (
+            "output",
+            "Destination; export defaults to personal XDG overrides and never overwrites",
+        ),
         ("provider", "Provider ID from 'arinnctl providers'"),
         (
             "application",

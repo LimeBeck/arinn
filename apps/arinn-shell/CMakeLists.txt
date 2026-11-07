@@ -65,18 +65,19 @@ target_link_libraries(arinn-ui-gallery PRIVATE Qt6::Quick)
 # The QML tests load screens directly; the keyboard panel needs its model.
 qt_add_executable(arinn-ui-test ../../tests/ui/main.cpp keyboard_model.cpp keyboard_model.h)
 target_link_libraries(arinn-ui-test PRIVATE Qt6::QuickTest Qt6::Quick Qt6::Qml Qt6::Gui)
-add_test(NAME ui-components COMMAND arinn-ui-test
-    -input "${PROJECT_SOURCE_DIR}/tests/ui")
-set_tests_properties(ui-components PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
-# Hearth light cases also live under tests/ui, so ui-components loads them
-# too. This target runs only that directory, in its own process: ui-components
-# aborts on Qt.Key_MediaPause in tst_home.qml (#733), and a separate process
-# still runs the light tests when that happens.
-add_test(NAME hearth-light COMMAND arinn-ui-test
-    -input "${PROJECT_SOURCE_DIR}/tests/ui/hearth")
-set_tests_properties(hearth-light PROPERTIES ENVIRONMENT
-    "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+# Each file runs in its own process: isolate QML singleton/input state and
+# keep the other screens running if one Qt Quick Test process aborts.
+# Register Hearth light once; it remains isolated from Home.
+file(GLOB_RECURSE ARINN_UI_TEST_FILES CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/tests/ui/tst_*.qml")
+foreach(file IN LISTS ARINN_UI_TEST_FILES)
+    file(RELATIVE_PATH suite "${PROJECT_SOURCE_DIR}/tests/ui" "${file}")
+    string(REGEX REPLACE "\\.qml$" "" suite "${suite}")
+    string(REPLACE "/" "-" suite "${suite}")
+    add_test(NAME "ui-${suite}" COMMAND arinn-ui-test -input "${file}")
+    set_tests_properties("ui-${suite}" PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+endforeach()
 add_test(NAME focus-ownership COMMAND ${CMAKE_COMMAND}
     -DSHELL_DIR=${CMAKE_CURRENT_SOURCE_DIR}
     -P "${PROJECT_SOURCE_DIR}/tests/ui/check_focus_calls.cmake")

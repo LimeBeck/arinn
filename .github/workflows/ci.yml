@@ -171,7 +171,7 @@ jobs:
           key: ci-cache-arch-${{ github.run_id }}
       - name: QML component tests
         if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --parallel 2 --output-on-failure
       - name: KWin adapter and Chrome extension tests
         if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_extension.test.cjs

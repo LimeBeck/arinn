@@ -1309,9 +1309,21 @@ TestCase {
         const sheet=findChild(view,"musicSourcesOverlay");
         catalog.busyOnTransport=true;catalog.busy=true;
         sheet.stopThenTurnOff("local");
-        wait(12000);compare(catalog.commands,[]);compare(sheet.stopFailed,"");
-        catalog.busy=false;tryCompare(catalog,"commands",["stop"]);
-        wait(5000);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
+        const watch = findChild(sheet, "musicSourceStopWatch");
+        verify(watch !== null, "stop timer found");
+        verify(watch.interval > 0);
+        // Exercise real scheduling once, then advance the timer callbacks
+        // without spending another 17 seconds on wall-clock waits.
+        tryVerify(() => watch.elapsed > 0);
+        const advance = ms => {
+            for (let elapsed = 0; elapsed < ms; elapsed += watch.interval) {
+                verify(watch.running);
+                watch.triggered();
+            }
+        };
+        advance(12000);compare(catalog.commands,[]);compare(sheet.stopFailed,"");
+        catalog.busy=false;advance(watch.interval);tryCompare(catalog,"commands",["stop"]);
+        advance(5000);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
         catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
         tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
     }

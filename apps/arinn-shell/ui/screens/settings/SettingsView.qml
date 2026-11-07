@@ -2876,6 +2876,7 @@ FocusScope {
     }
     Timer {
         id: toastTimer
+        objectName: "settingsToastTimer"
         interval: 3000
         onTriggered: {
             root.toastTitle = "";

@@ -20,6 +20,17 @@ import "ui/screens/settings" as Settings
 Window {
     id: root
     readonly property var localization: typeof shellLocalization === "undefined" ? null : shellLocalization
+    property bool translationFailurePending: false
+    function showPendingTranslationFailure() {
+        if (!translationFailurePending) return;
+        if (!localization || !localization.reloadFailed) {
+            translationFailurePending = false;
+            return;
+        }
+        if (settingsView.awaitingKey.length) return;
+        translationFailurePending = false;
+        settingsView.showToast(qsTr("Unable to reload translations"), qsTr("The previous translation is still in use. Check the file and try again."), true);
+    }
     property var clockNow: new Date()
     Timer { interval: 1000; running: true; repeat: true; onTriggered: root.clockNow = new Date() }
     Binding { target: Ui.Theme; property: "shellHour"; value: root.clockNow.getHours() }
@@ -951,10 +962,19 @@ Window {
     Connections {
         target: root.localization
         function onChanged() {
+            root.translationFailurePending = root.localization && root.localization.reloadFailed;
+            if (root.translationFailurePending) Qt.callLater(root.showPendingTranslationFailure);
             if (root.focusedScreen !== "home" || !home.navOpen) return;
             Qt.callLater(() => {
                 if (root.focusedScreen === "home" && home.navOpen) home.restoreFocus();
             });
+        }
+    }
+    Connections {
+        target: settingsView
+        function onAwaitingKeyChanged() {
+            if (root.translationFailurePending && !settingsView.awaitingKey.length)
+                Qt.callLater(root.showPendingTranslationFailure);
         }
     }
     Connections {
@@ -1401,8 +1421,6 @@ Window {
             onTranslationsReloadRequested: {
                 root.localization.reload();
                 settingsCatalog.refresh();
-                if (root.localization.reloadFailed)
-                    settingsView.showToast(qsTr("Unable to reload translations"), qsTr("The previous translation is still in use. Check the file and try again."), true);
             }
         }
         FolderBrowser { id: folderBrowser; objectName: "folderBrowser" }

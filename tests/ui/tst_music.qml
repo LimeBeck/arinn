@@ -37,6 +37,8 @@ TestCase {
             property var occurrences: []
             // As the catalogue: a command it sends makes it busy (#802).
             property bool busyOnTransport: false
+            // Session reads answered (#842); tests raise it with each read.
+            property int activeReads: 0
             function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);if(busyOnTransport)busy=true;}
         }
     }
@@ -1179,7 +1181,10 @@ TestCase {
         // The command has ended: the state read after it decides, not the
         // state from before it (Codex review of #851).
         wait(400);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
-        for(let i=0;i<2;i++){wait(150);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});}
+        // Codex review of #851: state changes that are no reads do not count.
+        for(let i=0;i<3;i++){wait(150);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});}
+        wait(300);compare(sheet.stopFailed,"");
+        for(let i=0;i<2;i++){wait(150);catalog.activeReads++;}
         const errors=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceError"&&c.visible)out.push(c.text);walk(c);}};walk(sheet);return out;};
         tryVerify(()=>errors().includes("The music could not be stopped, so the source stays on."));
         compare(room.commands[room.commands.length-1],"local:on");catalog.errorText="";

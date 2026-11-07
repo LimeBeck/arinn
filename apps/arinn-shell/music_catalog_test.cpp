@@ -946,8 +946,15 @@ private slots:
       return out;
     };
     QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
-    room.setDisabled({"local"});
+    // Codex review of #851: only answered session reads move activeReads,
+    // not a change of the turned-off sources.
+    QTRY_VERIFY(catalog.activeReads() > 0);
+    const int reads = catalog.activeReads();
     catalog.setDisabledSources({"local"});
+    QCOMPARE(catalog.activeReads(), reads);
+    catalog.refresh();
+    QTRY_VERIFY(catalog.activeReads() > reads);
+    room.setDisabled({"local"});
     QTRY_COMPARE(keys(), QStringList{"account album:z"});
     QCOMPARE(room.list("albums", QString()).size(), 1);
     const auto rows = room.sources();

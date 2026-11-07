@@ -564,11 +564,15 @@ void MusicCatalog::readActive() {
           m_commandBusy = m_commandWaitingRefresh = false;
           emit statusChanged();
         }
+        // One more session read answered (#842): counted before the state
+        // it brings is published.
+        ++m_activeReads;
         if (reply.arguments().first().toString() == QStringLiteral("null")) {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
           emit activeChanged();
+          emit activeReadsChanged();
           return;
         }
         const auto json = object(reply);
@@ -599,6 +603,7 @@ void MusicCatalog::readActive() {
           emit statusChanged();
         }
         emit activeChanged();
+        emit activeReadsChanged();
       });
 }
 void MusicCatalog::command(const QString &action, const QString &entity,

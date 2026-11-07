@@ -1,0 +1,1 @@
+- Turning off a music source: the end of a saved change is announced, so the Sources sheet stops watching for a failure once the change is stored ([#842](https://github.com/LimeBeck/arinn/issues/842)).

@@ -32,6 +32,7 @@ QString presentationId(const QString &local) {
 }
 struct ProviderWire {
   QString id = QStringLiteral("dl");
+  QString name = QStringLiteral("name");
   QDBusObjectPath path{providerPath};
   QStringList capabilities{QStringLiteral("download")};
   QString runtime = QStringLiteral("ready");
@@ -63,7 +64,7 @@ struct DownloadWire {
 };
 QDBusArgument &operator<<(QDBusArgument &a, const ProviderWire &p) {
   a.beginStructure();
-  a << p.id << QStringLiteral("plugin") << QString() << QStringLiteral("name")
+  a << p.id << QStringLiteral("plugin") << QString() << p.name
     << QStringLiteral("1") << p.path << p.capabilities << p.runtime << p.backend
     << p.generation << qulonglong(1) << QString() << qulonglong(0)
     << qulonglong(0) << qulonglong(0) << qulonglong(0);
@@ -436,6 +437,7 @@ private slots:
     QObject presentation;
     auto *client = ProviderTextClient::instance();
     const auto publish = [&] {
+      const auto fields = client->presentation(&presentation, "jobs");
       for (int i = 0; i < 520; ++i)
         client->translate("dl", generation1, "download.job", QString::number(i), 3, "error_message", "Content failure");
     };
@@ -446,6 +448,53 @@ private slots:
     QTest::qWait(150);
     QCOMPARE(daemon->resolves, resolves);
     QVERIFY(resolves <= 4);
+  }
+
+  void aDestroyedPresentationFreesItsBudgetBeforeANewOwnersFirstPass() {
+    daemon->texts = true;
+    auto *client = ProviderTextClient::instance();
+    auto *owner = new QObject;
+    const auto old = [&] {
+      const auto presentation = client->presentation(owner, "jobs");
+      for (int i = 0; i < 512; ++i)
+        client->translate("dl", generation1, "download.job", QStringLiteral("old-%1").arg(i), 3, "error_message", "Content failure");
+    };
+    client->observe(owner, old);
+    QTRY_VERIFY(([&] { old(); return daemon->resolves >= 4; })());
+    QTest::qWait(100);
+    QCOMPARE(daemon->resolves, 4);
+    delete owner;
+    QObject fresh;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&fresh, "jobs");
+      client->translate("dl", generation1, "download.job", "fresh", 4, "error_message", "New content failure");
+    };
+    client->observe(&fresh, publish);
+    publish(); // no second caller pass is needed after freeing the old lease
+    QTRY_COMPARE(daemon->resolves, 5);
+  }
+
+  void aFullPresentationCanReplaceItsSnapshotWithoutNotificationChurn() {
+    daemon->texts = true;
+    auto *client = ProviderTextClient::instance();
+    QObject owner;
+    bool replacement = false;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      for (int i = 0; i < 512; ++i)
+        client->translate("dl", generation1, "download.job", QStringLiteral("%1-%2").arg(replacement ? "new" : "old").arg(i),
+            replacement ? 4 : 3, "error_message", "Content failure");
+    };
+    client->observe(&owner, publish);
+    QTRY_VERIFY(([&] { publish(); return daemon->resolves >= 4; })());
+    QTest::qWait(50);
+    QCOMPARE(daemon->resolves, 4);
+    replacement = true;
+    publish();
+    QTRY_COMPARE(daemon->resolves, 8);
+    QTest::qWait(100);
+    QCOMPARE(daemon->resolves, 8);
+    QCOMPARE(daemon->catalogReads, 1);
   }
 
   void localizationAdmissionSettlesBeyondTheProviderBudget() {
@@ -460,6 +509,7 @@ private slots:
       daemon->providers.append(provider);
     }
     const auto publish = [&] {
+      const auto fields = client->presentation(&presentation, "providers");
       for (int i = 0; i < 65; ++i)
         client->translate(QStringLiteral("provider-%1").arg(i), generation1, "download.job", "content", 3, "error_message", "Content failure");
     };
@@ -576,6 +626,27 @@ private slots:
     for (int i = 0; i < 8; ++i) { publish(); QTest::qWait(20); }
     QCOMPARE(daemon->catalogReads, 1);
     QCOMPARE(daemon->resolves, 1);
+  }
+
+  void changedMetadataNameCannotBeReplacedByAnOlderConsumer() {
+    daemon->texts = true;
+    QObject presentation;
+    auto *client = ProviderTextClient::instance();
+    bool renamed = false;
+    const auto publish = [&] {
+      if (renamed) client->translate("dl", generation1, "provider", "self", 0, "name", "New name");
+      client->translate("dl", generation1, "provider", "self", 0, "name", "name");
+    };
+    client->observe(&presentation, publish);
+    QTRY_VERIFY(([&] { publish(); return daemon->resolves == 1; })());
+    daemon->providers[0].name = "New name";
+    renamed = true;
+    auto changed = QDBusMessage::createSignal("/org/arinn/Daemon1", "org.arinn.Daemon1", "ProvidersChanged");
+    QVERIFY(QDBusConnection::sessionBus().send(changed));
+    QTRY_COMPARE(daemon->resolves, 2);
+    for (int i = 0; i < 8; ++i) { publish(); QTest::qWait(20); }
+    QCOMPARE(daemon->catalogReads, 1);
+    QCOMPARE(daemon->resolves, 2);
   }
   void cleanup() {
     QDBusConnection::sessionBus().unregisterObject(

@@ -8,13 +8,14 @@ use crate::{
 };
 use arinn_music_common::{paths, storage::Storage};
 use arinn_plugin_sdk::runtime::{
-    MusicCatalogue, MusicHandler, MusicService, run_music_on, serve_settings, startup_settings,
+    MusicCatalogue, MusicHandler, MusicService, TextsHandler, run_music_on, serve_settings,
+    serve_texts, startup_settings,
 };
 use arinn_protocol::{
     music::{Command, Prompt, Query, State},
     validation::ErrorCode,
 };
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc};
 use tokio::sync::Mutex;
 
 // Default compatibility registration was explicitly authorized by the owner on 2026-11-04.
@@ -440,6 +441,76 @@ fn normalize(error: auth::Error) -> ErrorCode {
         _ => ErrorCode::Unavailable,
     }
 }
+impl<S: CredentialStore + 'static> TextsHandler for Service<S> {
+    fn catalog(&self) -> arinn_protocol::localization::Catalog {
+        arinn_music_common::fixed_texts::catalog(
+            "yandex-music",
+            &[
+                (
+                    "provider.name",
+                    "Yandex Music",
+                    "The installed source name, not content metadata",
+                ),
+                (
+                    "station.wave",
+                    "My Wave",
+                    "The provider's fixed personal radio station",
+                ),
+                (
+                    "station.track-radio",
+                    "Track radio",
+                    "The fixed label of a live track radio session",
+                ),
+            ],
+        )
+    }
+    fn translations(&self) -> BTreeMap<String, Vec<u8>> {
+        BTreeMap::from([("ru".into(), include_bytes!("../i18n/ru.qm").to_vec())])
+    }
+    fn resolve(
+        &self,
+        _generation: String,
+        requests: Vec<arinn_protocol::localization::TextRequest>,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Vec<arinn_protocol::localization::ResolvedText>, ErrorCode>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            use arinn_music_common::fixed_texts::{provider_name, resolved};
+            use arinn_protocol::localization::Scope;
+            // Read the last assigned projection, never call snapshot() or
+            // materialize a catalogue/HTTP request just for localization.
+            let state = self.projection.lock().await.clone();
+            let mut result = Vec::new();
+            for (index, request) in requests.iter().enumerate() {
+                let key = if provider_name(request, "Yandex Music") {
+                    Some("provider.name")
+                } else if let Some(runtime) = &self.runtime {
+                    match request.scope {
+                        Scope::MusicEntity => runtime.fixed_entity(request).await,
+                        Scope::MusicStation => {
+                            if let Some(state) = &state {
+                                runtime.fixed_station(state, request).await
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                if let Some(key) = key {
+                    result.push(resolved(index, request, key));
+                }
+            }
+            Ok(result)
+        })
+    }
+}
 impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
     fn supports_assets(&self) -> bool {
         true
@@ -598,6 +669,9 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         restore.restore(restore_start).await;
     });
     let service = MusicService::new(handler.clone());
+    serve_texts(&connection, handler.clone(), service.registrations())
+        .await
+        .map_err(|_| ErrorCode::Internal)?;
     serve_settings(
         &connection,
         crate::settings::Settings(runtime),
@@ -618,6 +692,40 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn fixed_provider_name_is_available_without_connecting_or_reading_content() {
+        use arinn_protocol::localization::{Scope, TextRequest, validate_resolved};
+        let service = Service::<crate::auth::tests::MemoryStore>::new(None);
+        let name = TextRequest {
+            scope: Scope::Provider,
+            object_id: "self".into(),
+            revision: 0,
+            field: "name".into(),
+            fallback_text: "Yandex Music".into(),
+        };
+        let requests = vec![
+            name,
+            TextRequest {
+                scope: Scope::MusicEntity,
+                object_id: "track:fixture".into(),
+                revision: 1,
+                field: "title".into(),
+                fallback_text: "My Wave".into(),
+            },
+        ];
+        let result = TextsHandler::resolve(&service, "authorized-by-sdk".into(), requests.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            result.iter().map(|r| r.request_index).collect::<Vec<_>>(),
+            [0]
+        );
+        let catalog = TextsHandler::catalog(&service);
+        validate_resolved(&catalog, &requests, &result).unwrap();
+        assert_eq!(catalog.locales, ["ru"]);
+        assert!(!TextsHandler::translations(&service)["ru"].is_empty());
+        assert!(service.projection.lock().await.is_none());
+    }
     #[tokio::test]
     async fn account_lifecycle_never_decreases_projected_revision() {
         let service: Service = Service::new(None);

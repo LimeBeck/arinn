@@ -140,7 +140,7 @@ private:
                       const QVariant &value) const;
   void readProvider(const std::shared_ptr<Load> &load, int index);
   void finishLoad(const std::shared_ptr<Load> &load);
-  void publish();
+  void publish(bool presentationOnly = false);
   void watchOperation(const QString &key, const QString &objectPath,
                       quint64 ticket, quint64 epoch);
   void settle(const QString &key, quint64 ticket, quint64 epoch,

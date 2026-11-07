@@ -307,6 +307,7 @@ const DownloadCatalog::Row *DownloadCatalog::findId(const QString &id) const {
 }
 
 void DownloadCatalog::publish() {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("jobs"));
   QVariantList jobs;
   jobs.reserve(m_rows.size());
   for (const auto &row : m_rows) {

@@ -672,6 +672,7 @@ QString MusicRoom::shelfTitle(const QString &id) const {
 }
 
 void MusicRoom::rebuild(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("shelves"));
   QVariantList shelves;
   bool dated = false;
   for (const auto &shelf : shelfDefs) {
@@ -712,6 +713,7 @@ void MusicRoom::publishLoading() {
 
 QVariantList MusicRoom::list(const QString &shelf, const QString &source,
                              bool alphabetical) const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("all"));
   auto entries = gather(shelf, source, 0);
   if (alphabetical) {
     QCollator collator;
@@ -1116,6 +1118,7 @@ void MusicRoom::continueSearch(const QString &id) {
 }
 
 void MusicRoom::rebuildSearch() {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("search"));
   QVariantList shelves;
   const std::pair<const char *, const char *> kinds[] = {
       {"artists", "artist"}, {"albums", "album"}, {"tracks", "track"}};

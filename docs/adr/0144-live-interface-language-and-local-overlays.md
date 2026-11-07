@@ -43,8 +43,9 @@ Qt aliases or unsupported languages cannot silently change dictionary identity.
 
 Local overrides live under `arinn/translations/overrides/<locale>/`: shell
 catalogues in `shell/arinn.qm` and `shell/music.qm`, provider settings in
-`providers/<pluginId>/settings.json`. Flat `arinn_<locale>.qm` and
-`music_<locale>.qm` files are also accepted for manual installation. A settings
+`providers/<plugin-directory>/settings.json` and fixed provider messages in
+`providers/<plugin-directory>/messages.qm`. Separate lower-priority flat shell
+and provider resource paths accept manually shared community files. A settings
 overlay names the stable plugin id, locale and expected English source for every
 field; an outdated field is skipped individually. Instance ids and arbitrary
 visible-text matching cannot select a provider overlay.
@@ -57,7 +58,12 @@ or application update is required for a personal translation.
 
 The concrete paths, limits, JSON envelope and edit/compile/reload instructions are
 in [Shell translations](../architecture/ui-translations.md). Versioned external
-bundles and adoption of general provider message references remain #846 work.
+bundle import remains an optional extension; the installed CLI exports editable
+sources, checks partial files and atomically compiles QMs without a checkout.
+General provider messages use private plugin dictionaries and snapshot-bound
+references from ADR-0135. Presentation ownership retains valid mixed facet
+revisions while bounding caches, and changing language rerenders references
+without repeating Resolve or reading content pages.
 
 ## Consequences
 
@@ -91,5 +97,7 @@ source guards and setting retranslation without provider calls. A Qt Quick test
 checks that Reload is keyboard-accessible and sends no setting mutation.
 Actual screen tests retain nav, tab, season and episode focus across translated
 delegate replacement, including focus from hover without changing selection.
-This ADR does not declare general provider message adoption complete or replace
-the separate real-TV acceptance procedure.
+Private-bus and real-QM tests additionally cover fixed/content separation,
+provider identity changes, retained music facets, single-pass arguments, plural
+selection, cache saturation and ownership cleanup. These automated checks do not
+replace the separate real-TV acceptance procedure.

@@ -568,8 +568,8 @@ Providers MAY expose fixed interface messages through the additive
 typed arguments distinguish fixed labels from content. A client selects the
 language, can overlay local partial translations and retains the original plain
 text when no compatible translation exists. Existing snapshot signatures stay
-unchanged. The SDK export is implemented; daemon routing and shell adoption are
-tracked by #845/#846 and are not yet implemented.
+unchanged. The SDK export, daemon routing and shell lookup are implemented by
+#853 and #863; validation and owner acceptance are tracked by #845/#846.
 
 The daemon-owned Favorites wire contract is [ADR-0084](../adr/0084-favorites-contract.md)
 and [Favorites1](../plugin-api/favorites1.xml); it implements the existing stable

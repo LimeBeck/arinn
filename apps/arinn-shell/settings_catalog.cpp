@@ -5,6 +5,7 @@
 #include "settings_catalog.h"
 #include "language_change.h"
 #include "local_translations.h"
+#include "provider_text_client.h"
 #include <QDeadlineTimer>
 #include <QInputDevice>
 #include <QJsonArray>
@@ -339,7 +340,8 @@ struct SettingsCatalog::Load {
 };
 
 SettingsCatalog::SettingsCatalog(QObject *parent) : QObject(parent) {
-  new LanguageChangeObserver(this, [this] { publish(); });
+  new LanguageChangeObserver(this, [this] { publish(true); });
+  ProviderTextClient::instance()->observe(this, [this] { publish(true); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(QString::fromLatin1(service), QString::fromLatin1(path),
               QString::fromLatin1(settingsInterface),
@@ -768,7 +770,7 @@ void SettingsCatalog::setTranslationLocale(const QString &locale) {
   if (m_translationLocale == locale || (!locale.isEmpty() && !LocalTranslations::validLocale(locale))) return;
   m_translationLocale = locale;
   emit translationLocaleChanged();
-  publish();
+  publish(true);
 }
 void SettingsCatalog::readPreferences() {
   bool light = m_lightField;
@@ -940,9 +942,12 @@ void SettingsCatalog::writeMusicDisabled() {
     emit preferencesChanged();
   }
 }
-void SettingsCatalog::publish() {
-  syncDeferred();
-  readPreferences();
+void SettingsCatalog::publish(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("names"));
+  if (!presentationOnly) {
+    syncDeferred();
+    readPreferences();
+  }
   QVariantList categories;
   QVariantList rows;
   // Parse each local envelope once per publication, including missing files.
@@ -1023,13 +1028,14 @@ void SettingsCatalog::publish() {
           live.insert(key);
           const auto currentValue =
               valueFor(setting.kind, setting.valueJson, multiple);
+          const auto originalName = sourceName(provider.id,
+              m_pluginIds.value(provider.id, provider.id), provider.name);
+          const auto providerName = daemon ? originalName : ProviderTextClient::instance()->translate(
+              provider.id, provider.generation, QStringLiteral("provider"), QStringLiteral("self"), 0,
+              QStringLiteral("name"), provider.name, originalName);
           QVariantMap row{
               {QStringLiteral("providerId"), provider.id},
-              {QStringLiteral("providerName"), sourceName(provider.id,
-                          // Until Daemon1.Providers answers, the default
-                          // instance, whose id is its plugin's.
-                          m_pluginIds.value(provider.id, provider.id),
-                          provider.name)},
+              {QStringLiteral("providerName"), providerName},
               {QStringLiteral("id"), setting.id},
               {QStringLiteral("categoryId"), setting.category},
               {QStringLiteral("title"), text(QStringLiteral("title"), setting.title)},
@@ -1066,25 +1072,27 @@ void SettingsCatalog::publish() {
       }
     }
   }
-  QSet<QString> stalePending;
-  for (const auto &key : m_pending)
-    if (!live.contains(key))
-      stalePending.insert(key);
-  for (const auto &key : stalePending)
-    m_pending.remove(key);
-  QStringList staleErrors;
-  for (auto it = m_errors.cbegin(); it != m_errors.cend(); ++it)
-    if (!live.contains(it.key()))
-      staleErrors.append(it.key());
-  for (const auto &key : staleErrors)
-    m_errors.remove(key);
-  QStringList staleDeferred;
-  for (const auto &key : m_deferred)
-    if (!live.contains(key))
-      staleDeferred.append(key);
-  for (const auto &key : staleDeferred) {
-    m_deferred.remove(key);
-    m_deferredGeneration.remove(key);
+  if (!presentationOnly) {
+    QSet<QString> stalePending;
+    for (const auto &key : m_pending)
+      if (!live.contains(key))
+        stalePending.insert(key);
+    for (const auto &key : stalePending)
+      m_pending.remove(key);
+    QStringList staleErrors;
+    for (auto it = m_errors.cbegin(); it != m_errors.cend(); ++it)
+      if (!live.contains(it.key()))
+        staleErrors.append(it.key());
+    for (const auto &key : staleErrors)
+      m_errors.remove(key);
+    QStringList staleDeferred;
+    for (const auto &key : m_deferred)
+      if (!live.contains(key))
+        staleDeferred.append(key);
+    for (const auto &key : staleDeferred) {
+      m_deferred.remove(key);
+      m_deferredGeneration.remove(key);
+    }
   }
   // A category without rows is not shown, so Settings opens on the first
   // category that has one (#756). System stays: About lives there even when

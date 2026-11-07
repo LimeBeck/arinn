@@ -145,6 +145,7 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
 }
 QString MusicCatalog::sectionTitle() const { return tr("Music"); }
 QVariantList MusicCatalog::sources() const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("sources"));
   QVariantList result;
   for (const auto &value : m_sources) {
     auto source = value.toMap();
@@ -158,6 +159,7 @@ QVariantList MusicCatalog::sources() const {
   return result;
 }
 QVariantList MusicCatalog::entries() const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("entries"));
   QVariantList result;
   for (const auto &value : m_entries) {
     auto entry = value.toMap();
@@ -168,8 +170,14 @@ QVariantList MusicCatalog::entries() const {
   }
   return result;
 }
-QVariantMap MusicCatalog::state() const { return translatedState(m_state, m_sourceId, m_generation); }
-QVariantMap MusicCatalog::activeState() const { return translatedState(m_active, m_activeId, m_activeGeneration); }
+QVariantMap MusicCatalog::state() const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("state"));
+  return translatedState(m_state, m_sourceId, m_generation);
+}
+QVariantMap MusicCatalog::activeState() const {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("active"));
+  return translatedState(m_active, m_activeId, m_activeGeneration);
+}
 // "Source · Station · Playing": the station tells a continuous station from an
 // album or a playlist on the Home card (music brief, #756 M24).
 QString MusicCatalog::statusText(const QString &status) const {

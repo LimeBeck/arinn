@@ -28,53 +28,54 @@ struct Source {
 }
 #[derive(Default)]
 struct PageFields {
-    revision: u64,
-    fields: BTreeMap<String, Option<String>>,
+    fields: BTreeMap<String, (u64, Option<String>)>,
     order: VecDeque<String>,
     bytes: usize,
 }
 impl PageFields {
     fn observe(&mut self, page: &arinn_protocol::music::Page) {
-        if page.revision < self.revision {
-            return;
-        }
-        if page.revision > self.revision {
-            *self = Self {
-                revision: page.revision,
-                ..Self::default()
-            };
-        }
         for entity in &page.entries {
-            if let Some(previous) = self.fields.get_mut(&entity.id) {
-                if previous.as_deref().is_some_and(|text| text != entity.title) {
-                    self.bytes -= previous.take().map_or(0, |text| text.len());
+            if let Some((revision, previous)) = self.fields.get_mut(&entity.id) {
+                if *revision > page.revision {
+                    continue;
                 }
-                continue;
+                if *revision == page.revision {
+                    if previous.as_deref().is_some_and(|text| text != entity.title) {
+                        self.bytes -= previous.take().map_or(0, |text| text.len());
+                    }
+                    continue;
+                }
             }
-            let bytes = entity.id.len() + entity.title.len();
+            if let Some((_, old)) = self.fields.remove(&entity.id) {
+                self.bytes -= 8 + entity.id.len() + old.map_or(0, |text| text.len());
+                self.order.retain(|id| id != &entity.id);
+            }
+            let bytes = 8 + entity.id.len() + entity.title.len();
             while self.fields.len() >= MAX_PAGE_FIELDS || self.bytes + bytes > MAX_PAGE_TEXT_BYTES {
                 let Some(old) = self.order.pop_front() else {
                     break;
                 };
-                if let Some(text) = self.fields.remove(&old) {
-                    self.bytes -= old.len() + text.map_or(0, |text| text.len());
+                if let Some((_, text)) = self.fields.remove(&old) {
+                    self.bytes -= 8 + old.len() + text.map_or(0, |text| text.len());
                 }
             }
             if bytes <= MAX_PAGE_TEXT_BYTES {
                 self.bytes += bytes;
                 self.order.push_back(entity.id.clone());
-                self.fields
-                    .insert(entity.id.clone(), Some(entity.title.clone()));
+                self.fields.insert(
+                    entity.id.clone(),
+                    (page.revision, Some(entity.title.clone())),
+                );
             }
         }
     }
     fn matches(&self, request: &TextRequest) -> bool {
-        self.revision == request.revision
-            && self
-                .fields
-                .get(&request.object_id)
-                .and_then(Option::as_deref)
-                == Some(request.fallback_text.as_str())
+        self.fields
+            .get(&request.object_id)
+            .is_some_and(|(revision, text)| {
+                *revision == request.revision
+                    && text.as_deref() == Some(request.fallback_text.as_str())
+            })
     }
 }
 struct Entry {
@@ -312,12 +313,10 @@ impl Core {
             let entry = registry.entry(target);
             for (index, request) in requests.iter().enumerate() {
                 let valid = match request.scope {
-                    Scope::MusicEntity => {
-                        entry.pages.matches(request)
-                            && music
-                                .as_ref()
-                                .is_none_or(|state| state.catalogue_revision <= request.revision)
-                    }
+                    // Materialized facets can retain different valid page
+                    // revisions. The provider decides whether it still owns
+                    // that snapshot; a newer unrelated facet is not expiry.
+                    Scope::MusicEntity => entry.pages.matches(request),
                     Scope::MusicStation => music.as_ref().is_some_and(|state| {
                         state.revision == request.revision
                             && state.station.as_ref().is_some_and(|station| {

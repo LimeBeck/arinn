@@ -14,6 +14,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QtTest>
+#include <QXmlStreamReader>
 
 namespace {
 bool catalogue(const QString &path, const QString &translation, const QString &language = QStringLiteral("ru")) {
@@ -91,6 +92,37 @@ private slots:
     QVERIFY(!ProviderMessages::reference(object, *catalog));
     object.remove("count");
     QVERIFY(!ProviderMessages::reference(object, *catalog));
+  }
+
+  void builtInProvidersShipEditableSourcesAndWorkingPrivateRussianDictionaries() {
+    for (const auto &plugin : {QStringLiteral("music-local"), QStringLiteral("yandex-music")}) {
+      const auto base = QStringLiteral(ARINN_SHELL_SOURCE) + QStringLiteral("/../../plugins/") + plugin + QStringLiteral("/i18n/ru");
+      QFile qm(base + QStringLiteral(".qm")), ts(base + QStringLiteral(".ts"));
+      QVERIFY(qm.open(QIODevice::ReadOnly) && ts.open(QIODevice::ReadOnly));
+      ProviderMessages::Dictionary dictionary(plugin);
+      QVERIFY(dictionary.load(qm.readAll()));
+      QXmlStreamReader xml(ts.readAll());
+      QString id, source, translated;
+      int messages = 0;
+      while (!xml.atEnd()) {
+        xml.readNext();
+        if (xml.isStartElement()) {
+          if (xml.name() == QLatin1String("message")) {
+            id = xml.attributes().value("id").toString();
+            source.clear();
+            translated.clear();
+          } else if (xml.name() == QLatin1String("source")) source = xml.readElementText();
+          else if (xml.name() == QLatin1String("translation")) translated = xml.readElementText();
+        } else if (xml.isEndElement() && xml.name() == QLatin1String("message")) {
+          QVERIFY(!id.isEmpty() && !source.isEmpty() && !translated.isEmpty());
+          QCOMPARE(dictionary.lookup(id, -1), translated);
+          QVERIFY(dictionary.lookup(source, -1).isEmpty());
+          ++messages;
+        }
+      }
+      QVERIFY(!xml.hasError());
+      QVERIFY(messages >= 2);
+    }
   }
 
   void providerDictionariesArePrivateLayeredAndFormatArgumentsOnce() {

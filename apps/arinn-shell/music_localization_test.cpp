@@ -1,6 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Arinn contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "music_room.h"
+#include "provider_text_client.h"
+#include <QFile>
+#include <QLibraryInfo>
+#include <QProcess>
+#include <QTemporaryDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -27,6 +32,7 @@ public:
   int reads = 0, commands = 0;
   int entryCount = 1;
   bool continuation = false;
+  bool retainedFacets = false;
   QString introspect(const QString &) const override { return {}; }
   bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
     if (message.member() == QLatin1String("Command")) {
@@ -40,6 +46,7 @@ public:
       result = {{"revision", 1}, {"catalogue_revision", 1}, {"backend", "available"},
                 {"account", "local"}, {"actions", QJsonArray{"scan"}},
                 {"facets", QJsonArray{"albums", "artists", "tracks"}}};
+      if (retainedFacets) { result.insert("catalogue_revision", 12); result.insert("facets", QJsonArray{"selections", "albums", "artists", "tracks"}); }
     } else if (message.member() == QLatin1String("GetPage")) {
       ++reads;
       const auto query = QJsonDocument::fromJson(message.arguments().at(1).toString().toUtf8()).object();
@@ -47,12 +54,15 @@ public:
       const auto kind = facet == QLatin1String("albums") ? "album"
                       : facet == QLatin1String("artists") ? "artist" : "track";
       QJsonArray entries;
+      if (retainedFacets && facet == QLatin1String("selections"))
+        entries.append(QJsonObject{{"id", "fixed-wave"}, {"kind", "station"}, {"title", "My Wave"}, {"available", true}});
       if (facet != QLatin1String("selections"))
         for (int index = 0; index < entryCount; ++index)
           entries.append(QJsonObject{{"id", facet + ":" + QString::number(index + 1)}, {"kind", kind},
-                                    {"title", "Content title"}, {"available", true}});
+                                    {"title", retainedFacets ? "My Wave" : "Content title"}, {"available", true}});
       result = {{"generation", "generation"}, {"revision", 1},
                 {"entries", entries}, {"next_token", continuation ? "next" : ""}};
+      if (retainedFacets) result.insert("revision", facet == QLatin1String("selections") ? 10 : 12);
     } else {
       return false;
     }
@@ -60,6 +70,66 @@ public:
     return true;
   }
 };
+struct RegisteredSource {};
+QDBusArgument &operator<<(QDBusArgument &arg, const RegisteredSource &) {
+  arg.beginStructure();
+  arg << QStringLiteral("source") << QStringLiteral("fixture") << QString() << QStringLiteral("Provider content name")
+      << QStringLiteral("1") << QDBusObjectPath("/synthetic/music") << QStringList{"music"}
+      << QStringLiteral("ready") << QStringLiteral("available") << QStringLiteral("generation")
+      << qulonglong(1) << QString() << qulonglong(0) << qulonglong(0) << qulonglong(0) << qulonglong(0);
+  arg.endStructure();
+  return arg;
+}
+const QDBusArgument &operator>>(const QDBusArgument &arg, RegisteredSource &) { return arg; }
+class TextRoot : public QDBusVirtualObject {
+public:
+  QMap<QString, QByteArray> translations;
+  int resolves = 0;
+  QString introspect(const QString &) const override { return {}; }
+  bool handleMessage(const QDBusMessage &message, const QDBusConnection &bus) override {
+    if (message.member() == QLatin1String("Providers")) {
+      QDBusArgument body;
+      body.beginStructure();
+      body << QStringLiteral("registry");
+      body.beginArray(QMetaType::fromType<RegisteredSource>());
+      body << RegisteredSource{};
+      body.endArray();
+      body << QString();
+      body.endStructure();
+      bus.send(message.createReply(QVariant::fromValue(body)));
+    } else if (message.member() == QLatin1String("GetCatalog")) {
+      bus.send(message.createReply(QVariantList{QStringLiteral("generation"), QStringLiteral(R"JSON({"formatVersion":1,"pluginId":"fixture","sourceLocale":"en","locales":["de","ru"],"messages":{"wave":{"revision":1,"source":"My Wave"}}})JSON")}));
+    } else if (message.member() == QLatin1String("GetTranslation")) {
+      bus.send(message.createReply(translations.value(message.arguments().value(2).toString())));
+    } else if (message.member() == QLatin1String("Resolve")) {
+      ++resolves;
+      QJsonArray resolved;
+      const auto requests = QJsonDocument::fromJson(message.arguments().value(2).toString().toUtf8()).array();
+      for (qsizetype i = 0; i < requests.size(); ++i) {
+        const auto request = requests.at(i).toObject();
+        if (request.value("objectId") == QJsonValue(QStringLiteral("fixed-wave")) && request.value("revision").toInteger() == 10)
+          resolved.append(QJsonObject{{"requestIndex", i}, {"fallbackText", "My Wave"}, {"message", QJsonObject{{"messageKey", "wave"}, {"messageRevision", 1}}}});
+      }
+      const auto reply = message.createReply(QString::fromUtf8(QJsonDocument(resolved).toJson(QJsonDocument::Compact)));
+      QTimer::singleShot(80, [bus, reply] { bus.send(reply); });
+    } else return false;
+    return true;
+  }
+};
+QByteArray waveQm(const QString &locale, const QString &translation) {
+  QTemporaryDir directory;
+  QFile source(directory.filePath("messages.ts"));
+  if (!source.open(QIODevice::WriteOnly)) return {};
+  source.write(QStringLiteral("<TS version=\"2.1\" language=\"%1\"><context><name></name><message id=\"wave@1\"><source>My Wave</source><translation>%2</translation></message></context></TS>").arg(locale, translation.toHtmlEscaped()).toUtf8());
+  source.close();
+  const auto output = directory.filePath("messages.qm");
+  QProcess compiler;
+  compiler.start(QLibraryInfo::path(QLibraryInfo::BinariesPath) + QStringLiteral("/lrelease"),
+      {QStringLiteral("-idbased"), source.fileName(), QStringLiteral("-qm"), output});
+  if (!compiler.waitForFinished(10000) || compiler.exitCode() != 0) return {};
+  QFile qm(output);
+  return qm.open(QIODevice::ReadOnly) ? qm.readAll() : QByteArray{};
+}
 class Translation : public QTranslator {
 public:
   bool isEmpty() const override { return false; }
@@ -90,6 +160,53 @@ QQuickItem *namedItem(QQuickItem *parent, const QString &name) {
 class MusicLocalizationTest : public QObject {
   Q_OBJECT
 private slots:
+  void retainedFacetRevisionsTranslateTogetherWithoutReadingPagesOnALanguageSwitch() {
+    delete ProviderTextClient::instance();
+    qDBusRegisterMetaType<RegisteredSource>();
+    auto bus = QDBusConnection::sessionBus();
+    QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));
+    Script script;
+    script.retainedFacets = true;
+    TextRoot root;
+    root.translations.insert("de", waveQm("de", "Meine Welle"));
+    root.translations.insert("ru", waveQm("ru", "Моя волна"));
+    QVERIFY(!root.translations.value("de").isEmpty() && !root.translations.value("ru").isEmpty());
+    QVERIFY(bus.registerVirtualObject("/synthetic/music", &script));
+    QVERIFY(bus.registerVirtualObject("/org/arinn/Daemon1", &root));
+    const auto oldTag = qApp->property("arinn.translationLocale");
+    const auto oldLocale = QLocale();
+    const auto cleanup = qScopeGuard([&] {
+      bus.unregisterObject("/synthetic/music");
+      bus.unregisterObject("/org/arinn/Daemon1");
+      bus.unregisterService("org.arinn.Daemon1");
+      QLocale::setDefault(oldLocale);
+      qApp->setProperty("arinn.translationLocale", oldTag);
+    });
+    qApp->setProperty("arinn.translationLocale", QStringLiteral("de"));
+    QLocale::setDefault(QLocale("de"));
+    SourceList catalog;
+    catalog.rows = {QVariantMap{{"id", "source"}, {"name", "Provider content name"},
+        {"path", "/synthetic/music"}, {"generation", "generation"}, {"ready", true}}};
+    MusicRoom room;
+    room.setActive(false);
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(!room.loading());
+    QTRY_COMPARE(room.list("recent").size(), 1);
+    QTRY_COMPARE(room.list("stations").size(), 1);
+    QTRY_COMPARE(room.list("stations").first().toMap().value("title").toString(), QStringLiteral("Meine Welle"));
+    QCOMPARE(room.list("recent").first().toMap().value("title").toString(), QStringLiteral("My Wave"));
+    QTest::qWait(120);
+    const auto reads = script.reads, resolves = root.resolves;
+    qApp->setProperty("arinn.translationLocale", QStringLiteral("ru"));
+    QLocale::setDefault(QLocale("ru"));
+    QEvent event(QEvent::LanguageChange);
+    QCoreApplication::sendEvent(qApp, &event);
+    QTRY_COMPARE(room.list("stations").first().toMap().value("title").toString(), QStringLiteral("Моя волна"));
+    QCOMPARE(room.list("recent").first().toMap().value("title").toString(), QStringLiteral("My Wave"));
+    QCOMPARE(script.reads, reads);
+    QCOMPARE(root.resolves, resolves);
+    QCOMPARE(script.commands, 0);
+  }
   void openAllListRetranslatesAndKeepsItsCardAndTabWithoutPaging() {
     auto bus = QDBusConnection::sessionBus();
     QVERIFY(bus.registerService(QStringLiteral("org.arinn.Daemon1")));

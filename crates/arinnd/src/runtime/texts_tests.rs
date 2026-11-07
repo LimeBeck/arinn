@@ -545,7 +545,7 @@ async fn owner_changes_during_translation_or_resolution_reject_the_reply() {
 }
 
 #[tokio::test]
-async fn station_associations_use_the_state_revision_and_invalidate_old_pages() {
+async fn station_associations_use_the_state_revision_beside_retained_pages() {
     let f = Fixture::new(true).await;
     f.observe(7, &["fixed-section"]).await;
     let station = page(&f.generation, 7, &["fixed-station"]).entries.remove(0);
@@ -577,8 +577,66 @@ async fn station_associations_use_the_state_revision_and_invalidate_old_pages() 
         .await
         .unwrap();
     let resolved = localization::resolved_from_json(&catalog(), &requests, &reply).unwrap();
-    assert_eq!(resolved.len(), 1);
-    assert_eq!(resolved[0].request_index, 1);
+    assert_eq!(resolved.len(), 2);
+    assert_eq!(resolved[0].request_index, 0);
+    assert_eq!(resolved[1].request_index, 1);
+}
+
+#[tokio::test]
+async fn retained_facet_proofs_survive_newer_pages_but_not_eviction_or_ambiguity_during_resolve() {
+    for mode in ["new-facet", "evicted", "ambiguous"] {
+        let f = Fixture::new(true).await;
+        f.observe(7, &["fixed-section"]).await;
+        f.api().await.get_catalog("radio").await.unwrap();
+        f.raw.data.lock().unwrap().block = "resolve";
+        let requests = vec![request("fixed-section", 7)];
+        let payload = localization::requests_to_json(&requests).unwrap();
+        let call = async {
+            f.api()
+                .await
+                .resolve("radio", &f.generation, &payload)
+                .await
+                .unwrap()
+        };
+        let update = async {
+            f.raw.entered.notified().await;
+            f.observe(12, &["content-track"]).await;
+            f.core
+                .music
+                .cache(
+                    "radio",
+                    &f.generation,
+                    f.provider.unique_name().unwrap().as_str(),
+                    arinn_protocol::music::State {
+                        revision: 40,
+                        catalogue_revision: 12,
+                        ..Default::default()
+                    },
+                )
+                .await;
+            if mode == "evicted" {
+                for index in 0..MAX_PAGE_FIELDS + 1 {
+                    f.observe(12, &[&format!("content-{index}")]).await;
+                }
+            } else if mode == "ambiguous" {
+                let mut changed = page(&f.generation, 7, &["fixed-section"]);
+                changed.entries[0].title = "Changed under the same revision".into();
+                f.core
+                    .remember_text_page(
+                        "radio",
+                        &f.generation,
+                        f.provider.unique_name().unwrap().as_str(),
+                        &changed,
+                    )
+                    .await
+                    .unwrap();
+            }
+            f.raw.release.notify_one();
+        };
+        let (reply, _) = tokio::join!(call, update);
+        let resolved = localization::resolved_from_json(&catalog(), &requests, &reply).unwrap();
+        assert_eq!(resolved.len(), usize::from(mode == "new-facet"), "{mode}");
+    }
 }
 
 #[tokio::test]
@@ -769,6 +827,11 @@ fn observed_page_fields_are_bounded_and_revision_reuse_does_not_rebind_text() {
     let mut fields = PageFields::default();
     fields.observe(&page("generation", 7, &["fixed-one"]));
     assert!(fields.matches(&request("fixed-one", 7)));
+    fields.observe(&page("generation", 12, &["fixed-other"]));
+    assert!(fields.matches(&request("fixed-one", 7)));
+    assert!(fields.matches(&request("fixed-other", 12)));
+    fields.observe(&page("generation", 6, &["fixed-older-facet"]));
+    assert!(fields.matches(&request("fixed-older-facet", 6)));
     let mut changed = page("generation", 7, &["fixed-one"]);
     changed.entries[0].title = "Different text".into();
     fields.observe(&changed);

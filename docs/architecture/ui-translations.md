@@ -238,12 +238,28 @@ language does not repeat Resolve or read content pages. Metadata calls have a
 three-second deadline, at most four are active, and batches hold at most 128
 fields/240 KiB. The presentation cache admits at most 64 provider identities,
 512 associations and 4 MiB of encoded references, plus 8 MiB of QM bytes. Excess
-fields preserve plaintext. Admission is stable during its own repaint notices;
-new snapshot revisions retire old fields, registry discovery removes departed
+fields preserve plaintext. Models retain the fields of each current presentation
+in at most 512 separate channels; different valid facet revisions coexist. Replacing
+a presentation retires fields no view retains, while its own repaint notices
+do not evict the same working set. Registry discovery removes departed
 identities, and language changes retire obsolete dictionaries before loading
 new personal layers. A normal provider status change preserves unchanged
 identities. Last-good local message dictionaries survive a corrupt replacement;
 deleting one deliberately restores fallback.
+
+The bundled Local music and Yandex Music providers export their source names
+and source-owned station labels. They always publish English fixed fallbacks;
+their process locale no longer chooses the label. Russian TS sources and the
+corresponding compiled private QMs live in each provider's `i18n/` directory,
+and the QM bytes are embedded in its existing executable. Recompile a bundled
+TS with `arinnctl translations compile <path/to/ru.ts>`; provider compilation
+itself needs no Qt dependency. Tests load the actual embedded resources and
+check the source messages. Yandex's stored pin titles retain their delivered
+content when provenance is unknown, even if a title resembles a fixed label;
+a live rotor session supplies explicit evidence for its fixed station label.
+Settings source names use the same provider lookup, with the existing known
+names as compatibility fallback. A presentation-only settings refresh does not
+advance pending preference writes.
 
 An optional `overrides/<locale>/language.json` (at most 4 KiB) can supply a name:
 

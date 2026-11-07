@@ -42,18 +42,24 @@ by the daemon, only up to 64 locale size/digest records per retained entry.
 ## Snapshot associations
 
 `Resolve` parses and bounds the original request list before calling a provider.
-The daemon forwards only fields it can bind to the current publication:
+The daemon forwards only fields it can bind to an observed original publication:
 
 | Scope | Binding |
 | --- | --- |
 | `provider` | Generation-bound provider metadata. The name must also agree with the current ProviderInfo; the optional description is declared by the provider because the current ProviderInfo has no description field |
-| `music.entity` | A validated, forwarded music page with the same catalogue revision, local entity id and title; a newer observed catalogue invalidates it |
+| `music.entity` | A retained validated music page with the same Page.revision, local entity id and title; independent materialized facets may have different valid revisions |
 | `music.station` | The current cached music state revision, station id and title |
 | `media.session` | The current media snapshot revision, local session id and title |
 | `download.job` | The current projected download revision, local job id and error text, mapped to the original job publication revision |
 
 The page observer retains at most 512 entity fields and 256 KiB of ids/titles
-per provider. It drops older catalogue revisions, bounds retained pages, and
+per provider, bound to `(Page.revision, entity id)`. A newer observed version
+of the same id supersedes its old proof, including a provenance-only change;
+it does not discard unrelated ids from other facets. The Music API retains
+independent immutable materialization leases, so a newer page or
+`State.catalogue_revision` alone does not expire an older observed page.
+The provider remains authoritative about which original snapshots it still
+recognizes and omits expired provenance. The observer bounds retained pages and
 refuses to rebind an id to different text under the same revision. Eviction
 omits localization for an unretained field; it does not remove content. Ordinary
 titles are still candidates only: the provider must omit content from its

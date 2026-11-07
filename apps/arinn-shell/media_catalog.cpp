@@ -562,6 +562,7 @@ void MediaCatalog::syncClock() {
   }
 }
 void MediaCatalog::publish(bool presentationOnly) {
+  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("sessions"));
   if (const auto *row = findId(m_releaseRow.id);
       row && row->generation != m_releaseRow.generation)
     m_releaseRow = {};

@@ -3,6 +3,7 @@
 
 //! Provider-private domain primitives, not a D-Bus or SDK contract.
 //! Stream URLs, headers, tokens and filesystem paths never belong in Track.
+pub mod fixed_texts;
 pub mod paths;
 pub mod playback;
 pub mod player;

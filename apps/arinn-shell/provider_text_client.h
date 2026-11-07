@@ -34,6 +34,7 @@ class ProviderTextClient final : public QObject {
     Request request;
     std::optional<ProviderMessages::Reference> reference;
     bool pending = false, complete = false;
+    bool owned = false;
     qsizetype cost = 0;
   };
   struct Provider {
@@ -43,12 +44,17 @@ class ProviderTextClient final : public QObject {
     QMap<QString, std::shared_ptr<ProviderMessages::Dictionary>> dictionaries;
     QStringList localPaths;
     QSet<QString> remotePending, remoteAbsent;
-    QMap<QString, quint64> revisions;
     QString locale;
     bool catalogPending = false, unsupported = false;
     qint64 retryAt = 0;
   };
   using Key = QPair<QString, QString>;
+  using Context = QPair<quintptr, QString>;
+  using Fields = QMap<Key, QSet<QByteArray>>;
+  struct Frame { Context context; Fields fields; Frame *previous = nullptr; };
+  struct Lease { QPointer<QObject> owner; Fields fields; };
+  QMap<Context, Lease> m_leases;
+  Frame *m_recording = nullptr;
   struct Subscriber { QPointer<QObject> owner; std::function<void()> changed; };
   QMap<Key, std::shared_ptr<Provider>> m_providers;
   QList<Subscriber> m_subscribers;
@@ -60,6 +66,7 @@ class ProviderTextClient final : public QObject {
   bool m_registryKnown = false;
   qint64 m_registryRetryAt = 0;
   QMap<QString, QPair<QString, QString>> m_identities;
+  QMap<QString, QString> m_names;
   static constexpr auto service = "org.arinn.Daemon1";
   static constexpr auto path = "/org/arinn/Daemon1";
   static constexpr auto interface = "org.arinn.Texts1";
@@ -95,10 +102,12 @@ class ProviderTextClient final : public QObject {
     ++m_epoch;
     m_owner = owner;
     m_providers.clear();
+    m_leases.clear();
     m_registryPending = m_registryKnown = false;
     m_registryDirty = true;
     m_registryRetryAt = 0;
     m_identities.clear();
+    m_names.clear();
     // Old calls still consume their slot until their bounded reply arrives.
     notify();
     schedule();
@@ -122,6 +131,8 @@ class ProviderTextClient final : public QObject {
     QString snapshot;
     QSet<QString> tokens;
     QMap<QString, QPair<QString, QString>> identities; // id -> generation, plugin
+    QMap<QString, QString> names;
+    qsizetype bytes = 0;
     int pages = 0;
   };
   void readRegistry(const std::shared_ptr<Registry> &registry, const QString &token = {}) {
@@ -155,8 +166,11 @@ class ProviderTextClient final : public QObject {
         arg >> id >> plugin >> source >> name >> version >> endpoint >> capabilities >> runtime >> backend >> generation >> revision >> error >> errorAt >> recovered >> restarts >> cumulative;
         arg.endStructure();
         if (id.isEmpty() || id.toUtf8().size() > 256 || LocalTranslations::pluginDirectory(plugin).isEmpty() ||
-            generation.toUtf8().size() > 128 || registry->identities.contains(id) || registry->identities.size() >= 4096) return;
+            generation.toUtf8().size() > 128 || name.toUtf8().size() > 8192 || registry->identities.contains(id) || registry->identities.size() >= 4096) return;
+        registry->bytes += id.toUtf8().size() + plugin.toUtf8().size() + generation.toUtf8().size() + name.toUtf8().size();
+        if (registry->bytes > 4 * 1024 * 1024) return;
         registry->identities.insert(id, {generation, plugin});
+        registry->names.insert(id, name);
       }
       arg.endArray();
       arg >> next;
@@ -168,8 +182,9 @@ class ProviderTextClient final : public QObject {
         readRegistry(registry, next);
         return;
       }
-      bool changed = !m_registryKnown || m_identities != registry->identities;
+      bool changed = !m_registryKnown || m_identities != registry->identities || m_names != registry->names;
       m_identities = registry->identities;
+      m_names = registry->names;
       m_registryKnown = true;
       m_registryRetryAt = 0;
       for (auto it = m_providers.begin(); it != m_providers.end();) {
@@ -178,7 +193,13 @@ class ProviderTextClient final : public QObject {
             (it.value()->catalog && identity->second != it.value()->catalog->pluginId)) {
           it = m_providers.erase(it);
           changed = true;
-        } else ++it;
+        } else {
+          auto &fields = it.value()->fields;
+          for (auto field = fields.begin(); field != fields.end();)
+            field = field->request.scope == QLatin1String("provider") && field->request.field == QLatin1String("name") &&
+                field->request.fallback != m_names.value(it.key().first) ? fields.erase(field) : std::next(field);
+          ++it;
+        }
       }
       successful = true;
       if (changed) notify();
@@ -190,19 +211,57 @@ class ProviderTextClient final : public QObject {
       for (const auto &dictionary : p->dictionaries) total += dictionary->byteSize();
     return total;
   }
-  bool reserveReference(qsizetype bytes, int additionalCount = 1) {
-    qsizetype total = bytes;
-    int count = additionalCount;
-    for (const auto &p : m_providers) {
-      for (const auto &field : p->fields) {
-        total += field.cost;
-        ++count;
-      }
+  bool retainedElsewhere(const Key &provider, const QByteArray &key, const Context &except) const {
+    for (auto it = m_leases.begin(); it != m_leases.end(); ++it)
+      if (it.key() != except && it->owner && it->fields.value(provider).contains(key)) return true;
+    for (auto *frame = m_recording; frame; frame = frame->previous)
+      if (frame->fields.value(provider).contains(key)) return true;
+    return false;
+  }
+  void collectUnretained() {
+    for (auto p = m_providers.begin(); p != m_providers.end(); ++p) {
+      for (auto field = p.value()->fields.begin(); field != p.value()->fields.end();)
+        field = field->owned && !retainedElsewhere(p.key(), field.key(), {})
+            ? p.value()->fields.erase(field) : std::next(field);
     }
-    // Stable admission: own repaint notifications must not evict and
-    // re-request a presentation larger than the cache. A newer owning
-    // revision retires its old fields; excess fields keep plaintext.
-    return total <= referenceBudget && count <= 512;
+  }
+  void finishPresentation(QObject *owner, Frame *frame) {
+    m_recording = frame->previous;
+    m_leases.insert(frame->context, {owner, std::move(frame->fields)});
+    for (auto it = m_leases.begin(); it != m_leases.end();)
+      it = it->owner ? std::next(it) : m_leases.erase(it);
+    collectUnretained();
+  }
+  bool reserveReference(qsizetype bytes, int additionalCount = 1) {
+    for (;;) {
+      qsizetype total = bytes;
+      int count = additionalCount;
+      for (const auto &p : m_providers) {
+        for (const auto &field : p->fields) {
+          total += field.cost;
+          ++count;
+        }
+      }
+      if (total <= referenceBudget && count <= 512) return true;
+      bool retired = false;
+      if (m_recording) {
+        // An updated model may replace its previous presentation, but never
+        // evict a field already seen in this pass or retained by another
+        // view. This keeps oversized static presentations from churning.
+        const auto previous = m_leases.value(m_recording->context).fields;
+        for (auto p = m_providers.begin(); p != m_providers.end() && !retired; ++p) {
+          for (auto field = p.value()->fields.begin(); field != p.value()->fields.end(); ++field) {
+            if (field->owned && previous.value(p.key()).contains(field.key()) &&
+                !retainedElsewhere(p.key(), field.key(), m_recording->context)) {
+              p.value()->fields.erase(field);
+              retired = true;
+              break;
+            }
+          }
+        }
+      }
+      if (!retired) return false;
+    }
   }
   void loadLocal(const std::shared_ptr<Provider> &p) {
     if (!p->catalog) return;
@@ -398,6 +457,35 @@ class ProviderTextClient final : public QObject {
     });
   }
 public:
+  class Presentation {
+    ProviderTextClient *m_client = nullptr;
+    QObject *m_owner = nullptr;
+    bool m_retained = false;
+    Frame m_frame;
+    friend class ProviderTextClient;
+    Presentation(ProviderTextClient *client, const QObject *owner, const QString &channel) {
+      const Context context{reinterpret_cast<quintptr>(owner), channel};
+      for (auto it = client->m_leases.begin(); it != client->m_leases.end();)
+        it = it->owner ? std::next(it) : client->m_leases.erase(it);
+      client->collectUnretained();
+      m_client = client;
+      m_owner = const_cast<QObject *>(owner);
+      m_frame.context = context;
+      m_frame.previous = client->m_recording;
+      m_retained = owner && (client->m_leases.size() < 512 || client->m_leases.contains(context));
+      client->m_recording = m_retained ? &m_frame : nullptr;
+    }
+  public:
+    Presentation(const Presentation &) = delete;
+    Presentation &operator=(const Presentation &) = delete;
+    ~Presentation() {
+      if (m_retained) m_client->finishPresentation(m_owner, &m_frame);
+      else if (m_client) m_client->m_recording = m_frame.previous;
+    }
+  };
+  Presentation presentation(const QObject *owner, const QString &channel) {
+    return Presentation(this, owner, channel);
+  }
   static ProviderTextClient *instance() {
     static QPointer<ProviderTextClient> client;
     if (!client) client = new ProviderTextClient(qApp);
@@ -413,6 +501,7 @@ public:
     const auto plain = displayFallback.value_or(fallback);
     if (m_owner.isEmpty() || generation.isEmpty() || !ProviderMessages::text(fallback)) return plain;
     if (m_registryKnown && m_identities.value(provider).first != generation) return plain;
+    if (m_registryKnown && scope == QLatin1String("provider") && field == QLatin1String("name") && m_names.value(provider) != fallback) return plain;
     const Key identity{provider, generation};
     auto p = m_providers.value(identity);
     if (!p) {
@@ -421,15 +510,6 @@ public:
       p->id = provider;
       p->generation = generation;
       m_providers.insert(identity, p);
-    }
-    if (revision) {
-      const auto latest = p->revisions.value(scope);
-      if (revision < latest) return plain;
-      if (revision > latest) {
-        p->revisions.insert(scope, revision);
-        for (auto it = p->fields.begin(); it != p->fields.end();)
-          it = it->request.scope == scope && it->request.revision != revision ? p->fields.erase(it) : std::next(it);
-      }
     }
     const Request request{scope, id, field, fallback, revision};
     for (auto it = p->fields.begin(); it != p->fields.end();)
@@ -440,7 +520,11 @@ public:
     auto it = p->fields.find(key);
     if (it == p->fields.end()) {
       if (wire.size() > ProviderMessages::maxJsonBytes || !reserveReference(wire.size())) return plain;
-      it = p->fields.insert(key, {request, {}, false, false, wire.size()});
+      it = p->fields.insert(key, {request, {}, false, false, false, wire.size()});
+    }
+    if (m_recording) {
+      m_recording->fields[identity].insert(key);
+      it->owned = true;
     }
     schedule();
     if (!p->catalog || !it->reference) return plain;

@@ -434,7 +434,9 @@ image. Whether a station's info names one is asked once per connection, at
 most eight stations at a time under one shared 3-second deadline that never
 runs past the listing's own 30-second budget: the Selections listing asks
 for its required playlists first. Only a well-formed station that names no
-image counts as "no image"; a malformed answer is a failed lookup; a failed or
+image counts as "no image", as does a reference the cover route would refuse
+(another host, or over 16 KiB), so the memo holds only usable references; a
+malformed answer is a failed lookup; a failed or
 slow answer leaves the station without artwork. Such a listing is marked
 incomplete in the catalogue cache. Once a minute has passed, the next state
 announces one new catalogue revision, so the shell asks for the listing

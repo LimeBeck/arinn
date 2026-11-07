@@ -1935,6 +1935,27 @@ mod tests {
         drop(d);
         mock.finish();
     }
+    /// Codex review of #849: only a reference the cover route accepts is
+    /// remembered; an oversized one or one on another host counts as no
+    /// image and is not kept.
+    #[tokio::test]
+    async fn only_usable_station_images_are_remembered() {
+        let huge = format!("avatars.yandex.net/{}/%%", "x".repeat(20 * 1024));
+        let mock = Mock::new(vec![
+            response_with(json!([{"station":{"icon":{"imageUrl": huge}}}])),
+            response_with(json!([{"station":{"icon":{"imageUrl":"images.example.com/1/%%"}}}])),
+            response_with(
+                json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/x/%%"}}}]),
+            ),
+        ]);
+        assert_eq!(mock.api.station_image("track:1").await.unwrap(), None);
+        assert_eq!(mock.api.station_image("track:2").await.unwrap(), None);
+        assert!(mock.api.station_image("track:3").await.unwrap().is_some());
+        let known = mock.api.station_images.lock().unwrap().clone();
+        assert_eq!(known.get("track:1"), Some(&None));
+        assert!(known.values().flatten().all(|r| r.len() <= 16 * 1024));
+        mock.finish();
+    }
     /// Codex review of #849: a full station memo makes room for one more
     /// station by dropping a single entry, never the whole memo.
     #[tokio::test]

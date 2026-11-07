@@ -305,7 +305,12 @@ impl Api {
         let info = self
             .request(Method::GET, &["rotor", "station", key, "info"], &[])
             .await?;
-        let image = parse::station_image(&info)?.map(str::to_owned);
+        // Only a reference the cover route accepts is kept: an allowed host
+        // and at most 16 KiB. Anything else could never be shown and counts
+        // as no image, so the memo stays small (Codex review of #849).
+        let image = parse::station_image(&info)?
+            .filter(|reference| stream::cover_url(reference).is_ok())
+            .map(str::to_owned);
         let mut known = self.station_images.lock().map_err(|_| Error::Unavailable)?;
         // A bounded memo with room for every pin (256), My Wave and the
         // radios started in one connection; past that only one entry makes

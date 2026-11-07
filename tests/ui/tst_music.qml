@@ -67,6 +67,7 @@ TestCase {
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             property bool sourcesSwitchable: true
+            property var disabled: []
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             // As Main stores the choice and MusicRoom lists an off source last (#842).
             function setSourceEnabled(source,enabled) {commands=commands.concat([source+":"+(enabled?"on":"off")]);
@@ -1267,6 +1268,28 @@ TestCase {
             const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
             tryVerify(()=>mat.mapToItem(view,mat.width,0).x+Ui.Theme.rimThickness<=1920-Ui.Theme.safeRight,
                       2000,"card "+(i+1)+": "+mat.mapToItem(view,mat.width,0).x);}
+    }
+    // Codex review of #851: while one turn-off is in progress the others
+    // wait; and a list that would not fit the setting is refused before
+    // anything stops.
+    function test_one_turn_off_at_a_time_and_only_what_fits() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";catalog.busyOnTransport=true;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);
+        sheet.stopThenTurnOff("local");tryCompare(catalog,"commands",["stop"]);
+        verify(off().every(pill=>!pill.enabled));
+        sheet.act(room.sources[1],"off");wait(200);compare(room.commands,[]);compare(sheet.stopping,"local");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands.length===1);compare(room.commands[0],"local:off");
+        // A list that would no longer fit: refused, with a note, and nothing stops.
+        const many=[];for(let i=0;i<64;i++)many.push("fixture-"+i);room.disabled=many;
+        catalog.commands=[];sheet.act(room.sources[0],"off");wait(200);
+        compare(room.commands.length,1);compare(catalog.commands,[]);
+        compare(sheet.stopFailedText,"Too many sources are turned off to turn this one off too.");
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

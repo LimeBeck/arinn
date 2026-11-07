@@ -642,6 +642,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Музыка остановлена, но выключить источник сейчас не удалось.</translation>
     </message>
     <message>
+      <source>Too many sources are turned off to turn this one off too.</source>
+      <translation>Выключено слишком много источников, чтобы выключить и этот.</translation>
+    </message>
+    <message>
       <source>Connect</source>
       <translation>Подключить</translation>
     </message>

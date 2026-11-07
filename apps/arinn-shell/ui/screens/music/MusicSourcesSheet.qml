@@ -56,6 +56,13 @@ FocusScope {
         setEnabled(stopping, false);
         stopping = "";
     }
+    // The turned-off list with this source still fits the setting: at most
+    // 64 ids and 4096 characters, as the daemon accepts (Codex review of
+    // #851). Checked before anything is stopped.
+    function fits(id) {
+        const list = ((room && room.disabled) || []).filter(known => known !== id).concat([id]);
+        return list.length <= 64 && JSON.stringify(list).length <= 4096;
+    }
     function failStop(text) {
         stopWatch.stop();
         stopFailedText = text || qsTr("The music could not be stopped, so the source stays on.");
@@ -221,8 +228,13 @@ FocusScope {
         if (action === "disconnect") {
             disconnecting = source.id;
             Qt.callLater(() => Ui.Focus.take(keepSource));
-        } else if ((action === "off" || action === "on") && !switchable) {
+        } else if ((action === "off" || action === "on") && (!switchable || stopping.length)) {
+            // Not storable now, or another turn-off is in progress (Codex
+            // review of #851).
             return;
+        } else if (action === "off" && !fits(source.id)) {
+            stopFailedText = qsTr("Too many sources are turned off to turn this one off too.");
+            stopFailed = source.id;
         } else if (action === "off" && (source.id === playingSource || !sessionKnown)) {
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
@@ -412,7 +424,8 @@ FocusScope {
                                 text: root.label(modelData)
                                 busy: sourceRow.modelData.busy === true
                                     || (pillAction === "off" && root.stopping === sourceRow.modelData.id)
-                                enabled: (pillAction !== "off" && pillAction !== "on") || root.switchable
+                                enabled: (pillAction !== "off" && pillAction !== "on")
+                                    || (root.switchable && !root.stopping.length)
                                 KeyNavigation.left: index > 0 ? pills.itemAt(index - 1) : null
                                 KeyNavigation.right: index + 1 < pills.count ? pills.itemAt(index + 1) : null
                                 // Rows without an action are skipped both ways

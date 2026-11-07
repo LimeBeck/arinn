@@ -761,6 +761,11 @@ private slots:
               QStringLiteral("music_disabled_sources"));
     QVERIFY(!rowAt(catalog, QStringLiteral("arinn"), QStringLiteral("light_field")).isEmpty());
     QVERIFY(!catalog.musicDisabledPending());
+    // What a binding sees: the pending state at each notification (Codex
+    // review of #867: the end of a write must be announced).
+    QList<bool> announced;
+    connect(&catalog, &SettingsCatalog::preferencesChanged, &catalog,
+            [&] { announced.append(catalog.musicDisabledPending()); });
     catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
     QCOMPARE(catalog.musicDisabledSources(), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
     QVERIFY(catalog.musicDisabledPending());
@@ -778,6 +783,8 @@ private slots:
     QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\"]\""));
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
     QTRY_VERIFY(!catalog.musicDisabledPending());
+    QTRY_VERIFY(!announced.isEmpty() && !announced.last());
+    QVERIFY(announced.contains(true));
     QTest::qWait(500);
     QCOMPARE(daemon.sets.size(), 2);
     // Every source on again: an empty string.
@@ -842,6 +849,27 @@ private slots:
     QCOMPARE(second.sets.at(0).value, QStringLiteral("\"[\\\"b\\\"]\""));
     QCOMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+  }
+  // Codex review of #867: a write that succeeds announces that nothing is
+  // pending any more, so a binding to musicDisabledPending follows it.
+  void theEndOfAWriteIsAnnounced() {
+    SettingsDaemon daemon;
+    daemon.providers = {{QStringLiteral("arinn"), QStringLiteral("Arinn")}};
+    daemon.settings.insert(
+        QStringLiteral("arinn"),
+        {setting(QStringLiteral("music_disabled_sources"), QStringLiteral("media"),
+                 QStringLiteral("string"), QStringLiteral("\"\""),
+                 QStringLiteral("{\"max_length\":4096}"), true)});
+    QVERIFY(registerBus(daemon));
+    SettingsCatalog catalog;
+    QTRY_COMPARE(catalog.screenState(), QStringLiteral("ready"));
+    QList<bool> announced;
+    connect(&catalog, &SettingsCatalog::preferencesChanged, &catalog,
+            [&] { announced.append(catalog.musicDisabledPending()); });
+    catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
+    QCOMPARE(announced, QList<bool>{true});
+    QTRY_VERIFY(!catalog.musicDisabledPending());
+    QTRY_VERIFY(!announced.last());
   }
   // Codex review of #851: a toggle made while a write is in flight survives
   // that write's failure: only the failed list rolls back, and the later

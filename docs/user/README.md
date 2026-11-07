@@ -41,7 +41,7 @@ Keep the guide consistent with the current implementation and link to technical
 contracts for detailed setup. The first-use walkthrough introduces Home and Back;
 application, browser, library, music and download chapters explain the connected flows.
 Distinguish implemented features from real-TV qualification and from older
-package versions. Home pin/unpin and ordering, the graphical folder picker and
+package versions. Home pin/unpin, the graphical folder picker and
 the music room are connected in current source. Revisit the limits when their linked issues land;
 do not call an acceptance criterion passed without evidence. The HTML and CSS
 are original documentation under CC-BY-SA-4.0, covered by existing `docs/**` REUSE

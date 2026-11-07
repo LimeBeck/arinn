@@ -34,7 +34,7 @@ Arinn (Old Norse for *hearth*) brings the Linux apps you already use into one TV
 
 Current source builds include:
 
-- **Home and Continue.** Return to running applications and resumable media, with an activity backdrop and visible remote-control focus. Pin, unpin and reorder favorites through tile actions.
+- **Home and Continue.** Return to running applications and resumable media, with an activity backdrop and visible remote-control focus. Pin and unpin favorites through tile actions; tiles follow pinning order.
 - **Websites and open services.** Use Site or search, save a website as a shortcut, and switch between managed Chrome/Chromium windows. The packaged extension connects the browser to Arinn.
 - **Applications and games.** Launch installed desktop applications, Steam or ES-DE. Choose games inside their own launcher; Arinn does not provide a Steam or emulator game catalogue.
 - **Local library and playback.** Scan local or already mounted folders, browse films and series, and play with mpv. The playback overlay offers seeking, audio/subtitle selection and transport controls when the provider supports them.

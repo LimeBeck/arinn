@@ -122,6 +122,7 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   // A pin mirror waits while another command is in flight (#804).
   connect(this, &MusicCatalog::statusChanged, this, &MusicCatalog::mirrorPin);
   connect(this, &MusicCatalog::activeChanged, this, &MusicCatalog::mirrorPin);
+  connect(this, &MusicCatalog::sourcesChanged, this, &MusicCatalog::mirrorPin);
   m_timer.start();
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
@@ -811,9 +812,14 @@ void MusicCatalog::mirrorPin() {
     m_pinMirror.reset();
     return;
   }
-  const auto stationId = m_pinMirror->station;
+  // Kept until transport sends it: a provider that restarted before the
+  // sources caught up refuses the command, and the next sources or state
+  // change tries again (Codex review of #836).
+  const auto mirror = *m_pinMirror;
   m_pinMirror.reset();
-  transport(QStringLiteral("pin"), stationId);
+  transport(QStringLiteral("pin"), mirror.station);
+  if (!m_commandBusy)
+    m_pinMirror = mirror;
 }
 
 QString MusicCatalog::sessionEntryId() {

@@ -56,28 +56,42 @@ FocusScope {
         setEnabled(stopping, false);
         // The write may still fail after it was sent: the stored list then
         // drops the source again, and its row says so (Codex review of #851).
-        confirming = stopping;
-        confirmWatch.restart();
+        // Each source keeps its own watch, so a later turn-off never hides
+        // an earlier one's failure.
+        confirming = confirming.filter(entry => entry.id !== stopping)
+            .concat([{id: stopping, until: Date.now() + confirmWatch.span}]);
+        confirmWatch.start();
         stopping = "";
     }
-    property string confirming: ""
+    // Sources whose turn-off write may still fail: {id, until}.
+    property var confirming: []
+    function isConfirming(id) {
+        return confirming.some(entry => entry.id === id);
+    }
+    function stopConfirming(id) {
+        confirming = confirming.filter(entry => entry.id !== id);
+    }
     // Longer than the write's own path, SetValue 3 s, the operation 10 s
     // and its last read 3 s, twice: this write may wait behind one already
     // in flight (Codex review of #851).
     Timer {
         id: confirmWatch
         objectName: "musicTurnOffConfirmWatch"
-        interval: 60000
-        onTriggered: root.confirming = ""
+        readonly property int span: 60000
+        interval: 1000
+        repeat: true
+        running: root.confirming.length > 0
+        onTriggered: root.confirming = root.confirming.filter(entry => entry.until > Date.now())
     }
     readonly property var disabledList: (room && room.disabled) || []
     onDisabledListChanged: {
-        if (confirming.length && !disabledList.includes(confirming)) {
-            stopFailedText = qsTr("The music stopped, but the source could not be turned off now.");
-            stopFailed = confirming;
-            confirming = "";
-            confirmWatch.stop();
-        }
+        const dropped = confirming.filter(entry => !disabledList.includes(entry.id));
+        if (!dropped.length)
+            return;
+        stopConfirming(dropped[dropped.length - 1].id);
+        confirming = confirming.filter(entry => disabledList.includes(entry.id));
+        stopFailedText = qsTr("The music stopped, but the source could not be turned off now.");
+        stopFailed = dropped[dropped.length - 1].id;
     }
     // The turned-off list with this source still fits the setting: at most
     // 64 ids and 4096 characters, as the daemon accepts (Codex review of
@@ -273,10 +287,8 @@ FocusScope {
             stopFailed = "";
             // Turned on again: the watch for a failed turn-off ends, so the
             // source leaving the list is no failure (Codex review of #851).
-            if (action === "on" && confirming === source.id) {
-                confirming = "";
-                confirmWatch.stop();
-            }
+            if (action === "on")
+                stopConfirming(source.id);
             setEnabled(source.id, action === "on");
         } else if (room) {
             room.sourceCommand(source.id, action);

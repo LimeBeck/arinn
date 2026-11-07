@@ -1380,14 +1380,14 @@ TestCase {
         // The stored list drops it again (the write failed): the row says so.
         // The watch outlasts two writes' paths, about 16 s each at worst:
         // this one may wait behind another.
-        verify(findChild(sheet,"musicTurnOffConfirmWatch").interval>=32000);
+        verify(findChild(sheet,"musicTurnOffConfirmWatch").span>=32000);
         // Turned on again during the watch: no failure is told.
         sheet.act(Object.assign({},room.sources[1],{status:"off"}),"on");wait(100);compare(sheet.stopFailed,"");
-        compare(sheet.confirming,"");
+        verify(!sheet.isConfirming("account"));
         // Another turn-off whose write then fails: the row says so.
         catalog.busy=true;sheet.act(room.sources[0],"off");tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);
         findChild(sheet,"musicTurnOffSource").activated();catalog.busy=false;
-        tryCompare(sheet,"confirming","local");
+        tryVerify(()=>sheet.isConfirming("local"));
         room.disabled=room.disabled.filter(id=>id!=="local");tryCompare(sheet,"stopFailed","local");
         compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
         // 60 ids of 62 emoji fit in code points, though not in UTF-16 units.
@@ -1413,6 +1413,20 @@ TestCase {
         sheet.stopping="local";sheet.open();
         tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
         sheet.stopping="";
+    }
+    // Codex review of #851: each turned-off source keeps its own watch for
+    // a write that fails late; a later turn-off does not hide an earlier
+    // one's failure.
+    function test_each_turn_off_keeps_its_own_watch() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");sheet.open();tryCompare(sheet,"visible",true);
+        for(const id of ["local","account"]){sheet.stopThenTurnOff(id);tryVerify(()=>sheet.isConfirming(id));}
+        verify(sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
+        // The first one's write fails later: its row says so.
+        room.disabled=room.disabled.filter(id=>id!=="local");
+        tryCompare(sheet,"stopFailed","local");verify(!sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

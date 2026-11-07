@@ -565,7 +565,7 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     addition would not fit the setting (64 ids, 4096 code points) is
     refused before anything stops, with a note. A command in flight counts
     as an unknown session. Should the write fail after the stop, the
-    stored list drops the source again; the sheet watches for that for 60 s,
+    stored list drops the source again; the sheet watches each source for that for 60 s,
     longer than two writes' paths (this one may wait behind another), and
     the row says so. Both go through
     `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.

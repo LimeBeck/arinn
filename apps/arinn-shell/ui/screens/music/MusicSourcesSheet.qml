@@ -117,21 +117,21 @@ FocusScope {
         stopping = "";
     }
     property string stopFailedText: ""
-    // A note per source whose turn-off did not hold (Codex review of #851).
-    property var failures: ({})
+    // A note per source whose turn-off did not hold (Codex review of #851):
+    // {id, text}. A list, not an object keyed by id: provider ids are opaque
+    // and may name an Object property (Codex review of #867).
+    property var failures: []
+    function failureFor(id) {
+        const found = failures.find(entry => entry.id === id);
+        return found ? found.text : "";
+    }
     function fail(id, text) {
-        const next = Object.assign({}, failures);
-        next[id] = text;
-        failures = next;
+        failures = failures.filter(entry => entry.id !== id).concat([{id: id, text: text}]);
         stopFailed = id;
         stopFailedText = text;
     }
     function clearFailure(id) {
-        if (!(id in failures))
-            return;
-        const next = Object.assign({}, failures);
-        delete next[id];
-        failures = next;
+        failures = failures.filter(entry => entry.id !== id);
         if (stopFailed === id)
             stopFailed = "";
     }
@@ -241,7 +241,7 @@ FocusScope {
         disconnecting = "";
         turningOff = "";
         stopFailed = "";
-        failures = ({});
+        failures = [];
         visible = true;
         Qt.callLater(focusFirst);
     }
@@ -472,7 +472,7 @@ FocusScope {
                         color: Ui.Theme.textSecondary
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
-                        text: root.failures[sourceRow.modelData.id] || sourceRow.modelData.error || ""
+                        text: root.failureFor(sourceRow.modelData.id) || sourceRow.modelData.error || ""
                     }
                     // A pending sign-in shows where to confirm and its code.
                     Ui.UiText {

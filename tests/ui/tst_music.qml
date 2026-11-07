@@ -1432,7 +1432,12 @@ TestCase {
         // note (Codex review of #851).
         sheet.stopThenTurnOff("local");tryVerify(()=>sheet.isConfirming("local"));
         room.disabled=[];
-        tryVerify(()=>!!sheet.failures["local"]&&!!sheet.failures["account"]);
+        tryVerify(()=>!!sheet.failureFor("local")&&!!sheet.failureFor("account"));
+        // Codex review of #867: an id that names an Object property has no
+        // note it was not given, and keeps the one it is given.
+        compare(sheet.failureFor("constructor"),"");compare(sheet.failureFor("__proto__"),"");
+        sheet.fail("constructor","Note");compare(sheet.failureFor("constructor"),"Note");
+        sheet.clearFailure("constructor");compare(sheet.failureFor("constructor"),"");
         // While the choice is still being stored, a watch outlives its
         // deadline (a daemon being replaced); it ends once nothing is pending.
         room.switchPending=true;room.disabled=["local"];

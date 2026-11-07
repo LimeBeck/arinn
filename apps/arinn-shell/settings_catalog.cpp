@@ -232,8 +232,6 @@ constexpr PackagedName kProviderNames[] = {
     {"desktop", QT_TRANSLATE_NOOP("SettingsCatalog", "Desktop applications")},
     {"mpris", QT_TRANSLATE_NOOP("SettingsCatalog", "Media sessions")},
 };
-// The source line of a row: none for Arinn's own settings, which need no
-// source, else the provider's name in the shell's language.
 // The daemon's list of turned-off music sources (#842).
 constexpr char kMusicDisabledSources[] = "music_disabled_sources";
 // A JSON array of provider ids; anything else is none.
@@ -246,6 +244,8 @@ QStringList parseMusicDisabled(const QString &text) {
       ids.append(value.toString());
   return ids;
 }
+// The source line of a row: none for Arinn's own settings, which need no
+// source, else the provider's name in the shell's language.
 QString sourceName(const QString &providerId, const QString &pluginId,
                    const QString &name) {
   if (providerId == QLatin1String(kDaemonProvider))

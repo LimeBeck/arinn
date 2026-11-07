@@ -215,11 +215,11 @@ FocusScope {
     function focusFirst() {
         for (let i = 0; i < rows.count; ++i) {
             const row = rows.itemAt(i);
-            if (row && row.firstAction()) {
-                Ui.Focus.take(row.firstAction());
+            if (row && row.firstAction() && Ui.Focus.take(row.firstAction()))
                 return;
-            }
         }
+        // No pill can take focus: the sheet itself holds it, so Back and the
+        // arrows stay with the sheet (review of #851).
         Ui.Focus.take(root);
     }
     // Keep the focused row on screen, with the next one partly visible.
@@ -373,9 +373,7 @@ FocusScope {
                                     }
                                 // Turned off or on: focus stays on this
                                 // source, on its new first pill.
-                                if (pills.count)
-                                    Ui.Focus.take(pills.itemAt(0));
-                                else
+                                if (!sourceRow.firstAction() || !Ui.Focus.take(sourceRow.firstAction()))
                                     root.focusFirst();
                             });
                     }
@@ -383,8 +381,15 @@ FocusScope {
                     objectName: "musicSourceRow"
                     width: parent.width
                     spacing: 16
+                    // The row's first pill that can take focus: a disabled one
+                    // (a turn-off in progress, or a choice that cannot be
+                    // stored now) is skipped, so focus never stays behind
+                    // the sheet (review of #851).
                     function firstAction() {
-                        return pills.count ? pills.itemAt(0) : null;
+                        for (let i = 0; i < pills.count; ++i)
+                            if (pills.itemAt(i) && pills.itemAt(i).enabled)
+                                return pills.itemAt(i);
+                        return null;
                     }
                     // The Off group's heading, over its first source (#842).
                     Ui.UiText {

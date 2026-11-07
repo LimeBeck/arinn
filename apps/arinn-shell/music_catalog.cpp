@@ -636,9 +636,11 @@ void MusicCatalog::send(const QString &action, const QString &entity,
     return;
   auto endpoint = m_path, generation = m_generation;
   auto state = m_state;
-  // A turned-off source's session takes no command: nothing can resume
-  // music the room no longer shows (#842, Codex review of #851).
-  if (active && m_disabledSources.contains(m_activeId))
+  // A turned-off source's session can still be paused or stopped, so music
+  // that sounds anyway can always be silenced; nothing that starts or moves
+  // playback reaches it (#842, reviews of #851).
+  if (active && m_disabledSources.contains(m_activeId) &&
+      action != QLatin1String("pause") && action != QLatin1String("stop"))
     return;
   if (active) {
     bool found = false;

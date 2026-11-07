@@ -523,13 +523,14 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   - A room whose every source is off is settled, and its hero points to
     *Sources*.
   - The session of a turned-off source has no `homeEntries`, `nowPlaying`
-    or `statusLine`, Ambient does not show it, and `MusicCatalog` sends it
-    no command, so nothing resumes it. `MusicCatalog` no longer browses it: its selected
+    or `statusLine`, and Ambient does not show it. `MusicCatalog` sends it
+    `pause` and `stop` only, so music that sounds anyway can be silenced
+    but nothing starts or moves it. `MusicCatalog` no longer browses it: its selected
     source moves to the first one that is on, or to none.
   - `Main.musicPinRows` leaves its pinned stations out of Favourites; they
     stay stored.
   - In the sheet, every source that is on has *Turn off*, and one that is off
-    has *Turn on* under the *Off* group. Both are disabled while the choice
+    has *Turn on* under the *Turned off* group. Both are disabled while the choice
     cannot be stored (`MusicRoom.sourcesSwitchable`, from
     `SettingsCatalog.musicSourcesWritable`), and nothing is stopped then.
     They also wait while another turn-off is in progress. A source whose

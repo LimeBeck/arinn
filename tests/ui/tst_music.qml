@@ -1323,6 +1323,25 @@ TestCase {
         room.disabled=ids;verify(sheet.fits("local"));
         room.disabled=ids.concat(["x".repeat(200)]);verify(!sheet.fits("local"));
     }
+    // Review of #851: a pill that cannot take focus is skipped; with none,
+    // the sheet itself holds focus, never the room behind it.
+    function test_sheet_focus_skips_disabled_pills() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=room.sources.map(row=>Object.assign({},row,{status:"off",actions:[],browsable:false}));
+        room.sourcesSwitchable=false;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        tryCompare(sheet,"activeFocus",true);verify(!findChild(view,"musicSources").activeFocus);
+        keyClick(Qt.Key_Escape);tryCompare(sheet,"visible",false);
+        // The first row's pill disabled, the second's enabled: focus goes there.
+        room.sourcesSwitchable=true;
+        room.sources=[Object.assign({},room.sources[0],{status:"connected",actions:[],browsable:true}),
+                      Object.assign({},room.sources[1],{status:"connected",actions:["scan"],browsable:true})];
+        sheet.stopping="local";sheet.open();
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+        sheet.stopping="";
+    }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);

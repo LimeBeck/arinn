@@ -69,7 +69,7 @@ Measurements are for the 1920 × 1080 canvas. Unlisted values come from the [Hea
 - **Header controls** on the right of the hero line: a *Sources* pill and a *Find* pill (MH-5).
   - *Sources* opens a right-hand sheet 720 wide that lists every music source: its name, its icon in the neutral chip and its state (connected, needs sign-in, scanning, unavailable with a reason) (M11).
   - Each row holds that source's housekeeping as pills, by capability: *Connect*, *Refresh* and *Disconnect*. *Disconnect* asks for confirmation, with Cancel as the initial focus.
-  - Every row also holds *Turn off*, which is distinct from *Disconnect* and keeps the account (owner decision on 2026-11-06, [#842](https://github.com/LimeBeck/arinn/issues/842)). A turned-off source moves to an *Off* group at the bottom of the sheet, where *Turn on* brings it back.
+  - Every row also holds *Turn off*, which is distinct from *Disconnect* and keeps the account (owner decision on 2026-11-06, [#842](https://github.com/LimeBeck/arinn/issues/842)). A turned-off source moves to a *Turned off* group at the bottom of the sheet, where *Turn on* brings it back.
     - It contributes nothing to the shelves, the *All* lists and their tabs, *Find* and its hint line, or the presence on Home (the Continue card, the status line and pinned stations on Favourites). Its pins stay stored.
     - Turning off the source that plays asks first, with Cancel as the initial focus, and then stops its music.
     - With every source off, the room's hero says so and offers *Sources*.

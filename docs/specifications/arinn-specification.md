@@ -222,7 +222,7 @@ Like, Queue and More; More opens a sheet with the other actions. Owner decision 
 layout B selected in #707/#710. Browsing
 another source MUST preserve the active session; replacing its queue MUST ask
 for confirmation. A source can be turned off from the *Sources* sheet and
-turned on again from its *Off* group. Turning off differs from *Disconnect*: it
+turned on again from its *Turned off* group. Turning off differs from *Disconnect*: it
 keeps the account. A turned-off source contributes nothing to the shelves, the
 *All* lists, search or the music presence on Home, and its pinned stations leave
 Favourites until it is turned on again; they stay stored. Turning off the

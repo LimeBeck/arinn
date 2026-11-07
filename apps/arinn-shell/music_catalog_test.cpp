@@ -925,7 +925,7 @@ private slots:
         {"provider_id", "local"},
         {"generation", "g1"},
         {"state", QJsonObject{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
-                              {"actions", QJsonArray{"pause"}},
+                              {"actions", QJsonArray{"pause", "stop", "resume", "next", "previous"}},
                               {"current", QJsonObject{{"occurrence", "o"},
                                                       {"track", QJsonObject{{"id", "t1"},
                                                                             {"kind", "track"},
@@ -982,12 +982,20 @@ private slots:
     QCOMPARE(rows.at(1).toMap().value("status").toString(), QStringLiteral("off"));
     QCOMPARE(rows.at(1).toMap().value("local").toBool(), true);
     QVERIFY(rows.at(1).toMap().value("actions").toStringList().isEmpty());
-    // Its session has no presence on Home, and takes no command: nothing
-    // resumes it, from Ambient or elsewhere (Codex review of #851).
+    // Its session has no presence on Home. Nothing starts or moves it, from
+    // Ambient or elsewhere, but it can still be paused or stopped, so music
+    // that sounds anyway can be silenced (reviews of #851).
     daemon.commands.clear();
-    catalog.transport(QStringLiteral("pause"));
+    for (const auto *action : {"resume", "next", "previous"})
+      catalog.transport(QString::fromLatin1(action));
     QTest::qWait(200);
     QVERIFY(daemon.commands.isEmpty());
+    catalog.transport(QStringLiteral("pause"));
+    QTRY_COMPARE(daemon.commands, QStringList{QStringLiteral("pause")});
+    QTRY_VERIFY(!catalog.transportBusy());
+    catalog.transport(QStringLiteral("stop"));
+    QTRY_COMPARE(daemon.commands, (QStringList{QStringLiteral("pause"), QStringLiteral("stop")}));
+    QTRY_VERIFY(!catalog.transportBusy());
     QVERIFY(catalog.homeEntries().isEmpty());
     QVERIFY(catalog.nowPlaying().isEmpty());
     QVERIFY(catalog.statusLine().isEmpty());

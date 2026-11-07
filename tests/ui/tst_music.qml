@@ -37,6 +37,9 @@ TestCase {
             property var occurrences: []
             // As the catalogue: a command it sends makes it busy (#802).
             property bool busyOnTransport: false
+            // Session reads answered (#842); tests raise it with each read.
+            property int activeReads: 0
+            property bool activeKnown: true
             function transport(action,id,occurrence,position) {commands=commands.concat([action]);positions=positions.concat([position]);occurrences=occurrences.concat([occurrence||""]);if(busyOnTransport)busy=true;}
         }
     }
@@ -63,7 +66,14 @@ TestCase {
                 if(next.length)shelves=shelves.map(item=>item.id===shelf?Object.assign({},item,{entries:item.entries.concat(next)}):item);
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
+            property bool sourcesSwitchable: true
+            property var disabled: []
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
+            // As Main stores the choice and MusicRoom lists an off source last (#842).
+            function setSourceEnabled(source,enabled) {commands=commands.concat([source+":"+(enabled?"on":"off")]);
+                disabled=enabled?disabled.filter(id=>id!==source):disabled.concat([source]);
+                const rows=sources.map(row=>row.id!==source?row:Object.assign({},row,enabled?{status:"connected",actions:row.offActions||[],browsable:true}:{status:"off",offActions:row.actions,actions:[],browsable:false}));
+                sources=rows.filter(row=>row.status!=="off").concat(rows.filter(row=>row.status==="off"));}
             // Find over every source (#801): the query is kept; tests set the results.
             property var searchShelves: []
             property var searchPending: []
@@ -1198,6 +1208,239 @@ TestCase {
         keyClick(Qt.Key_Right);keyClick(Qt.Key_Return);compare(room.commands,["local:scan","account:disconnect"]);
         keyClick(Qt.Key_Escape);tryCompare(sheet,"visible",false);tryCompare(sources,"activeFocus",true);
     }
+    // #842: Turn off moves a source to the Off group, where Turn on brings
+    // it back; turning off the source that plays asks first, with Cancel
+    // focused, then stops its music.
+    function test_sources_can_be_turned_off_and_on() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();const sources=findChild(view,"musicSources");Ui.Focus.take(sources);keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        // The service's row: Refresh, Disconnect, Turn off.
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+        keyClick(Qt.Key_Down);keyClick(Qt.Key_Right);keyClick(Qt.Key_Right);
+        const off=()=>{const rows=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")rows.push(c);walk(c);}};walk(sheet);return rows;};
+        tryVerify(()=>off().some(pill=>pill.activeFocus));compare(off()[0].text,"Turn off");
+        keyClick(Qt.Key_Return);compare(room.commands,["account:off"]);
+        // It moves to the Off group, last, and focus stays on it: Turn on.
+        const on=findChild(sheet,"musicSourceAction-on");tryVerify(()=>on&&on.activeFocus);compare(on.text,"Turn on");
+        const headings=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourcesOffGroup"&&c.visible)out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>headings().length===1);
+        compare(room.sources[1].id,"account");compare(room.sources[1].status,"off");
+        keyClick(Qt.Key_Return);compare(room.commands,["account:off","account:on"]);
+        tryVerify(()=>!findChild(sheet,"musicSourceAction-on"));
+        // The source that plays: Turn off asks first, Cancel focused.
+        Ui.Focus.take(off()[0]);keyClick(Qt.Key_Return);
+        const keep=findChild(sheet,"musicKeepPlaying");tryCompare(keep,"activeFocus",true);
+        compare(findChild(sheet,"musicTurnOffDialog").visible,true);compare(room.commands.length,2);
+        keyClick(Qt.Key_Return);tryCompare(findChild(sheet,"musicTurnOffDialog"),"visible",false);compare(room.commands.length,2);
+        Ui.Focus.take(off()[0]);keyClick(Qt.Key_Return);tryCompare(keep,"activeFocus",true);
+        keyClick(Qt.Key_Right);tryCompare(findChild(sheet,"musicTurnOffSource"),"activeFocus",true);
+        // As the catalogue: a command is in flight until it has read the
+        // session again.
+        catalog.busyOnTransport=true;catalog.commands=[];keyClick(Qt.Key_Return);
+        // Codex review of #851: the source turns off only once its music
+        // has stopped.
+        tryCompare(catalog,"commands",["stop"]);wait(300);compare(room.commands.length,2);
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands.length===3);compare(room.commands[2],"local:off");
+        // A stop the source refuses keeps it on, and its row says so.
+        room.setSourceEnabled("local",true);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});
+        const localOff=()=>off().find(item=>item.parent.parent.modelData.id==="local");tryVerify(()=>!!localOff());
+        localOff().activated();tryCompare(keep,"activeFocus",true);
+        keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        // A catalogue-wide error from another request does not decide it;
+        // the session still playing once the command has ended does.
+        tryCompare(catalog,"commands",["stop"]);catalog.errorText="The source could not do that. Try again.";
+        wait(300);compare(room.commands[room.commands.length-1],"local:on");catalog.busy=false;
+        // The command has ended: the state read after it decides, not the
+        // state from before it (Codex review of #851).
+        wait(400);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
+        // Codex review of #851: state changes that are no reads do not count.
+        for(let i=0;i<3;i++){wait(150);catalog.activeState=Object.assign({},catalog.activeState,{playback:"playing"});}
+        wait(300);compare(sheet.stopFailed,"");
+        for(let i=0;i<2;i++){wait(150);catalog.activeReads++;}
+        const errors=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceError"&&c.visible)out.push(c.text);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>errors().includes("The music could not be stopped, so the source stays on."));
+        compare(room.commands[room.commands.length-1],"local:on");catalog.errorText="";
+        // Codex review of #851: a paused session is stopped too, and the
+        // source turns off only once it has.
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"paused"});
+        localOff().activated();tryCompare(keep,"activeFocus",true);
+        keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        tryCompare(catalog,"commands",["stop"]);wait(300);
+        compare(room.commands[room.commands.length-1],"local:on");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
+    }
+    // Codex review of #851: a command already in flight does not use up the
+    // stop's own time; the stop's deadline starts when it is sent.
+    function test_turning_off_waits_for_a_command_in_flight() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");
+        catalog.busyOnTransport=true;catalog.busy=true;
+        sheet.stopThenTurnOff("local");
+        wait(12000);compare(catalog.commands,[]);compare(sheet.stopFailed,"");
+        catalog.busy=false;tryCompare(catalog,"commands",["stop"]);
+        wait(5000);compare(sheet.stopFailed,"");compare(sheet.stopping,"local");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands[room.commands.length-1]==="local:off");
+    }
+    // Codex review of #851: while the active session is unknown, any source
+    // may be the one that plays: Turn off asks, and decides once a read has
+    // answered; a source that does not play then turns off without a stop.
+    function test_turning_off_waits_for_an_unknown_session() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeKnown=false;catalog.activeSourceId="";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);off()[0].activated();
+        tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);
+        keyClick(Qt.Key_Right);catalog.commands=[];keyClick(Qt.Key_Return);
+        wait(500);compare(room.commands,[]);compare(catalog.commands,[]);
+        catalog.activeKnown=true;
+        tryVerify(()=>room.commands.length===1);compare(room.commands[0],"local:off");compare(catalog.commands,[]);
+    }
+    // Codex review of #851: while the choice cannot be stored, Turn off is
+    // disabled and nothing is stopped.
+    function test_turning_off_needs_a_writable_setting() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";room.sourcesSwitchable=false;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);verify(off().every(pill=>!pill.enabled));
+        sheet.act(room.sources[0],"off");wait(300);
+        compare(findChild(sheet,"musicTurnOffDialog").visible,false);compare(room.commands,[]);compare(catalog.commands,[]);
+        room.sourcesSwitchable=true;tryVerify(()=>off().every(pill=>pill.enabled));
+        // Codex review of #851: the setting stops being writable while the
+        // stop is in flight: the source stays on, and its row says so.
+        catalog.busyOnTransport=true;sheet.stopThenTurnOff("local");tryCompare(catalog,"commands",["stop"]);
+        room.sourcesSwitchable=false;
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryCompare(sheet,"stopFailed","local");compare(room.commands,[]);
+        compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
+    }
+    // Codex review of #851: a card scrolled against the right edge keeps its
+    // focus growth, mat and rim inside the safe area.
+    function test_right_edge_keeps_the_focus_rim() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        const many=[];for(let i=0;i<12;i++)many.push(room.card("local","album:"+i,"album","Album "+i));
+        room.shelves=[{id:"albums",title:"Albums",kind:"album",entries:many}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
+        for(let i=0;i<7;i++){keyClick(Qt.Key_Right);
+            const card=findChild(albums.focusedCard,"musicShelfCard");tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+            const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
+            tryVerify(()=>mat.mapToItem(view,mat.width,0).x+Ui.Theme.rimThickness<=1920-Ui.Theme.safeRight,
+                      2000,"card "+(i+1)+": "+mat.mapToItem(view,mat.width,0).x);}
+    }
+    // Codex review of #851: while one turn-off is in progress the others
+    // wait; and a list that would not fit the setting is refused before
+    // anything stops.
+    function test_one_turn_off_at_a_time_and_only_what_fits() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="local";catalog.busyOnTransport=true;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const off=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        tryVerify(()=>off().length===2);
+        sheet.stopThenTurnOff("local");tryCompare(catalog,"commands",["stop"]);
+        verify(off().every(pill=>!pill.enabled));
+        sheet.act(room.sources[1],"off");wait(200);compare(room.commands,[]);compare(sheet.stopping,"local");
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"stopped"});catalog.busy=false;
+        tryVerify(()=>room.commands.length===1);compare(room.commands[0],"local:off");
+        // A list that would no longer fit: refused, with a note, and nothing stops.
+        const many=[];for(let i=0;i<64;i++)many.push("fixture-"+i);room.disabled=many;
+        catalog.commands=[];sheet.act(room.sources[0],"off");wait(200);
+        compare(room.commands.length,1);compare(catalog.commands,[]);
+        compare(sheet.stopFailedText,"Too many sources are turned off to turn this one off too.");
+    }
+    // Codex review of #851: a command in flight may start the session, so
+    // Turn off asks and waits; a write that fails after the stop is told on
+    // the row; the setting's limit counts code points.
+    function test_turning_off_after_commands_and_failed_writes() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="";catalog.busy=true;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");sheet.open();tryCompare(sheet,"visible",true);
+        sheet.act(room.sources[1],"off");
+        tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);compare(room.commands,[]);
+        findChild(sheet,"musicTurnOffSource").activated();
+        // The command ends without a session of this source: it turns off.
+        catalog.busy=false;tryVerify(()=>room.commands.length===1);compare(room.commands[0],"account:off");
+        // The stored list drops it again (the write failed): the row says so.
+        // The watch outlasts two writes' paths, about 16 s each at worst:
+        // this one may wait behind another.
+        verify(findChild(sheet,"musicTurnOffConfirmWatch").span>=32000);
+        // Turned on again during the watch: no failure is told.
+        sheet.act(Object.assign({},room.sources[1],{status:"off"}),"on");wait(100);compare(sheet.stopFailed,"");
+        verify(!sheet.isConfirming("account"));
+        // Another turn-off whose write then fails: the row says so.
+        catalog.busy=true;sheet.act(room.sources[0],"off");tryCompare(findChild(sheet,"musicKeepPlaying"),"activeFocus",true);
+        findChild(sheet,"musicTurnOffSource").activated();catalog.busy=false;
+        tryVerify(()=>sheet.isConfirming("local"));
+        room.disabled=room.disabled.filter(id=>id!=="local");tryCompare(sheet,"stopFailed","local");
+        compare(sheet.stopFailedText,"The music stopped, but the source could not be turned off now.");
+        // 60 ids of 62 emoji fit in code points, though not in UTF-16 units.
+        const ids=[];for(let i=0;i<60;i++)ids.push("\u{1F3B5}".repeat(62)+String(i).padStart(2,"0"));
+        room.disabled=ids;verify(sheet.fits("local"));
+        room.disabled=ids.concat(["x".repeat(200)]);verify(!sheet.fits("local"));
+    }
+    // Review of #851: a pill that cannot take focus is skipped; with none,
+    // the sheet itself holds focus, never the room behind it.
+    function test_sheet_focus_skips_disabled_pills() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.sources=room.sources.map(row=>Object.assign({},row,{status:"off",actions:[],browsable:false}));
+        room.sourcesSwitchable=false;
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        tryCompare(sheet,"activeFocus",true);verify(!findChild(view,"musicSources").activeFocus);
+        keyClick(Qt.Key_Escape);tryCompare(sheet,"visible",false);
+        // The first row's pill disabled, the second's enabled: focus goes there.
+        room.sourcesSwitchable=true;
+        room.sources=[Object.assign({},room.sources[0],{status:"connected",actions:[],browsable:true}),
+                      Object.assign({},room.sources[1],{status:"connected",actions:["scan"],browsable:true})];
+        sheet.stopping="local";sheet.open();
+        tryCompare(findChild(sheet,"musicSourceAction-scan"),"activeFocus",true);
+        sheet.stopping="";
+    }
+    // Codex review of #851: each turned-off source keeps its own watch for
+    // a write that fails late; a later turn-off does not hide an earlier
+    // one's failure.
+    function test_each_turn_off_keeps_its_own_watch() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        catalog.activeSourceId="";
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        const sheet=findChild(view,"musicSourcesOverlay");sheet.open();tryCompare(sheet,"visible",true);
+        for(const id of ["local","account"]){sheet.stopThenTurnOff(id);tryVerify(()=>sheet.isConfirming(id));}
+        verify(sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
+        // The first one's write fails later: its row says so.
+        room.disabled=room.disabled.filter(id=>id!=="local");
+        tryCompare(sheet,"stopFailed","local");verify(!sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
+    }
+    // #842: with every source off, the room points to Sources.
+    function test_every_source_off_points_to_sources() {
+        const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
+        room.shelves=[];room.sources=room.sources.map(row=>Object.assign({},row,{status:"off",actions:[],browsable:false}));
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
+        const connect=findChild(view,"musicConnectFirst");tryCompare(connect,"activeFocus",true);
+        compare(findChild(view,"musicHeroTitle").text,"Music sources are off");
+        compare(findChild(view,"musicHeroMeta").text,"Turn a source on in Sources.");
+        compare(connect.text,"Sources");
+        keyClick(Qt.Key_Return);tryCompare(findChild(view,"musicSourcesOverlay"),"visible",true);
+        tryCompare(findChild(view,"musicSourceAction-on"),"activeFocus",true);
+    }
     // #800 first use: no connected source, so the hero offers Connect, which
     // opens the Sources sheet, and no shelf shows.
     function test_first_use_offers_connect() {
@@ -1387,8 +1630,9 @@ TestCase {
         const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
         compare(findChild(view,"musicRoom").firstUse,false);compare(findChild(view,"musicConnectFirst").visible,false);
     }
-    // Codex review of #812: Up in the Sources sheet skips a source without
-    // housekeeping actions, as Down does.
+    // Codex review of #812: Up and Down in the Sources sheet move between
+    // rows' first pills. Since #842 every row has one: a source without
+    // housekeeping can still be turned off.
     function test_sources_sheet_up_skips_actionless_rows() {
         const catalog=createTemporaryObject(catalogFactory,suite);const room=createTemporaryObject(roomFactory,suite);
         room.sources=[{id:"a",name:"Fixture A",local:false,status:"connected",reason:"",actions:["scan"],busy:false,browsable:true},
@@ -1398,7 +1642,10 @@ TestCase {
         view.forceActiveFocus();Ui.Focus.take(findChild(view,"musicSources"));keyClick(Qt.Key_Return);
         const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
         const scan=findChild(sheet,"musicSourceAction-scan");tryCompare(scan,"activeFocus",true);
+        const offs=()=>{const out=[];const walk=n=>{for(const c of n.children){if(c.objectName==="musicSourceAction-off")out.push(c);walk(c);}};walk(sheet);return out;};
+        keyClick(Qt.Key_Down);tryVerify(()=>offs()[1].activeFocus);
         keyClick(Qt.Key_Down);tryCompare(findChild(sheet,"musicSourceAction-disconnect"),"activeFocus",true);
+        keyClick(Qt.Key_Up);tryVerify(()=>offs()[1].activeFocus);
         keyClick(Qt.Key_Up);tryCompare(scan,"activeFocus",true);
     }
     // Codex review of #812: shelves that arrive above the focused one keep

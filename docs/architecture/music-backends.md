@@ -540,6 +540,51 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   shows in place and appends new ones (`MusicRoom.stable`), and shelves are
   keyed by id, so a shelf is not recreated when another changes. A card or
   shelf that leaves hands focus to its neighbour.
+- **Turned-off sources (#842).** `MusicRoom.disabled` and
+  `MusicCatalog.disabledSources` are bound to
+  `SettingsCatalog.musicDisabledSources`.
+  - A turned-off source is left out of everything the room reads (shelves,
+    *All*, search, loading), as a source that left, and is read no more.
+    `sources` lists it last with status `off`, its local mark kept from its
+    last state. A source off from the start is read once, `GetState` only,
+    for that mark; it is never asked for pages or searches.
+  - A room whose every source is off is settled, and its hero points to
+    *Sources*.
+  - The session of a turned-off source has no `homeEntries`, `nowPlaying`
+    or `statusLine`, and Ambient does not show it. `MusicCatalog` sends it
+    `pause` and `stop` only, so music that sounds anyway can be silenced
+    but nothing starts or moves it. `MusicCatalog` no longer browses it: its selected
+    source moves to the first one that is on, or to none.
+  - `Main.musicPinRows` leaves its pinned stations out of Favourites; they
+    stay stored.
+  - In the sheet, every source that is on has *Turn off*, and one that is off
+    has *Turn on* under the *Turned off* group. Both are disabled while the choice
+    cannot be stored (`MusicRoom.sourcesSwitchable`, from
+    `SettingsCatalog.musicSourcesWritable`), and nothing is stopped then.
+    They also wait while another turn-off is in progress. A source whose
+    addition would not fit the setting (64 ids, 4096 code points) is
+    refused before anything stops, with a note. A command in flight counts
+    as an unknown session. Should the write fail after the stop, the
+    stored list drops the source again; the sheet watches each source for that for 60 s,
+    longer than two writes' paths (this one may wait behind another), and
+    the row says so. Both go through
+    `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.
+  - Turning off the source whose session plays or is paused asks first, with
+    Cancel focused. While the active session is unknown
+    (`MusicCatalog.activeKnown`: no read has answered yet, or the last one
+    failed), any source may be that one, so turning one off asks too and
+    decides once a read answers. Then the sheet sends `stop`, which ends a playing or a
+    paused session. Without `stop`, it sends `pause` to a playing session; a
+    paused one is silent already.
+  - The source turns off only once its session has ended (after `stop`) or
+    no longer sounds (after `pause`). It decides by the session read after
+    the command ends: the catalogue ends a command before that read answers,
+    so it waits for two answered reads (`MusicCatalog.activeReads`, not
+    every state change), and the catalogue-wide error is not used
+    (Codex review of #851). A session that has not ended once the command
+    has, a playing session that offers neither command, or no answer within
+    15 s keeps it on, and its row says why. A command already in flight is
+    waited for first, with its own 15 s.
 - A source whose state cannot be read leaves the shelves, and the *Sources*
   sheet says why. The sheet shows each source's state and its `connect`,
   `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by

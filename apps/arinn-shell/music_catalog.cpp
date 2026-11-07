@@ -96,6 +96,11 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
     m_registryBusy = m_pageBusy = m_stateBusy = m_commandBusy = m_activeBusy =
         m_commandWaitingRefresh = false;
     m_uncertainStart = false;
+    // A new daemon: its session is not known until it answers (#842).
+    if (m_activeKnown) {
+      m_activeKnown = false;
+      emit activeReadsChanged();
+    }
     m_path.clear();
     m_generation.clear();
     m_sources.clear();
@@ -136,7 +141,8 @@ QString MusicCatalog::statusText(const QString &status) const {
 }
 QVariantList MusicCatalog::homeEntries() const {
   const auto current = m_active.value("current").toMap();
-  if (current.isEmpty())
+  // A turned-off source has no presence on Home (#842).
+  if (current.isEmpty() || m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value("track").toMap();
   const auto playback = m_active.value("playback").toString();
@@ -301,16 +307,7 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
           emit sourcesChanged();
           emit activeChanged();
         }
-        QString selected = m_sourceId;
-        bool present = false;
-        for (const auto &row : rows)
-          if (row.toMap().value("id").toString() == selected)
-            present = true;
-        if (!present)
-          selected = rows.isEmpty()
-                         ? QString()
-                         : rows.first().toMap().value("id").toString();
-        choose(selected);
+        choose(browsableSource());
       });
 }
 // A provider that restarted or left may know its stations again: its
@@ -566,26 +563,44 @@ void MusicCatalog::readActive() {
             m_commandBusy = m_commandWaitingRefresh = false;
             emit statusChanged();
           }
+          // The session is not known now (#842, Codex review of #851).
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
           return;
         }
         if (m_commandWaitingRefresh) {
           m_commandBusy = m_commandWaitingRefresh = false;
           emit statusChanged();
         }
-        // Only a valid answer, a session or none, counts as the session after
-        // the command; a malformed one leaves the mirror waiting (Codex
-        // review of #836).
-        if (reply.arguments().first().toString() == QStringLiteral("null")) {
+        // One more session read answered (#842): counted before the state
+        // it brings is published.
+        const bool none =
+            reply.arguments().first().toString() == QStringLiteral("null");
+        const auto json = none ? QJsonObject() : object(reply);
+        // Only a whole answer counts as a read: none, or a session with its
+        // provider and state. Anything else leaves the session unknown
+        // (#842, Codex review of #851).
+        if (!none && (json.isEmpty() || !json.value("provider_id").isString() ||
+                      !json.value("state").isObject())) {
+          if (m_activeKnown) {
+            m_activeKnown = false;
+            emit activeReadsChanged();
+          }
+          return;
+        }
+        ++m_activeReads;
+        m_activeKnown = true;
+        if (none) {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
           m_activeSeen = std::max(m_activeSeen, commandsDone);
           emit activeChanged();
+          emit activeReadsChanged();
           return;
         }
-        const auto json = object(reply);
-        if (json.isEmpty())
-          return;
         m_active = json.value("state").toObject().toVariantMap();
         m_activeId = json.value("provider_id").toString();
         m_activeGeneration = json.value("generation").toString();
@@ -612,6 +627,7 @@ void MusicCatalog::readActive() {
           emit statusChanged();
         }
         emit activeChanged();
+        emit activeReadsChanged();
       });
 }
 void MusicCatalog::command(const QString &action, const QString &entity,
@@ -631,6 +647,12 @@ void MusicCatalog::send(const QString &action, const QString &entity,
     return;
   auto endpoint = m_path, generation = m_generation;
   auto state = m_state;
+  // A turned-off source's session can still be paused or stopped, so music
+  // that sounds anyway can always be silenced; nothing that starts or moves
+  // playback reaches it (#842, reviews of #851).
+  if (active && m_disabledSources.contains(m_activeId) &&
+      action != QLatin1String("pause") && action != QLatin1String("stop"))
+    return;
   if (active) {
     bool found = false;
     for (const auto &row : m_sources) {
@@ -817,11 +839,37 @@ bool MusicCatalog::audible() const {
          playback == QStringLiteral("loading");
 }
 
+void MusicCatalog::setDisabledSources(const QStringList &sources) {
+  if (sources == m_disabledSources)
+    return;
+  m_disabledSources = sources;
+  // A turned-off source is read no more: the browsed source moves to one
+  // that is on, or to none (Codex review of #851).
+  choose(browsableSource());
+  emit activeChanged();
+  updateProblems();
+}
+// The source the catalogue reads: the current one while it is present and
+// on, else the first one that is on, else none (#842).
+QString MusicCatalog::browsableSource() const {
+  QString first;
+  for (const auto &row : m_sources) {
+    const auto id = row.toMap().value("id").toString();
+    if (m_disabledSources.contains(id))
+      continue;
+    if (id == m_sourceId)
+      return id;
+    if (first.isEmpty())
+      first = id;
+  }
+  return first;
+}
 QVariantMap MusicCatalog::nowPlaying() const {
   const auto current = m_active.value(QStringLiteral("current")).toMap();
   const auto playback = m_active.value(QStringLiteral("playback")).toString();
   const bool playing = playback == QStringLiteral("playing");
-  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")))
+  if (current.isEmpty() || (!playing && playback != QStringLiteral("paused")) ||
+      m_disabledSources.contains(m_activeId))
     return {};
   const auto track = current.value(QStringLiteral("track")).toMap();
   const auto actions = m_active.value(QStringLiteral("actions")).toStringList();

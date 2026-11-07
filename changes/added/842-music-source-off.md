@@ -1,0 +1,1 @@
+- A music source can be turned off from the *Sources* sheet and turned on again from its *Turned off* group: it leaves the shelves, *All*, search and the music presence on Home, its pinned stations leave Favourites until it is back, and turning off the source that plays asks first ([#842](https://github.com/LimeBeck/arinn/issues/842)).

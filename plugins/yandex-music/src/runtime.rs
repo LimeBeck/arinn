@@ -657,6 +657,13 @@ impl Runtime {
                 }
                 d.pending.remove(&key);
                 d.revision += 1;
+                // A scan, a pin change or a reconnect cleared the listings
+                // while this one ran: its result, success or failure,
+                // describes the time before and is dropped; the new revision
+                // makes the shell ask again (Codex review of #849).
+                if d.listings_generation != generation {
+                    return;
+                }
                 let (mut entries, mut tracks, mut error, incomplete) = match result {
                     Ok((e, t, complete)) => (e, t, None, !complete),
                     Err(e) => (vec![], vec![], Some(e), false),
@@ -675,7 +682,6 @@ impl Runtime {
                     return;
                 }
                 if error.is_some()
-                    && d.listings_generation == generation
                     && let Some((entries, tracks, bytes)) = stale
                 {
                     // The same eight-entry and 16 MiB limits as any listing
@@ -1880,6 +1886,53 @@ mod tests {
                 .iter()
                 .any(|c| c.error.is_none() && c.incomplete)
         );
+        mock.finish();
+    }
+    /// Codex review of #849: a refresh that succeeds after a scan or pin
+    /// change cleared the listings is dropped too; the next request fetches
+    /// the listing as it is now.
+    #[tokio::test]
+    async fn a_refresh_that_outlives_a_scan_is_dropped() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let playlists = json!({"result":[]}).to_string();
+        let mock = Mock::new(vec![
+            (200, account.clone()),
+            (200, playlists.clone()),
+            (500, "{}".into()),
+            (200, account),
+            (200, playlists),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        loop {
+            if listing().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        fixture.runtime.data.lock().await.cache[0].fetched =
+            tokio::time::Instant::now() - Duration::from_secs(61);
+        assert!(listing().await.is_ok());
+        let revision = {
+            let mut d = fixture.runtime.data.lock().await;
+            d.invalidate_listings();
+            d.revision
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let d = fixture.runtime.data.lock().await;
+        // Nothing from before the scan is cached, and a new revision asks
+        // the shell to fetch again.
+        assert!(d.cache.is_empty());
+        assert!(d.revision > revision);
+        drop(d);
         mock.finish();
     }
     /// Codex review of #849: a full station memo makes room for one more

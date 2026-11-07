@@ -439,7 +439,9 @@ slow answer leaves the station without artwork. Such a listing is marked
 incomplete in the catalogue cache. Once a minute has passed, the next state
 announces one new catalogue revision, so the shell asks for the listing
 again; that request fetches it again while the cached one is still shown,
-and a failed refresh keeps the stale listing even if the cache evicted it, so a station is asked again instead of
+and a failed refresh keeps the stale listing even if the cache evicted it.
+A refresh that finishes after a scan, a pin change or a reconnect cleared
+the listings is dropped, whether it succeeded or failed, so a station is asked again instead of
 keeping "no cover". An answer of "no image" is final for the connection. The memo holds 1024 stations, room for every pin, and past
 that drops one entry at a time. The Selections shelf asks for My Wave
 and every pinned station, including a pin stored before stations had covers.

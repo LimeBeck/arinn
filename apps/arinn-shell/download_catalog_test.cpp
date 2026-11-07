@@ -122,7 +122,10 @@ public:
   QString lastGeneration, lastLocal;
   int reads = 0;
   bool texts = false;
-  int catalogReads = 0, resolves = 0;
+  int catalogReads = 0, translationReads = 0, resolves = 0;
+  QString failingTextMethod;
+  int textFailures = 0;
+  bool malformedTextReply = false;
   int resolveDelayMs = 0;
   qulonglong fixedRevision = 3;
   QString fixedError = QStringLiteral("Could not connect to Music");
@@ -145,8 +148,16 @@ public:
         bus.send(message.createErrorReply(QStringLiteral("org.arinn.Error1.Unsupported"), QStringLiteral("fixture")));
         return true;
       }
+      if (member == QLatin1String("GetCatalog")) ++catalogReads;
+      if (member == QLatin1String("GetTranslation")) ++translationReads;
+      if (member == QLatin1String("Resolve")) ++resolves;
+      if (member == failingTextMethod && textFailures > 0) {
+        --textFailures;
+        bus.send(malformedTextReply ? message.createReply(QVariantList{})
+            : message.createErrorReply(QStringLiteral("org.arinn.Error1.Unavailable"), QStringLiteral("fixture")));
+        return true;
+      }
       if (member == QLatin1String("GetCatalog")) {
-        ++catalogReads;
         auto source = QJsonDocument::fromJson(R"JSON({"formatVersion":1,"pluginId":"plugin","sourceLocale":"en","locales":[],"messages":{"connect":{"revision":1,"source":"Could not connect to %1","arguments":{"service":{"position":1,"type":"text"}}}}})JSON").object();
         QJsonArray locales;
         for (auto it = translations.begin(); it != translations.end(); ++it) locales.append(it.key());
@@ -160,7 +171,6 @@ public:
         return true;
       }
       if (member == QLatin1String("Resolve")) {
-        ++resolves;
         const auto requests = QJsonDocument::fromJson(message.arguments().value(2).toString().toUtf8()).array();
         QJsonArray resolved;
         for (qsizetype i = 0; i < requests.size(); ++i) {
@@ -396,6 +406,55 @@ private slots:
     translationLocale("ru");
     QTRY_COMPARE(jobById(catalog, "fixed").value("errorText").toString(), fixed.errorMessage);
     QCOMPARE(daemon->resolves, resolves);
+  }
+
+  void transientTextFailuresRecoverWithoutAnotherPresentationEvent_data() {
+    QTest::addColumn<QString>("method");
+    QTest::addColumn<bool>("malformed");
+    for (const auto &method : {"GetCatalog", "GetTranslation", "Resolve"}) {
+      QTest::newRow(qPrintable(QString::fromLatin1(method) + "-error")) << QString::fromLatin1(method) << false;
+      QTest::newRow(qPrintable(QString::fromLatin1(method) + "-malformed")) << QString::fromLatin1(method) << true;
+    }
+  }
+
+  void transientTextFailuresRecoverWithoutAnotherPresentationEvent() {
+    QFETCH(QString, method);
+    QFETCH(bool, malformed);
+    QTemporaryDir sources;
+    QVERIFY(sources.isValid());
+    const auto previousLocale = QLocale();
+    const auto previousTag = qApp->property("arinn.translationLocale");
+    const auto restore = qScopeGuard([&] {
+      QLocale::setDefault(previousLocale);
+      qApp->setProperty("arinn.translationLocale", previousTag);
+    });
+    QVERIFY(messageQm(sources.path(), "de", "Deutsch %1"));
+    QFile input(sources.filePath("arinn/translations/overrides/de/providers/plugin/messages.qm"));
+    QVERIFY(input.open(QIODevice::ReadOnly));
+    daemon->texts = true;
+    daemon->translations.insert("de", input.readAll());
+    daemon->failingTextMethod = method;
+    daemon->textFailures = 1;
+    daemon->malformedTextReply = malformed;
+    translationLocale("de");
+    QObject owner;
+    auto *client = ProviderTextClient::instance();
+    QString rendered;
+    const auto publish = [&] {
+      const auto presentation = client->presentation(&owner, "jobs");
+      rendered = client->translate("dl", generation1, "download.job", "fixed", 3, "error_message", daemon->fixedError);
+    };
+    client->observe(&owner, publish);
+    publish();
+    // Poll only the rendered value: no repaint, language change or content
+    // refresh may provide an accidental wakeup after the failed request.
+    QTRY_COMPARE_WITH_TIMEOUT(rendered, QStringLiteral("Deutsch Music"), 10000);
+    QCOMPARE(daemon->textFailures, 0);
+    QCOMPARE(daemon->catalogReads, method == QLatin1String("GetCatalog") ? 2 : 1);
+    QCOMPARE(daemon->translationReads, method == QLatin1String("GetTranslation") ? 2 : 1);
+    QCOMPARE(daemon->resolves, method == QLatin1String("Resolve") ? 2 : 1);
+    QCOMPARE(daemon->reads, 0);
+    QVERIFY(daemon->commands.isEmpty());
   }
 
   void delayedFixedReferenceCannotTranslateAChangedSnapshot() {

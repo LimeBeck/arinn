@@ -1,8 +1,8 @@
 # ADR-0144: Live interface language and local translation overlays
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-06
-- **Deciders:** Owner requested implementation in [#845](https://github.com/LimeBeck/arinn/issues/845) and the refined [#846 proposal](https://github.com/LimeBeck/arinn/issues/846#issuecomment-6694979705); technical layout proposed here
+- **Deciders:** Owner requested implementation in [#845](https://github.com/LimeBeck/arinn/issues/845) and the refined [#846 proposal](https://github.com/LimeBeck/arinn/issues/846#issuecomment-6694979705), then authorized merging [#863](https://github.com/LimeBeck/arinn/pull/863) on 2026-11-07; technical layout by Codex
 - **Amends / Supersedes:** [ADR-0112](0112-shell-preferences-as-core-settings.md) (language preference), supplements [ADR-0129](0129-provider-setting-translations.md) (client-selected locale and personal setting text)
 - **Amended by / Superseded by:** —
 - **Specification:** §5.6, §11, §15; R-01–R-05, R-09–R-10

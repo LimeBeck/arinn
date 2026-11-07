@@ -61,6 +61,7 @@ class ProviderTextClient final : public QObject {
   QString m_owner;
   quint64 m_epoch = 0;
   int m_pending = 0;
+  QTimer m_retryTimer;
   bool m_flushScheduled = false, m_notifyScheduled = false;
   bool m_registryPending = false, m_registryDirty = false;
   bool m_registryKnown = false;
@@ -98,9 +99,19 @@ class ProviderTextClient final : public QObject {
     m_flushScheduled = true;
     QTimer::singleShot(0, this, [this] { m_flushScheduled = false; flush(); });
   }
+  void wakeForRetry(qint64 deadline) {
+    const auto delay = int(qBound(qint64(1), deadline - QDateTime::currentMSecsSinceEpoch(), qint64(3000)));
+    if (!m_retryTimer.isActive() || m_retryTimer.remainingTime() > delay)
+      m_retryTimer.start(delay);
+  }
+  void retry(const std::shared_ptr<Provider> &p) {
+    p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+    wakeForRetry(p->retryAt);
+  }
   void ownerChanged(const QString &owner) {
     ++m_epoch;
     m_owner = owner;
+    m_retryTimer.stop();
     m_providers.clear();
     m_leases.clear();
     m_registryPending = m_registryKnown = false;
@@ -302,18 +313,18 @@ class ProviderTextClient final : public QObject {
       if (reply.type() == QDBusMessage::ErrorMessage) {
         const auto name = reply.errorName();
         p->unsupported = name.endsWith(".Unsupported") || name.endsWith(".UnknownInterface") || name.endsWith(".UnknownMethod");
-        p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+        if (!p->unsupported) retry(p);
         return;
       }
       if (reply.signature() != QLatin1String("ss") || reply.arguments().size() != 2 || reply.arguments().at(0).toString() != p->generation) {
-        p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+        retry(p);
         return;
       }
       const auto bytes = reply.arguments().at(1).toString().toUtf8();
-      if (bytes.size() > ProviderMessages::maxJsonBytes) { p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000; return; }
+      if (bytes.size() > ProviderMessages::maxJsonBytes) { retry(p); return; }
       const auto object = QJsonDocument::fromJson(bytes).object();
       p->catalog = ProviderMessages::catalog(bytes, object.value("pluginId").toString());
-      if (!p->catalog) { p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000; return; }
+      if (!p->catalog) { retry(p); return; }
       loadLocal(p);
       notify();
     });
@@ -327,7 +338,7 @@ class ProviderTextClient final : public QObject {
       if (!LocalTranslations::locales(locale()).contains(tag)) return;
       if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != QLatin1String("ay") || reply.arguments().size() != 1) {
         if (reply.errorName().endsWith(".NotFound")) p->remoteAbsent.insert(tag);
-        p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+        else retry(p);
         return;
       }
       const auto bytes = reply.arguments().first().toByteArray();
@@ -336,7 +347,7 @@ class ProviderTextClient final : public QObject {
       if (dictionaryBytes() + bytes.size() <= dictionaryBudget) {
         p->dictionaries.insert(QStringLiteral(":remote:") + tag, dictionary);
         notify();
-      } else p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000;
+      } else retry(p);
     });
   }
   void resolve(const std::shared_ptr<Provider> &p) {
@@ -364,7 +375,7 @@ class ProviderTextClient final : public QObject {
       }
       if (retired) return;
       const auto bytes = reply.arguments().value(0).toString().toUtf8();
-      const auto reject = [p] { p->retryAt = QDateTime::currentMSecsSinceEpoch() + 3000; };
+      const auto reject = [this, p] { retry(p); };
       if (reply.type() == QDBusMessage::ErrorMessage || reply.signature() != QLatin1String("s") || bytes.size() > ProviderMessages::maxJsonBytes) { reject(); return; }
       QJsonParseError error;
       const auto document = QJsonDocument::fromJson(bytes, &error);
@@ -409,7 +420,8 @@ class ProviderTextClient final : public QObject {
     const auto providers = m_providers;
     for (const auto &p : providers) {
       if (m_pending >= 4) return;
-      if (p->unsupported || p->retryAt > QDateTime::currentMSecsSinceEpoch()) continue;
+      if (p->unsupported) continue;
+      if (p->retryAt > QDateTime::currentMSecsSinceEpoch()) { wakeForRetry(p->retryAt); continue; }
       if (!p->catalog) { if (!p->catalogPending) fetchCatalog(p); continue; }
       for (const auto &tag : LocalTranslations::locales(locale())) {
         if (m_pending >= 4) break;
@@ -420,6 +432,11 @@ class ProviderTextClient final : public QObject {
     }
   }
   explicit ProviderTextClient(QObject *parent) : QObject(parent) {
+    // One shared wakeup bounds timers across providers. Precise timing avoids
+    // waking before the deadline; flush rearms it for any later retry.
+    m_retryTimer.setSingleShot(true);
+    m_retryTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_retryTimer, &QTimer::timeout, this, [this] { schedule(); });
     // The built-in timer slot keeps this helper independent of a new moc
     // target. A registry change retires identities, unlike a local repaint.
     auto *registry = new QTimer(this);

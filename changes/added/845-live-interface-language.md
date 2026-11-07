@@ -17,3 +17,5 @@ search headings and stored source-command errors also retranslate locally (#845,
   publish language-independent fixed fallbacks; Settings source names use the
   same local provider lookup. Community resources stay separate from personal
   corrections (#845, #846).
+- Retry transient provider-text metadata failures automatically without waiting
+  for another language change, repaint or content refresh.

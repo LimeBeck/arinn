@@ -9,8 +9,8 @@
 Renders each manifest state offscreen at 1920×1080 and at 3840×2160 and
 writes an HTML report. On the offscreen platform QT_SCALE_FACTOR is ignored,
 so the 3840×2160 image is a 2× scale of the logical canvas, not device pixel
-ratio 2. The report is evidence for layout review. It does not pass G-5.1,
-and it is not a CI gate.
+ratio 2. Capture success is a scoped CI check; image differences remain review
+evidence, without a pass threshold. Neither result passes G-5.1.
 
     python scripts/ui-compare.py --check
     python scripts/ui-compare.py
@@ -154,7 +154,10 @@ def four_k_captures(binary: Path, output: Path) -> tuple[list[dict], str]:
     The offscreen platform ignores QT_SCALE_FACTOR, so the second path is the
     one that produces 3840×2160 here.
     """
-    _code, _combined, rows = run_capture(binary, output, "4k", "2")
+    code, combined, rows = run_capture(binary, output, "4k", "2")
+    if code != 0 or not rows:
+        sys.stderr.write(combined)
+        raise SystemExit(f"capture failed for 4k (exit {code})")
     if rows and rows[0].get("width") == 3840 and rows[0].get("height") == 2160:
         return rows, "device pixel ratio 2 (3840×2160 framebuffer, logical 1920×1080)"
     rows = require_capture(binary, output, "4k-layout", None)

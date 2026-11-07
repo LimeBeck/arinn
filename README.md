@@ -238,7 +238,7 @@ node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_ext
 python scripts/check-docs.py
 ```
 
-Pull requests run the Rust, Qt and integration checks; Markdown/changelog-only changes run the documentation and licensing scope. Package builds and clean install smoke tests run on `master`, nightlies, manual CI and releases ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A release is published only after its gated pipeline passes ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
+Pull requests select checks from their diff: Markdown uses documentation/licensing checks, allowlisted website changes add site validation, and capture fixtures run the isolated Qt renderer. Native, mixed or unknown changes run the full Rust/Qt/integration suite; see the [scope rules](docs/architecture/ci-scope.md). Package builds and clean install smoke tests run on `master`, nightlies, manual CI and releases ([ADR-0102](docs/adr/0102-packages-built-for-master-only.md)). A release is published only after its gated pipeline passes ([ADR-0033](docs/adr/0033-ci-cd-and-releases.md)). The full list of required checks, commit conventions, the release process and the Definition of Done are in [CONTRIBUTING.md](CONTRIBUTING.md). AI coding agents also follow [AGENTS.md](AGENTS.md).
 
 ### Validate plugin manifests
 

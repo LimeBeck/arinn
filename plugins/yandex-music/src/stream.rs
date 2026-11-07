@@ -162,6 +162,7 @@ impl Api {
                     .await?;
                 reference(&brief["artist"])
             }
+            parse::Cover::Station(key) => self.station_image(key).await?.ok_or(Error::Unavailable),
             parse::Cover::Playlist { uid, kind } => {
                 if !parse::digits(uid) || !parse::digits(kind) {
                     return Err(Error::InvalidInput);

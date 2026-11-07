@@ -88,6 +88,8 @@ impl Mock {
             lease: None,
             expires_at: None,
             deadline: None,
+            station_images: Default::default(),
+            station_lookups: Default::default(),
             downloads: Client::builder()
                 .no_proxy()
                 .tls_built_in_root_certs(false)

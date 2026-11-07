@@ -258,6 +258,9 @@ TestCase {
                 row[keys[i]] = values[keys[i]];
         };
     }
+    function foldersScene(variant, expect) {
+        return {factory: foldersFactory, props: {variant: variant}, tune: item => item.show(), settle: 500, expect: expect};
+    }
     // Application tiles behind the tile action sheet (handoff cl-*).
     function appTiles() {
         return [
@@ -690,29 +693,46 @@ TestCase {
                 wait(50);
                 view.startPathTyping();
             }, {keyboardAvailable: false}, "pathOnScreenKeyboard");
-        // Library folders (handoff se-lf-*): the shell lists the folders of a
-        // multiple path setting inline in Settings › Media.
+        // Current dedicated folder list and graphical picker (#780).
         if (id === "library-folders-row")
-            return settingsScene(null, view => settingsRow(view, "folders"), null, ["path-folders-0", "remove-folders-0", "add-folders"]);
+            return settingsScene(null, view => settingsRow(view, "folders"));
         if (id === "library-folders-empty")
-            return settingsScene(setRow("folders", {currentValue: []}), view => settingsRow(view, "folders", "add"), null, "add-folders");
+            return foldersScene("empty", "foldersEmpty");
         if (id === "library-folders-list")
-            return settingsScene(null, view => settingsRow(view, "folders", "remove:0"), null, ["path-folders-1", "remove-folders-0"]);
-        // A folder the library provider reports unavailable (#540): it stays
-        // in the list with its note. Its removal (se-lf-7) is a confirmation
-        // dialog the shell does not draw, like se-lf-6.
+            return foldersScene("list", "folderRow-0");
         if (id === "library-folders-4")
-            return settingsScene(setRow("folders", {
-                currentValue: ["/srv/films", "/srv/series", "/mnt/nas/archive"],
-                unavailablePaths: ["/mnt/nas/archive"]
-            }), view => settingsRow(view, "folders", "path:0"), null, ["path-folders-0", "pathNote-folders-2"]);
+            return foldersScene("unavailable", "folderStatus-2");
         if (id === "library-folders-limit")
-            return settingsScene(setRow("folders", {
-                currentValue: ["/srv/archive-2019", "/srv/archive-2020", "/srv/archive-2021", "/srv/films"],
-                constraints: {directory: true, multiple: true, maxItems: 4}
-            }), view => settingsRow(view, "folders", "add"), null, ["path-folders-3", "add-folders"]);
+            return foldersScene("limit", "foldersLimit");
+        if (id === "library-folders-6")
+            return foldersScene("remove", "foldersConfirm");
+        if (id === "library-folders-7")
+            return foldersScene("remove-unavailable", "foldersConfirm");
+        if (id === "library-folders-8")
+            return foldersScene("adding", "folderStatus-2");
+        if (id === "folder-picker-home")
+            return foldersScene("picker", "pickerTitle");
+        if (id === "music-room")
+            return {factory: musicFactory, props: {}, tune: item => item.view.openRoom(), expect: ["musicHero", "musicShelves"]};
+        if (id === "music-now-playing")
+            return {factory: musicFactory, props: {}, tune: item => item.view.openPlayer(), expect: ["musicNowPlaying", "musicPlayerArtwork"]};
         if (id === "settings-rows")
-            return settingsScene(null, view => settingsRow(view, "ambient"));
+            return settingsScene(null, view => settingsRow(view, "arinn-ambient_timeout"), {
+                rows: [
+                    {id: "light_field", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Light field",
+                     description: "A soft glow along the bottom of the screen and behind the item in focus. Off turns the glow off",
+                     type: "boolean", currentValue: true, constraints: {}, enabled: true},
+                    {id: "light_follows_time", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Light follows the time of day",
+                     description: "In the evening and at night the glow is dimmer and the screen a little warmer. Off keeps the daytime look",
+                     type: "boolean", currentValue: true, constraints: {}, enabled: true},
+                    {id: "ambient_timeout", providerId: "arinn", providerName: "", categoryId: "appearance", title: "Ambient after",
+                     description: "Idle time on an Arinn screen before the ambient screen appears",
+                     type: "enum", currentValue: "10", constraints: {options: [
+                         {value: "5", title: "5 min"}, {value: "10", title: "10 min"},
+                         {value: "15", title: "15 min"}, {value: "30", title: "30 min"}, {value: "60", title: "60 min"}
+                     ]}, enabled: true}
+                ]
+            });
         if (id === "settings-disabled")
             return settingsScene(null, view => settingsRow(view, "delay"));
         if (id === "settings-enum")
@@ -917,6 +937,8 @@ TestCase {
         cache: false
     }
 
+    Component { id: foldersFactory; ShowcaseFolders {} }
+    Component { id: musicFactory; ShowcaseMusic {} }
     Component { id: homeFactory; Ui.HomeView { width: 1920; height: 1080 } }
     Component { id: libraryFactory; Library.LibraryView { width: 1920; height: 1080 } }
     Component { id: playerFactory; Player.PlayerView { width: 1920; height: 1080 } }

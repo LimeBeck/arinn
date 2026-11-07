@@ -3,58 +3,55 @@
 
 # Showcase screenshots
 
-The README (EN/RU), product website and handbook use this reviewed subset of
-fixture-driven Qt/QML captures from `tests/ui/visual`. The retired component
-gallery is not a screen renderer. The wider, earlier comparison baseline lives
-in [current-ui](../current-ui/README.md); historical handoff/archive assets are
-not changed by this refresh.
+The README (EN/RU), product website and handbook share these six fixture-driven
+captures of the production Qt/QML components. Refreshed on 2026-11-07 in
+[#866](https://github.com/LimeBeck/arinn/issues/866), from application source
+`611e067` plus this task's capture fixtures: Qt 6.12.0 on Arch Linux,
+offscreen platform, software Qt Quick renderer, 1920 × 1080, DPR 1.
+The matching 4K render is checked by the comparison tool but is not published.
 
-Captured on 2026-11-01 from `master` commit `5d31b16` with Qt 6.8.2 on
-Debian trixie, the offscreen platform and the software Qt Quick renderer, at
-1920 × 1080 ([#644](https://github.com/LimeBeck/arinn/issues/644)).
-Only the four states selected in [#569](https://github.com/LimeBeck/arinn/issues/569)
-are published. The owner accepted Qt 6.8 or later; a Qt 6.10-only environment is
-not required. The frames include the #564 focus-only Home menu plate, the #565
-drawn on-screen and sound marks and Site or search button, the #566 focus-only
-Settings source line and the #641 centred Settings titles. `home.png` and
-`open-services.png` were recaptured the same way with the combined visual
-follow-ups (#639 first-row position, #640 speaker icon, #656 two-line favorite
-names); `settings.png` and `library-folders.png` render unchanged.
-
-| File | Manifest state | Contents |
+| File | Capture state | Content |
 | --- | --- | --- |
-| `home.png` | `home-populated` | Continue cards, fictional favorite tiles with two-line names and the focused Home menu button with its plate |
-| `open-services.png` | `browser-list` | Fictional .example services with the on-screen mark and the speaker-icon sound mark, bookmark and close controls and the Site or search button |
-| `settings.png` | `settings-rows` | Appearance: light field, ambient timeout and text size; only the focused row shows its source line |
-| `library-folders.png` | `library-folders-list` | Inline fictional folder paths with Add path / Remove controls |
+| `home.png` | `home-populated` | Continue and favorite tiles, Playfair content title, Hearth light and remote focus |
+| `open-services.png` | `browser-list` | Fictional .example services, on-screen/sound marks, bookmark and close controls |
+| `settings.png` | `settings-rows` | Current Appearance controls: light field, time-of-day lighting and ambient timeout |
+| `library-folders.png` | `folder-picker-home` | Graphical folder picker with fictional places and subfolders |
+| `music.png` | `music-room` | Production Music room with fictional station and album shelves from two sources |
+| `now-playing.png` | `music-now-playing` | Production player with fictional artwork, track information and transport controls |
 
-The capture baseline is a fixed 12:00 clock (day, no veil). Evening and night
-are the separate `home-evening` (20:30) and `home-night` (23:30) frames. The
-pictures in this folder were exported from an earlier capture and can still
-show 22:57 until the next export. Synthetic titles and paths, neutral service
-monograms and the original fixture artwork. It connects to no daemon or live
-desktop. Existing handoff differences remain product follow-ups; this refresh
-does not pass G-5.1, qualify a desktop/TV or prove every integration complete.
-Launch states remain excluded until #573 is resolved. No image shows a user's
-media, browser activity or credentials. Captions describe these exact states;
-the folder-list frame does not depict an unavailable folder or a graphical picker.
+All clocks are fixed at 12:00. Services, artists, tracks and paths are synthetic;
+monograms are neutral and placeholder artwork is original. No capture connects
+to a daemon, provider, account, filesystem browser or live desktop. The folder
+fixture implements the browser model without reading the disk. Music fixtures
+supply data to the real room/player components without producing audio.
+
+These images document implemented layout. They do not pass G-5.1, qualify
+hardware, approve the design at TV distance or prove live integrations work.
+The [design sources](../README.md) remain the visual contract. The wider,
+earlier [current-ui baseline](../current-ui/README.md) and historical handoff/archive
+assets retain their dates and are not changed by this refresh.
 
 From the repository root:
 
 ```sh
 cmake -S . -B build -G Ninja
 cmake --build build --target arinn-ui-test
-python scripts/ui-compare.py --build-dir build --output build/ui-compare
-cp build/ui-compare/1080/home-populated.png docs/design/showcase/home.png
-cp build/ui-compare/1080/browser-list.png docs/design/showcase/open-services.png
-cp build/ui-compare/1080/settings-rows.png docs/design/showcase/settings.png
-cp build/ui-compare/1080/library-folders-list.png docs/design/showcase/library-folders.png
+python scripts/ui-compare.py --build-dir build --output build/showcase-refresh \
+  --states home-populated browser-list settings-rows folder-picker-home music-room music-now-playing
+cp build/showcase-refresh/1080/home-populated.png docs/design/showcase/home.png
+cp build/showcase-refresh/1080/browser-list.png docs/design/showcase/open-services.png
+cp build/showcase-refresh/1080/settings-rows.png docs/design/showcase/settings.png
+cp build/showcase-refresh/1080/folder-picker-home.png docs/design/showcase/library-folders.png
+cp build/showcase-refresh/1080/music-room.png docs/design/showcase/music.png
+cp build/showcase-refresh/1080/music-now-playing.png docs/design/showcase/now-playing.png
 cp docs/design/showcase/home.png docs/user/assets/home.png
+python scripts/build-site.py
+python scripts/check-site.py
 ```
 
-The comparison tool also attempts 4K renders; published files use only its
-1080p output. Inspect the four frames and their captions before updating the
-public set. Their independent design review found no empty icon squares or
-clipped Media showcase row. The approved Arinn mark and all historical design
-sources stay unchanged. Documentation and captures are CC-BY-SA-4.0 under the
-existing REUSE annotations; bundled Onest retains OFL-1.1.
+Without `--states`, the tool renders the full manifest. Inspect every refreshed
+frame and its caption before committing. The website builder copies these PNGs
+directly; the standalone handbook's Home copy must also stay synchronized.
+Approved marks and historical sources remain unchanged. Documentation/captures
+use CC-BY-SA-4.0 under existing REUSE annotations; bundled Onest and Playfair
+Display retain OFL-1.1.

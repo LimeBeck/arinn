@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCREENS = (
-    "home", "open-services", "settings", "library-folders",
+    "home", "open-services", "settings", "library-folders", "music", "now-playing",
 )
 PUBLISHED_FILES = frozenset({
     "index.html", "assets/site.css", "assets/site.js", "assets/guide.css",

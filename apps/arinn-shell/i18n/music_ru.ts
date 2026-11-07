@@ -325,6 +325,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
       <translation>Здесь пока нет музыки. Попробуйте поиск или другой раздел.</translation>
     </message>
     <message>
+      <source>Pin to Home</source>
+      <translation>Закрепить на главной</translation>
+    </message>
+    <message>
       <source>Pin station</source>
       <translation>Закрепить станцию</translation>
     </message>
@@ -351,6 +355,10 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
     <message>
       <source>Save playlist</source>
       <translation>Сохранить плейлист</translation>
+    </message>
+    <message>
+      <source>Unpin from Home</source>
+      <translation>Открепить с главной</translation>
     </message>
     <message>
       <source>Unpin station</source>

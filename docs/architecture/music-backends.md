@@ -91,10 +91,11 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   from the Continue card, the Quick menu, *Open player*, or a station or an
   album.
 - The *More* sheet (720, right) lists only the session's actions, as
-  container rows with a line icon: Dislike, Radio from this track, the
-  provider's station pin, Retry loading tracks and Stop. *Go to album* and
-  *Go to artist* wait for album and artist references in the protocol, and
-  *Pin station to Home* for #804. Back closes the sheet and returns to
+  container rows with a line icon: Dislike, Radio from this track, *Pin to
+  Home* or *Unpin from Home* for a `pinnable` station (#804; otherwise the
+  provider's station pin), Retry loading tracks and Stop. *Go to album* and
+  *Go to artist* wait for album and artist references in the protocol. Back
+  closes the sheet and returns to
   *More*; the Menu key keeps global navigation and never opens it.
 - The *Queue* sheet (720, right) lists the current entry first, with the
   playing mark and the initial focus, then the upcoming ones as container
@@ -418,15 +419,42 @@ Yandex Music artwork IDs (#825) are opaque, at most 256 bytes and without `/`:
   tracks (its first track's cover, with no new request);
 - `album-cover:<id>` and `artist-cover:<id>` for search results and the
   library's artists;
-- `playlist-cover:<uid>:<kind>` for the account's playlists.
+- `playlist-cover:<uid>:<kind>` for the account's playlists;
+- `station-cover:<station key>` for a rotor station, such as My Wave
+  (`user:onyourwave`) or a track's radio (`track:<id>`) (#843).
 
 Each resolves through its own API object's `coverUri`, `cover.uri` or
 `ogImage`; a playlist's comes from the account's playlist list, which carries
-no tracks. The reference becomes the 600 × 600 image on `avatars.yandex.net`
+no tracks. A station's comes from `rotor/station/<key>/info`: its
+`icon.imageUrl`, else its `fullImageUrl`. The reference becomes the 600 × 600 image on `avatars.yandex.net`
 or `avatars.mds.yandex.net`, behind the same cache, epoch guard, size limit and
 `sniff` check as track covers.
 
-Search results and playlists carry an ID only when the API names an image.
+Search results, playlists and stations carry an ID only when the API names an
+image. Whether a station's info names one is asked once per connection, at
+most eight stations at a time under one shared 3-second deadline that never
+runs past the listing's own 30-second budget: the Selections listing asks
+for its required playlists first. Only a well-formed station that names no
+image counts as "no image", as does a reference the cover route would refuse
+(another host, or over 16 KiB), so the memo holds only usable references; a
+malformed answer is a failed lookup; a failed or
+slow answer leaves the station without artwork. Such a listing is marked
+incomplete in the catalogue cache. Once a minute has passed, the next state
+announces one new catalogue revision, so the shell asks for the listing
+again; that request fetches it again while the cached one is still shown,
+and a failed refresh keeps the stale listing even if the cache evicted it.
+A refresh that finishes after a scan, a pin change or a reconnect cleared
+the listings is dropped, whether it succeeded or failed, so a station is asked again instead of
+keeping "no cover". An answer of "no image" is final for the connection. The memo holds 1024 stations, room for every pin, and past
+that drops one entry at a time. The Selections shelf asks for My Wave
+and every pinned station, including a pin stored before stations had covers.
+A radio start never waits for a cover: it uses what the connection already
+knows and asks about an unknown station in the background; the playing
+station and a pin of it take the cover once the connection knows it.
+Concurrent lookups of one station share a single request. A stale
+incomplete listing stays shown when its refresh cannot start because every
+catalogue slot is busy, or when the refresh fails; it is asked again a
+minute later.
 A library artist always carries one, and an artist without a picture falls
 back to the shell's neutral artwork.
 

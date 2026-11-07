@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Arinn contributors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
+#include <QDeadlineTimer>
 #include <QMap>
 #include <QPair>
 #include <QObject>
@@ -8,6 +9,7 @@
 #include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
+#include <optional>
 class MusicCatalog : public QObject {
   Q_OBJECT
   Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
@@ -139,6 +141,18 @@ private:
                  QVariantList rows, QSet<QString> tokens);
   QString statusText(const QString &status) const;
   void forgetStaleUnresolved();
+  void mirrorPin();
+  // The provider pin still to mirror (#804).
+  struct PinMirror {
+    QString provider, station;
+    bool pinned = false;
+  };
+  std::optional<PinMirror> m_pinMirror;
+  // Commands that ended, and how many of them the last active read had seen
+  // end before it was asked.
+  quint64 m_commandsDone = 0, m_activeSeen = 0;
+  // Until then, after a command that timed out, active reads do not count.
+  QDeadlineTimer m_activeFenceAfter{0};
   // (provider ID, station ID) -> the provider generation that answered. A
   // pair, not a joined string: protocol IDs may hold any character but NUL.
   QMap<QPair<QString, QString>, QString> m_unresolved;

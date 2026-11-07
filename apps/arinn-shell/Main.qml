@@ -621,6 +621,12 @@ Window {
     Connections {
         target: backend
         ignoreUnknownSignals: true
+        // A stored Home pin or unpin is mirrored to the provider's own pin
+        // for the station that plays, never a request that may still fail
+        // (#804).
+        function onMusicStationPinChanged(providerId, stationId, pinned) {
+            musicCatalog.syncProviderPin(providerId, stationId, pinned);
+        }
         function onNativeFocusChanged() { root.checkPresentationFocus(); }
         function onChanged() {
             // The Return of the quick menu is done: the Activity has the
@@ -787,6 +793,13 @@ Window {
     // A pinned station whose source is not connected, or which the source
     // no longer knows, stays on the shelf, unavailable with the reason; it
     // never starts another station (music brief, Favourites; #804).
+    // The [provider, station] pairs Home holds, from the stored targets: a
+    // pin whose MusicPins1 record is not read yet, or failed, is a
+    // placeholder row that still carries them (Codex review of #836).
+    function pinnedMusicStations(favorites) {
+        return favorites.filter(entry => entry.capability === "music-station")
+                        .map(entry => [entry.providerId, entry.localId]);
+    }
     // The music room polls its sources' states while the music screen shows,
     // and while Home shows a pinned station, whose availability follows the
     // account (#804).
@@ -1069,10 +1082,6 @@ Window {
             favoriteSaving: backend.favoriteSaving === true
             favoriteError: backend.favoriteError || ""
             onFavoriteRequested: (entryId, pinned) => {
-                // Unpinning a station from the shelf also unpins it at its
-                // provider, where the provider keeps its own list (#804).
-                const station = backend.favorites.find(entry => entry.id === entryId && entry.musicStation);
-                if (station && !pinned) musicCatalog.syncProviderPin(station.providerId, station.stationId, false);
                 backend.setFavorite(entryId, pinned);
             }
             onCloseRequested: windowId => closeFlow.ask(windowId)
@@ -1379,6 +1388,13 @@ Window {
             catalog: musicCatalog
             room: musicRoom
             objectName: "productionMusic"
+            pinnedStations: root.pinnedMusicStations(backend.favorites)
+            pinsWritable: backend.favoritesReady === true && backend.favoriteSaving !== true
+            pinWriteError: backend.favoriteError || ""
+            onStationPinRequested: (providerId, stationId, title, artwork, pinned) => {
+                if (pinned) backend.pinMusicStation(providerId, stationId, title, artwork);
+                else backend.unpinMusicStation(providerId, stationId);
+            }
             layer.enabled: root.navBlur && visible
             layer.effect: navBlurEffect
             visible: home.screen === "music" && !root.playerOpen

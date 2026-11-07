@@ -1330,11 +1330,13 @@ private slots:
     };
     const auto rowsFunction = extract(QStringLiteral("musicPinRows"));
     const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
+    const auto pairsFunction = extract(QStringLiteral("pinnedMusicStations"));
+    QVERIFY(!pairsFunction.isEmpty());
     QVERIFY(!rowsFunction.isEmpty());
     QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction +
+    component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction + pairsFunction +
                        "    function rows(f, s, u, a, d) {\n"
                        "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id, d);\n"
                        "    }\n}")
@@ -1418,6 +1420,21 @@ private slots:
       }();
       return value.toBool();
     };
+    // Home's pins come from the stored targets, also for a placeholder row
+    // whose MusicPins1 record is missing (Codex review of #836).
+    const QVariantList stored{
+        QVariantMap{{"id", "app"}, {"providerId", "apps"}, {"capability", "application"},
+                    {"localId", "a"}},
+        QVariantMap{{"id", "p1"}, {"providerId", "local"}, {"capability", "music-station"},
+                    {"localId", "station:library"}, {"musicStation", true}},
+        QVariantMap{{"id", "p2"}, {"providerId", "cloud"}, {"capability", "music-station"},
+                    {"localId", "station:wave"}, {"unavailable", true}}};
+    QVariant pairs;
+    QVERIFY(QMetaObject::invokeMethod(root.get(), "pinnedMusicStations",
+                                      Q_RETURN_ARG(QVariant, pairs), Q_ARG(QVariant, stored)));
+    QCOMPARE(qvariant_cast<QJSValue>(pairs).toVariant().toList(),
+             (QVariantList{QVariant(QVariantList{"local", "station:library"}),
+                           QVariant(QVariantList{"cloud", "station:wave"})}));
     const QVariantList noPins{favorites.first()};
     QVERIFY(follows(true, false, noPins));
     QVERIFY(follows(false, true, favorites));
@@ -1447,11 +1464,12 @@ private slots:
                         {"continuous", true}, {"pinned", false},
                         {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
                                                 {"title", "Wave"}}},
-                        {"actions", QJsonArray{"pause", "pin"}}};
-    daemon.active = QString::fromUtf8(
+                        {"actions", QJsonArray{"pause", "stop", "pin"}}};
+    const auto playing = QString::fromUtf8(
         QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", "g1"},
                                   {"state", current}})
             .toJson(QJsonDocument::Compact));
+    daemon.active = playing;
     MusicCatalog catalog;
     QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
     QTRY_VERIFY(!catalog.sources().isEmpty());
@@ -1461,9 +1479,52 @@ private slots:
     catalog.syncProviderPin("local", "station:wave", false);
     QTest::qWait(100);
     QCOMPARE(daemon.commands.size(), before);
+    // Codex review of #836: a mirror that meets another command in flight
+    // waits for it instead of being dropped. The fake answers on the next
+    // turn of the event loop, so the pin is asked while Pause is in flight.
+    catalog.transport("pause");
+    QVERIFY(catalog.transportBusy());
     catalog.syncProviderPin("local", "station:wave", true);
-    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    // Another station's change from the same read keeps it waiting.
+    catalog.syncProviderPin("local", "station:other", false);
+    QCOMPARE(daemon.commands.size(), before + 1);
+    QTRY_COMPARE(daemon.commands.size(), before + 2);
     QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 2);
+    // Codex review of #836: after Stop the mirror waits for the session as
+    // it is after the command, and a stopped one takes no pin.
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    // A malformed answer is not the session after Stop: still no pin
+    // (Codex review of #836).
+    daemon.active = QStringLiteral("{}");
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 3);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(100);
+    QCOMPARE(daemon.commands.size(), before + 3);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("stop"));
+    // Codex review of #836: a Stop that times out may have been applied
+    // while the daemon still reports the old session; reads in the next
+    // moments do not release the mirror, and the stopped session takes no
+    // pin once it shows.
+    daemon.active = playing;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    daemon.commandError = "Timeout";
+    catalog.transport("stop");
+    QVERIFY(catalog.transportBusy());
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTRY_VERIFY(!catalog.transportBusy());
+    QTest::qWait(1500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.active = QStringLiteral("null");
+    QTRY_VERIFY(catalog.activeState().isEmpty());
+    QTest::qWait(2500);
+    QCOMPARE(daemon.commands.size(), before + 4);
+    daemon.commandError.clear();
   }
 };
 QTEST_GUILESS_MAIN(MusicCatalogTest)

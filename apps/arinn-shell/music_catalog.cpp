@@ -3,6 +3,7 @@
 #include "music_catalog.h"
 #include "asset_images.h"
 #include <QJsonArray>
+#include <algorithm>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QQmlEngine>
@@ -118,6 +119,9 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   });
   m_timer.setInterval(1000);
   connect(&m_timer, &QTimer::timeout, this, &MusicCatalog::refresh);
+  // A pin mirror waits while another command is in flight (#804).
+  connect(this, &MusicCatalog::statusChanged, this, &MusicCatalog::mirrorPin);
+  connect(this, &MusicCatalog::activeChanged, this, &MusicCatalog::mirrorPin);
   m_timer.start();
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
@@ -536,13 +540,18 @@ void MusicCatalog::readActive() {
     return;
   m_activeBusy = true;
   const auto epoch = m_epoch;
+  // A read asked after a command ended describes the session after it.
+  // A read asked while an uncertain command may still be settling does not
+  // count as the session after it.
+  const auto commandsDone =
+      m_activeFenceAfter.hasExpired() ? m_commandsDone : m_activeSeen;
   auto message = call(QStringLiteral("/org/arinn/Daemon1"),
                       "org.arinn.MusicController1", "GetActive");
   auto *pending = new QDBusPendingCallWatcher(
       QDBusConnection::sessionBus().asyncCall(message, 3000), this);
   connect(
       pending, &QDBusPendingCallWatcher::finished, this,
-      [this, epoch](auto *watch) {
+      [this, epoch, commandsDone](auto *watch) {
         const auto reply = watch->reply();
         watch->deleteLater();
         if (epoch != m_epoch)
@@ -587,6 +596,7 @@ void MusicCatalog::readActive() {
           m_active.clear();
           m_activeId.clear();
           m_activeGeneration.clear();
+          m_activeSeen = std::max(m_activeSeen, commandsDone);
           emit activeChanged();
           emit activeReadsChanged();
           return;
@@ -594,6 +604,7 @@ void MusicCatalog::readActive() {
         m_active = json.value("state").toObject().toVariantMap();
         m_activeId = json.value("provider_id").toString();
         m_activeGeneration = json.value("generation").toString();
+        m_activeSeen = std::max(m_activeSeen, commandsDone);
         QString path;
         for (const auto &row : m_sources) {
           const auto source = row.toMap();
@@ -697,6 +708,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             if (epoch != m_epoch) {
               m_commandBusy = false;
+              ++m_commandsDone;
               emit statusChanged();
               readActive();
               return;
@@ -723,6 +735,13 @@ void MusicCatalog::send(const QString &action, const QString &entity,
                 m_startGeneration = generation;
                 m_startSession = oldSession;
               }
+              ++m_commandsDone;
+              // A command that timed out may have been applied while the
+              // daemon still reports the session before it: only a read
+              // asked after the provider's next polls counts (Codex review
+              // of #836).
+              if (failure == "Timeout" || failure == "NoReply")
+                m_activeFenceAfter.setRemainingTime(2500);
               fail(failure);
               m_commandWaitingRefresh = true;
               m_stateBusy = false;
@@ -732,6 +751,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
               return;
             }
             m_commandBusy = false;
+            ++m_commandsDone;
             if (action == "radio" && m_unresolved.remove(station))
               emit unresolvedChanged();
             if (!active) {
@@ -762,15 +782,37 @@ QString MusicCatalog::artworkUrl(const QString &providerId,
 }
 void MusicCatalog::syncProviderPin(const QString &providerId,
                                    const QString &stationId, bool pinned) {
-  // The provider's own pin covers only the station that plays (`pinned` in
-  // its state); Arinn mirrors its pin there where the provider offers it.
-  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  // Only the playing station's change is kept: one favorites read may
+  // report several stations, and another station's must not replace a
+  // mirror still waiting (Codex review of #836).
   if (m_activeId != providerId ||
-      station.value(QStringLiteral("id")).toString() != stationId ||
-      m_active.value(QStringLiteral("pinned")).toBool() == pinned ||
-      !m_active.value(QStringLiteral("actions")).toStringList().contains(
-          QStringLiteral("pin")))
+      m_active.value(QStringLiteral("station")).toMap().value(QStringLiteral("id")).toString() !=
+          stationId)
     return;
+  m_pinMirror = PinMirror{providerId, stationId, pinned};
+  mirrorPin();
+}
+// The provider's own pin covers only the station that plays (`pinned` in its
+// state); Arinn mirrors its pin there where the provider offers it. While
+// another command is in flight the mirror waits for it (Codex review of
+// #836); a station that stopped playing drops it.
+void MusicCatalog::mirrorPin() {
+  // While a command is in flight, and until the session is read again after
+  // it, the active state may describe the session before the command: Stop
+  // or a new station (Codex review of #836).
+  if (!m_pinMirror || m_commandBusy || m_activeSeen < m_commandsDone)
+    return;
+  const auto station = m_active.value(QStringLiteral("station")).toMap();
+  if (m_activeId != m_pinMirror->provider ||
+      station.value(QStringLiteral("id")).toString() != m_pinMirror->station ||
+      m_active.value(QStringLiteral("pinned")).toBool() == m_pinMirror->pinned ||
+      !m_active.value(QStringLiteral("actions")).toStringList().contains(
+          QStringLiteral("pin"))) {
+    m_pinMirror.reset();
+    return;
+  }
+  const auto stationId = m_pinMirror->station;
+  m_pinMirror.reset();
   transport(QStringLiteral("pin"), stationId);
 }
 

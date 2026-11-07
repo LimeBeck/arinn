@@ -15,7 +15,7 @@ use arinn_protocol::{
     validation::ErrorCode,
 };
 use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     future::Future,
     pin::Pin,
     sync::Arc,
@@ -67,6 +67,13 @@ struct Cache {
     tracks: Vec<Track>,
     error: Option<ErrorCode>,
     bytes: usize,
+    /// Some station cover lookup failed or ran out of time: the listing is
+    /// asked again later instead of keeping "no cover" (#843).
+    incomplete: bool,
+    fetched: tokio::time::Instant,
+    /// The catalogue revision was bumped once for this due retry, so the
+    /// shell, which asks again only on a new revision, asks again (#843).
+    announced: bool,
 }
 struct Radio {
     wire: String,
@@ -85,6 +92,16 @@ struct Data {
     pins: Vec<Entity>,
     feedback_error: Option<ErrorCode>,
     expired_stopped: bool,
+    /// Bumped by every deliberate cache clear (scan, pin, reconnect), so a
+    /// refresh that fails afterwards does not restore its stale listing
+    /// over it; a capacity eviction does not bump it (Codex review of #849).
+    listings_generation: u64,
+}
+impl Data {
+    fn invalidate_listings(&mut self) {
+        self.cache.clear();
+        self.listings_generation += 1;
+    }
 }
 pub struct Runtime {
     source: Arc<RwLock<Option<Authorized>>>,
@@ -157,6 +174,72 @@ fn station(id: &str, title: &str) -> Entity {
         ..Entity::default()
     }
 }
+/// A starting station's artwork from what the connection already knows: the
+/// radio never waits for optional artwork. An unknown station is asked in
+/// the background, so its next listing or start has the cover (Codex review
+/// of #849).
+fn known_station_artwork(api: &Api, seed: &str) -> String {
+    match api.known_station_image(seed) {
+        Some(Some(_)) => format!("station-cover:{seed}"),
+        Some(None) => String::new(),
+        None => {
+            let (api, seed) = (api.clone(), seed.to_owned());
+            tokio::spawn(async move {
+                let _ =
+                    tokio::time::timeout(Duration::from_secs(15), api.station_image(&seed)).await;
+            });
+            String::new()
+        }
+    }
+}
+/// The artwork IDs of several stations, asked at most eight at a time under
+/// one shared 3-second deadline: however many stations are slow, the
+/// listing waits no longer, and those stations go without artwork (Codex
+/// review of #849). The flag is false when some lookup failed or ran out of
+/// time, so the caller can ask again later.
+async fn station_artworks(
+    api: &Api,
+    ids: &[String],
+    limit: tokio::time::Instant,
+) -> (HashMap<String, String>, bool) {
+    // Three seconds at most, and never past the caller's own limit.
+    let deadline = limit.min(tokio::time::Instant::now() + Duration::from_secs(3));
+    let slots = Arc::new(Semaphore::new(8));
+    let mut lookups = tokio::task::JoinSet::new();
+    for id in ids {
+        let Ok(key) = seed(id) else {
+            continue;
+        };
+        let (api, slots, id) = (api.clone(), slots.clone(), id.clone());
+        lookups.spawn(async move {
+            let _slot = slots.acquire_owned().await;
+            let image = api.station_image(&key).await;
+            let artwork = matches!(image, Ok(Some(_))).then(|| format!("station-cover:{key}"));
+            (id, artwork, image.is_ok())
+        });
+    }
+    let mut artworks = HashMap::new();
+    let mut complete = true;
+    loop {
+        match tokio::time::timeout_at(deadline, lookups.join_next()).await {
+            Ok(Some(Ok((id, artwork, answered)))) => {
+                complete &= answered;
+                if let Some(artwork) = artwork {
+                    artworks.insert(id, artwork);
+                }
+            }
+            Ok(Some(Err(_))) => complete = false,
+            Ok(None) => break,
+            // The deadline: the lookups still running are cancelled when the
+            // set drops, and their stations are asked again later.
+            Err(_) => {
+                complete = false;
+                break;
+            }
+        }
+    }
+    (artworks, complete)
+}
 fn seed(entity: &str) -> Result<String, ErrorCode> {
     if entity == "station:wave" {
         Ok("user:onyourwave".into())
@@ -224,6 +307,7 @@ impl Runtime {
                 pins: saved,
                 feedback_error: None,
                 expired_stopped: false,
+                listings_generation: 0,
             }),
             playback,
             catalogue_slots: Arc::new(Semaphore::new(2)),
@@ -320,7 +404,7 @@ impl Runtime {
         self.epochs.send_replace(d.epoch);
         d.revision += 1;
         d.pending.clear();
-        d.cache.clear();
+        d.invalidate_listings();
         d.radio = None;
         d.ratings.clear();
         d.feedback_error = None;
@@ -338,7 +422,7 @@ impl Runtime {
             self.epochs.send_replace(d.epoch);
             d.revision += 1;
             d.pending.clear();
-            d.cache.clear();
+            d.invalidate_listings();
             d.radio = None;
             d.ratings.clear();
             d.feedback_error = None;
@@ -386,7 +470,7 @@ impl Runtime {
         d.revision += 1;
         d.radio = None;
         d.pending.clear();
-        d.cache.clear();
+        d.invalidate_listings();
         d.ratings.clear();
         if let Some(source) = self.source.write().await.as_mut() {
             source.epoch = d.epoch;
@@ -428,10 +512,46 @@ impl Runtime {
             .as_ref()
             .is_some_and(|api| api.expired())
     }
+    /// A station's cover from the connection's memo when it has none yet: a
+    /// radio started before the lookup answered gets its cover once the
+    /// background lookup does, and a pin keeps it (Codex review of #849).
+    async fn with_known_artwork(&self, station: &mut Entity) {
+        if !station.artwork.is_empty() {
+            return;
+        }
+        let Ok(key) = seed(&station.id) else {
+            return;
+        };
+        if let Some(api) = self.source.read().await.as_ref()
+            && let Some(Some(_)) = api.known_station_image(&key)
+        {
+            station.artwork = format!("station-cover:{key}");
+        }
+    }
     pub async fn state(&self) -> State {
         let mut state = self.playback.state().await;
+        if let Some(station) = &mut state.station {
+            self.with_known_artwork(station).await;
+        }
         let expired = self.expired().await;
-        let d = self.data.lock().await;
+        let mut d = self.data.lock().await;
+        // A listing with unanswered station covers that is due for its retry
+        // gets one new catalogue revision: the shell asks for a listing only
+        // when the revision changes (Codex review of #849).
+        let due = d.cache.iter_mut().fold(false, |due, cache| {
+            if cache.incomplete
+                && !cache.announced
+                && cache.fetched.elapsed() >= Duration::from_secs(60)
+            {
+                cache.announced = true;
+                true
+            } else {
+                due
+            }
+        });
+        if due {
+            d.revision += 1;
+        }
         if let Some(station) = &mut state.station
             && station.id == "station:wave"
         {
@@ -477,21 +597,44 @@ impl Runtime {
         let key = serde_json::to_string(&query.without_token())
             .map_err(|_| ErrorCode::InvalidArgument)?;
         let mut d = self.data.lock().await;
+        let mut cached = None;
+        // The stale listing travels with its refresh, so a failed refresh
+        // keeps it even when the cache has evicted it meanwhile (Codex
+        // review of #849).
+        let mut stale: Option<(Vec<Entity>, Vec<Track>, usize)> = None;
+        let generation = d.listings_generation;
         if let Some(cache) = d.cache.iter().find(|c| c.key == key) {
             if let Some(error) = cache.error {
                 return Err(error);
             }
-            return Ok(MusicCatalogue {
+            let listing = MusicCatalogue {
                 revision: cache.revision,
                 entries: cache.entries.clone(),
-            });
+            };
+            // A listing with unanswered station covers is fetched again, at
+            // most once a minute, while the cached one stays shown; an
+            // answered "no image" is final for the connection (#843).
+            if !cache.incomplete
+                || cache.fetched.elapsed() < Duration::from_secs(60)
+                || d.pending.contains(&key)
+            {
+                return Ok(listing);
+            }
+            stale = Some((cache.entries.clone(), cache.tracks.clone(), cache.bytes));
+            cached = Some(listing);
         }
         if !d.pending.contains(&key) {
-            let permit = self
-                .catalogue_slots
-                .clone()
-                .try_acquire_owned()
-                .map_err(|_| ErrorCode::Unavailable)?;
+            // With every slot busy, a stale listing is still shown and asked
+            // again on a later request (Codex review of #849).
+            let Ok(permit) = self.catalogue_slots.clone().try_acquire_owned() else {
+                // The retry is announced again in five seconds, not left
+                // waiting for an unrelated revision (Codex review of #849).
+                if let Some(entry) = d.cache.iter_mut().find(|c| c.key == key && c.incomplete) {
+                    entry.announced = false;
+                    entry.fetched = tokio::time::Instant::now() - Duration::from_secs(55);
+                }
+                return cached.ok_or(ErrorCode::Unavailable);
+            };
             let api = self
                 .source
                 .read()
@@ -503,8 +646,9 @@ impl Runtime {
             let this = self.clone();
             tokio::spawn(async move {
                 let _permit = permit;
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
                 let result =
-                    tokio::time::timeout(Duration::from_secs(30), this.fetch(&api, &query))
+                    tokio::time::timeout_at(deadline, this.fetch_listing(&api, &query, deadline))
                         .await
                         .unwrap_or(Err(ErrorCode::Timeout));
                 let mut d = this.data.lock().await;
@@ -513,10 +657,57 @@ impl Runtime {
                 }
                 d.pending.remove(&key);
                 d.revision += 1;
-                let (mut entries, mut tracks, mut error) = match result {
-                    Ok((e, t)) => (e, t, None),
-                    Err(e) => (vec![], vec![], Some(e)),
+                // A scan, a pin change or a reconnect cleared the listings
+                // while this one ran: its result, success or failure,
+                // describes the time before and is dropped; the new revision
+                // makes the shell ask again (Codex review of #849).
+                if d.listings_generation != generation {
+                    return;
+                }
+                let (mut entries, mut tracks, mut error, incomplete) = match result {
+                    Ok((e, t, complete)) => (e, t, None, !complete),
+                    Err(e) => (vec![], vec![], Some(e), false),
                 };
+                // A failed refresh keeps the listing it was refreshing and
+                // tries again a minute later; a new result replaces it
+                // (Codex review of #849).
+                if error.is_some()
+                    && let Some(kept) = d
+                        .cache
+                        .iter_mut()
+                        .find(|c| c.key == key && c.error.is_none())
+                {
+                    kept.fetched = tokio::time::Instant::now();
+                    kept.announced = false;
+                    return;
+                }
+                if error.is_some()
+                    && let Some((entries, tracks, bytes)) = stale
+                {
+                    // The same eight-entry and 16 MiB limits as any listing
+                    // (Codex review of #849).
+                    while !d.cache.is_empty()
+                        && (d.cache.len() >= 8
+                            || d.cache.iter().map(|c| c.bytes).sum::<usize>() + bytes
+                                > 16 * 1024 * 1024)
+                    {
+                        d.cache.pop_front();
+                    }
+                    let revision = d.revision;
+                    d.cache.push_back(Cache {
+                        key,
+                        revision,
+                        entries,
+                        tracks,
+                        error: None,
+                        bytes,
+                        incomplete: true,
+                        fetched: tokio::time::Instant::now(),
+                        announced: false,
+                    });
+                    return;
+                }
+                d.cache.retain(|c| c.key != key);
                 let mut bytes = serde_json::to_vec(&entries).map_or(16 * 1024 * 1024, |b| b.len())
                     + serde_json::to_vec(&tracks).map_or(16 * 1024 * 1024, |b| b.len());
                 if bytes > 16 * 1024 * 1024 {
@@ -541,17 +732,22 @@ impl Runtime {
                         tracks,
                         error,
                         bytes,
+                        incomplete,
+                        fetched: tokio::time::Instant::now(),
+                        announced: false,
                     });
                 }
             });
         }
-        Err(ErrorCode::Unavailable)
+        cached.ok_or(ErrorCode::Unavailable)
     }
-    async fn fetch(
+    /// A listing, and whether every station cover lookup in it was answered.
+    async fn fetch_listing(
         &self,
         api: &Api,
         query: &Query,
-    ) -> Result<(Vec<Entity>, Vec<Track>), ErrorCode> {
+        deadline: tokio::time::Instant,
+    ) -> Result<(Vec<Entity>, Vec<Track>, bool), ErrorCode> {
         let uid = api.account_uid().await.map_err(error)?;
         let tracks = if let Some(id) = query.parent.strip_prefix("playlist:") {
             api.playlist_tracks(&uid, id).await.map_err(error)?
@@ -572,6 +768,7 @@ impl Runtime {
                     .await
                     .map_err(error)?,
                 vec![],
+                true,
             ));
         } else if !query.search.trim().is_empty() {
             let mut tracks = Vec::new();
@@ -595,23 +792,30 @@ impl Runtime {
                 "station:wave",
                 station_title("user:onyourwave", &message_locale()),
             )];
-            for pin in &self.data.lock().await.pins {
+            let pins = self.data.lock().await.pins.clone();
+            for mut pin in pins {
                 if !entries.iter().any(|e| e.id == pin.id) {
-                    let mut pin = pin.clone();
                     if pin.id == "station:wave" {
                         pin.title = station_title("user:onyourwave", &message_locale()).into();
                     }
                     entries.push(pin);
                 }
             }
-            entries.extend(
-                api.user_playlists(&uid)
-                    .await
-                    .map_err(error)?
-                    .into_iter()
-                    .map(|p| playlist(&uid, p)),
-            );
-            return Ok((entries, vec![]));
+            // Each station's cover as its rotor info names it now, also for
+            // a pin stored before stations carried one (#843).
+            // The required playlists first; the optional covers then get
+            // what is left of the listing's budget, up to three seconds, so
+            // they can never make a listing whose required requests answered
+            // run out of time (Codex review of #849).
+            let playlists = api.user_playlists(&uid).await.map_err(error)?;
+            let ids: Vec<String> = entries.iter().map(|e| e.id.clone()).collect();
+            let (mut artworks, complete) =
+                station_artworks(api, &ids, deadline - Duration::from_secs(1)).await;
+            for entry in &mut entries {
+                entry.artwork = artworks.remove(&entry.id).unwrap_or_default();
+            }
+            entries.extend(playlists.into_iter().map(|p| playlist(&uid, p)));
+            return Ok((entries, vec![], complete));
         } else if query.facet == "playlists" {
             return Ok((
                 api.user_playlists(&uid)
@@ -621,6 +825,7 @@ impl Runtime {
                     .map(|p| playlist(&uid, p))
                     .collect(),
                 vec![],
+                true,
             ));
         } else {
             api.liked_tracks(&uid).await.map_err(error)?
@@ -682,7 +887,21 @@ impl Runtime {
                 .map(track_entity)
                 .collect()
         };
-        Ok((entries, tracks))
+        Ok((entries, tracks, true))
+    }
+    #[cfg(test)]
+    async fn fetch(
+        &self,
+        api: &Api,
+        query: &Query,
+    ) -> Result<(Vec<Entity>, Vec<Track>), ErrorCode> {
+        self.fetch_listing(
+            api,
+            query,
+            tokio::time::Instant::now() + Duration::from_secs(30),
+        )
+        .await
+        .map(|(entries, tracks, _)| (entries, tracks))
     }
     async fn selected(&self, id: &str) -> Result<Vec<Track>, ErrorCode> {
         let d = self.data.lock().await;
@@ -770,7 +989,7 @@ impl Runtime {
             }
             "scan" => {
                 let mut d = self.data.lock().await;
-                d.cache.clear();
+                d.invalidate_listings();
                 d.revision += 1;
             }
             _ => {
@@ -791,6 +1010,8 @@ impl Runtime {
         } else {
             format!("station:{seed}")
         };
+        let mut playing = station(&station_id, title);
+        playing.artwork = known_station_artwork(api, &seed);
         let mut d = self.data.lock().await;
         if d.epoch != epoch {
             return Err(ErrorCode::Conflict);
@@ -800,7 +1021,7 @@ impl Runtime {
             .radio(
                 session.batch.tracks.clone(),
                 session.batch.id.clone(),
-                station(&station_id, title),
+                playing,
             )
             .await?;
         let batches = VecDeque::from([feedback_batch(&session.batch)]);
@@ -916,10 +1137,11 @@ impl Runtime {
         tokio::spawn(async move {
             let mut d = this.data.lock().await;
             let state = this.playback.state().await;
-            let station = state
+            let mut station = state
                 .station
                 .filter(|s| s.id == id)
                 .ok_or(ErrorCode::InvalidArgument)?;
+            this.with_known_artwork(&mut station).await;
             let mut pins = d.pins.clone();
             if let Some(index) = pins.iter().position(|p| p.id == id) {
                 pins.remove(index);
@@ -944,7 +1166,7 @@ impl Runtime {
                 return Err(ErrorCode::Unavailable);
             }
             d.pins = pins;
-            d.cache.clear();
+            d.invalidate_listings();
             d.revision += 1;
             if durability {
                 d.feedback_error = Some(ErrorCode::Unavailable);
@@ -1297,6 +1519,529 @@ mod tests {
             "{}",
             requests[0].0
         );
+    }
+    /// #843: a station carries `station-cover:<key>` when its rotor info
+    /// names an image, and no artwork otherwise, also for a pin stored
+    /// before stations had covers; the answer is kept for the connection.
+    #[tokio::test]
+    async fn stations_carry_their_rotor_covers() {
+        let fixture = Fixture::new();
+        fixture.runtime.data.lock().await.pins = vec![
+            station("station:track:123", "Fixture radio"),
+            station("station:track:456", "Bare radio"),
+        ];
+        let account = json!({"result":{"account":{"uid":5}}});
+        let wave = json!({"result":[{"station":{"id":{"type":"user","tag":"onyourwave"},
+            "icon":{"backgroundColor":"#000000","imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]});
+        let track = json!({"result":[{"station":{"id":{"type":"track","tag":"123"},
+            "icon":{"imageUrl":""},"fullImageUrl":"avatars.yandex.net/get-music-content/2/b/%%"}}]});
+        let bare = json!({"result":[{"station":{"id":{"type":"track","tag":"456"},"icon":{}}}]});
+        let mock = Mock::new(vec![
+            (200, account.to_string()),
+            (200, json!({"result":[]}).to_string()),
+            (200, wave.to_string()),
+            (200, track.to_string()),
+            (200, bare.to_string()),
+            (200, account.to_string()),
+            (200, json!({"result":[]}).to_string()),
+        ]);
+        for _ in 0..2 {
+            let (entries, _) = fixture
+                .runtime
+                .fetch(&mock.api, &query("selections", "", ""))
+                .await
+                .unwrap();
+            let got: Vec<(&str, &str)> = entries
+                .iter()
+                .map(|e| (e.id.as_str(), e.artwork.as_str()))
+                .collect();
+            assert_eq!(
+                got,
+                [
+                    ("station:wave", "station-cover:user:onyourwave"),
+                    ("station:track:123", "station-cover:track:123"),
+                    ("station:track:456", ""),
+                ]
+            );
+            assert!(entries.iter().all(|e| e.validate().is_ok()));
+        }
+        let requests = mock.finish();
+        // The required playlists come before the optional covers (Codex
+        // review of #849).
+        assert!(
+            requests[1].0.contains("/playlists/list"),
+            "{}",
+            requests[1].0
+        );
+        let paths: Vec<&str> = requests
+            .iter()
+            .filter_map(|r| r.0.split(' ').nth(1))
+            .filter(|p| p.starts_with("/rotor/"))
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                "/rotor/station/user:onyourwave/info",
+                "/rotor/station/track:123/info",
+                "/rotor/station/track:456/info",
+            ]
+        );
+    }
+    /// #843: a station cover is resolved through the rotor info with the
+    /// same allow-list as the other covers; an image on another host is
+    /// refused before any download, and an ID that is not a station key in
+    /// its own form is not found and sends nothing.
+    #[tokio::test]
+    async fn a_station_cover_on_a_foreign_host_is_refused() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![response_with(json!([{"station":{
+            "icon":{"imageUrl":"images.example.com/get-music-misc/1/wave/%%"}}}]))]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        assert_eq!(
+            fixture
+                .runtime
+                .artwork("station-cover:user:onyourwave")
+                .await,
+            Err(ErrorCode::Unavailable)
+        );
+        for id in [
+            "station-cover:user:other",
+            "station-cover:track:123:45",
+            "station-cover:123",
+            "station-cover:genre:rock",
+            "station-cover:",
+        ] {
+            assert_eq!(
+                fixture.runtime.artwork(id).await,
+                Err(ErrorCode::NotFound),
+                "{id}"
+            );
+        }
+        let requests = mock.finish();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .0
+                .starts_with("GET /rotor/station/user:onyourwave/info "),
+            "{}",
+            requests[0].0
+        );
+    }
+    /// Codex review of #849: a Selections listing whose station cover
+    /// lookup failed is not kept as "no cover": a later request, once a
+    /// minute has passed, fetches it again while the cached one is shown.
+    #[tokio::test]
+    async fn a_listing_with_a_failed_station_lookup_is_fetched_again() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let wave = json!({"result":[{"station":{
+            "icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]});
+        let playlists = json!({"result":[]}).to_string();
+        let mock = Mock::new(vec![
+            (200, account.clone()),
+            (200, playlists.clone()),
+            (500, "{}".into()),
+            (200, account),
+            (200, playlists),
+            (200, wave.to_string()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        let first = loop {
+            if let Ok(listing) = listing().await {
+                break listing;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        assert_eq!(first.entries[0].artwork, "");
+        // Within the minute the cached listing is final.
+        assert_eq!(listing().await.unwrap().revision, first.revision);
+        // Not due yet: no new catalogue revision.
+        let before = fixture.runtime.state().await.catalogue_revision;
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before);
+        {
+            let mut d = fixture.runtime.data.lock().await;
+            assert!(d.cache[0].incomplete);
+            d.cache[0].fetched = tokio::time::Instant::now() - Duration::from_secs(61);
+        }
+        // The shell asks for a listing only on a new catalogue revision: a
+        // due retry announces one, once (Codex review of #849).
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before + 1);
+        assert_eq!(fixture.runtime.state().await.catalogue_revision, before + 1);
+        // The stale listing is still shown while it is fetched again.
+        assert_eq!(listing().await.unwrap().entries[0].artwork, "");
+        let second = loop {
+            let next = listing().await.unwrap();
+            if next.revision != first.revision {
+                break next;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        assert_eq!(second.entries[0].artwork, "station-cover:user:onyourwave");
+        assert!(!fixture.runtime.data.lock().await.cache[0].incomplete);
+        assert_eq!(mock.finish().len(), 6);
+    }
+    /// Codex review of #849: a radio start never waits for its cover. An
+    /// unknown station starts without one and is asked in the background;
+    /// a known one starts with it, and a known "no image" asks nothing.
+    #[tokio::test]
+    async fn a_radio_start_does_not_wait_for_its_cover() {
+        let wave = json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]);
+        let mock = Mock::new(vec![response_with(wave)]);
+        assert_eq!(known_station_artwork(&mock.api, "user:onyourwave"), "");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while mock.api.known_station_image("user:onyourwave").is_none() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            known_station_artwork(&mock.api, "user:onyourwave"),
+            "station-cover:user:onyourwave"
+        );
+        mock.api
+            .station_images
+            .lock()
+            .unwrap()
+            .insert("track:9".into(), None);
+        assert_eq!(known_station_artwork(&mock.api, "track:9"), "");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: a stale listing is still shown when its refresh
+    /// cannot start because every catalogue slot is busy, and when the
+    /// refresh fails; it is asked again a minute later.
+    #[tokio::test]
+    async fn a_stale_listing_survives_busy_slots_and_a_failed_refresh() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let mock = Mock::new(vec![
+            (200, account),
+            (200, json!({"result":[]}).to_string()),
+            (500, "{}".into()),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        let first = loop {
+            if let Ok(listing) = listing().await {
+                break listing;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        };
+        let age = || async {
+            fixture.runtime.data.lock().await.cache[0].fetched =
+                tokio::time::Instant::now() - Duration::from_secs(61);
+        };
+        age().await;
+        // Both slots busy: the stale listing, no error, and the retry is
+        // announced again a few seconds later (Codex review of #849).
+        let slots = fixture
+            .runtime
+            .catalogue_slots
+            .clone()
+            .acquire_many_owned(2)
+            .await
+            .unwrap();
+        fixture.runtime.data.lock().await.cache[0].announced = true;
+        assert!(listing().await.unwrap().entries == first.entries);
+        {
+            let d = fixture.runtime.data.lock().await;
+            assert!(!d.cache[0].announced);
+            let wait = Duration::from_secs(60).saturating_sub(d.cache[0].fetched.elapsed());
+            assert!(
+                wait > Duration::from_secs(3) && wait <= Duration::from_secs(5),
+                "{wait:?}"
+            );
+        }
+        age().await;
+        drop(slots);
+        // The refresh fails (the account request answers 500): the stale
+        // listing stays, not an error, and waits another minute, even when
+        // the cache evicted it meanwhile (Codex review of #849).
+        assert!(listing().await.unwrap().entries == first.entries);
+        // Eviction meanwhile: the cache is full of other large listings,
+        // and the restored one still respects the byte limit.
+        {
+            let mut d = fixture.runtime.data.lock().await;
+            d.cache.clear();
+            for n in 0..2 {
+                d.cache.push_back(Cache {
+                    key: format!("other-{n}"),
+                    revision: 0,
+                    entries: vec![],
+                    tracks: vec![],
+                    error: None,
+                    bytes: 8 * 1024 * 1024,
+                    incomplete: false,
+                    fetched: tokio::time::Instant::now(),
+                    announced: false,
+                });
+            }
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let after = listing().await.unwrap();
+        assert!(after.entries == first.entries);
+        let d = fixture.runtime.data.lock().await;
+        let restored = d.cache.iter().find(|c| c.incomplete).unwrap();
+        assert!(restored.error.is_none());
+        assert!(restored.fetched.elapsed() < Duration::from_secs(60));
+        assert!(d.cache.iter().map(|c| c.bytes).sum::<usize>() <= 16 * 1024 * 1024);
+        drop(d);
+        assert_eq!(mock.finish().len(), 4);
+    }
+    /// Codex review of #849: two callers asking about the same unseen
+    /// station at once share one request.
+    #[tokio::test]
+    async fn concurrent_station_lookups_share_one_request() {
+        let wave = json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/wave/%%"}}}]);
+        let mock = Mock::new(vec![response_with(wave)]);
+        let (a, b) = tokio::join!(
+            mock.api.station_image("user:onyourwave"),
+            mock.api.station_image("user:onyourwave")
+        );
+        assert!(a.unwrap().is_some() && b.unwrap().is_some());
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: a radio that started before its cover was
+    /// known shows it once the connection knows it, and a pin keeps it.
+    #[tokio::test]
+    async fn the_playing_station_takes_its_cover_once_known() {
+        let fixture = Fixture::new();
+        let mock = Mock::new(vec![]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        fixture
+            .runtime
+            .playback
+            .radio(
+                vec![],
+                "batch".into(),
+                station("station:wave", "Fixture wave"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(fixture.runtime.state().await.station.unwrap().artwork, "");
+        mock.api.station_images.lock().unwrap().insert(
+            "user:onyourwave".into(),
+            Some("avatars.yandex.net/x/%%".into()),
+        );
+        assert_eq!(
+            fixture.runtime.state().await.station.unwrap().artwork,
+            "station-cover:user:onyourwave"
+        );
+        fixture.runtime.pin("station:wave").await.unwrap();
+        assert_eq!(
+            fixture.runtime.data.lock().await.pins[0].artwork,
+            "station-cover:user:onyourwave"
+        );
+        assert!(mock.finish().is_empty());
+    }
+    /// Codex review of #849: a deliberate cache clear (scan, pin) during a
+    /// refresh that then fails is not undone by restoring the stale listing.
+    #[tokio::test]
+    async fn a_failed_refresh_does_not_undo_a_scan() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let mock = Mock::new(vec![
+            (200, account),
+            (200, json!({"result":[]}).to_string()),
+            (500, "{}".into()),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        loop {
+            if listing().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        fixture.runtime.data.lock().await.cache[0].fetched =
+            tokio::time::Instant::now() - Duration::from_secs(61);
+        // The stale listing is shown and its refresh starts; a scan clears
+        // the listings while it runs, and the refresh then fails.
+        assert!(listing().await.is_ok());
+        fixture.runtime.data.lock().await.invalidate_listings();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            !fixture
+                .runtime
+                .data
+                .lock()
+                .await
+                .cache
+                .iter()
+                .any(|c| c.error.is_none() && c.incomplete)
+        );
+        mock.finish();
+    }
+    /// Codex review of #849: a refresh that succeeds after a scan or pin
+    /// change cleared the listings is dropped too; the next request fetches
+    /// the listing as it is now.
+    #[tokio::test]
+    async fn a_refresh_that_outlives_a_scan_is_dropped() {
+        let fixture = Fixture::new();
+        let account = json!({"result":{"account":{"uid":5}}}).to_string();
+        let playlists = json!({"result":[]}).to_string();
+        let mock = Mock::new(vec![
+            (200, account.clone()),
+            (200, playlists.clone()),
+            (500, "{}".into()),
+            (200, account),
+            (200, playlists),
+            (500, "{}".into()),
+        ]);
+        fixture.runtime.connected(mock.api.clone()).await;
+        let listing = || fixture.runtime.catalogue(query("selections", "", ""));
+        loop {
+            if listing().await.is_ok() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        fixture.runtime.data.lock().await.cache[0].fetched =
+            tokio::time::Instant::now() - Duration::from_secs(61);
+        assert!(listing().await.is_ok());
+        let revision = {
+            let mut d = fixture.runtime.data.lock().await;
+            d.invalidate_listings();
+            d.revision
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !fixture.runtime.data.lock().await.pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let d = fixture.runtime.data.lock().await;
+        // Nothing from before the scan is cached, and a new revision asks
+        // the shell to fetch again.
+        assert!(d.cache.is_empty());
+        assert!(d.revision > revision);
+        drop(d);
+        mock.finish();
+    }
+    /// Codex review of #849: only a reference the cover route accepts is
+    /// remembered; an oversized one or one on another host counts as no
+    /// image and is not kept.
+    #[tokio::test]
+    async fn only_usable_station_images_are_remembered() {
+        let huge = format!("avatars.yandex.net/{}/%%", "x".repeat(20 * 1024));
+        let mock = Mock::new(vec![
+            response_with(json!([{"station":{"icon":{"imageUrl": huge}}}])),
+            response_with(json!([{"station":{"icon":{"imageUrl":"images.example.com/1/%%"}}}])),
+            response_with(
+                json!([{"station":{"icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/x/%%"}}}]),
+            ),
+        ]);
+        assert_eq!(mock.api.station_image("track:1").await.unwrap(), None);
+        assert_eq!(mock.api.station_image("track:2").await.unwrap(), None);
+        assert!(mock.api.station_image("track:3").await.unwrap().is_some());
+        let known = mock.api.station_images.lock().unwrap().clone();
+        assert_eq!(known.get("track:1"), Some(&None));
+        assert!(known.values().flatten().all(|r| r.len() <= 16 * 1024));
+        mock.finish();
+    }
+    /// Codex review of #849: a full station memo makes room for one more
+    /// station by dropping a single entry, never the whole memo.
+    #[tokio::test]
+    async fn a_full_station_memo_keeps_its_answers() {
+        let mock = Mock::new(vec![response_with(json!([{"station":{
+            "icon":{"imageUrl":"avatars.yandex.net/get-music-misc/1/x/%%"}}}]))]);
+        {
+            let mut known = mock.api.station_images.lock().unwrap();
+            for n in 0..1024 {
+                known.insert(format!("track:{n}"), None);
+            }
+        }
+        assert!(
+            mock.api
+                .station_image("track:5000")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        {
+            let known = mock.api.station_images.lock().unwrap();
+            assert_eq!(known.len(), 1024);
+            assert!(known.contains_key("track:5000"));
+        }
+        // A known station is answered from the memo, with no request.
+        assert!(
+            mock.api
+                .station_image("track:5000")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(mock.finish().len(), 1);
+    }
+    /// Codex review of #849: slow station lookups share one deadline, so
+    /// twelve stalled stations cost about three seconds, not three each,
+    /// and come back without artwork.
+    #[tokio::test]
+    async fn slow_station_covers_share_one_deadline() {
+        // A service that accepts every request and never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut api = Mock::new(vec![]).api.clone();
+        api.origin =
+            reqwest::Url::parse(&format!("http://{}/", listener.local_addr().unwrap())).unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let held = std::thread::spawn(move || {
+            let mut sockets = Vec::new();
+            let until = std::time::Instant::now() + Duration::from_secs(6);
+            while std::time::Instant::now() < until {
+                if let Ok((socket, _)) = listener.accept() {
+                    sockets.push(socket);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+        let ids: Vec<String> = (1..=12).map(|n| format!("station:track:{n}")).collect();
+        let started = std::time::Instant::now();
+        let (artworks, complete) = station_artworks(
+            &api,
+            &ids,
+            tokio::time::Instant::now() + Duration::from_secs(30),
+        )
+        .await;
+        assert!(artworks.is_empty());
+        assert!(!complete);
+        assert!(
+            started.elapsed() < Duration::from_secs(6),
+            "{:?}",
+            started.elapsed()
+        );
+        // Codex review of #849: a caller's own limit caps the phase, so the
+        // optional covers never outlast the listing's budget.
+        let started = std::time::Instant::now();
+        let (artworks, complete) = station_artworks(
+            &api,
+            &ids,
+            tokio::time::Instant::now() + Duration::from_millis(200),
+        )
+        .await;
+        assert!(artworks.is_empty() && !complete);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        held.join().unwrap();
     }
     /// #825: the epoch guard covers the new kinds: a reconnect while an
     /// artist cover is being resolved ends it with a conflict.

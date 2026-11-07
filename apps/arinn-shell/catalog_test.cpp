@@ -627,10 +627,14 @@ private slots:
                                       QDBusConnection::SubPath));
     {
       Backend backend;
+      // #804: only a stored change is announced, for the provider's mirror;
+      // the first list of a connection is not a change.
+      QSignalSpy pinChanges(&backend, &Backend::musicStationPinChanged);
       QTRY_VERIFY(backend.favoritesReady());
       QTRY_COMPARE(backend.favorites().size(), 1);
       QTRY_COMPARE(backend.favorites().first().toMap().value("title").toString(),
                    QString("Fixture station"));
+      QCOMPARE(pinChanges.count(), 0);
       auto row = backend.favorites().first().toMap();
       QVERIFY(row.value("musicStation").toBool());
       QCOMPARE(row.value("providerId").toString(), QString("fixture.music"));
@@ -643,13 +647,33 @@ private slots:
       QTRY_COMPARE(backend.favorites().last().toMap().value("title").toString(),
                    QString("Wave"));
       QVERIFY(daemon.pinCalls.contains("Pin"));
+      QTRY_COMPARE(pinChanges.count(), 1);
+      QCOMPARE(pinChanges.takeFirst(),
+               (QVariantList{"fixture.music", "station:wave", true}));
       backend.unpinMusicStation("fixture.music", "station:library");
       QTRY_COMPARE(backend.favorites().size(), 1);
       QVERIFY(!backend.musicStationPinned("fixture.music", "station:library"));
+      QTRY_COMPARE(pinChanges.count(), 1);
+      QCOMPARE(pinChanges.takeFirst(),
+               (QVariantList{"fixture.music", "station:library", false}));
+      // A removal the daemon refuses is not announced (Codex review of #824).
+      const auto waveId = backend.favorites().first().toMap().value("id").toString();
+      daemon.favoriteFailure = "Conflict";
+      backend.setFavorite(waveId, false);
+      QTRY_VERIFY(!backend.favoriteError().isEmpty());
+      QTRY_VERIFY(!backend.favoriteSaving());
+      QTRY_VERIFY(backend.favoritesReady());
+      QVERIFY(backend.musicStationPinned("fixture.music", "station:wave"));
+      QTest::qWait(100);
+      QCOMPARE(pinChanges.count(), 0);
+      daemon.favoriteFailure.clear();
       // A pinned station leaves like any favorite, through Favorites1.Set.
-      backend.setFavorite(backend.favorites().first().toMap().value("id").toString(), false);
+      backend.setFavorite(waveId, false);
       QTRY_VERIFY(backend.favorites().isEmpty());
       QVERIFY(daemon.favorites.isEmpty());
+      QTRY_COMPARE(pinChanges.count(), 1);
+      QCOMPARE(pinChanges.takeFirst(),
+               (QVariantList{"fixture.music", "station:wave", false}));
       // MusicPins1 takes at most 256 UTF-8 bytes and no control characters:
       // a long Cyrillic title is cut on a character boundary, a control
       // character becomes a space, and the pin is not refused.

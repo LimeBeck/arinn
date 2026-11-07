@@ -22,14 +22,19 @@ pub struct Collection {
 }
 
 /// An artwork ID this provider hands out (ADR-0134, #825): the cover of a
-/// track, an album, an artist or one of the account's playlists. The shell
-/// sees only the opaque ID, never a URL.
+/// track, an album, an artist, one of the account's playlists or a rotor
+/// station (#843). The shell sees only the opaque ID, never a URL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Cover {
     Track(String),
     Album(String),
     Artist(String),
-    Playlist { uid: String, kind: String },
+    Playlist {
+        uid: String,
+        kind: String,
+    },
+    /// A rotor station by its service key (`user:onyourwave`, `track:<id>`).
+    Station(String),
 }
 /// The artwork ID as `Entity.artwork` carries it: no `/`, at most 256 bytes
 /// (the music contract's artwork rules); anything else is not this
@@ -46,6 +51,13 @@ pub(crate) fn cover(id: &str) -> Option<Cover> {
     }
     if let Some(artist) = id.strip_prefix("artist-cover:") {
         return digits(artist).then(|| Cover::Artist(artist.into()));
+    }
+    if let Some(key) = id.strip_prefix("station-cover:") {
+        // Only a key in its own normal form: `station_seed` would accept
+        // `track:123:45` or a bare `123` as well.
+        return station_seed(key)
+            .is_ok_and(|seed| seed == key)
+            .then(|| Cover::Station(key.into()));
     }
     let (uid, kind) = id.strip_prefix("playlist-cover:")?.split_once(':')?;
     (digits(uid) && digits(kind)).then(|| Cover::Playlist {
@@ -64,6 +76,39 @@ pub(crate) fn cover_reference(value: &Value) -> Option<&str> {
     .into_iter()
     .filter_map(Value::as_str)
     .find(|reference| !reference.is_empty())
+}
+
+/// The image a rotor station's info names (#843): its `icon.imageUrl`, else
+/// its `fullImageUrl`; `None` when a well-formed station names none. `info` is
+/// the result of `rotor/station/<key>/info`, a list holding the station; any
+/// other shape is an error, so it is asked again rather than kept as "no
+/// image" (Codex review of #849).
+pub(crate) fn station_image(info: &Value) -> Result<Option<&str>, Error> {
+    let station = info
+        .as_array()
+        .and_then(|list| list.first())
+        .and_then(|entry| entry.get("station"))
+        .filter(|station| station.is_object())
+        .ok_or(Error::InvalidResponse)?;
+    // A present field of the wrong type is malformed too, not "no image"
+    // (Codex review of #849).
+    let icon = &station["icon"];
+    if !icon.is_null() && !icon.is_object() {
+        return Err(Error::InvalidResponse);
+    }
+    let mut found = None;
+    for field in [&icon["imageUrl"], &station["fullImageUrl"]] {
+        match field {
+            Value::Null => {}
+            Value::String(reference) => {
+                if found.is_none() && !reference.is_empty() {
+                    found = Some(reference.as_str());
+                }
+            }
+            _ => return Err(Error::InvalidResponse),
+        }
+    }
+    Ok(found)
 }
 
 /// A library date from the API ("2024-05-01T12:00:00+00:00", optionally
@@ -468,10 +513,24 @@ mod tests {
                 kind: "3".into()
             })
         );
+        // #843: a rotor station by its key in its own normal form.
+        assert_eq!(
+            cover("station-cover:user:onyourwave"),
+            Some(Cover::Station("user:onyourwave".into()))
+        );
+        assert_eq!(
+            cover("station-cover:track:123"),
+            Some(Cover::Station("track:123".into()))
+        );
         for bad in [
             "",
             "cover:",
             "cover:a",
+            "station-cover:",
+            "station-cover:123",
+            "station-cover:track:123:45",
+            "station-cover:user:other",
+            "station-cover:genre:rock",
             "album-cover:",
             "album-cover:7:8",
             "album-cover:7/8",
@@ -504,6 +563,33 @@ mod tests {
             Some("e/%%".into())
         );
         assert_eq!(reference(json!({"cover": {"type": "mosaic"}})), None);
+        // #843: a station's `icon.imageUrl`, else its `fullImageUrl`.
+        let station = |value| station_image(&value).map(|image| image.map(str::to_owned));
+        assert_eq!(
+            station(json!([{"station": {"icon": {"imageUrl": "f/%%"}, "fullImageUrl": "g/%%"}}])),
+            Ok(Some("f/%%".into()))
+        );
+        assert_eq!(
+            station(json!([{"station": {"icon": {"imageUrl": ""}, "fullImageUrl": "g/%%"}}])),
+            Ok(Some("g/%%".into()))
+        );
+        assert_eq!(station(json!([{"station": {"icon": {}}}])), Ok(None));
+        // Codex review of #849: a malformed answer is an error, not "no image".
+        for malformed in [
+            json!([]),
+            json!([{}]),
+            json!([{"station": "x"}]),
+            json!([{"station": {"icon": {"imageUrl": 5}}}]),
+            json!([{"station": {"icon": 5}}]),
+            json!([{"station": {"fullImageUrl": ["g/%%"]}}]),
+            json!({"station": {"fullImageUrl": "g/%%"}}),
+        ] {
+            assert_eq!(
+                station(malformed.clone()),
+                Err(crate::Error::InvalidResponse),
+                "{malformed}"
+            );
+        }
         assert_eq!(reference(json!({"coverUri": 5})), None);
     }
     /// #825: a playlist records whether the API names an image for it.

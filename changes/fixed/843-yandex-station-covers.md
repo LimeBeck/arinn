@@ -1,0 +1,1 @@
+- Yandex Music stations, My Wave among them, now show the service's own station image instead of a blank tile, where the service has one. A station without an image keeps the neutral artwork ([#843](https://github.com/LimeBeck/arinn/issues/843)).

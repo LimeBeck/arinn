@@ -108,6 +108,8 @@ The repository is public and the project is pre-alpha. The daemon, CLI, plugin S
 
 The [roadmap](ROADMAP.md) is the source of phase and acceptance status. Its completed core/application phases and remaining browser, media and MVP gates are distinct from the features already connected in source. [Releases](https://github.com/LimeBeck/arinn/releases) includes the tagged `v0.2.0` release and automatic `snapshot-…` pre-releases. A release tag does not change the project's pre-alpha status. Check each release's commit and assets before comparing an older package with this README; snapshot assets currently omit the Debian package ([#692](https://github.com/LimeBeck/arinn/issues/692)).
 
+Owner-reported TV use on 2026-11-07 confirms the current interface, music, video, Downloads and Quick menu ([evidence](https://github.com/LimeBeck/arinn/issues/866#issuecomment-6704400452)). Interface sounds are reported silent; power/session checks, additional-platform qualification and device measurements remain open.
+
 ## Requirements
 
 Target system:

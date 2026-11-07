@@ -305,6 +305,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="validate the manifest and exit")
     parser.add_argument("--build-dir", type=Path, default=ROOT / "build")
     parser.add_argument("--output", type=Path, default=None)
+    parser.add_argument("--states", nargs="+", help="render only these manifest state ids")
     args = parser.parse_args()
     manifest = load_manifest()
     errors = validate(manifest)
@@ -312,6 +313,14 @@ def main() -> int:
         for error in errors:
             print(error, file=sys.stderr)
         return 1
+    requested = args.states or [value for value in os.environ.get("ARINN_CAPTURE_ONLY", "").split(",") if value]
+    if requested:
+        available = {state["id"] for state in manifest["states"] if state.get("render")}
+        unknown = set(requested) - available
+        if unknown:
+            parser.error("states are unknown or not rendered: " + ", ".join(sorted(unknown)))
+        manifest = {**manifest, "states": [state for state in manifest["states"] if state["id"] in requested]}
+        os.environ["ARINN_CAPTURE_ONLY"] = ",".join(state["id"] for state in manifest["states"])
     if args.check:
         print(f"manifest matches {len(list(SCREENSHOTS.iterdir()))} handoff files")
         return 0

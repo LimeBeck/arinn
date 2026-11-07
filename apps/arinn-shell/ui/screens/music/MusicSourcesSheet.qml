@@ -39,7 +39,7 @@ FocusScope {
     property int stopReads: -1
     function stopThenTurnOff(id) {
         stopping = id;
-        stopFailed = "";
+        clearFailure(id);
         stopSent = false;
         stopReads = -1;
         stopWatch.elapsed = 0;
@@ -81,17 +81,24 @@ FocusScope {
         interval: 1000
         repeat: true
         running: root.confirming.length > 0
-        onTriggered: root.confirming = root.confirming.filter(entry => entry.until > Date.now())
+        // While the choice is still being stored, a watch does not end: a
+        // daemon being replaced can take any time (Codex review of #851).
+        onTriggered: {
+            if (root.room && root.room.switchPending === true)
+                return;
+            root.confirming = root.confirming.filter(entry => entry.until > Date.now());
+        }
     }
     readonly property var disabledList: (room && room.disabled) || []
     onDisabledListChanged: {
         const dropped = confirming.filter(entry => !disabledList.includes(entry.id));
         if (!dropped.length)
             return;
-        stopConfirming(dropped[dropped.length - 1].id);
         confirming = confirming.filter(entry => disabledList.includes(entry.id));
-        stopFailedText = qsTr("The music stopped, but the source could not be turned off now.");
-        stopFailed = dropped[dropped.length - 1].id;
+        // Every source the failed write took back gets its own note (Codex
+        // review of #851).
+        for (const entry of dropped)
+            fail(entry.id, qsTr("The music stopped, but the source could not be turned off now."));
     }
     // The turned-off list with this source still fits the setting: at most
     // 64 ids and 4096 characters, as the daemon accepts (Codex review of
@@ -106,11 +113,28 @@ FocusScope {
     }
     function failStop(text) {
         stopWatch.stop();
-        stopFailedText = text || qsTr("The music could not be stopped, so the source stays on.");
-        stopFailed = stopping;
+        fail(stopping, text || qsTr("The music could not be stopped, so the source stays on."));
         stopping = "";
     }
     property string stopFailedText: ""
+    // A note per source whose turn-off did not hold (Codex review of #851):
+    // {id, text}. A list, not an object keyed by id: provider ids are opaque
+    // and may name an Object property (Codex review of #867).
+    property var failures: []
+    function failureFor(id) {
+        const found = failures.find(entry => entry.id === id);
+        return found ? found.text : "";
+    }
+    function fail(id, text) {
+        failures = failures.filter(entry => entry.id !== id).concat([{id: id, text: text}]);
+        stopFailed = id;
+        stopFailedText = text;
+    }
+    function clearFailure(id) {
+        failures = failures.filter(entry => entry.id !== id);
+        if (stopFailed === id)
+            stopFailed = "";
+    }
     Timer {
         id: stopWatch
         interval: 100
@@ -217,6 +241,7 @@ FocusScope {
         disconnecting = "";
         turningOff = "";
         stopFailed = "";
+        failures = [];
         visible = true;
         Qt.callLater(focusFirst);
     }
@@ -274,8 +299,7 @@ FocusScope {
             // review of #851).
             return;
         } else if (action === "off" && !fits(source.id)) {
-            stopFailedText = qsTr("Too many sources are turned off to turn this one off too.");
-            stopFailed = source.id;
+            fail(source.id, qsTr("Too many sources are turned off to turn this one off too."));
         } else if (action === "off" && (source.id === playingSource || !sessionKnown
                                         || (catalog && catalog.transportBusy === true))) {
             // A command in flight may start or change the session: the
@@ -284,7 +308,7 @@ FocusScope {
             turningOff = source.id;
             Qt.callLater(() => Ui.Focus.take(keepPlaying));
         } else if (action === "off" || action === "on") {
-            stopFailed = "";
+            clearFailure(source.id);
             // Turned on again: the watch for a failed turn-off ends, so the
             // source leaving the list is no failure (Codex review of #851).
             if (action === "on")
@@ -448,9 +472,7 @@ FocusScope {
                         color: Ui.Theme.textSecondary
                         wrapMode: Text.WordWrap
                         textFormat: Text.PlainText
-                        text: sourceRow.modelData.id === root.stopFailed
-                            ? root.stopFailedText
-                            : (sourceRow.modelData.error || "")
+                        text: root.failureFor(sourceRow.modelData.id) || sourceRow.modelData.error || ""
                     }
                     // A pending sign-in shows where to confirm and its code.
                     Ui.UiText {

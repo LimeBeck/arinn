@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "music_catalog.h"
 #include "asset_images.h"
+#include "provider_text_client.h"
 #include <QJsonArray>
 #include <algorithm>
 #include <QJsonDocument>
@@ -72,12 +73,28 @@ QString sourceName(const QString &plugin, const QString &name) {
       return QCoreApplication::translate("MusicCatalog", entry.name);
   return name;
 }
+QVariantMap translatedState(QVariantMap state, const QString &provider, const QString &generation) {
+  auto station = state.value(QStringLiteral("station")).toMap();
+  if (!station.isEmpty()) {
+    station.insert(QStringLiteral("title"), ProviderTextClient::instance()->translate(
+        provider, generation, QStringLiteral("music.station"), station.value(QStringLiteral("id")).toString(),
+        state.value(QStringLiteral("revision")).toULongLong(), QStringLiteral("title"), station.value(QStringLiteral("title")).toString()));
+    state.insert(QStringLiteral("station"), station);
+  }
+  return state;
+}
 void registerMusic() {
   qmlRegisterType<MusicCatalog>("Arinn.Shell", 1, 0, "MusicCatalog");
 }
 Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 } // namespace
 MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
+  const auto presentation = [this] { emit presentationChanged(); updateProblems(); };
+  new LanguageChangeObserver(this, presentation);
+  ProviderTextClient::instance()->observe(this, presentation);
+  for (auto changed : {&MusicCatalog::sourcesChanged, &MusicCatalog::entriesChanged,
+                       &MusicCatalog::stateChanged, &MusicCatalog::activeChanged, &MusicCatalog::statusChanged})
+    connect(this, changed, this, &MusicCatalog::presentationChanged);
   // The derived lines read the status, the browsed state and the session;
   // the one-second poll re-emits those, so notify only on a real change.
   for (auto changed :
@@ -122,14 +139,41 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   // A pin mirror waits while another command is in flight (#804).
   connect(this, &MusicCatalog::statusChanged, this, &MusicCatalog::mirrorPin);
   connect(this, &MusicCatalog::activeChanged, this, &MusicCatalog::mirrorPin);
+  connect(this, &MusicCatalog::sourcesChanged, this, &MusicCatalog::mirrorPin);
   m_timer.start();
   QTimer::singleShot(0, this, &MusicCatalog::refresh);
 }
 QString MusicCatalog::sectionTitle() const { return tr("Music"); }
+QVariantList MusicCatalog::sources() const {
+  QVariantList result;
+  for (const auto &value : m_sources) {
+    auto source = value.toMap();
+    const auto original = source.value(QStringLiteral("name")).toString();
+    source.insert(QStringLiteral("name"), ProviderTextClient::instance()->translate(
+        source.value(QStringLiteral("id")).toString(), source.value(QStringLiteral("generation")).toString(),
+        QStringLiteral("provider"), QStringLiteral("self"), 0, QStringLiteral("name"), original,
+        sourceName(source.value(QStringLiteral("pluginId")).toString(), original)));
+    result.append(source);
+  }
+  return result;
+}
+QVariantList MusicCatalog::entries() const {
+  QVariantList result;
+  for (const auto &value : m_entries) {
+    auto entry = value.toMap();
+    entry.insert(QStringLiteral("title"), ProviderTextClient::instance()->translate(m_sourceId, m_generation,
+        QStringLiteral("music.entity"), entry.value(QStringLiteral("id")).toString(), m_pageRevision,
+        QStringLiteral("title"), entry.value(QStringLiteral("title")).toString()));
+    result.append(entry);
+  }
+  return result;
+}
+QVariantMap MusicCatalog::state() const { return translatedState(m_state, m_sourceId, m_generation); }
+QVariantMap MusicCatalog::activeState() const { return translatedState(m_active, m_activeId, m_activeGeneration); }
 // "Source · Station · Playing": the station tells a continuous station from an
 // album or a playlist on the Home card (music brief, #756 M24).
 QString MusicCatalog::statusText(const QString &status) const {
-  const auto station = m_active.value(QStringLiteral("station"))
+  const auto station = activeState().value(QStringLiteral("station"))
                            .toMap()
                            .value(QStringLiteral("title"))
                            .toString();
@@ -155,7 +199,7 @@ QVariantList MusicCatalog::homeEntries() const {
   // The Continue card's variant 1 (brief *Presence*, MH-2, #803): the
   // caption names the artist and the station or album; a missing cover takes
   // the station's; the Ember line shows the position.
-  const auto station = m_active.value("station").toMap();
+  const auto station = activeState().value("station").toMap();
   const auto context = !station.value("title").toString().isEmpty()
                       ? station.value("title").toString()
                       : track.value("album").toString();
@@ -213,15 +257,20 @@ QVariantList MusicCatalog::homeEntries() const {
   return {entry};
 }
 void MusicCatalog::fail(const QString &value) {
-  if (value == QStringLiteral("Conflict"))
-    m_error = tr("The music source changed. Try again.");
-  else if (value == QStringLiteral("Timeout"))
-    m_error = tr("The music source did not respond.");
-  else if (value == QStringLiteral("Unsupported"))
-    m_error = tr("This action is not available.");
-  else
-    m_error = tr("The music source is unavailable.");
+  m_error = value.isEmpty() ? QStringLiteral("Unavailable") : value;
   emit statusChanged();
+}
+QString MusicCatalog::errorText() const {
+  const auto &value = m_error;
+  if (value.isEmpty()) return {};
+  if (value == QStringLiteral("Conflict"))
+    return tr("The music source changed. Try again.");
+  else if (value == QStringLiteral("Timeout"))
+    return tr("The music source did not respond.");
+  else if (value == QStringLiteral("Unsupported"))
+    return tr("This action is not available.");
+  else
+    return tr("The music source is unavailable.");
 }
 void MusicCatalog::refresh() {
   readState();
@@ -288,7 +337,8 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
           if (capabilities.contains(QStringLiteral("music")))
             rows.append(
                 QVariantMap{{"id", id},
-                            {"name", sourceName(plugin, name)},
+                            {"name", name},
+                            {"pluginId", plugin},
                             {"path", endpoint.path()},
                             {"generation", generation},
                             {"ready", runtime == QStringLiteral("ready")}});
@@ -528,7 +578,7 @@ void MusicCatalog::readPage(bool append) {
           });
 }
 QString MusicCatalog::activeSourceName() const {
-  for (const auto &row : m_sources) {
+  for (const auto &row : sources()) {
     const auto source = row.toMap();
     if (source.value("id").toString() == m_activeId)
       return source.value("name").toString();
@@ -811,9 +861,14 @@ void MusicCatalog::mirrorPin() {
     m_pinMirror.reset();
     return;
   }
-  const auto stationId = m_pinMirror->station;
+  // Kept until transport sends it: a provider that restarted before the
+  // sources caught up refuses the command, and the next sources or state
+  // change tries again (Codex review of #836).
+  const auto mirror = *m_pinMirror;
   m_pinMirror.reset();
-  transport(QStringLiteral("pin"), stationId);
+  transport(QStringLiteral("pin"), mirror.station);
+  if (!m_commandBusy)
+    m_pinMirror = mirror;
 }
 
 QString MusicCatalog::sessionEntryId() {
@@ -928,7 +983,7 @@ QString MusicCatalog::playbackProblem() const {
 
 QString MusicCatalog::notice() const {
   if (!m_error.isEmpty())
-    return m_error;
+    return errorText();
   if (m_state.value(QStringLiteral("account")).toString() ==
       QStringLiteral("restricted"))
     return tr("Music access was denied.");

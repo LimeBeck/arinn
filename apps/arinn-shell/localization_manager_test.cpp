@@ -4,6 +4,7 @@
 #include "language_change.h"
 #include "localization_manager.h"
 #include "local_translations.h"
+#include "provider_messages.h"
 #include <QFile>
 #include <QProcess>
 #include <QQmlComponent>
@@ -28,6 +29,27 @@ bool catalogue(const QString &path, const QString &translation, const QString &l
   return process.waitForFinished(10000) && process.exitCode() == 0;
 }
 QString caption() { return QCoreApplication::translate("HomeView", "Continue"); }
+QByteArray providerQm(const QString &messages) {
+  QTemporaryDir directory;
+  QFile source(directory.filePath(QStringLiteral("messages.ts")));
+  if (!source.open(QIODevice::WriteOnly)) return {};
+  source.write((QStringLiteral("<TS version=\"2.1\" language=\"de\" sourcelanguage=\"en\"><context><name></name>") +
+      messages + QStringLiteral("</context></TS>")).toUtf8());
+  source.close();
+  QProcess process;
+  const auto output = directory.filePath(QStringLiteral("messages.qm"));
+  process.start(QStringLiteral(ARINN_LRELEASE_BINARY), {QStringLiteral("-idbased"), QStringLiteral("-nounfinished"), source.fileName(), QStringLiteral("-qm"), output});
+  if (!process.waitForFinished(10000) || process.exitCode() != 0) return {};
+  QFile compiled(output);
+  return compiled.open(QIODevice::ReadOnly) ? compiled.readAll() : QByteArray{};
+}
+QByteArray providerCatalog() {
+  return R"JSON({"formatVersion":1,"pluginId":"radio","sourceLocale":"en","locales":["de"],"messages":{
+    "hello":{"revision":1,"source":"Hello %1; %L2","arguments":{"name":{"position":1,"type":"text"},"amount":{"position":2,"type":"integer"}}},
+    "count":{"revision":2,"source":"%n station(s)","numerus":true},
+    "plain":{"revision":1,"source":"My station"}
+  }})JSON";
+}
 QQuickItem *namedItem(QQuickItem *root, const QString &name) {
   if (root->objectName() == name) return root;
   for (auto *child : root->childItems())
@@ -42,6 +64,132 @@ class LocalizationManagerTest : public QObject {
 private slots:
   void init() { m_previous = QLocale(); }
   void cleanup() { QLocale::setDefault(m_previous); }
+
+  void providerCatalogAndReferencesRequireCurrentTypedIdentity() {
+    const auto catalog = ProviderMessages::catalog(providerCatalog(), QStringLiteral("radio"));
+    QVERIFY(catalog);
+    QVERIFY(!ProviderMessages::catalog(providerCatalog(), QStringLiteral("other")));
+    auto bad = providerCatalog();
+    bad.replace("\"type\":\"integer\"", "\"type\":\"text\"");
+    QVERIFY(!ProviderMessages::catalog(bad, QStringLiteral("radio"))); // %L2 cannot be text
+    bad = providerCatalog();
+    bad.replace("\"position\":2", "\"position\":1");
+    QVERIFY(!ProviderMessages::catalog(bad, QStringLiteral("radio")));
+    QJsonObject object{{"messageKey", "hello"}, {"messageRevision", 1},
+                       {"arguments", QJsonObject{{"name", "User"}, {"amount", std::numeric_limits<qint64>::max()}}}};
+    QVERIFY(ProviderMessages::reference(object, *catalog));
+    object.insert("messageRevision", 2);
+    QVERIFY(!ProviderMessages::reference(object, *catalog));
+    object.insert("messageRevision", 1);
+    object.insert("arguments", QJsonObject{{"name", "User"}, {"amount", true}});
+    QVERIFY(!ProviderMessages::reference(object, *catalog));
+    object.insert("arguments", QJsonObject{{"name", "User"}, {"amount", 9223372036854775808.0}});
+    QVERIFY(!ProviderMessages::reference(object, *catalog));
+    object = {{"messageKey", "count"}, {"messageRevision", 2}, {"count", 0}};
+    QVERIFY(ProviderMessages::reference(object, *catalog));
+    object.insert("count", -1);
+    QVERIFY(!ProviderMessages::reference(object, *catalog));
+    object.remove("count");
+    QVERIFY(!ProviderMessages::reference(object, *catalog));
+  }
+
+  void providerDictionariesArePrivateLayeredAndFormatArgumentsOnce() {
+    const auto catalog = ProviderMessages::catalog(providerCatalog(), QStringLiteral("radio"));
+    QVERIFY(catalog);
+    ProviderMessages::Dictionary lower("radio"), personal("radio"), other("different-plugin");
+    const auto lowerBytes = providerQm(QStringLiteral(
+        "<message id=\"hello@1\"><source>Hello %1; %L2</source><translation>Hallo %1; %L2</translation></message>"
+        "<message id=\"plain@1\"><source>My station</source><translation>Mein Sender</translation></message>"
+        "<message id=\"count@2\" numerus=\"yes\"><source>%n station(s)</source><translation><numerusform>%n Sender</numerusform><numerusform>%n Sender zusammen</numerusform></translation></message>"));
+    QVERIFY(lower.load(lowerBytes));
+    QVERIFY(personal.load(providerQm(QStringLiteral("<message id=\"hello@1\"><source>Hello %1; %L2</source><translation>Privat %L2: %1</translation></message>"))));
+    QVERIFY(other.load(providerQm(QStringLiteral("<message id=\"plain@1\"><source>Other plugin's station</source><translation>Fremd</translation></message>"))));
+    const auto reference = ProviderMessages::reference({{"messageKey", "hello"}, {"messageRevision", 1},
+        {"arguments", QJsonObject{{"name", "%2"}, {"amount", 1234}}}}, *catalog);
+    QVERIFY(reference);
+    QCOMPARE(personal.lookup("hello@1", -1), QStringLiteral("Privat %L2: %1"));
+    QVERIFY(ProviderMessages::validPattern(personal.lookup("hello@1", -1), catalog->messages.value("hello")));
+    QCOMPARE(ProviderMessages::render(*catalog, *reference, {&personal, &lower}, QLocale("de"), "complete fallback"), QStringLiteral("Privat 1.234: %2"));
+    const ProviderMessages::Reference plain{QStringLiteral("plain"), 1, {}, {}};
+    QCOMPARE(ProviderMessages::render(*catalog, plain, {&personal, &lower}, QLocale("de"), "fallback"), QStringLiteral("Mein Sender"));
+    QCOMPARE(ProviderMessages::render(*catalog, plain, {&other}, QLocale("de"), "fallback"), QStringLiteral("fallback"));
+    QCOMPARE(QCoreApplication::translate(nullptr, "plain@1"), QStringLiteral("plain@1"));
+    QCOMPARE(ProviderMessages::render(*catalog, {"count", 2, {}, 1}, {&lower}, QLocale("de"), "one station"), QStringLiteral("1 Sender"));
+    QCOMPARE(ProviderMessages::render(*catalog, {"count", 2, {}, 2}, {&lower}, QLocale("de"), "two stations"), QStringLiteral("2 Sender zusammen"));
+    QCOMPARE(ProviderMessages::render(*catalog, {"count", 2, {}, 2}, {}, QLocale("ru"), "two stations"), QStringLiteral("two stations"));
+    QVERIFY(!lower.load(QByteArray("corrupt replacement")));
+    QCOMPARE(ProviderMessages::render(*catalog, plain, {&lower}, QLocale("de"), "fallback"), QStringLiteral("Mein Sender"));
+    auto external = std::make_unique<char[]>(size_t(lowerBytes.size()));
+    std::copy(lowerBytes.begin(), lowerBytes.end(), external.get());
+    const auto borrowed = QByteArray::fromRawData(external.get(), lowerBytes.size());
+    ProviderMessages::Dictionary owned("radio");
+    QVERIFY(owned.load(borrowed));
+    std::fill_n(external.get(), lowerBytes.size(), '\0');
+    external.reset();
+    QCOMPARE(ProviderMessages::render(*catalog, plain, {&owned}, QLocale("de"), "fallback"), QStringLiteral("Mein Sender"));
+  }
+
+  void invalidProviderTemplatesFallThroughWithoutLeakingIdsOrExpandingData() {
+    const auto catalog = ProviderMessages::catalog(providerCatalog(), QStringLiteral("radio"));
+    QVERIFY(catalog);
+    const ProviderMessages::Reference reference{"hello", 1, {{"name", "data %L2"}, {"amount", std::numeric_limits<qint64>::min()}}, {}};
+    ProviderMessages::Dictionary bad("radio"), rawId("radio");
+    QVERIFY(bad.load(providerQm(QStringLiteral("<message id=\"hello@1\"><source>Hello %1; %L2</source><translation>Missing %1</translation></message>"))));
+    QVERIFY(rawId.load(providerQm(QStringLiteral("<message id=\"plain@1\"><source>My station</source><translation>plain@1</translation></message>"))));
+    QCOMPARE(ProviderMessages::render(*catalog, reference, {&bad}, QLocale("de"), "already complete fallback"), QStringLiteral("already complete fallback"));
+    QCOMPARE(ProviderMessages::render(*catalog, {"plain", 1, {}, {}}, {&rawId}, QLocale("de"), "My station"), QStringLiteral("My station"));
+    const auto pattern = ProviderMessages::format("%1: %2", catalog->messages.value("hello"), reference, QLocale("de"));
+    QVERIFY(pattern);
+    QCOMPARE(*pattern, QStringLiteral("data %L2: -9223372036854775808"));
+    QVERIFY(!ProviderMessages::validPattern("%L1 %2", catalog->messages.value("hello")));
+    QVERIFY(!ProviderMessages::validPattern("%1 %02", catalog->messages.value("hello")));
+    QVERIFY(!ProviderMessages::validPattern("%1 %2 %L", catalog->messages.value("hello")));
+    auto huge = reference;
+    huge.arguments.insert("name", QString(8190, QLatin1Char('x')));
+    QCOMPARE(ProviderMessages::render(*catalog, huge, {}, QLocale("de"), "fallback"), QStringLiteral("fallback"));
+    QVERIFY(!ProviderMessages::format("%1 %1 %2", catalog->messages.value("hello"), huge, QLocale("de")));
+    auto stale = reference;
+    stale.revision = 2;
+    QCOMPARE(ProviderMessages::render(*catalog, stale, {&bad}, QLocale("de"), "current plaintext"), QStringLiteral("current plaintext"));
+  }
+
+  void personalParentWinsOverCommunityExactLocaleInTheSameRoot() {
+    QTemporaryDir root;
+    QVERIFY(root.isValid());
+    const auto personal = root.filePath("overrides/de/shell/arinn.qm");
+    const auto community = root.filePath("arinn_de_DE.qm");
+    QVERIFY(catalogue(personal, "Persoenlich", "de"));
+    QVERIFY(catalogue(community, "Gemeinschaft", "de-DE"));
+    LocalizationManager manager({root.path()}, {}, QLocale("en_US"));
+    manager.setLanguage("de-DE");
+    QCOMPARE(caption(), QStringLiteral("Persoenlich"));
+    const auto providerPersonal = root.filePath("overrides/de/providers/radio/messages.qm");
+    const auto providerCommunity = root.filePath("providers/radio/messages_de_DE.qm");
+    QDir().mkpath(QFileInfo(providerPersonal).absolutePath());
+    QDir().mkpath(QFileInfo(providerCommunity).absolutePath());
+    QVERIFY(QFile::copy(personal, providerPersonal));
+    QVERIFY(QFile::copy(community, providerCommunity));
+    QCOMPARE(LocalTranslations::providerCatalogPaths({root.path()}, "radio", "de-DE"), QStringList({providerPersonal, providerCommunity}));
+    QVERIFY(LocalTranslations::providerCatalogPaths({root.path()}, "other", "de-DE").isEmpty());
+    QVERIFY(LocalTranslations::providerCatalogPaths({root.path()}, "radio", "../de").isEmpty());
+    const auto personalSettings = root.filePath("overrides/de/providers/radio/settings.json");
+    const auto communitySettings = root.filePath("providers/radio/settings_de_DE.json");
+    const auto writeSettings = [](const QString &path, const QString &locale, const QString &label) {
+      QFile file(path);
+      if (!file.open(QIODevice::WriteOnly)) return false;
+      return file.write(QJsonDocument(QJsonObject{{"formatVersion", 1}, {"pluginId", "radio"}, {"locale", locale},
+          {"settings", QJsonObject{{"scan", QJsonObject{{"title", QJsonObject{{"source", "Interval"}, {"translation", label}}}}}}}}).toJson()) > 0;
+    };
+    QVERIFY(writeSettings(personalSettings, "de", "Persoenlich"));
+    QVERIFY(writeSettings(communitySettings, "de-DE", "Gemeinschaft"));
+    QString translated;
+    QVERIFY(LocalTranslations::settingText({root.path()}, "de-DE", "radio", "scan", "title", "Interval", {}, &translated));
+    QCOMPARE(translated, QStringLiteral("Persoenlich"));
+    QVERIFY(QFile::remove(personalSettings));
+    QVERIFY(LocalTranslations::settingText({root.path()}, "de-DE", "radio", "scan", "title", "Interval", {}, &translated));
+    QCOMPARE(translated, QStringLiteral("Gemeinschaft"));
+    QVERIFY(!LocalTranslations::settingText({root.path()}, "de-DE", "radio", "scan", "title", "Changed source", {}, &translated));
+  }
 
   void switchesBindingsWithoutReplacingTheirState() {
     LocalizationManager manager({}, {}, QLocale(QStringLiteral("en_GB")));

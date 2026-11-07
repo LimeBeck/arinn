@@ -1332,11 +1332,14 @@ private slots:
     const auto followsFunction = extract(QStringLiteral("musicRoomFollows"));
     const auto pairsFunction = extract(QStringLiteral("pinnedMusicStations"));
     QVERIFY(!pairsFunction.isEmpty());
+    const auto keyFunction = extract(QStringLiteral("musicKeyCommand"));
+    QVERIFY(!keyFunction.isEmpty());
     QVERIFY(!rowsFunction.isEmpty());
     QVERIFY(!followsFunction.isEmpty());
     QQmlEngine engine;
     QQmlComponent component(&engine);
     component.setData(("import QtQml\nQtObject {\n" + rowsFunction + followsFunction + pairsFunction +
+                       keyFunction +
                        "    function rows(f, s, u, a, d) {\n"
                        "        return musicPinRows(f, s, u, a, (p, id) => \"image://fixture/\" + p + \"/\" + id, d);\n"
                        "    }\n}")
@@ -1435,6 +1438,23 @@ private slots:
     QCOMPARE(qvariant_cast<QJSValue>(pairs).toVariant().toList(),
              (QVariantList{QVariant(QVariantList{"local", "station:library"}),
                            QVariant(QVariantList{"cloud", "station:wave"})}));
+    // #831: a media key from Home or Ambient as a music command; Next was
+    // sent as Pause before.
+    auto command = [&](const QString &action) {
+      QVariant value;
+      [&] {
+        QVERIFY(QMetaObject::invokeMethod(root.get(), "musicKeyCommand",
+                                          Q_RETURN_ARG(QVariant, value), Q_ARG(QVariant, action)));
+      }();
+      return value;
+    };
+    QCOMPARE(command("toggle").toString(), QString());
+    QVERIFY(!command("toggle").isNull());
+    QCOMPARE(command("play").toString(), QStringLiteral("resume"));
+    QCOMPARE(command("pause").toString(), QStringLiteral("pause"));
+    QCOMPARE(command("next").toString(), QStringLiteral("next"));
+    QCOMPARE(command("previous").toString(), QStringLiteral("previous"));
+    QVERIFY(command("stop").isNull());
     const QVariantList noPins{favorites.first()};
     QVERIFY(follows(true, false, noPins));
     QVERIFY(follows(false, true, favorites));
@@ -1454,6 +1474,41 @@ private slots:
     QVERIFY(catalog.artworkUrl("local", "cover:wave").startsWith("image://arinn-assets/"));
     QVERIFY(catalog.artworkUrl("away", "cover:wave").isEmpty());
     QVERIFY(catalog.artworkUrl("local", QString()).isEmpty());
+  }
+  // Codex review of #836: a mirror that transport refuses, because the
+  // active provider restarted before the sources caught up, is kept and
+  // sent once they do.
+  void aRefusedPinMirrorWaitsForTheSources() {
+    daemon.providers = {{"local", "Local music", "g1"}};
+    daemon.states.insert("local", state({"tracks"}));
+    QJsonObject current{{"revision", 1}, {"session", "s"}, {"playback", "playing"},
+                        {"continuous", true}, {"pinned", false},
+                        {"station", QJsonObject{{"id", "station:wave"}, {"kind", "station"},
+                                                {"title", "Wave"}}},
+                        {"actions", QJsonArray{"pause", "pin"}}};
+    auto active = [&](const QString &generation) {
+      return QString::fromUtf8(
+          QJsonDocument(QJsonObject{{"provider_id", "local"}, {"generation", generation},
+                                    {"state", current}})
+              .toJson(QJsonDocument::Compact));
+    };
+    daemon.active = active("g1");
+    MusicCatalog catalog;
+    QTRY_COMPARE(catalog.activeState().value("session").toString(), QStringLiteral("s"));
+    QTRY_VERIFY(!catalog.sources().isEmpty());
+    // The provider restarted: the session already reports g2, the sources
+    // still g1.
+    daemon.active = active("g2");
+    catalog.refresh();
+    QTest::qWait(300);
+    const auto before = daemon.commands.size();
+    catalog.syncProviderPin("local", "station:wave", true);
+    QTest::qWait(200);
+    QCOMPARE(daemon.commands.size(), before);
+    daemon.providers[0].generation = QStringLiteral("g2");
+    catalog.refresh();
+    QTRY_COMPARE(daemon.commands.size(), before + 1);
+    QCOMPARE(daemon.commands.last(), QStringLiteral("pin"));
   }
   // #804: Arinn's pin is mirrored to the provider's `pin` only for the
   // station that plays, and only when the provider's state differs.

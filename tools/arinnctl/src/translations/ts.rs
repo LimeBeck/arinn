@@ -287,7 +287,7 @@ pub fn check(document: &Document) -> Result<Report> {
     let mut keys = BTreeSet::new();
     for m in document.messages.iter().filter(|m| !m.obsolete) {
         ensure!(
-            text(&m.context, false)
+            text(&m.context, m.id.is_some())
                 && text(&m.source, false)
                 && text(&m.comment, true)
                 && bounded_text(&m.note, 16 * 1024, true),
@@ -295,6 +295,12 @@ pub fn check(document: &Document) -> Result<Report> {
         );
         let key = if let Some(id) = &m.id {
             report.id_based = true;
+            // Current Qt selects id-based output by an empty context;
+            // older Qt uses -idbased. Require both for portable QMs.
+            ensure!(
+                m.context.is_empty(),
+                "Provider message contexts must be empty for id-based Qt lookup"
+            );
             let (key, revision) = id
                 .rsplit_once('@')
                 .ok_or_else(|| anyhow::anyhow!("Provider ids must be key@revision"))?;
@@ -407,9 +413,9 @@ pub fn provider(catalog: &Catalog, locale: &str) -> Result<String> {
         .messages
         .iter()
         .map(|(key, value)| Message {
-            // pluginId is opaque UTF-8 and may contain XML-forbidden controls.
-            // The trusted directory/catalog binds identity; id-based QM ignores context.
-            context: "ProviderMessages".into(),
+            // The trusted directory/catalog binds plugin identity. An empty
+            // context selects id-based output on both old and current Qt.
+            context: String::new(),
             id: Some(format!("{key}@{}", value.revision)),
             source: value.source.clone(),
             numerus: value.numerus,
@@ -461,7 +467,7 @@ mod tests {
         };
         let parsed = parse(&provider(&catalog, "de").unwrap()).unwrap();
         assert_eq!(parsed.messages[0].id.as_deref(), Some("connect.failed@2"));
-        assert_eq!(parsed.messages[0].context, "ProviderMessages");
+        assert!(parsed.messages[0].context.is_empty());
         assert!(parsed.messages[0].numerus);
         assert!(
             parsed.messages[0]
@@ -480,6 +486,10 @@ mod tests {
             assert!(!exported.contains('\u{1}'));
             assert!(check(&parse(&exported).unwrap()).is_ok());
         }
+        let invalid_context = provider(&catalog, "de")
+            .unwrap()
+            .replace("<name></name>", "<name>ProviderMessages</name>");
+        assert!(check(&parse(&invalid_context).unwrap()).is_err());
     }
     #[test]
     fn localized_qualifiers_are_preserved_and_malformed_tokens_are_rejected() {

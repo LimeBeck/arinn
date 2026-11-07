@@ -3,6 +3,7 @@
 #include "music_room.h"
 #include "asset_images.h"
 #include "language_change.h"
+#include "provider_text_client.h"
 #include <QCollator>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -94,15 +95,33 @@ Q_COREAPP_STARTUP_FUNCTION(registerRoom)
 } // namespace
 
 MusicRoom::MusicRoom(QObject *parent) : QObject(parent) {
-  new LanguageChangeObserver(this, [this] {
-    rebuild(true);
-    rebuildSearch();
-    publishSources(true);
-    emit presentationChanged();
-  });
+  new LanguageChangeObserver(this, [this] { retranslatePresentation(); });
+  ProviderTextClient::instance()->observe(this, [this] { retranslatePresentation(); });
   m_timer.setInterval(2000);
   connect(&m_timer, &QTimer::timeout, this, &MusicRoom::refresh);
   m_timer.start();
+}
+void MusicRoom::retranslatePresentation() {
+  const auto rows = m_catalog ? m_catalog->property("sources").toList() : QVariantList();
+  for (const auto &value : rows) {
+    const auto row = value.toMap();
+    const auto id = row.value("id").toString();
+    const auto found = m_sources.find(id);
+    if (found != m_sources.end() && found->second.generation == row.value("generation").toString())
+      found->second.name = row.value("name").toString();
+    for (auto &off : m_off) if (off.id == id) off.name = row.value("name").toString();
+  }
+  rebuild(true);
+  rebuildSearch();
+  publishSources(true);
+  emit presentationChanged();
+}
+QVariantMap MusicRoom::presentEntry(QVariantMap row, const Source &source, quint64 revision) const {
+  row.insert("providerName", source.name);
+  row.insert("title", ProviderTextClient::instance()->translate(source.id, source.generation,
+      QStringLiteral("music.entity"), row.value("id").toString(), revision,
+      QStringLiteral("title"), row.value("title").toString()));
+  return row;
 }
 
 void MusicRoom::setCatalog(QObject *catalog) {
@@ -625,7 +644,7 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
             !row.value("available", true).toBool())
           continue;
         if (row.value("kind").toString() == QLatin1String(shelf->kind)) {
-          own.append(value);
+          own.append(presentEntry(row, found->second, selections->second.revision));
           ids.insert(row.value("id").toString());
         }
       }
@@ -637,7 +656,7 @@ QVariantList MusicRoom::gather(const QString &shelfId, const QString &only,
           // A personal entry the source also lists as ordinary shows once.
           if (row.value("kind").toString() == QLatin1String(shelf->kind) &&
               !ids.contains(row.value("id").toString()))
-            rest.append(value);
+            rest.append(presentEntry(row, found->second, facet->second.revision));
         }
     personal.append(own);
     ordinary.append(rest);
@@ -1065,6 +1084,7 @@ void MusicRoom::readSearch(const QString &id) {
                 entries.append(row);
               }
             search.facets[facet] = entries;
+            search.revisions[facet] = json.value("revision").toVariant().toULongLong();
             continueSearch(id);
             rebuildSearch();
           });
@@ -1109,9 +1129,11 @@ void MusicRoom::rebuildSearch() {
       if (entries == found->second.facets.end())
         continue;
       QVariantList own;
+      const auto source = m_sources.find(id);
+      if (source == m_sources.end()) continue;
       for (const auto &entry : entries->second)
         if (entry.toMap().value("kind").toString() == QLatin1String(kind))
-          own.append(entry);
+          own.append(presentEntry(entry.toMap(), source->second, found->second.revisions.at(QLatin1String(facet))));
       lists.append(own);
     }
     const auto entries = alternate(lists);

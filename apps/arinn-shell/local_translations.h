@@ -124,13 +124,31 @@ inline QStringList catalogPaths(const QStringList &directories,
   // Source priority precedes locale specificity: a personal ru overlay
   // deliberately wins over a lower-priority ru-RU catalogue.
   for (const auto &root : directories) {
-    for (const auto &locale : locales(tag)) {
-      const auto structured = QDir(root).filePath(
-          QStringLiteral("overrides/%1/shell/%2.qm").arg(locale, domain));
-      if (safeFile(root, structured, maxCatalogBytes)) result.append(structured);
-      const auto flat = QDir(root).filePath(
-          QStringLiteral("%1_%2.qm").arg(domain, QString(locale).replace(QLatin1Char('-'), QLatin1Char('_'))));
-      if (safeFile(root, flat, maxCatalogBytes)) result.append(flat);
+    for (const bool personal : {true, false}) {
+      for (const auto &locale : locales(tag)) {
+        const auto path = QDir(root).filePath(personal
+            ? QStringLiteral("overrides/%1/shell/%2.qm").arg(locale, domain)
+            : QStringLiteral("%1_%2.qm").arg(domain, QString(locale).replace(QLatin1Char('-'), QLatin1Char('_'))));
+        if (safeFile(root, path, maxCatalogBytes)) result.append(path);
+      }
+    }
+  }
+  return result;
+}
+inline QStringList providerCatalogPaths(const QStringList &directories,
+                                        const QString &pluginId, const QString &tag,
+                                        bool existingOnly = true) {
+  QStringList result;
+  const auto pluginPath = pluginDirectory(pluginId);
+  if (!validLocale(tag) || pluginPath.isEmpty()) return result;
+  for (const auto &root : directories) {
+    for (const bool personal : {true, false}) {
+      for (const auto &locale : locales(tag)) {
+        const auto path = QDir(root).filePath(personal
+            ? QStringLiteral("overrides/%1/providers/%2/messages.qm").arg(locale, pluginPath)
+            : QStringLiteral("providers/%1/messages_%2.qm").arg(pluginPath, QString(locale).replace(QLatin1Char('-'), QLatin1Char('_'))));
+        if (!existingOnly || safeFile(root, path, 240 * 1024)) result.append(path);
+      }
     }
   }
   return result;
@@ -167,9 +185,14 @@ inline bool settingText(const QStringList &directories, const QString &tag,
   const auto pluginPath = pluginDirectory(pluginId);
   if (!validLocale(tag) || pluginPath.isEmpty()) return false;
   for (const auto &root : directories) {
-    for (const auto &locale : locales(tag)) {
-      const auto path = QDir(root).filePath(
-          QStringLiteral("overrides/%1/providers/%2/settings.json").arg(locale, pluginPath));
+    QList<QPair<QString, QString>> paths;
+    for (const bool personal : {true, false}) {
+      for (const auto &locale : locales(tag))
+        paths.append({QDir(root).filePath(personal
+            ? QStringLiteral("overrides/%1/providers/%2/settings.json").arg(locale, pluginPath)
+            : QStringLiteral("providers/%1/settings_%2.json").arg(pluginPath, QString(locale).replace(QLatin1Char('-'), QLatin1Char('_')))), locale});
+    }
+    for (const auto &[path, locale] : paths) {
       QJsonObject object;
       if (parsedFiles && parsedFiles->contains(path)) object = parsedFiles->value(path);
       else {

@@ -12,21 +12,21 @@
 #include <optional>
 class MusicCatalog : public QObject {
   Q_OBJECT
-  Q_PROPERTY(QVariantList sources READ sources NOTIFY sourcesChanged)
-  Q_PROPERTY(QVariantList entries READ entries NOTIFY entriesChanged)
-  Q_PROPERTY(QVariantMap state READ state NOTIFY stateChanged)
-  Q_PROPERTY(QVariantMap activeState READ activeState NOTIFY activeChanged)
+  Q_PROPERTY(QVariantList sources READ sources NOTIFY presentationChanged)
+  Q_PROPERTY(QVariantList entries READ entries NOTIFY presentationChanged)
+  Q_PROPERTY(QVariantMap state READ state NOTIFY presentationChanged)
+  Q_PROPERTY(QVariantMap activeState READ activeState NOTIFY presentationChanged)
   Q_PROPERTY(
-      QString activeSourceName READ activeSourceName NOTIFY activeChanged)
+      QString activeSourceName READ activeSourceName NOTIFY presentationChanged)
   Q_PROPERTY(QString sourceId READ sourceId NOTIFY sourcesChanged)
   // The provider of the active session, which may differ from the browsed
   // source: the Music root marks the entry that plays (#800).
   Q_PROPERTY(QString activeSourceId READ activeSourceId NOTIFY activeChanged)
-  Q_PROPERTY(QString errorText READ errorText NOTIFY statusChanged)
+  Q_PROPERTY(QString errorText READ errorText NOTIFY presentationChanged)
   Q_PROPERTY(bool busy READ busy NOTIFY statusChanged)
   Q_PROPERTY(bool transportBusy READ transportBusy NOTIFY statusChanged)
   Q_PROPERTY(bool more READ more NOTIFY statusChanged)
-  Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY activeChanged)
+  Q_PROPERTY(QVariantList homeEntries READ homeEntries NOTIFY presentationChanged)
   // Sources turned off in the Sources sheet (#842): a session of one of
   // them has no presence on Home or in the Quick menu.
   Q_PROPERTY(QStringList disabledSources READ disabledSources WRITE
@@ -37,7 +37,7 @@ class MusicCatalog : public QObject {
   // The last session read answered: until then, or after one failed, the
   // active session is unknown (#842).
   Q_PROPERTY(bool activeKnown READ activeKnown NOTIFY activeReadsChanged)
-  Q_PROPERTY(QString sectionTitle READ sectionTitle CONSTANT)
+  Q_PROPERTY(QString sectionTitle READ sectionTitle NOTIFY presentationChanged)
   // The active session as the Quick menu's Now playing row reads it
   // ({id, title, subtitle, state, playPause}), or an empty map.
   Q_PROPERTY(QVariantMap nowPlaying READ nowPlaying NOTIFY problemsChanged)
@@ -61,14 +61,14 @@ class MusicCatalog : public QObject {
   Q_PROPERTY(QString notice READ notice NOTIFY problemsChanged)
 public:
   explicit MusicCatalog(QObject *parent = nullptr);
-  QVariantList sources() const { return m_sources; }
-  QVariantList entries() const { return m_entries; }
-  QVariantMap state() const { return m_state; }
-  QVariantMap activeState() const { return m_active; }
+  QVariantList sources() const;
+  QVariantList entries() const;
+  QVariantMap state() const;
+  QVariantMap activeState() const;
   QString activeSourceName() const;
   QString sourceId() const { return m_sourceId; }
   QString activeSourceId() const { return m_activeId; }
-  QString errorText() const { return m_error; }
+  QString errorText() const;
   bool busy() const {
     return m_commandBusy || m_pageBusy ||
            m_state.value("catalogue_loading").toBool();
@@ -122,6 +122,8 @@ public:
                              const QString &text = QString());
   Q_INVOKABLE void refresh();
 signals:
+  // A cached presentation update; never a trigger for content reads/commands.
+  void presentationChanged();
   void activeReadsChanged();
   void sourcesChanged();
   void entriesChanged();

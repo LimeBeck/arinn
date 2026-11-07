@@ -1,0 +1,1 @@
+- A Home pin change made while a music source was restarting now reaches the source's own pin list once it is back, instead of being lost ([#854](https://github.com/LimeBeck/arinn/issues/854)).

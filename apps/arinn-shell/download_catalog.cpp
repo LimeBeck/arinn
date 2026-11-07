@@ -4,6 +4,7 @@
 
 #include "download_catalog.h"
 #include "language_change.h"
+#include "provider_text_client.h"
 #include <QLocale>
 #include <QDeadlineTimer>
 #include <QUuid>
@@ -210,6 +211,7 @@ struct DownloadCatalog::Catalog {
 
 DownloadCatalog::DownloadCatalog(QObject *parent) : QObject(parent) {
   new LanguageChangeObserver(this, [this] { publish(); });
+  ProviderTextClient::instance()->observe(this, [this] { publish(); });
   auto bus = QDBusConnection::sessionBus();
   bus.connect(service, path, service, "ProvidersChanged", this, SLOT(refresh()));
   bus.connect(service, path, service, "StateChanged", this,
@@ -340,7 +342,9 @@ void DownloadCatalog::publish() {
       statusText = actionTitle(failure.action) + QStringLiteral(" · ") + failureText(failure.error);
     QString errorText;
     if (row.state == QLatin1String("error"))
-      errorText = jobErrorText(row.errorCode, row.errorMessage);
+      errorText = jobErrorText(row.errorCode, ProviderTextClient::instance()->translate(
+          row.providerId, row.generation, QStringLiteral("download.job"), row.localId,
+          row.revision, QStringLiteral("error_message"), row.errorMessage));
     // The view reads progress below 0 as an unknown size.
     const auto progress = row.hasProgress && std::isfinite(row.progress)
                               ? row.progress
@@ -627,6 +631,7 @@ void DownloadCatalog::readDownloads(const std::shared_ptr<Catalog> &catalog,
           row.providerId = providerId;
           row.path = provider.value(QStringLiteral("path")).toString();
           row.generation = generation;
+          row.revision = revision;
           row.backendUnavailable =
               provider.value(QStringLiteral("backendUnavailable")).toBool();
           qulonglong completed = 0, total = 0, rate = 0;

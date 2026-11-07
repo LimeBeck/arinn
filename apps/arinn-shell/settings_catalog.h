@@ -64,6 +64,9 @@ class SettingsCatalog : public QObject {
   // off or on now (Codex review of #851).
   Q_PROPERTY(bool musicSourcesWritable READ musicSourcesWritable NOTIFY
                  preferencesChanged)
+  // A change of the list is not stored yet (#842).
+  Q_PROPERTY(bool musicDisabledPending READ musicDisabledPending NOTIFY
+                 preferencesChanged)
 public:
   explicit SettingsCatalog(QObject *parent = nullptr);
   QString screenState() const;
@@ -83,6 +86,7 @@ public:
   }
   Q_INVOKABLE void setMusicSourceEnabled(const QString &providerId, bool enabled);
   bool musicSourcesWritable() const { return m_musicWritable; }
+  bool musicDisabledPending() const { return m_musicDisabledWanting; }
   Q_INVOKABLE void setValue(const QString &providerId, const QString &settingId,
                             const QVariant &value);
   Q_INVOKABLE void dismissError(const QString &providerId,
@@ -158,6 +162,7 @@ private:
   bool m_musicDisabledWanting = false;
   bool m_musicDisabledScheduled = false;
   bool m_musicWritable = false;
+  bool m_musicPendingShown = false;
   // The list last written, until the stored one changes: a write that
   // succeeded waits for the refresh that brings it, and is not sent again.
   std::optional<QStringList> m_musicDisabledSent;

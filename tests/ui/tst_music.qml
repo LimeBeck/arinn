@@ -67,6 +67,7 @@ TestCase {
                 listChanged();}
             // As MusicRoom: a command in flight republishes the rows.
             property bool sourcesSwitchable: true
+            property bool switchPending: false
             property var disabled: []
             function sourceCommand(source,action) {commands=commands.concat([source+":"+action]);sources=sources.map(row=>Object.assign({},row,{busy:row.id===source}));}
             // As Main stores the choice and MusicRoom lists an off source last (#842).
@@ -699,6 +700,31 @@ TestCase {
         like.labels=["Нравится","Понравилось","Сохраняем…","Не сохранено"];queue.text="Очередь";like.text="Нравится";settle();
         const russian=like.width;
         for(const text of like.labels) {like.text=text;settle();compare(like.width,russian,text);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text+": "+more.mapToItem(view,more.width,0).x);}
+    }
+    // #831: the input device's media keys as real key events on Now playing
+    // and in the Music room: dedicated Play and Pause keep their meaning,
+    // Next and Previous are sent, and a held key acts once.
+    function test_real_media_keys_on_now_playing() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=Object.assign({},catalog.activeState,{actions:["pause","resume","next","previous","stop"]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        verify(realKeys.send(play,Qt.Key_MediaPlay));compare(catalog.commands,[]);
+        verify(realKeys.send(play,Qt.Key_MediaPause));compare(catalog.commands,["pause"]);
+        verify(realKeys.send(play,Qt.Key_MediaNext));verify(realKeys.send(play,Qt.Key_MediaPrevious));
+        compare(catalog.commands,["pause","next","previous"]);
+        // A held toggle: one command for the press and its five repeats.
+        verify(realKeys.send(play,Qt.Key_MediaTogglePlayPause,5));
+        compare(catalog.commands,["pause","next","previous","pause"]);
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"paused"});
+        verify(realKeys.send(play,Qt.Key_MediaPause));compare(catalog.commands.length,4);
+        verify(realKeys.send(play,Qt.Key_MediaPlay));compare(catalog.commands[4],"resume");
+        verify(realKeys.send(play,Qt.Key_Play));compare(catalog.commands[5],"resume");
+        verify(play.activeFocus);
+        // The Music room takes them as well.
+        view.back();tryVerify(()=>view.mode!=="player");
+        verify(realKeys.send(view,Qt.Key_MediaNext));compare(catalog.commands[6],"next");
     }
     // #804 (brief *Presence › Favourites*): More pins a pinnable station to
     // Home through the shell, whatever the provider supports, and unpins it
@@ -1427,6 +1453,22 @@ TestCase {
         // The first one's write fails later: its row says so.
         room.disabled=room.disabled.filter(id=>id!=="local");
         tryCompare(sheet,"stopFailed","local");verify(!sheet.isConfirming("local"));verify(sheet.isConfirming("account"));
+        // A failed write that takes back several sources gives each its own
+        // note (Codex review of #851).
+        sheet.stopThenTurnOff("local");tryVerify(()=>sheet.isConfirming("local"));
+        room.disabled=[];
+        tryVerify(()=>!!sheet.failureFor("local")&&!!sheet.failureFor("account"));
+        // Codex review of #867: an id that names an Object property has no
+        // note it was not given, and keeps the one it is given.
+        compare(sheet.failureFor("constructor"),"");compare(sheet.failureFor("__proto__"),"");
+        sheet.fail("constructor","Note");compare(sheet.failureFor("constructor"),"Note");
+        sheet.clearFailure("constructor");compare(sheet.failureFor("constructor"),"");
+        // While the choice is still being stored, a watch outlives its
+        // deadline (a daemon being replaced); it ends once nothing is pending.
+        room.switchPending=true;room.disabled=["local"];
+        sheet.confirming=[{id:"local",until:Date.now()-1}];
+        wait(1500);verify(sheet.isConfirming("local"));
+        room.switchPending=false;tryVerify(()=>!sheet.isConfirming("local"),3000);
     }
     // #842: with every source off, the room points to Sources.
     function test_every_source_off_points_to_sources() {

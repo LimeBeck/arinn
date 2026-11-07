@@ -39,8 +39,9 @@ Russian catalogue and local partial overlays
       and an unknown tag stays as sent.
 - **Provider text.** Content and free-form remote messages stay as delivered.
   General fixed provider text uses the additive sidecar in
-  [ADR-0135](../adr/0135-localized-provider-texts.md); client adoption is tracked
-  separately in #846. Provider setting texts
+  [ADR-0135](../adr/0135-localized-provider-texts.md). A private client cache
+  renders only explicitly associated fields; an omitted association keeps
+  plaintext even when it equals a known fixed label. Provider setting texts
   (title, description, option titles, unit) can come with a translation table
   ([ADR-0129](../adr/0129-provider-setting-translations.md)): the Settings screen
   looks each text up in a personal overlay, then in the provider's table by
@@ -107,6 +108,11 @@ credentials. It writes a source-checked JSON template whose `translation: null`
 fields remain inactive; replace a null with a string to translate that field.
 An empty description string intentionally hides that description. Settings JSON
 is used directly and needs no compilation.
+
+Provider TS messages use an empty context name. Keep it empty: current Qt
+selects id-based output from that context, while older Qt additionally requires
+the `-idbased` option that `compile` supplies. A context/source provider QM
+cannot serve the versioned message IDs.
 
 Both provider exports derive the stable plugin id and safe directory from the
 daemon, and recheck registration identity after reading. They never start or
@@ -189,6 +195,53 @@ still apply. Only a description can intentionally be empty. The file is at most
 other control characters. No provider code, ids, enum values, paths or content are
 changed. Reload/reselection republishes existing settings locally. The legacy
 ADR-0129 table remains the next fallback, so older providers work as before.
+
+### Fixed provider messages and sharing
+
+Compiled provider messages go in
+`overrides/<locale>/providers/<plugin-directory>/messages.qm`. They use a private
+translator bound to the daemon's registered plugin identity. They cannot replace
+shell strings or another plugin's messages. The source catalogue controls message
+IDs/revisions and typed arguments. Missing, empty, malformed or obsolete entries
+fall through to lower layers, then the already complete snapshot plaintext.
+Qt selects plurals before a single formatting pass; argument text is never
+interpreted as another template. Media session titles and download errors are
+eligible only when the provider associates that exact field; music uses separate
+catalogue-entry and current-station identities. Content is omitted by providers.
+
+A provider package and a translation package are independent. A provider can
+ship its own exact-locale QMs through Texts1; an external translation needs only
+data files under the XDG translation root. To install community files beside
+personal corrections, use the lower-priority paths within that root:
+
+```text
+arinn_de.qm
+music_de.qm
+providers/<plugin-directory>/messages_de.qm
+providers/<plugin-directory>/settings_de.json
+```
+
+These settings JSON files use the same source-checked envelope. Personal
+`overrides/de/...` entries, including a compatible language parent, win over
+community files in the same root. A missing string can still come from the
+community file or provider package. Copy a partial TS/JSON/QM set by any ordinary
+channel, retain editable sources, and use Reload translations after updating it.
+For a provider-only new language, include `overrides/<locale>/language.json` so
+the language picker can discover it. No provider executable, manifest change,
+central registry or application rebuild is involved in installing a translation.
+
+The client pins daemon owner, provider generation and original scope/id/revision/
+field/fallback. It retains typed references across language switches, so changing
+language does not repeat Resolve or read content pages. Metadata calls have a
+three-second deadline, at most four are active, and batches hold at most 128
+fields/240 KiB. The presentation cache admits at most 64 provider identities,
+512 associations and 4 MiB of encoded references, plus 8 MiB of QM bytes. Excess
+fields preserve plaintext. Admission is stable during its own repaint notices;
+new snapshot revisions retire old fields, registry discovery removes departed
+identities, and language changes retire obsolete dictionaries before loading
+new personal layers. A normal provider status change preserves unchanged
+identities. Last-good local message dictionaries survive a corrupt replacement;
+deleting one deliberately restores fallback.
 
 An optional `overrides/<locale>/language.json` (at most 4 KiB) can supply a name:
 

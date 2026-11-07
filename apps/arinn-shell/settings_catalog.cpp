@@ -863,9 +863,11 @@ void SettingsCatalog::readPreferences() {
   const auto *musicRow =
       find(QLatin1String(kDaemonProvider), QLatin1String(kMusicDisabledSources));
   const bool writable = m_loaded && !m_unreachable && musicRow && musicRow->enabled;
-  const bool musicChanged =
-      musicDisabledSources() != shownBefore || writable != m_musicWritable;
+  const bool musicChanged = musicDisabledSources() != shownBefore ||
+                            writable != m_musicWritable ||
+                            m_musicDisabledWanting != m_musicPendingShown;
   m_musicWritable = writable;
+  m_musicPendingShown = m_musicDisabledWanting;
   if (light == m_lightField && follows == m_lightFollowsTime &&
       minutes == m_ambientMinutes && sounds == m_interfaceSounds) {
     if (musicChanged)
@@ -900,6 +902,9 @@ void SettingsCatalog::setMusicSourceEnabled(const QString &providerId,
     return;
   m_musicDisabledWanted = wanted;
   m_musicDisabledWanting = true;
+  // Published as pending, so its end is announced too (Codex review of
+  // #867).
+  m_musicPendingShown = true;
   emit preferencesChanged();
   writeMusicDisabled();
 }
@@ -930,6 +935,7 @@ void SettingsCatalog::writeMusicDisabled() {
     m_musicDisabledSent = m_musicDisabledWanted;
   } else {
     m_musicDisabledWanting = false;
+    m_musicPendingShown = false;
     m_errors.remove(key);
     emit preferencesChanged();
   }

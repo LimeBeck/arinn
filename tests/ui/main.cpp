@@ -11,6 +11,9 @@
 #include <QtCore/QTranslator>
 #include <QtCore/QtGlobal>
 #include <QtGui/QGuiApplication>
+#include <QtGui/QKeyEvent>
+#include <QtQuick/QQuickItem>
+#include <QtQuick/QQuickWindow>
 #include <QtGui/QStyleHints>
 #include <QtQml/QQmlContext>
 #include <QtQml/QQmlEngine>
@@ -131,6 +134,36 @@ private:
   bool m_available = true;
 };
 
+// QtTest's keyClick maps a key to a character and asserts on media keys
+// (#733), so media-key tests send real key events through the window to its
+// focused item, as a remote's input device does (#831).
+class RealKeys : public QObject
+{
+    Q_OBJECT
+
+public:
+    using QObject::QObject;
+    // A press, optionally `repeats` auto-repeated presses, then the release.
+    // Returns whether the focused item accepted the first press.
+    Q_INVOKABLE bool send(QObject *item, int key, int repeats = 0)
+    {
+        auto *quickItem = qobject_cast<QQuickItem *>(item);
+        auto *window = quickItem ? quickItem->window() : nullptr;
+        if (!window)
+            return false;
+        QKeyEvent press(QEvent::KeyPress, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &press);
+        const bool accepted = press.isAccepted();
+        for (int i = 0; i < repeats; ++i) {
+            QKeyEvent repeat(QEvent::KeyPress, key, Qt::NoModifier, QString(), true);
+            QCoreApplication::sendEvent(window, &repeat);
+        }
+        QKeyEvent release(QEvent::KeyRelease, key, Qt::NoModifier);
+        QCoreApplication::sendEvent(window, &release);
+        return accepted;
+    }
+};
+
 class ArinnUiTestSetup : public QObject
 {
     Q_OBJECT
@@ -160,6 +193,8 @@ public slots:
                                                   new CaptureAnimation(engine));
         engine->rootContext()->setContextProperty(QStringLiteral("interfaceSounds"),
                                                   new InterfaceSoundsStub(engine));
+        engine->rootContext()->setContextProperty(QStringLiteral("realKeys"),
+                                                  new RealKeys(engine));
         engine->rootContext()->setContextProperty(
             QStringLiteral("captureSoundsStatusDir"),
             qEnvironmentVariable("ARINN_CAPTURE_SOUNDS_STATUS"));

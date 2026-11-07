@@ -58,6 +58,7 @@ private:
     QString providerId;
     QString path;
     QString generation;
+    quint64 revision = 0;
     QString localId;
     QString title;
     QString state;

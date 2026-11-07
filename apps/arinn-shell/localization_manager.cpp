@@ -135,6 +135,7 @@ void LocalizationManager::apply() {
   m_translators = std::move(prepared);
   m_formatLocale = formatLocale;
   m_translationLocale = translationLocale;
+  if (qApp) qApp->setProperty("arinn.translationLocale", translationLocale);
   QLocale::setDefault(m_formatLocale);
   for (auto it = m_translators.rbegin(); it != m_translators.rend(); ++it)
     QCoreApplication::installTranslator((*it)->translator.get());

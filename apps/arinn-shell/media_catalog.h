@@ -174,7 +174,8 @@ private:
                     const QString &token = {});
   void failProvider(const std::shared_ptr<Catalog> &catalog, int index);
   void finishCatalog(const std::shared_ptr<Catalog> &catalog, bool success);
-  void publish();
+  void publish(bool presentationOnly = false);
+  QString displayTitle(const SessionRow &row) const;
   void setPresentation(const QString &state);
   void failPresentation(const QString &state);
   void failRelease();

@@ -90,6 +90,11 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   was left in, and the session keeps playing (#840, MH-1). The player opens
   from the Continue card, the Quick menu, *Open player*, or a station or an
   album.
+- Media keys on *Now playing* and in the Music room (#831): dedicated Play
+  resumes and does nothing while playing, dedicated Pause pauses and does
+  nothing while paused, the toggle keys (`Key_MediaTogglePlayPause`,
+  `Key_Play`) toggle, and Next and Previous send `next` and `previous` where
+  the session advertises them. A held key acts once.
 - The *More* sheet (720, right) lists only the session's actions, as
   container rows with a line icon: Dislike, Radio from this track, *Pin to
   Home* or *Unpin from Home* for a `pinnable` station (#804; otherwise the
@@ -565,7 +570,10 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     addition would not fit the setting (64 ids, 4096 code points) is
     refused before anything stops, with a note. A command in flight counts
     as an unknown session. Should the write fail after the stop, the
-    stored list drops the source again; the sheet watches each source for that for 60 s,
+    stored list drops the source again; the sheet watches each source for that
+    for 60 s, and for as long as the change is still pending
+    (`SettingsCatalog.musicDisabledPending`, through
+    `MusicRoom.switchPending`), with a note per source,
     longer than two writes' paths (this one may wait behind another), and
     the row says so. Both go through
     `MusicRoom.setSourceEnabled` to `SettingsCatalog.setMusicSourceEnabled`.

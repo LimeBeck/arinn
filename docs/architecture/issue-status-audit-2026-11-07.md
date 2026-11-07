@@ -13,6 +13,7 @@ roadmap gates, issue reproductions or newer agent claims.
 - Read issue bodies and available discussion, merged implementation records and current source.
 - Current public captures: [showcase provenance](../design/showcase/README.md). The focused `hearth-light` CTest passed on Qt 6.12.0; this is offscreen evidence only.
 - GitHub repository metadata reports public visibility. Recent snapshot assets omit `.deb`; the tagged `v0.2.0` release contains it.
+- During the audit, #862 merged as `602a1fe` and was integrated into the documentation branch. New PRs #867 (source-off follow-up) and #868 (daemon text routing, #859) opened. The rows retain the initial snapshot for reproducibility.
 - Active PRs and comments are time-sensitive: the references below describe the snapshot, not a perpetual status feed.
 - No real desktop, TV, remote, account or listening test was run. No phase/gate was marked passed, owner decision inferred, release published or active development claim taken over.
 

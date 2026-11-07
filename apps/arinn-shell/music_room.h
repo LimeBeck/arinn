@@ -193,6 +193,9 @@ private:
   };
   QList<Off> m_off;
   std::map<QString, bool> m_local;
+  // Identity reads in flight for turned-off sources whose mark is unknown.
+  QSet<QString> m_identityReads;
+  void readIdentity(const QString &id, const QString &path, const QString &generation);
   std::map<QString, Source> m_sources;
   QVariantList m_shelves, m_sourceRows;
   bool m_dated = false, m_loading = false;

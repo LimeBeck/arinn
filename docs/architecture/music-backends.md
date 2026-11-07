@@ -518,7 +518,8 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   - A turned-off source is left out of everything the room reads (shelves,
     *All*, search, loading), as a source that left, and is read no more.
     `sources` lists it last with status `off`, its local mark kept from its
-    last state.
+    last state. A source off from the start is read once, `GetState` only,
+    for that mark; it is never asked for pages or searches.
   - A room whose every source is off is settled, and its hero points to
     *Sources*.
   - The session of a turned-off source has no `homeEntries`, `nowPlaying`

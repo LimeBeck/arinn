@@ -997,6 +997,38 @@ private slots:
     QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
   }
+  // Codex review of #851: a source off from the start is read once for its
+  // identity only, so its Off row keeps this computer's mark, and none of
+  // its entries reach the room.
+  void aSourceOffFromTheStartKeepsItsMark() {
+    daemon.providers = {{"local", "Fixture music", "g1"}, {"account", "Fixture account", "g1"}};
+    daemon.states["local"] = state({"albums"});
+    daemon.states["account"] = state({"albums"}, "connected");
+    daemon.pages["local/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:a"}, {"kind", "album"}, {"title", "A"}, {"available", true}}};
+    daemon.pages["account/albums"] = QJsonArray{
+        QJsonObject{{"id", "album:z"}, {"kind", "album"}, {"title", "Z"}, {"available", true}}};
+    MusicCatalog catalog;
+    // As Main binds both to the stored choice.
+    catalog.setDisabledSources({"local"});
+    MusicRoom room;
+    room.setDisabled({"local"});
+    room.setCatalog(&catalog);
+    QTRY_VERIFY(room.connected());
+    QTRY_VERIFY(!room.loading());
+    const auto row = [&room] {
+      for (const auto &value : room.sources())
+        if (value.toMap().value("id") == "local")
+          return value.toMap();
+      return QVariantMap();
+    };
+    QTRY_COMPARE(row().value("status").toString(), QStringLiteral("off"));
+    QTRY_VERIFY(row().value("local").toBool());
+    for (const auto &value : room.shelves())
+      for (const auto &entry : value.toMap().value("entries").toList())
+        QVERIFY(entry.toMap().value("provider").toString() != QStringLiteral("local"));
+    QCOMPARE(daemon.pageReads.value("local"), 0);
+  }
   // The Home card names the source of the active session.
   void theHomeCardNamesTheActiveSource() {
     daemon.providers = {{"local", "Local music", "g1"}};

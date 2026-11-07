@@ -130,6 +130,11 @@ void MusicRoom::follow() {
       const auto local = m_local.find(id);
       off.append({id, row.value(QStringLiteral("name")).toString(),
                   local != m_local.end() && local->second});
+      // Off from the start: one state read tells only whether it is this
+      // computer, for its mark; no pages or search (Codex review of #851).
+      if (local == m_local.end())
+        readIdentity(id, row.value(QStringLiteral("path")).toString(),
+                     row.value(QStringLiteral("generation")).toString());
       continue;
     }
     order.append(id);
@@ -161,6 +166,33 @@ void MusicRoom::follow() {
   publishSources();
   rebuild();
   refresh();
+}
+
+void MusicRoom::readIdentity(const QString &id, const QString &path,
+                             const QString &generation) {
+  if (path.isEmpty() || generation.isEmpty() || m_identityReads.contains(id))
+    return;
+  m_identityReads.insert(id);
+  auto message =
+      QDBusMessage::createMethodCall(service, path, "org.arinn.Music1", "GetState");
+  message << generation;
+  auto *pending = new QDBusPendingCallWatcher(
+      QDBusConnection::sessionBus().asyncCall(message, 3500), this);
+  connect(pending, &QDBusPendingCallWatcher::finished, this,
+          [this, id](auto *watch) {
+            const auto reply = watch->reply();
+            watch->deleteLater();
+            m_identityReads.remove(id);
+            const auto json = object(reply);
+            if (json.isEmpty() || !json.contains("account"))
+              return;
+            const bool local = json.value("account").toString() == QLatin1String("local");
+            m_local[id] = local;
+            for (auto &source : m_off)
+              if (source.id == id)
+                source.local = local;
+            publishSources();
+          });
 }
 
 void MusicRoom::setDisabled(const QStringList &disabled) {

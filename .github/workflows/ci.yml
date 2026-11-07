@@ -36,16 +36,19 @@ env:
 # from ci/images/** (ADR-0104).
 
 jobs:
-  # A pull request that changes only documentation skips the build jobs
-  # (ADR-0044). Skipped jobs still report their required checks as passed.
-  # Build jobs run unless the scope is positively docs-only, so a failure
-  # of this job falls back to the full pipeline instead of skipping it.
+  # PRs use docs, website, visual or full checks (proposed ADR-0145).
+  # Native inputs and failed/unknown classification keep the full pipeline.
+  # Existing required check names still report, including skipped checks.
   scope:
     name: Change scope
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12
     outputs:
+      scope: ${{ steps.scope.outputs.scope }}
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      native: ${{ steps.scope.outputs.native }}
+      website: ${{ steps.scope.outputs.website }}
+      visual: ${{ steps.scope.outputs.visual }}
       package: ${{ steps.scope.outputs.package }}
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +67,7 @@ jobs:
   images:
     name: CI images
     needs: scope
-    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.native != 'false' || needs.scope.outputs.visual == 'true') }}
     permissions:
       contents: read
       packages: write
@@ -79,7 +82,7 @@ jobs:
   build:
     name: Rust, Qt shell and integration (Arch Linux)
     needs: [scope, images]
-    if: ${{ !cancelled() && needs.scope.outputs.docs_only != 'true' }}
+    if: ${{ !cancelled() && (needs.scope.result != 'success' || needs.scope.outputs.native != 'false' || needs.scope.outputs.visual == 'true') }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container:
       image: ${{ needs.images.outputs.arch_build }}
@@ -111,13 +114,14 @@ jobs:
         run: pacman -S --noconfirm --needed qt6-multimedia
       - name: Restore build cache
         # The self-hosted runner keeps /ci-cache on its own disk.
-        if: ${{ !vars.ARINN_RUNNER }}
+        if: ${{ !vars.ARINN_RUNNER && (needs.scope.result != 'success' || needs.scope.outputs.native != 'false') }}
         uses: actions/cache/restore@v4
         with:
           path: /ci-cache
           key: ci-cache-arch-${{ github.run_id }}
           restore-keys: ci-cache-arch-
       - name: Link the cached target directory
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         # tests/integration/phase1.py runs ./target/debug binaries. A target
         # directory past 12 GB is dropped so stale artifacts cannot fill the
         # runner's disk. Each self-hosted runner instance gets its own target
@@ -132,19 +136,26 @@ jobs:
           if [ "$(du -s --block-size=1G "$target" | cut -f1)" -gt 12 ]; then rm -rf "$target"; mkdir "$target"; fi
           ln -sfn "$target" target
       - run: cargo fmt --all --check
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
       - name: Package symbol collector tests
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         # Tiny synthetic C/Rust fixtures only; no package or Arinn rebuild.
         run: python -m unittest discover -s tests/ci -p test_debug_symbols.py
       - run: cargo clippy --locked --all-targets -- -D warnings
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
       - run: cargo test --locked
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
       - name: Build Rust workspace
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: cargo build --locked && cargo build --locked --examples
       - name: Isolated X11 EWMH tests
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         # cargo test above ran the others; these need Xvfb.
         env:
           ARINN_XVFB: /usr/bin/Xvfb
         run: cargo test --locked -p arinn-platform-x11 -- --ignored
       - name: Build shell
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: |
           ccache --zero-stats
           cmake -S . -B build -G Ninja
@@ -159,11 +170,40 @@ jobs:
           path: /ci-cache
           key: ci-cache-arch-${{ github.run_id }}
       - name: QML component tests
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: ctest --test-dir build --parallel 2 --output-on-failure
       - name: KWin adapter and Chrome extension tests
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_extension.test.cjs
       - name: Private-bus integration suite
+        if: ${{ needs.scope.result != 'success' || needs.scope.outputs.native != 'false' }}
         run: dbus-run-session -- python tests/integration/phase1.py
+      # Reuse the existing required check name: a failed render must fail
+      # that check, rather than leave it skipped beside a new optional job.
+      - name: Validate visual fixture manifest
+        if: ${{ needs.scope.result == 'success' && needs.scope.outputs.visual == 'true' }}
+        run: python scripts/ui-compare.py --check
+      - name: Build visual fixture renderer
+        if: ${{ needs.scope.result == 'success' && needs.scope.outputs.visual == 'true' }}
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "2"
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build --target arinn-ui-test
+      - name: Render visual fixtures at 1080p and 4K
+        if: ${{ needs.scope.result == 'success' && needs.scope.outputs.visual == 'true' }}
+        run: |
+          env -u ARINN_CAPTURE_ONLY python scripts/ui-compare.py --build-dir build --output build/visual-ci
+          test -s build/visual-ci/report.html
+          test -s build/visual-ci/summary.md
+      - name: Save visual fixture evidence
+        if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.visual == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-fixture-renders
+          path: build/visual-ci
+          if-no-files-found: error
+          retention-days: 7
 
   licenses:
     name: Licensing (REUSE, cargo-deny)
@@ -182,6 +222,8 @@ jobs:
 
   docs:
     name: Documentation consistency
+    needs: scope
+    if: ${{ !cancelled() }}
     runs-on: ${{ vars.ARINN_RUNNER || 'ubuntu-latest' }}
     container: python:3.12
     steps:
@@ -191,6 +233,12 @@ jobs:
       - run: python scripts/check-architecture.py
       - run: python scripts/release.py check
       - run: python -m unittest discover -s tests/ci
+      - name: Validate public website
+        if: ${{ needs.scope.result == 'success' && needs.scope.outputs.website == 'true' }}
+        run: |
+          python scripts/check-user-site.py
+          python scripts/build-site.py
+          python scripts/check-site.py
 
   package:
     name: Package

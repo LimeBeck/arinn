@@ -13,6 +13,9 @@ import pathlib
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
+from unittest.mock import patch
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "ui-compare.py"
@@ -82,6 +85,31 @@ class ValidateTest(unittest.TestCase):
             {"id": "three", "reference": "b.png", "render": True},
         ))
         self.assertEqual(errors, ["a.png is mapped 2 times"])
+
+
+class FourKCaptureTest(unittest.TestCase):
+    def test_failed_or_incomplete_probe_cannot_pass_or_be_hidden_by_a_retry(self):
+        # A QTest cleanup failure can follow valid capture records. The CI
+        # gate must retain that failure, even with a correctly sized frame.
+        full_size = [{"id": "home", "width": 3840, "height": 2160}]
+        for code, rows in ((1, full_size), (0, [])):
+            with self.subTest(code=code, rows=rows), patch.object(
+                ui_compare, "run_capture", return_value=(code, "probe failed", rows)
+            ), patch.object(ui_compare, "require_capture") as fallback, redirect_stderr(StringIO()):
+                with self.assertRaisesRegex(SystemExit, "capture failed for 4k"):
+                    ui_compare.four_k_captures(pathlib.Path("renderer"), pathlib.Path("out/4k"))
+                fallback.assert_not_called()
+
+    def test_clean_logical_probe_uses_the_offscreen_layout_fallback(self):
+        logical = [{"id": "home", "width": 1920, "height": 1080}]
+        physical = [{"id": "home", "width": 3840, "height": 2160}]
+        with patch.object(ui_compare, "run_capture", return_value=(0, "", logical)), patch.object(
+            ui_compare, "require_capture", return_value=physical
+        ) as fallback:
+            rows, method = ui_compare.four_k_captures(pathlib.Path("renderer"), pathlib.Path("out/4k"))
+        self.assertEqual(rows, physical)
+        self.assertIn("2× scale", method)
+        fallback.assert_called_once_with(pathlib.Path("renderer"), pathlib.Path("out/4k"), "4k-layout", None)
 
 
 if __name__ == "__main__":

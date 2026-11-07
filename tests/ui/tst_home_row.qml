@@ -74,6 +74,36 @@ TestCase {
         tryCompare(row, "count", 2);
     }
 
+    // Review of #852 (#837): New lists what is new, so a poster whose item
+    // was started shows no progress line; and a title card, a flat plate,
+    // has no cast light between it and its caption.
+    Component {
+        id: posterRowFactory
+        Ui.HomeRow {
+            width: 1600
+            variant: "poster"
+            entries: [
+                {id: "art", title: "Pictured", artwork: Qt.resolvedUrl("fixture-glow.svg"), progress: 0.4},
+                {id: "bare", title: "Title card", progress: 0.4}
+            ]
+        }
+    }
+    function test_new_posters_show_no_progress_and_title_cards_no_cast() {
+        const posters = createTemporaryObject(posterRowFactory, suite);
+        verify(posters);
+        tryCompare(posters, "count", 2);
+        const pictured = findChild(posters, "entry-art");
+        const titleCard = findChild(posters, "entry-bare");
+        verify(pictured !== null && titleCard !== null);
+        const progress = findChild(pictured, "cardProgress");
+        verify(progress !== null);
+        compare(progress.visible, false);
+        compare(pictured.showProgress, false);
+        titleCard.forceActiveFocus();
+        tryCompare(titleCard, "activeFocus", true);
+        compare(findChild(titleCard, "castLight"), null);
+        compare(findChild(titleCard, "cardProgress"), null);
+    }
     function test_equal_entries_keep_cards() {
         const a = child("entry-a");
         const b = child("entry-b");

@@ -90,6 +90,7 @@ async fn run(started: std::time::Instant) -> Result<(), ErrorCode> {
     core.export_platform().await?;
     core.export_keyboard().await?;
     core.export_settings().await?;
+    core.export_texts().await?;
     core.export_folders().await?;
     core.export_browse().await?;
     core.export_browser_auth().await?;

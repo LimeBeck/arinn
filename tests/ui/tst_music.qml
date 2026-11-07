@@ -1306,8 +1306,9 @@ TestCase {
         // The command ends without a session of this source: it turns off.
         catalog.busy=false;tryVerify(()=>room.commands.length===1);compare(room.commands[0],"account:off");
         // The stored list drops it again (the write failed): the row says so.
-        // The watch outlasts the write's own path, about 16 s at worst.
-        verify(findChild(sheet,"musicTurnOffConfirmWatch").interval>=16000);
+        // The watch outlasts two writes' paths, about 16 s each at worst:
+        // this one may wait behind another.
+        verify(findChild(sheet,"musicTurnOffConfirmWatch").interval>=32000);
         // Turned on again during the watch: no failure is told.
         sheet.act(Object.assign({},room.sources[1],{status:"off"}),"on");wait(100);compare(sheet.stopFailed,"");
         compare(sheet.confirming,"");

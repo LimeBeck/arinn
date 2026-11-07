@@ -61,12 +61,13 @@ FocusScope {
         stopping = "";
     }
     property string confirming: ""
-    // Longer than the write's own path: SetValue 3 s, the operation 10 s,
-    // its last read 3 s (Codex review of #851).
+    // Longer than the write's own path, SetValue 3 s, the operation 10 s
+    // and its last read 3 s, twice: this write may wait behind one already
+    // in flight (Codex review of #851).
     Timer {
         id: confirmWatch
         objectName: "musicTurnOffConfirmWatch"
-        interval: 30000
+        interval: 60000
         onTriggered: root.confirming = ""
     }
     readonly property var disabledList: (room && room.disabled) || []

@@ -90,6 +90,11 @@ Focus and code rules of the music screens (#795, #756 M13–M16, M22–M27):
   was left in, and the session keeps playing (#840, MH-1). The player opens
   from the Continue card, the Quick menu, *Open player*, or a station or an
   album.
+- Media keys on *Now playing* and in the Music room (#831): dedicated Play
+  resumes and does nothing while playing, dedicated Pause pauses and does
+  nothing while paused, the toggle keys (`Key_MediaTogglePlayPause`,
+  `Key_Play`) toggle, and Next and Previous send `next` and `previous` where
+  the session advertises them. A held key acts once.
 - The *More* sheet (720, right) lists only the session's actions, as
   container rows with a line icon: Dislike, Radio from this track, *Pin to
   Home* or *Unpin from Home* for a `pinnable` station (#804; otherwise the

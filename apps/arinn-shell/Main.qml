@@ -808,6 +808,18 @@ Window {
     }
     // `artworkUrl(provider, artworkId)` gives the image URL of a stored
     // artwork ID while its source is present.
+    // A media key from Home or Ambient as a music command (#831): Play
+    // resumes, Pause pauses, Next and Previous skip, the toggle toggles
+    // ("" here, MusicCatalog.togglePlayback).
+    function musicKeyCommand(action) {
+        return action === "toggle" ? "" : action === "play" ? "resume"
+             : ["pause", "next", "previous"].includes(action) ? action : null;
+    }
+    function musicKey(action) {
+        const command = musicKeyCommand(action);
+        if (command === "") musicCatalog.togglePlayback();
+        else if (command) musicCatalog.transport(command);
+    }
     function musicPinRows(favorites, sources, unresolved, accounts, artworkUrl) {
         return favorites.map(entry => {
             if (!entry.musicStation) return entry;
@@ -1118,10 +1130,7 @@ Window {
             // Music presence on Home (#803, MH-4): the status line while it
             // plays, and Play/Pause without moving focus.
             musicStatusLine: musicCatalog.statusLine
-            onMusicKeyRequested: action => {
-                if (action === "toggle") musicCatalog.togglePlayback();
-                else musicCatalog.transport(action === "play" ? "resume" : "pause");
-            }
+            onMusicKeyRequested: action => root.musicKey(action)
             onLibraryEntryRequested: entryId => root.openHomeLibraryEntry(entryId)
             applicationEntries: backend.applications
             runningEntries: root.applicationWindows
@@ -1928,10 +1937,7 @@ Window {
             onActiveChanged: if (!active) root.finishAmbient()
             // The track line and Play/Pause without waking (ADR-0142 MH-8).
             music: musicCatalog.activeState
-            onMusicKeyRequested: action => {
-                if (action === "toggle") musicCatalog.togglePlayback();
-                else musicCatalog.transport(action === "play" ? "resume" : "pause");
-            }
+            onMusicKeyRequested: action => root.musicKey(action)
         }
     }
 }

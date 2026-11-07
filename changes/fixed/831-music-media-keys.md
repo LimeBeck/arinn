@@ -1,0 +1,1 @@
+- The remote's media keys now control music on Home, in the Music room and on *Now playing*: Play and Pause do what they say, Next and Previous skip, and holding a key no longer toggles playback over and over ([#831](https://github.com/LimeBeck/arinn/issues/831)).

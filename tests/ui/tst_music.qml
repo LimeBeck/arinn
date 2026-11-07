@@ -690,6 +690,31 @@ TestCase {
         const russian=like.width;
         for(const text of like.labels) {like.text=text;settle();compare(like.width,russian,text);verify(more.mapToItem(view,more.width,0).x<=1920-Ui.Theme.safeRight,text+": "+more.mapToItem(view,more.width,0).x);}
     }
+    // #831: the input device's media keys as real key events on Now playing
+    // and in the Music room: dedicated Play and Pause keep their meaning,
+    // Next and Previous are sent, and a held key acts once.
+    function test_real_media_keys_on_now_playing() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        catalog.activeState=Object.assign({},catalog.activeState,{actions:["pause","resume","next","previous","stop"]});
+        const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);
+        view.openPlayer();wait(0);
+        const play=findChild(view,"musicPlayPause");tryCompare(play,"activeFocus",true);
+        verify(realKeys.send(play,Qt.Key_MediaPlay));compare(catalog.commands,[]);
+        verify(realKeys.send(play,Qt.Key_MediaPause));compare(catalog.commands,["pause"]);
+        verify(realKeys.send(play,Qt.Key_MediaNext));verify(realKeys.send(play,Qt.Key_MediaPrevious));
+        compare(catalog.commands,["pause","next","previous"]);
+        // A held toggle: one command for the press and its five repeats.
+        verify(realKeys.send(play,Qt.Key_MediaTogglePlayPause,5));
+        compare(catalog.commands,["pause","next","previous","pause"]);
+        catalog.activeState=Object.assign({},catalog.activeState,{playback:"paused"});
+        verify(realKeys.send(play,Qt.Key_MediaPause));compare(catalog.commands.length,4);
+        verify(realKeys.send(play,Qt.Key_MediaPlay));compare(catalog.commands[4],"resume");
+        verify(realKeys.send(play,Qt.Key_Play));compare(catalog.commands[5],"resume");
+        verify(play.activeFocus);
+        // The Music room takes them as well.
+        view.back();tryVerify(()=>view.mode!=="player");
+        verify(realKeys.send(view,Qt.Key_MediaNext));compare(catalog.commands[6],"next");
+    }
     // #804 (brief *Presence › Favourites*): More pins a pinnable station to
     // Home through the shell, whatever the provider supports, and unpins it
     // there; the row waits while a favourites write is in flight.

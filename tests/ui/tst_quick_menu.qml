@@ -322,10 +322,16 @@ TestCase {
             keyClick(Qt.Key_Down);
             focused(name);
             const row = child(name);
-            tryVerify(() => {
+            const inView = () => {
                 const top = row.mapToItem(column, 0, 0).y;
                 return top >= 0 && top + row.height <= column.height;
-            }, 2000, name);
+            };
+            for (let waited = 0; waited < 5000 && !inView(); waited += 50)
+                wait(50);
+            // The values say why, should a row stay out of view.
+            verify(inView(), name + " top " + row.mapToItem(column, 0, 0).y + " height " + row.height
+                + " contentY " + column.contentY + " contentHeight " + column.contentHeight
+                + " column " + column.height);
         }
         tryVerify(() => column.contentY > 0);
         verify(child("quickMenuTopFade").visible);

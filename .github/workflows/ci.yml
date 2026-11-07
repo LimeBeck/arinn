@@ -159,7 +159,7 @@ jobs:
           path: /ci-cache
           key: ci-cache-arch-${{ github.run_id }}
       - name: QML component tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --test-dir build --parallel 2 --output-on-failure
       - name: KWin adapter and Chrome extension tests
         run: node --test tests/integration/kwin_adapter.test.cjs tests/integration/chrome_extension.test.cjs
       - name: Private-bus integration suite

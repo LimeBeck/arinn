@@ -1,0 +1,1 @@
+- Run Qt tests with two CTest workers and isolate each QML test file in its own process, without running Hearth light twice. The music source-stop deadline regression advances timer callbacks after checking real scheduling instead of waiting 17 seconds.

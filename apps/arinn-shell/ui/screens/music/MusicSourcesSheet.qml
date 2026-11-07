@@ -137,6 +137,7 @@ FocusScope {
     }
     Timer {
         id: stopWatch
+        objectName: "musicSourceStopWatch"
         interval: 100
         repeat: true
         property int elapsed: 0

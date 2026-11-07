@@ -298,16 +298,7 @@ void MusicCatalog::providers(const QString &token, quint64 ticket,
           emit sourcesChanged();
           emit activeChanged();
         }
-        QString selected = m_sourceId;
-        bool present = false;
-        for (const auto &row : rows)
-          if (row.toMap().value("id").toString() == selected)
-            present = true;
-        if (!present)
-          selected = rows.isEmpty()
-                         ? QString()
-                         : rows.first().toMap().value("id").toString();
-        choose(selected);
+        choose(browsableSource());
       });
 }
 // A provider that restarted or left may know its stations again: its
@@ -782,8 +773,26 @@ void MusicCatalog::setDisabledSources(const QStringList &sources) {
   if (sources == m_disabledSources)
     return;
   m_disabledSources = sources;
+  // A turned-off source is read no more: the browsed source moves to one
+  // that is on, or to none (Codex review of #851).
+  choose(browsableSource());
   emit activeChanged();
   updateProblems();
+}
+// The source the catalogue reads: the current one while it is present and
+// on, else the first one that is on, else none (#842).
+QString MusicCatalog::browsableSource() const {
+  QString first;
+  for (const auto &row : m_sources) {
+    const auto id = row.toMap().value("id").toString();
+    if (m_disabledSources.contains(id))
+      continue;
+    if (id == m_sourceId)
+      return id;
+    if (first.isEmpty())
+      first = id;
+  }
+  return first;
 }
 QVariantMap MusicCatalog::nowPlaying() const {
   const auto current = m_active.value(QStringLiteral("current")).toMap();

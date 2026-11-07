@@ -76,6 +76,7 @@ public:
   QStringList disabledSources() const { return m_disabledSources; }
   int activeReads() const { return m_activeReads; }
   void setDisabledSources(const QStringList &sources);
+  QString browsableSource() const;
   QString statusLine() const;
   QVariantList unresolvedStations() const;
   bool audible() const;

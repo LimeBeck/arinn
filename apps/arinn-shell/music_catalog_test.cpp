@@ -950,8 +950,12 @@ private slots:
     // not a change of the turned-off sources.
     QTRY_VERIFY(catalog.activeReads() > 0);
     const int reads = catalog.activeReads();
+    QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
     catalog.setDisabledSources({"local"});
     QCOMPARE(catalog.activeReads(), reads);
+    // Codex review of #851: the catalogue no longer browses a turned-off
+    // source; it moves to one that is on.
+    QCOMPARE(catalog.sourceId(), QStringLiteral("account"));
     catalog.refresh();
     QTRY_VERIFY(catalog.activeReads() > reads);
     room.setDisabled({"local"});
@@ -977,7 +981,10 @@ private slots:
         found << entry.toMap().value("provider").toString();
     QVERIFY(!found.contains(QStringLiteral("local")));
     room.search(QString());
-    // Every source off: the room is settled, with no shelves.
+    // Every source off: the room is settled, with no shelves, and the
+    // catalogue browses none.
+    catalog.setDisabledSources({"local", "account"});
+    QCOMPARE(catalog.sourceId(), QString());
     room.setDisabled({"local", "account"});
     QTRY_VERIFY(room.shelves().isEmpty());
     QVERIFY(room.settled());
@@ -985,6 +992,7 @@ private slots:
     // On again: the source is read anew.
     room.setDisabled({});
     catalog.setDisabledSources({});
+    QCOMPARE(catalog.sourceId(), QStringLiteral("local"));
     QTRY_COMPARE(keys(), (QStringList{"account album:z", "local album:a"}));
     QTRY_COMPARE(catalog.homeEntries().size(), 1);
   }

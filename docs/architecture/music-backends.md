@@ -522,7 +522,8 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
   - A room whose every source is off is settled, and its hero points to
     *Sources*.
   - The session of a turned-off source has no `homeEntries`, `nowPlaying`
-    or `statusLine`.
+    or `statusLine`. `MusicCatalog` no longer browses it: its selected
+    source moves to the first one that is on, or to none.
   - `Main.musicPinRows` leaves its pinned stations out of Favourites; they
     stay stored.
   - In the sheet, every source that is on has *Turn off*, and one that is off

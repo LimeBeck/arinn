@@ -760,8 +760,10 @@ private slots:
       QVERIFY(value.toMap().value(QStringLiteral("id")).toString() !=
               QStringLiteral("music_disabled_sources"));
     QVERIFY(!rowAt(catalog, QStringLiteral("arinn"), QStringLiteral("light_field")).isEmpty());
+    QVERIFY(!catalog.musicDisabledPending());
     catalog.setMusicSourceEnabled(QStringLiteral("b"), false);
     QCOMPARE(catalog.musicDisabledSources(), (QStringList{QStringLiteral("a"), QStringLiteral("b")}));
+    QVERIFY(catalog.musicDisabledPending());
     QTRY_COMPARE(daemon.sets.size(), 1);
     QCOMPARE(daemon.sets.at(0).setting, QStringLiteral("music_disabled_sources"));
     QCOMPARE(daemon.sets.at(0).value, QStringLiteral("\"[\\\"a\\\",\\\"b\\\"]\""));
@@ -775,6 +777,7 @@ private slots:
     QTRY_COMPARE(daemon.sets.size(), 2);
     QCOMPARE(daemon.sets.at(1).value, QStringLiteral("\"[\\\"b\\\"]\""));
     QTRY_COMPARE(catalog.musicDisabledSources(), QStringList{QStringLiteral("b")});
+    QTRY_VERIFY(!catalog.musicDisabledPending());
     QTest::qWait(500);
     QCOMPARE(daemon.sets.size(), 2);
     // Every source on again: an empty string.

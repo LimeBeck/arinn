@@ -192,7 +192,7 @@ Window {
             role: "meta"; color: Ui.Theme.textSecondary
         }
         Ui.TextFieldFrame {
-            x: 1100; y: 900; width: 700; height: 96
+            x: 1100; y: 120; width: 700; height: 96
             radius: Ui.Theme.containerRadius
             editor: galleryInput
             pointerMode: root.pointerMode

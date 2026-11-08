@@ -261,9 +261,9 @@ TestCase {
     }
     function test_long_cyrillic_label() {
         const button = createTemporaryObject(buttonFactory, suite, {text: "Продолжить просмотр с последнего момента"});
-        verify(button.width >= button.contentItem.implicitWidth + 80);
-        verify(button.contentItem.font.pixelSize >= 26);
-        compare(button.contentItem.font.family, Ui.Theme.fontFamily);
+        verify(button.width >= button.labelItem.implicitWidth + 80);
+        verify(button.labelItem.font.pixelSize >= 26);
+        compare(button.labelItem.font.family, Ui.Theme.fontFamily);
         tryVerify(() => Ui.Theme.onest.status === FontLoader.Ready);
     }
     function test_progress_bounds() {

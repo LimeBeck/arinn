@@ -1,0 +1,1 @@
+- Music, QuickMenu and Player controls share icon-button and icon-plus-label foundations, including activation guards, selected/busy feedback and accessible names. Music keeps stable state-label widths and focus captions; Player transport buttons support pointer activation through the existing OSD actions.

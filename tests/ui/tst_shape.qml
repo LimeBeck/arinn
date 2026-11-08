@@ -94,7 +94,7 @@ TestCase {
         button.forceActiveFocus();
         tryCompare(button, "activeFocus", true);
         tryVerify(() => Qt.colorEqual(button.background.color, Ui.Theme.textPrimary));
-        verify(Qt.colorEqual(button.contentItem.color, Ui.Theme.ink));
+        verify(Qt.colorEqual(button.labelItem.color, Ui.Theme.ink));
         compare(button.focusLift, 0);
         compare(findChild(button, "focusRing"), null);
     }

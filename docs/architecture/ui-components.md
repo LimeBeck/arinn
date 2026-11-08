@@ -113,6 +113,9 @@ local focus and return to the opener with synthetic actions. `tst_modals.qml`
 covers cancellation policy, modal Tab/Backtab and arrow navigation, hidden or
 missing openers, busy/disabled activation, pointer transitions and live updates
 of long English/Russian labels; screen suites retain their domain cases.
+If a focused action is removed, the dialog scope keeps modal key ownership;
+the next arrow chooses an available action. A feature that wants a fresh default
+after changing its actions calls `focusInitial()` explicitly.
 The gallery opens a regular window and requires no daemon or session bus. It uses
 original geometric artwork and neutral monograms. Its actions update explanatory
 fixture text only. `--capture` saves a PNG and exits; `--4k` uses 3840×2160.

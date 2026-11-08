@@ -118,8 +118,14 @@ TestCase {
         compare(f.confirmed, 1);
         f.accept.busy = false;
         keyClick(Qt.Key_Tab); tryCompare(f.cancel, "activeFocus", true);
+        keyClick(Qt.Key_Backtab); tryCompare(f.accept, "activeFocus", true);
+        keyClick(Qt.Key_Tab); tryCompare(f.cancel, "activeFocus", true);
         f.accept.enabled = false;
+        keyClick(Qt.Key_Backtab); tryCompare(f.cancel, "activeFocus", true);
         keyClick(Qt.Key_Right); tryCompare(f.cancel, "activeFocus", true);
+        f.accept.enabled = true;
+        f.accept.visible = false;
+        keyClick(Qt.Key_Tab); tryCompare(f.cancel, "activeFocus", true);
         keyClick(Qt.Key_Up); verify(f.dialog.activeFocus);
         keyClick(Qt.Key_Home); compare(f.homes, 1);
     }
@@ -185,6 +191,18 @@ TestCase {
         keyRelease(Qt.Key_Right);
         wait(0);
         tryCompare(f.fallback, "activeFocus", true);
+    }
+    function test_removed_action_keeps_modal_key_ownership() {
+        const f = makeDialog();
+        f.accept.visible = false;
+        const action = createTemporaryObject(openerFactory, f.cancel.parent);
+        verify(action);
+        Ui.Focus.take(action);
+        tryCompare(action, "activeFocus", true);
+        action.destroy(); wait(0);
+        verify(f.dialog.activeFocus);
+        keyClick(Qt.Key_Left);
+        tryCompare(f.cancel, "activeFocus", true);
     }
     function test_long_labels_and_live_text_updates_data() {
         return [

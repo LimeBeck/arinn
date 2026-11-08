@@ -13,6 +13,8 @@ Window {
     color: Ui.Theme.background
     title: "Arinn — component gallery"
     property bool pointerMode: false
+    property bool dialogOpen: false
+    property bool sheetOpen: false
     property string lastAction: qsTr("Arrows to navigate · Enter to select")
     Component.onCompleted: Ui.Focus.take(media)
     Ui.LogicalCanvas {
@@ -84,6 +86,7 @@ Window {
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.right: unavailable
                 KeyNavigation.up: activity
+                KeyNavigation.down: dialogLauncher
                 onActivated: root.lastAction = qsTr("Primary action requested — fixture only")
             }
             Ui.ActionButton {
@@ -105,6 +108,33 @@ Window {
             KeyNavigation.left: action
             onActionRequested: root.lastAction = qsTr("Retry requested — fixture only")
         }
+        Row {
+            x: 120; y: 780; spacing: 24
+            Ui.ActionButton {
+                id: dialogLauncher
+                text: qsTr("Confirmation dialog")
+                pointerMode: root.pointerMode
+                onDpadRequested: root.pointerMode = false
+                KeyNavigation.up: tile
+                KeyNavigation.right: sheetLauncher
+                onActivated: {
+                    root.dialogOpen = true;
+                    Qt.callLater(demoDialog.focusInitial);
+                }
+            }
+            Ui.ActionButton {
+                id: sheetLauncher
+                text: qsTr("Side sheet")
+                pointerMode: root.pointerMode
+                onDpadRequested: root.pointerMode = false
+                KeyNavigation.up: action
+                KeyNavigation.left: dialogLauncher
+                onActivated: {
+                    root.sheetOpen = true;
+                    Qt.callLater(() => Ui.Focus.take(sheetClose));
+                }
+            }
+        }
         Ui.UiText {
             x: 120; y: 900; width: 900
             text: root.lastAction
@@ -114,6 +144,62 @@ Window {
             x: 120; y: 992
             text: qsTr("Development fixtures · no applications are launched")
             role: "caption"; color: Ui.Theme.textHint
+        }
+        Ui.ConfirmationDialog {
+            id: demoDialog
+            z: 100
+            visible: root.dialogOpen
+            title: qsTr("Continue with this collection?")
+            body: qsTr("This is a presentation fixture. The screen owns the operation and focus restoration.")
+            onDismissed: {
+                root.dialogOpen = false;
+                Ui.Focus.take(dialogLauncher);
+            }
+            Ui.ActionButton {
+                text: qsTr("Cancel")
+                pointerMode: root.pointerMode
+                onDpadRequested: root.pointerMode = false
+                onActivated: demoDialog.dismissed()
+            }
+            Ui.ActionButton {
+                text: qsTr("Continue")
+                pointerMode: root.pointerMode
+                onDpadRequested: root.pointerMode = false
+                onActivated: {
+                    root.lastAction = qsTr("Confirmation requested — fixture only");
+                    demoDialog.dismissed();
+                }
+            }
+        }
+        FocusScope {
+            id: demoSheetScope
+            z: 100
+            anchors.fill: parent
+            visible: root.sheetOpen
+            function dismiss() {
+                root.sheetOpen = false;
+                Ui.Focus.take(sheetLauncher);
+            }
+            Keys.onPressed: event => {
+                if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key)) {
+                    dismiss();
+                    event.accepted = true;
+                }
+            }
+            Ui.SideSheet {
+                onDismissed: demoSheetScope.dismiss()
+                Ui.UiText { x: 64; y: 72; text: qsTr("Side sheet"); role: "title" }
+                Ui.ActionButton {
+                    id: sheetClose
+                    x: 64; y: 180
+                    text: qsTr("Close")
+                    pointerMode: root.pointerMode
+                    onDpadRequested: root.pointerMode = false
+                    KeyNavigation.tab: sheetClose
+                    KeyNavigation.backtab: sheetClose
+                    onActivated: demoSheetScope.dismiss()
+                }
+            }
         }
     }
 }

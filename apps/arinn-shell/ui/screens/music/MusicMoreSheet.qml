@@ -44,22 +44,9 @@ FocusScope {
     // The sheet keeps Left and Right: they never leave it sideways.
     Keys.onLeftPressed: {}
     Keys.onRightPressed: {}
-    Rectangle {
-        anchors.fill: parent
-        color: Ui.Theme.scrim
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.dismissed()
-        }
-    }
-    Rectangle {
-        objectName: "musicMoreSheet"
-        x: parent.width - width
-        width: 720
-        height: parent.height
-        color: Ui.Theme.dialogSurface
-        border.color: Ui.Theme.dialogLine
-        MouseArea { anchors.fill: parent }
+    Ui.SideSheet {
+        plate.objectName: "musicMoreSheet"
+        onDismissed: root.dismissed()
         Ui.UiText {
             x: 64
             y: 72

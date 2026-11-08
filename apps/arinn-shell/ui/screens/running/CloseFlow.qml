@@ -272,103 +272,68 @@ FocusScope {
         anchors.fill: parent
         Item {
             anchors.fill: parent
-            Rectangle {
-                objectName: "closeFlowScrim"
-                anchors.fill: parent
-                visible: root.open
-                color: Qt.rgba(0, 0, 0, 0.58)
-                MouseArea { anchors.fill: parent; onClicked: root.cancel() }
-            }
-            Rectangle {
+            Ui.ConfirmationDialog {
                 id: dialog
-                objectName: root.phase === "failed" ? "closeFailedDialog" : "closeConfirmDialog"
                 visible: root.open
-                anchors.centerIn: parent
-                width: 900
-                height: content.implicitHeight + 112
-                radius: 48
-                color: Qt.rgba(0.161, 0.165, 0.188, 0.94)
-                border.width: 1
-                border.color: Qt.rgba(1, 1, 1, 0.10)
-                MouseArea { anchors.fill: parent }
-                Column {
-                    id: content
-                    x: 56; y: 56
-                    width: parent.width - 112
-                    spacing: 24
-                    Rectangle {
-                        objectName: "closeFailedIcon"
-                        visible: root.phase === "failed"
-                        width: 64; height: 64; radius: 32
-                        color: Qt.rgba(1, 1, 1, 0.08)
-                        Ui.UiText { anchors.centerIn: parent; text: "i"; font.pixelSize: 36; font.weight: 700; color: Ui.Theme.textSecondary }
+                scrim.objectName: "closeFlowScrim"
+                plate.objectName: root.phase === "failed" ? "closeFailedDialog" : "closeConfirmDialog"
+                titleItem.objectName: "closeFlowTitle"
+                bodyItem.objectName: "closeFlowBody"
+                title: root.phase === "failed" ? qsTr("%1 did not close").arg(root.target.title || "")
+                                               : qsTr("Close %1?").arg(root.target.title || "")
+                body: root.phase === "failed"
+                      ? qsTr("It may be waiting for an answer on its own screen, for example to save changes. Go to %1 and answer there.").arg(root.target.title || "")
+                      : qsTr("Arinn will ask %1 to close. Unsaved changes and game progress may be lost.").arg(root.target.title || "")
+                onDismissed: root.cancel()
+                leading: Rectangle {
+                    objectName: "closeFailedIcon"
+                    visible: root.phase === "failed"
+                    width: 64; height: 64; radius: 32
+                    color: Qt.rgba(1, 1, 1, 0.08)
+                    Ui.UiText { anchors.centerIn: parent; text: "i"; font.pixelSize: 36; font.weight: 700; color: Ui.Theme.textSecondary }
+                }
+                Ui.ActionButton {
+                    id: cancelButton
+                    objectName: "closeFlowCancel"
+                    visible: root.phase === "confirm"
+                    height: 96
+                    text: qsTr("Cancel")
+                    pointerMode: root.pointerMode
+                    onActivated: root.cancel()
+                }
+                Ui.ActionButton {
+                    id: confirmButton
+                    objectName: "closeFlowConfirm"
+                    visible: root.phase === "confirm"
+                    height: 96
+                    text: qsTr("Close")
+                    destructive: true
+                    pointerMode: root.pointerMode
+                    onActivated: root.confirm()
+                }
+                Ui.ActionButton {
+                    id: switchButton
+                    objectName: "closeFlowSwitch"
+                    visible: root.phase === "failed" && root.target.switchable !== false
+                    height: 96
+                    text: qsTr("Go to %1").arg(root.target.title || "")
+                    pointerMode: root.pointerMode
+                    onActivated: {
+                        const id = root.target.id;
+                        root.phase = "";
+                        root.opener = null;
+                        root.switchRequested(id);
+                        Qt.callLater(root.showQueued);
                     }
-                    Ui.UiText {
-                        objectName: "closeFlowTitle"
-                        width: parent.width
-                        text: root.phase === "failed" ? qsTr("%1 did not close").arg(root.target.title || "")
-                                                      : qsTr("Close %1?").arg(root.target.title || "")
-                        role: "title"
-                        font.pixelSize: 48
-                        wrapMode: Text.WordWrap
-                    }
-                    Ui.UiText {
-                        objectName: "closeFlowBody"
-                        width: parent.width
-                        text: root.phase === "failed"
-                              ? qsTr("It may be waiting for an answer on its own screen, for example to save changes. Go to %1 and answer there.").arg(root.target.title || "")
-                              : qsTr("Arinn will ask %1 to close. Unsaved changes and game progress may be lost.").arg(root.target.title || "")
-                        color: Ui.Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                    }
-                    Row {
-                        spacing: 20
-                        visible: root.phase === "confirm"
-                        Ui.ActionButton {
-                            id: cancelButton
-                            objectName: "closeFlowCancel"
-                            height: 96
-                            text: qsTr("Cancel")
-                            pointerMode: root.pointerMode
-                            onActivated: root.cancel()
-                        }
-                        Ui.ActionButton {
-                            id: confirmButton
-                            objectName: "closeFlowConfirm"
-                            height: 96
-                            text: qsTr("Close")
-                            destructive: true
-                            pointerMode: root.pointerMode
-                            onActivated: root.confirm()
-                        }
-                    }
-                    Row {
-                        spacing: 20
-                        visible: root.phase === "failed"
-                        Ui.ActionButton {
-                            id: switchButton
-                            objectName: "closeFlowSwitch"
-                            height: 96
-                            visible: root.target.switchable !== false
-                            text: qsTr("Go to %1").arg(root.target.title || "")
-                            pointerMode: root.pointerMode
-                            onActivated: {
-                                const id = root.target.id;
-                                root.phase = "";
-                                root.opener = null;
-                                root.switchRequested(id);
-                                Qt.callLater(root.showQueued);
-                            }
-                        }
-                        Ui.ActionButton {
-                            id: stayButton
-                            objectName: "closeFlowStay"
-                            height: 96
-                            text: qsTr("Stay")
-                            pointerMode: root.pointerMode
-                            onActivated: root.cancel()
-                        }
-                    }
+                }
+                Ui.ActionButton {
+                    id: stayButton
+                    objectName: "closeFlowStay"
+                    visible: root.phase === "failed"
+                    height: 96
+                    text: qsTr("Stay")
+                    pointerMode: root.pointerMode
+                    onActivated: root.cancel()
                 }
             }
             Rectangle {

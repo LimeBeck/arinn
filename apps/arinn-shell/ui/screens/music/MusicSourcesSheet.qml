@@ -12,6 +12,11 @@ import "../.." as Ui
 // asks first, then its session stops.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
+    onDisconnectingChanged: scrolled()
+    onTurningOffChanged: scrolled()
     property var room: null
     // The source whose session plays or is paused, if any.
     property string playingSource: ""
@@ -357,6 +362,8 @@ FocusScope {
         // them taller than the sheet (Codex review of #812).
         Flickable {
             id: rowArea
+            onContentXChanged: if (visible) root.scrolled()
+            onContentYChanged: if (visible) root.scrolled()
             objectName: "musicSourceRows"
             // A focused pill scales up: the margins keep it unclipped.
             readonly property int pad: 16
@@ -494,6 +501,10 @@ FocusScope {
                             id: pills
                             model: sourceRow.actionList
                             Ui.ActionButton {
+                                pointerMode: root.pointerMode
+                                hoverFocusEnabled: root.hoverFocusEnabled && !root.disconnecting && !root.turningOff
+                                hoverMotionRevision: Ui.InputMode.pointerRevision
+                                onDpadRequested: Ui.InputMode.keyPressed()
                                 required property var modelData
                                 required property int index
                                 readonly property string pillAction: modelData
@@ -542,6 +553,10 @@ FocusScope {
         onDismissed: { root.turningOff = ""; root.focusFirst(); }
         Ui.ActionButton {
             id: keepPlaying
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicKeepPlaying"
             text: qsTr("Cancel")
             KeyNavigation.right: stopSource
@@ -549,6 +564,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: stopSource
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicTurnOffSource"
             text: qsTr("Turn off")
             destructive: true
@@ -574,6 +593,10 @@ FocusScope {
         onDismissed: { root.disconnecting = ""; root.focusFirst(); }
         Ui.ActionButton {
             id: keepSource
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicKeepSource"
             text: qsTr("Cancel")
             KeyNavigation.right: dropSource
@@ -581,6 +604,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: dropSource
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicDisconnectSource"
             text: qsTr("Disconnect")
             destructive: true

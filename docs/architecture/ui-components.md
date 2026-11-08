@@ -62,11 +62,33 @@ bind `pointerMode` to it and report keys and hover positions, and
 `InputModeSource` in `Main.qml` reports every key press and pointer movement in
 the shell window and hides the cursor in D-pad mode. Screens pass `pointerMode`
 and `hoverFocusEnabled` to controls; the latter must be false during the 500 ms
-hover suppression after a scroll. Components never decide
+hover suppression after a scroll. Controls may also receive
+`hoverMotionRevision` from `InputMode.pointerRevision`: each genuine movement is
+consumed once, including while hover is suppressed. Newly created controls
+start at the current revision, so stale deferred hover and model replacement
+cannot reuse old movement to take focus. The default `-1` retains the existing
+contract for consumers that have not opted in. Components never decide
 global navigation or call providers for a focus change. The gallery demonstrates
 only a small local focus graph, not the complete screen/modal stack.
 `dpadRequested()` reports the key to `InputMode` even when `KeyNavigation`
 consumes the arrow event locally; in the shell `InputModeSource` sees it first.
+
+Music forwards this same contract through its room, shelves, All grid, search,
+detail, transport controls and sheets ([#878](https://github.com/LimeBeck/arinn/issues/878)).
+`Main.qml` binds `MusicView.ownsFocus`; controls behind a local modal or a different
+screen cannot take hover focus. A scroll, a room shelf refresh or an overlay
+transition suppresses hover for 500 ms. Expiry alone never requests focus.
+Hover updates a list/grid's current index, so the next D-pad move starts at the
+hovered entry. The existing 2 s key cooldown still belongs to `InputMode`.
+
+`MusicCard` shades its artwork and placeholder, keeping captions and playing
+markers at full brightness. The focused card is at 1, its row's neighbors at
+0.82 and other rows at 0.62, including the All grid. `tst_music.qml` covers
+rendered artwork/caption brightness, pointer/D-pad transitions, cooldown,
+stationary-pointer scroll/refresh protection and modal/screen focus ownership.
+The image-only transform and stationary-caption extraction remains tracked in
+[#881](https://github.com/LimeBeck/arinn/issues/881); this input/brightness fix
+does not reconcile that separate focus contract or qualify a physical TV.
 
 ## Development and verification
 

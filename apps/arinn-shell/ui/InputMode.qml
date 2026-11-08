@@ -25,6 +25,9 @@ QtObject {
     readonly property bool cooldownActive: cooldown.running
     property point pointerPosition
     property bool hasPointerPosition: false
+    // Changes only for genuine movement. Screens may pass this token to
+    // controls whose deferred hover must survive scrolling/model refreshes.
+    property int pointerRevision: 0
 
     // A key press in the shell: D-pad mode, and the cooldown restarts.
     function keyPressed() {
@@ -48,6 +51,7 @@ QtObject {
             if (!known || same)
                 return pointerActive;
         }
+        pointerRevision++;
         if (!cooldown.running)
             pointerActive = true;
         return pointerActive;

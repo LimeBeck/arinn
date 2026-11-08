@@ -93,6 +93,262 @@ TestCase {
     Component {id:artworkFactory;Music.MusicArtwork {width:128;height:128;retryInterval:10}}
     Component {id:homeFactory;Ui.HomeView {}}
     Component {id:rowFactory;Ui.HomeRow {width:1600;entries:[{id:"music",title:"Fixture",secondaryIcon:"pause",secondaryText:"Pause"}]}}
+    Component {id:musicCardFactory;Music.MusicCard {}}
+    function init() {
+        mouseMove(suite, 10, 10);
+        Ui.InputMode.reset();
+        Ui.InputMode.forgetPointer();
+    }
+    function cleanup() {
+        Ui.InputMode.keyCooldownMs = 2000;
+        Ui.InputMode.reset();
+    }
+    function pointerRoom() {
+        const catalog = createTemporaryObject(catalogFactory, suite);
+        const room = createTemporaryObject(roomFactory, suite);
+        room.shelves = room.shelves.slice(1);
+        const view = createTemporaryObject(roomViewFactory, suite, {catalog: catalog, room: room});
+        verify(view);
+        Ui.Focus.take(view);
+        findChild(view, "musicRoom").focusInitial();
+        tryCompare(view, "hoverFocusEnabled", true);
+        return view;
+    }
+    function pointAt(item) {
+        mouseMove(item, item.width / 2 - 1, Math.min(80, item.height / 2));
+        mouseMove(item, item.width / 2, Math.min(80, item.height / 2));
+        tryCompare(Ui.InputMode, "pointerActive", true);
+    }
+    // #878 / ADR-0095: actual movement reaches the shared Surface contract,
+    // and the list follows hover so the next remote key starts there.
+    function test_music_pointer_focus_and_remote_neighbor() {
+        const view = pointerRoom();
+        const list = findChild(view, "musicShelfCards");
+        const second = findChild(list.itemAtIndex(1), "musicShelfCard");
+        pointAt(second);
+        tryCompare(second, "activeFocus", true);
+        compare(list.currentIndex, 1);
+        compare(second.pointerMode, true);
+        tryCompare(second, "scale", 1 + (Ui.Theme.contentFocusScale - 1) / 2);
+        keyClick(Qt.Key_Right);
+        tryCompare(list, "currentIndex", 2);
+        compare(Ui.InputMode.pointerActive, false);
+        const third = findChild(list.currentItem, "musicShelfCard");
+        tryCompare(third, "activeFocus", true);
+        tryCompare(third, "scale", Ui.Theme.contentFocusScale);
+    }
+    function test_music_key_cooldown_waits_for_genuine_motion() {
+        const view = pointerRoom();
+        const list = findChild(view, "musicShelfCards");
+        const second = findChild(list.itemAtIndex(1), "musicShelfCard");
+        pointAt(second);
+        tryCompare(second, "activeFocus", true);
+        keyClick(Qt.Key_Left);
+        const first = findChild(list.currentItem, "musicShelfCard");
+        tryCompare(first, "activeFocus", true);
+        mouseMove(second, 120, 90);
+        compare(Ui.InputMode.pointerActive, false);
+        verify(first.activeFocus);
+        compare(Ui.InputMode.keyCooldownMs, 2000);
+        tryCompare(Ui.InputMode, "cooldownActive", false, 3000);
+        wait(100);
+        compare(Ui.InputMode.pointerActive, false);
+        verify(first.activeFocus);
+        mouseMove(second, 130, 90);
+        tryCompare(second, "activeFocus", true);
+    }
+    function test_music_scroll_suppresses_hover_and_resting_pointer() {
+        const view = pointerRoom();
+        const list = findChild(view, "musicShelfCards");
+        const second = findChild(list.itemAtIndex(1), "musicShelfCard");
+        pointAt(second);
+        tryCompare(second, "activeFocus", true);
+        list.contentX += 24;
+        compare(view.hoverFocusEnabled, false);
+        const third = findChild(list.itemAtIndex(2), "musicShelfCard");
+        pointAt(third);
+        verify(second.activeFocus);
+        wait(300);
+        compare(view.hoverFocusEnabled, false);
+        tryCompare(view, "hoverFocusEnabled", true, 1000);
+        // A queued callback can run after the 500 ms guard has expired.
+        // Reusing that old movement must still leave keyboard/list focus.
+        third.focusFromHover();
+        verify(second.activeFocus);
+        // Expiry, a model refresh and content under a stationary pointer do
+        // not steal focus. A later movement does.
+        view.room.shelves = view.room.shelves.slice();
+        wait(100);
+        verify(second.activeFocus);
+        tryCompare(view, "hoverFocusEnabled", true);
+        third.focusFromHover();
+        verify(second.activeFocus);
+        mouseMove(third, 130, 90);
+        tryCompare(third, "activeFocus", true);
+    }
+    function test_music_pointer_cannot_leave_a_modal_or_another_screen() {
+        const view = pointerRoom();
+        const room = findChild(view, "musicRoom");
+        const sources = findChild(view, "musicSources");
+        pointAt(sources);
+        tryCompare(sources, "activeFocus", true);
+        mouseClick(sources);
+        const sheet = findChild(view, "musicSourcesOverlay");
+        tryCompare(sheet, "activeFocus", true);
+        const card = findChild(findChild(view, "musicShelfCards").currentItem, "musicShelfCard");
+        pointAt(card);
+        verify(sheet.activeFocus);
+        sheet.close();
+        tryCompare(sources, "activeFocus", true);
+        view.ownsFocus = false;
+        const other = createTemporaryObject(scopeFactory, suite);
+        Ui.Focus.take(findChild(other, "scopeItem"));
+        pointAt(card);
+        verify(other.activeFocus);
+        view.visible = false;
+        Ui.InputMode.reset();
+        Ui.InputMode.pointerMoved();
+        wait(50);
+        verify(other.activeFocus);
+    }
+    function test_music_all_grid_pointer_keeps_navigation_and_row_light() {
+        const view = pointerRoom();
+        const entries = [];
+        for (let i = 0; i < 12; ++i)
+            entries.push(view.room.card("local", "album:" + i, "album", "Album " + i));
+        view.room.shelves = [{id: "albums", title: "Albums", entries: entries}];
+        view.mode = "all";
+        const all = findChild(view, "musicAll");
+        all.open("albums", "Albums");
+        const grid = findChild(view, "musicAllGrid");
+        tryCompare(grid, "activeFocus", true);
+        tryCompare(view, "hoverFocusEnabled", true);
+        const second = grid.itemAtIndex(1);
+        verify(second);
+        pointAt(second);
+        tryCompare(second, "activeFocus", true);
+        compare(grid.currentIndex, 1);
+        compare(second.pointerMode, true);
+        compare(second.rowBrightness, 1);
+        compare(grid.itemAtIndex(0).rowBrightness, 0.82);
+        compare(grid.itemAtIndex(grid.columns).rowBrightness, 0.62);
+        keyClick(Qt.Key_Right);
+        tryCompare(grid, "currentIndex", 2);
+        tryCompare(grid.currentItem, "activeFocus", true);
+        compare(grid.currentItem.pointerMode, false);
+    }
+    function test_music_search_shelves_share_input_and_row_light() {
+        const view = pointerRoom();
+        view.room.searchShelves = view.room.shelves;
+        view.mode = "search";
+        const search = findChild(view, "musicSearchResults");
+        verify(search.focusInitial());
+        const shelf = findChild(search, "musicSearchShelf-albums");
+        const list = findChild(shelf, "musicShelfCards");
+        tryCompare(view, "hoverFocusEnabled", true);
+        const second = findChild(list.itemAtIndex(1), "musicShelfCard");
+        pointAt(second);
+        tryCompare(second, "activeFocus", true);
+        compare(list.currentIndex, 1);
+        compare(second.pointerMode, true);
+        compare(second.rowBrightness, 1);
+        compare(findChild(list.itemAtIndex(0), "musicShelfCard").rowBrightness, 0.82);
+        keyClick(Qt.Key_Left);
+        tryCompare(list, "currentIndex", 0);
+        compare(Ui.InputMode.pointerActive, false);
+    }
+    function test_music_queue_and_more_pointer_keep_their_current_row() {
+        const view = pointerRoom();
+        view.catalog.activeState = {
+            session: "s", playback: "playing", actions: ["pause", "dislike", "radio", "stop", "remove"],
+            current: {occurrence: "c", track: {id: "t0", title: "Now"}},
+            upcoming: [{occurrence: "u1", track: {id: "t1", title: "Next"}},
+                       {occurrence: "u2", track: {id: "t2", title: "Then"}}]
+        };
+        view.openPlayer();
+        view.openQueue();
+        const queue = findChild(view, "musicQueueEntries");
+        tryCompare(queue, "activeFocus", true);
+        tryCompare(view, "hoverFocusEnabled", true);
+        pointAt(queue.itemAtIndex(1));
+        tryCompare(queue.itemAtIndex(1), "activeFocus", true);
+        compare(queue.currentIndex, 1);
+        keyClick(Qt.Key_Down);
+        tryCompare(queue, "currentIndex", 2);
+        compare(Ui.InputMode.pointerActive, false);
+        view.back();
+        tryCompare(findChild(view, "musicQueue"), "activeFocus", true);
+        const moreButton = findChild(view, "musicMore");
+        Ui.Focus.take(moreButton);
+        keyClick(Qt.Key_Return);
+        const more = findChild(view, "musicMoreActions");
+        tryCompare(more, "activeFocus", true);
+        tryCompare(Ui.InputMode, "cooldownActive", false, 3000);
+        tryCompare(view, "hoverFocusEnabled", true);
+        pointAt(more.itemAtIndex(1));
+        tryCompare(more.itemAtIndex(1), "activeFocus", true);
+        compare(more.currentIndex, 1);
+        // Busy rows retain their hover/input contract but activate nothing.
+        view.catalog.busy = true;
+        mouseClick(more.itemAtIndex(1));
+        compare(view.pendingPlay, "");
+        compare(view.catalog.commands.length, 0);
+        verify(view.moreOpen);
+        keyClick(Qt.Key_Escape);
+        tryCompare(moreButton, "activeFocus", true);
+    }
+    function test_music_existing_card_under_stationary_pointer_keeps_focus() {
+        const view = pointerRoom();
+        const all = findChild(view, "musicAll");
+        view.mode = "all";
+        all.open("albums", "Albums");
+        const grid = findChild(view, "musicAllGrid");
+        tryCompare(grid, "activeFocus", true);
+        tryCompare(view, "hoverFocusEnabled", true);
+        const first = grid.itemAtIndex(0), second = grid.itemAtIndex(1);
+        pointAt(first);
+        tryCompare(first, "activeFocus", true);
+        mouseMove(first, first.width / 2 + 10, 80);
+        wait(50);
+        const revision = Ui.InputMode.pointerRevision;
+        const resting = Ui.InputMode.pointerPosition;
+        // Existing delegates can move/reorder without being recreated. The
+        // card which was not hovered must also have consumed that movement.
+        const x = first.x;
+        first.x = second.x;
+        second.x = x;
+        mouseMove(suite, resting.x, resting.y);
+        wait(50);
+        compare(Ui.InputMode.pointerRevision, revision);
+        verify(first.activeFocus);
+        second.focusFromHover();
+        verify(first.activeFocus);
+        mouseMove(suite, resting.x + 10, resting.y);
+        tryCompare(second, "activeFocus", true);
+    }
+    // #878 / ADR-0136: rendered artwork dims, captions stay at full light,
+    // and focus restores the artwork even when the shelf requests 0.82.
+    function test_music_artwork_row_brightness() {
+        const card = createTemporaryObject(musicCardFactory, suite, {
+            x: 200, y: 200, rowBrightness: 1,
+            entry: {title: "Synthetic album", kind: "album", image: Qt.resolvedUrl("fixture-glow.svg").toString()}
+        });
+        verify(card);
+        const art = findChild(card, "musicCardArtwork");
+        tryCompare(art, "loaded", true);
+        tryVerify(() => grabImage(art).red(120, 120) > 100);
+        const full = grabImage(card);
+        card.rowBrightness = 0.62;
+        tryVerify(() => Math.abs(grabImage(card).red(120, 120) - full.red(120, 120) * 0.62) < 3);
+        const dim = grabImage(card);
+        // Compare the caption strip, whose geometry is unchanged at rest.
+        for (let y = 256; y < Math.min(card.height, 275); ++y)
+            for (let x = 0; x < card.width; ++x)
+                compare(dim.pixel(x, y), full.pixel(x, y));
+        Ui.Focus.take(card);
+        tryCompare(findChild(card, "musicCardRowShade"), "opacity", 0);
+        tryVerify(() => grabImage(card).red(120, 120) >= full.red(120, 120) * 0.95);
+    }
     function test_artwork_retries_are_bounded_and_reset_for_a_new_source() {
         const art=createTemporaryObject(artworkFactory,suite,{source:Qt.resolvedUrl("missing-synthetic-music-artwork.png")});verify(art);
         tryCompare(art,"attempts",6);compare(art.loaded,false);wait(50);compare(art.attempts,6);

@@ -10,6 +10,9 @@ import "../.." as Ui
 // window and a closing line, never a total.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     // [{occurrence, track, current}], the current entry first.
     property var entries: []
     property string title: ""
@@ -101,6 +104,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: saveQueue
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicSaveQueue"
             x: 64
             y: 188
@@ -123,6 +130,7 @@ FocusScope {
         }
         ListView {
             id: queueList
+            onContentYChanged: if (visible) root.scrolled()
             objectName: "musicQueueEntries"
             x: 48
             y: saveQueue.visible ? 300 : 200
@@ -151,6 +159,10 @@ FocusScope {
             }
             delegate: Ui.Surface {
                 id: row
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 required property string rowKey
                 required property int index
                 readonly property var entry: root.entries.find(item => (item.occurrence || "") === rowKey) || ({})
@@ -163,6 +175,7 @@ FocusScope {
                 width: queueList.width
                 height: 104
                 focus: ListView.isCurrentItem
+                onActiveFocusChanged: if (activeFocus) queueList.currentIndex = index
                 text: track.title || qsTr("Untitled")
                 contentItem: Item {
                     MusicArtwork {

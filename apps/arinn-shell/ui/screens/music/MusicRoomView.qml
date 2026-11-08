@@ -10,6 +10,9 @@ import "../.." as Ui
 // sheet holds the housekeeping; browsing never selects a source.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     property var room: null
     // The music catalogue, for the session that plays.
     property var catalog: null
@@ -235,6 +238,10 @@ FocusScope {
         // First use offers the one next step.
         Ui.ActionButton {
             id: connectFirst
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled && !root.sheetOpen
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicConnectFirst"
             y: 190
             visible: root.firstUse
@@ -254,6 +261,10 @@ FocusScope {
         spacing: 16
         Ui.ActionButton {
             id: sourcesButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled && !root.sheetOpen
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicSources"
             text: qsTr("Sources")
             KeyNavigation.right: findButton
@@ -262,6 +273,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: findButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled && !root.sheetOpen
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicFind"
             text: qsTr("Find")
             visible: !!root.room && root.room.connected
@@ -289,6 +304,8 @@ FocusScope {
     }
     Flickable {
         id: shelfArea
+        onContentXChanged: if (visible) root.scrolled()
+        onContentYChanged: if (visible) root.scrolled()
         objectName: "musicShelves"
         // Full width: a shelf insets its own content by the safe area, so a
         // focused first card grows past it unclipped, and cards scrolled
@@ -311,6 +328,9 @@ FocusScope {
                 model: shelfModel
                 MusicShelf {
                     id: shelfItem
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled && !root.sheetOpen
+                    onScrolled: root.scrolled()
                     required property string shelfKey
                     required property int index
                     objectName: "musicShelf-" + shelfKey
@@ -384,7 +404,7 @@ FocusScope {
             focusInitial();
     }
     onFirstUseChanged: Qt.callLater(settleFocus)
-    onShelvesChanged: syncShelves()
+    onShelvesChanged: { scrolled(); syncShelves(); }
     Component.onCompleted: syncShelves()
     // Rows scrolling up fade out under the hero instead of a hard cut at
     // the shelves' top (#838, as Home's header band).
@@ -403,6 +423,9 @@ FocusScope {
     }
     MusicSourcesSheet {
         id: sourcesSheet
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        onScrolled: root.scrolled()
         objectName: "musicSourcesOverlay"
         z: 10
         room: root.room

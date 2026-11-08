@@ -10,6 +10,9 @@ import "../.." as Ui
 // order is labelled as a date order only once entries carry dates (#806).
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     property var room: null
     property string shelfId: ""
     property string openedTitle: ""
@@ -169,6 +172,8 @@ FocusScope {
     // the canvas (Codex review of #812).
     Flickable {
         id: tabArea
+        onContentXChanged: if (visible) root.scrolled()
+        onContentYChanged: if (visible) root.scrolled()
         objectName: "musicAllTabArea"
         // A focused pill scales up: the margins keep it unclipped.
         readonly property int pad: 16
@@ -201,6 +206,10 @@ FocusScope {
             // Only sources that can browse get a tab (MH-10: connected ones).
             model: root.tabList
             Ui.ActionButton {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 required property var modelData
                 required property int index
                 objectName: "musicAllTab-" + index
@@ -219,6 +228,10 @@ FocusScope {
         Item { width: 32; height: 1 }
         Ui.ActionButton {
             id: byOrder
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicAllDefaultOrder"
             text: (root.alphabetical ? "" : "● ") + (root.room && root.room.dated ? qsTr("By date") : qsTr("Suggested"))
             KeyNavigation.left: tabs.count ? tabs.itemAt(tabs.count - 1) : null
@@ -230,6 +243,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: byTitle
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicAllAlphabetical"
             text: (root.alphabetical ? "● " : "") + qsTr("A–Z")
             KeyNavigation.left: byOrder
@@ -261,6 +278,7 @@ FocusScope {
         clip: true
         GridView {
             id: grid
+            onContentYChanged: if (visible) root.scrolled()
             objectName: "musicAllGrid"
             x: allClip.padX
             y: allClip.padTop
@@ -268,6 +286,7 @@ FocusScope {
             height: allClip.height - y
             cellWidth: root.cardWidth + 32
             cellHeight: root.cardHeight + Ui.Theme.contentCaptionHeight + 40
+            readonly property int columns: Math.max(1, Math.floor(width / cellWidth))
             // The clip is the parent, a little larger: a focused card grows
             // and lifts past the grid and stays whole (#838).
             clip: false
@@ -284,10 +303,15 @@ FocusScope {
             }
             onCurrentIndexChanged: root.pageIfNeeded()
             delegate: MusicCard {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
                 required property int index
                 objectName: "musicAllCard"
                 entry: root.entries[index] || ({})
                 focus: GridView.isCurrentItem
+                onActiveFocusChanged: if (activeFocus) grid.currentIndex = index
+                rowBrightness: activeFocus ? 1 : grid.activeFocus
+                    && Math.floor(index / grid.columns) === Math.floor(grid.currentIndex / grid.columns) ? 0.82 : 0.62
                 artworkWidth: root.cardWidth
                 artworkHeight: root.cardHeight
                 round: root.round

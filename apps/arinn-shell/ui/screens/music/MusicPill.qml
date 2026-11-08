@@ -7,6 +7,8 @@ import "../.." as Ui
 // (brief mh-03, #802). A focused pill is a white fill with ink text.
 Ui.Surface {
     id: root
+    hoverMotionRevision: Ui.InputMode.pointerRevision
+    onDpadRequested: Ui.InputMode.keyPressed()
     property string iconName: ""
     property bool selected: false
     // Every label the pill can show: it keeps the width of the widest, so a

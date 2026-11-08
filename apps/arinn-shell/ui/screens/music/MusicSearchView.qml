@@ -9,6 +9,9 @@ import "../.." as Ui
 // quiet line; late results never move focus.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     property var room: null
     property string playingKey: ""
     // The cover of the track that plays, for a playing station (#843).
@@ -107,6 +110,8 @@ FocusScope {
     Component.onCompleted: syncShelves()
     Flickable {
         id: area
+        onContentXChanged: if (visible) root.scrolled()
+        onContentYChanged: if (visible) root.scrolled()
         objectName: "musicSearchShelves"
         // Full width: each shelf insets its content (#838).
         x: 0
@@ -132,6 +137,9 @@ FocusScope {
                 model: shelfModel
                 MusicShelf {
                     id: shelfItem
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    onScrolled: root.scrolled()
                     required property string shelfKey
                     required property int index
                     objectName: "musicSearchShelf-" + shelfKey

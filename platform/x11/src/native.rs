@@ -870,7 +870,7 @@ impl Native {
                 .xinput_xi_query_version(2, 2)
                 .ok()
                 .and_then(|cookie| cookie.reply().ok());
-            if !version.is_some_and(|v| (v.major_version, v.minor_version) >= (2, 1)) {
+            if version.is_none_or(|v| (v.major_version, v.minor_version) < (2, 1)) {
                 eprintln!(
                     "arinn-platform-x11: XInput 2.1 unavailable; the power key stays the desktop's"
                 );

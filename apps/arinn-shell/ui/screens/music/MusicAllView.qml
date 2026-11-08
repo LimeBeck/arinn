@@ -205,7 +205,8 @@ FocusScope {
             id: tabs
             // Only sources that can browse get a tab (MH-10: connected ones).
             model: root.tabList
-            Ui.ActionButton {
+            Ui.TabButton {
+                presentation: "action"
                 pointerMode: root.pointerMode
                 hoverFocusEnabled: root.hoverFocusEnabled
                 hoverMotionRevision: Ui.InputMode.pointerRevision
@@ -213,7 +214,8 @@ FocusScope {
                 required property var modelData
                 required property int index
                 objectName: "musicAllTab-" + index
-                text: (root.source === modelData.id ? "● " : "") + modelData.name
+                text: modelData.name
+                selected: root.source === modelData.id
                 KeyNavigation.left: index > 0 ? tabs.itemAt(index - 1) : null
                 KeyNavigation.right: index + 1 < tabs.count ? tabs.itemAt(index + 1) : byOrder
                 KeyNavigation.down: grid
@@ -226,14 +228,16 @@ FocusScope {
             }
         }
         Item { width: 32; height: 1 }
-        Ui.ActionButton {
+        Ui.TabButton {
+                presentation: "action"
             id: byOrder
             pointerMode: root.pointerMode
             hoverFocusEnabled: root.hoverFocusEnabled
             hoverMotionRevision: Ui.InputMode.pointerRevision
             onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicAllDefaultOrder"
-            text: (root.alphabetical ? "" : "● ") + (root.room && root.room.dated ? qsTr("By date") : qsTr("Suggested"))
+            text: root.room && root.room.dated ? qsTr("By date") : qsTr("Suggested")
+            selected: !root.alphabetical
             KeyNavigation.left: tabs.count ? tabs.itemAt(tabs.count - 1) : null
             KeyNavigation.right: byTitle
             KeyNavigation.down: grid
@@ -241,14 +245,16 @@ FocusScope {
                 tabArea.reveal(this)
             onActivated: { root.alphabetical = false; grid.currentIndex = 0; }
         }
-        Ui.ActionButton {
+        Ui.TabButton {
+                presentation: "action"
             id: byTitle
             pointerMode: root.pointerMode
             hoverFocusEnabled: root.hoverFocusEnabled
             hoverMotionRevision: Ui.InputMode.pointerRevision
             onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicAllAlphabetical"
-            text: (root.alphabetical ? "● " : "") + qsTr("A–Z")
+            text: qsTr("A–Z")
+            selected: root.alphabetical
             KeyNavigation.left: byOrder
             KeyNavigation.down: grid
             onActiveFocusChanged: if (activeFocus)

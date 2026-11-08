@@ -756,19 +756,25 @@ FocusScope {
                         PropertyAction { target: entry; property: "ListView.delayRemove"; value: false }
                     }
 
-                    Item {
+                    Ui.Surface {
                         id: plate
+                        background: null
+                        rimEnabled: false
+                        focusLift: 0
+                        liftFromBottom: false
+                        pointerMode: root.pointerMode
+                        hoverFocusEnabled: root.hoverFocusEnabled
+                        focusScale: 1.02
+                        shapeRole: "container"
+                        text: root.displayTitle(modelData)
+                        onActivated: root.activateTab(modelData.id)
                         objectName: "row-" + modelData.id
                         width: entry.width - 288
                         height: Math.max(128, textCol.implicitHeight + 44)
                         anchors.verticalCenter: parent.verticalCenter
-                        scale: activeFocus ? (pressed ? 0.98 : 1.02) : 1
+                        scale: activeFocus ? (down ? 0.98 : 1.02) : 1
                         activeFocusOnTab: false
-                        property bool pressed: false
 
-                        Behavior on scale {
-                            NumberAnimation { duration: plate.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
-                        }
                         Rectangle {
                             anchors.fill: parent
                             radius: Ui.Theme.containerRadius
@@ -914,49 +920,32 @@ FocusScope {
                                 }
                             }
                         }
-                        Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                if (!event.isAutoRepeat)
-                                    pressed = true;
-                                event.accepted = true;
-                                return;
-                            }
-                            root.localKey(event);
-                        }
-                        Keys.onReleased: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                const go = pressed && !event.isAutoRepeat;
-                                pressed = false;
-                                if (go)
-                                    root.activateTab(modelData.id);
-                                event.accepted = true;
-                            }
-                        }
+                        Keys.onPressed: event => root.localKey(event)
                         onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "row")
-                        TapHandler { onTapped: root.activateTab(modelData.id) }
-                        HoverHandler {
-                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(plate)
-                        }
                     }
 
-                    Item {
+                    Ui.Surface {
                         id: bookmarkBtn
+                        background: null
+                        rimEnabled: false
+                        focusLift: 0
+                        liftFromBottom: false
+                        pointerMode: root.pointerMode
+                        hoverFocusEnabled: root.hoverFocusEnabled
+                        focusScale: 1.06
+                        text: saved ? qsTr("Shortcut") : qsTr("Save as shortcut")
+                        onActivated: if (!saved) root.requestSave(modelData.id)
                         objectName: "bookmark-" + modelData.id
                         x: plate.width + 16
                         width: 128
                         height: 128
                         anchors.verticalCenter: parent.verticalCenter
                         enabled: root.saveEnabled
-                        scale: activeFocus ? (pressed ? 0.98 : 1.06) : 1
+                        scale: activeFocus ? (down ? 0.98 : 1.06) : 1
                         activeFocusOnTab: false
-                        property bool pressed: false
                         readonly property bool saved: !!modelData.saved
                         readonly property string iconName: saved ? "bookmark_added" : "bookmark_add"
 
-                        Behavior on scale {
-                            NumberAnimation { duration: bookmarkBtn.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
-                        }
                         Rectangle {
                             anchors.fill: parent
                             anchors.topMargin: 18
@@ -968,7 +957,6 @@ FocusScope {
                             anchors.fill: parent
                             radius: 26
                             color: bookmarkBtn.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.plate
-                            opacity: bookmarkBtn.enabled ? 1 : 0.4
                             Behavior on color { ColorAnimation { duration: Ui.Theme.focusDuration } }
                         }
                         Ui.LineIcon {
@@ -979,50 +967,30 @@ FocusScope {
                             name: bookmarkBtn.iconName
                             color: bookmarkBtn.activeFocus ? Ui.Theme.ink : Ui.Theme.textSecondary
                         }
-                        Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                if (!event.isAutoRepeat && bookmarkBtn.enabled && !bookmarkBtn.saved)
-                                    pressed = true;
-                                event.accepted = true;
-                                return;
-                            }
-                            root.localKey(event);
-                        }
-                        Keys.onReleased: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                const go = pressed && !event.isAutoRepeat;
-                                pressed = false;
-                                if (go)
-                                    root.requestSave(modelData.id);
-                                event.accepted = true;
-                            }
-                        }
+                        Keys.onPressed: event => root.localKey(event)
                         onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "bookmark")
-                        TapHandler {
-                            enabled: bookmarkBtn.enabled && !bookmarkBtn.saved
-                            onTapped: root.requestSave(modelData.id)
-                        }
-                        HoverHandler {
-                            onHoveredChanged: if (hovered && bookmarkBtn.enabled && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(bookmarkBtn)
-                        }
                     }
 
-                    Item {
+                    Ui.Surface {
                         id: closeBtn
+                        background: null
+                        rimEnabled: false
+                        focusLift: 0
+                        liftFromBottom: false
+                        pointerMode: root.pointerMode
+                        hoverFocusEnabled: root.hoverFocusEnabled
+                        focusScale: 1.06
+                        text: qsTr("Close tab")
+                        onActivated: root.beginClose(modelData.id)
                         objectName: "close-" + modelData.id
                         x: plate.width + 160
                         width: 128
                         height: 128
                         anchors.verticalCenter: parent.verticalCenter
-                        scale: activeFocus ? (pressed ? 0.98 : 1.06) : 1
+                        scale: activeFocus ? (down ? 0.98 : 1.06) : 1
                         activeFocusOnTab: false
-                        property bool pressed: false
                         readonly property bool closing: root.closingId === modelData.id
 
-                        Behavior on scale {
-                            NumberAnimation { duration: closeBtn.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
-                        }
                         Rectangle {
                             anchors.fill: parent
                             anchors.topMargin: 18
@@ -1073,30 +1041,8 @@ FocusScope {
                                 color: Ui.Theme.textSecondary
                             }
                         }
-                        Keys.priority: Keys.BeforeItem
-                        Keys.onPressed: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                if (!event.isAutoRepeat)
-                                    pressed = true;
-                                event.accepted = true;
-                                return;
-                            }
-                            root.localKey(event);
-                        }
-                        Keys.onReleased: event => {
-                            if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                const go = pressed && !event.isAutoRepeat;
-                                pressed = false;
-                                if (go)
-                                    root.beginClose(modelData.id);
-                                event.accepted = true;
-                            }
-                        }
+                        Keys.onPressed: event => root.localKey(event)
                         onActiveFocusChanged: if (activeFocus) root.noteRowFocus(index, "close")
-                        TapHandler { onTapped: root.beginClose(modelData.id) }
-                        HoverHandler {
-                            onHoveredChanged: if (hovered && root.pointerMode && root.hoverFocusEnabled) Ui.Focus.take(closeBtn)
-                        }
                     }
                 }
             }
@@ -1282,8 +1228,17 @@ FocusScope {
                     color: Ui.Theme.textSecondary
                 }
                 Item { width: 1; height: 16; visible: statusButton.visible }
-                Item {
+                Ui.Surface {
                     id: statusButton
+                    background: null
+                    rimEnabled: false
+                    focusLift: 0
+                    liftFromBottom: false
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    focusScale: 1.06
+                    text: root.statusActionText
+                    onActivated: root.activateStatus()
                     objectName: "statusAction"
                     width: statusLabel.implicitWidth + 88
                     height: 88
@@ -1291,10 +1246,6 @@ FocusScope {
                     scale: activeFocus ? 1.06 : 1
                     transformOrigin: Item.Left
                     activeFocusOnTab: false
-                    property bool pressed: false
-                    Behavior on scale {
-                        NumberAnimation { duration: statusButton.pressed ? Ui.Theme.pressDuration : Ui.Theme.focusDuration }
-                    }
                     Rectangle {
                         anchors.fill: parent
                         anchors.topMargin: 12
@@ -1315,26 +1266,7 @@ FocusScope {
                         role: "control"
                         color: Ui.Theme.ink
                     }
-                    Keys.priority: Keys.BeforeItem
-                    Keys.onPressed: event => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (!event.isAutoRepeat)
-                                pressed = true;
-                            event.accepted = true;
-                            return;
-                        }
-                        root.localKey(event);
-                    }
-                    Keys.onReleased: event => {
-                        if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            const go = pressed && !event.isAutoRepeat;
-                            pressed = false;
-                            if (go)
-                                root.activateStatus();
-                            event.accepted = true;
-                        }
-                    }
-                    TapHandler { onTapped: root.activateStatus() }
+                    Keys.onPressed: event => root.localKey(event)
                 }
             }
         }

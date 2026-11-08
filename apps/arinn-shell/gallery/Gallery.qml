@@ -15,6 +15,7 @@ Window {
     property bool pointerMode: false
     property bool dialogOpen: false
     property bool sheetOpen: false
+    property string selectedExample: "films"
     property string lastAction: qsTr("Arrows to navigate · Enter to select")
     Component.onCompleted: Ui.Focus.take(media)
     Ui.LogicalCanvas {
@@ -81,9 +82,9 @@ Window {
                 onActivated: root.lastAction = qsTr("Captioned card requested — fixture only")
             }
         }
-        Ui.UiText { x: 120; y: 530; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
+        Ui.UiText { x: 120; y: 580; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
         Row {
-            x: 120; y: 588; spacing: 32
+            x: 120; y: 628; spacing: 32
             Ui.AppTile {
                 id: tile
                 text: qsTr("Library"); monogram: "L"
@@ -162,8 +163,27 @@ Window {
                 pointerMode: root.pointerMode
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.left: sheetLauncher
+                KeyNavigation.right: tabExample
                 KeyNavigation.up: action
                 onActivated: root.lastAction = qsTr("Selection changed — fixture only")
+            }
+            Ui.TabButton {
+                id: tabExample
+                text: qsTr("Films")
+                selected: root.selectedExample === "films"
+                pointerMode: root.pointerMode
+                KeyNavigation.left: iconExample
+                KeyNavigation.right: pillExample
+                onActivated: root.selectedExample = "films"
+            }
+            Ui.TabButton {
+                id: pillExample
+                text: qsTr("Folders")
+                presentation: "pill"
+                selected: root.selectedExample === "folders"
+                pointerMode: root.pointerMode
+                KeyNavigation.left: tabExample
+                onActivated: root.selectedExample = "folders"
             }
         }
         Ui.UiText {

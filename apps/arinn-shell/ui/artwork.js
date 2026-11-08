@@ -52,7 +52,9 @@ function drawCover(ctx, image, iw, ih, w, h) {
     if (!(iw > 0 && ih > 0))
         return false;
     const scale = Math.max(w / iw, h / ih);
-    const sw = w / scale, sh = h / scale;
+    // Division may round a full-width crop just above iw (13 into 120),
+    // making the centred origin slightly negative. Qt rejects that too.
+    const sw = Math.min(iw, w / scale), sh = Math.min(ih, h / scale);
     ctx.drawImage(copy, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, w, h);
     return true;
 }

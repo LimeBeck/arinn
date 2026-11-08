@@ -1,0 +1,1 @@
+- Music, application-close and folder-removal confirmations now share the same dialog composition and keep keyboard focus within their available actions. Music Sources, More and Queue share a common side-sheet frame.

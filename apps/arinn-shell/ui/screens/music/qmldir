@@ -3,7 +3,6 @@
 MusicView 1.0 MusicView.qml
 MusicButton 1.0 MusicButton.qml
 MusicArtwork 1.0 MusicArtwork.qml
-MusicDialog 1.0 MusicDialog.qml
 MusicRoomView 1.0 MusicRoomView.qml
 MusicShelf 1.0 MusicShelf.qml
 MusicCard 1.0 MusicCard.qml

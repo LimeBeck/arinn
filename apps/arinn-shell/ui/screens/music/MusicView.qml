@@ -1974,7 +1974,7 @@ FocusScope {
         onDismissed: root.closeMore()
         onActivated: id => root.runMore(id)
     }
-    MusicDialog {
+    Ui.ConfirmationDialog {
         objectName: "musicRemoveDialog"
         visible: root.queueOccurrence.length > 0
         z: 30
@@ -2004,7 +2004,7 @@ FocusScope {
             }
         }
     }
-    MusicDialog {
+    Ui.ConfirmationDialog {
         objectName: "musicDeleteDialog"
         visible: root.deletingPlaylist
         z: 30
@@ -2197,7 +2197,7 @@ FocusScope {
         }
     }
     // The standard confirm dialog over a scrim (#756 M6).
-    MusicDialog {
+    Ui.ConfirmationDialog {
         objectName: "musicReplaceDialog"
         visible: root.pendingPlay.length > 0
         z: 20

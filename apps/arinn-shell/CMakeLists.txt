@@ -43,6 +43,7 @@ target_link_libraries(arinn-shell-test PRIVATE arinn-session-lifecycle Qt6::Quic
 set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/Focus.qml ui/InputMode.qml ui/UiText.qml ui/FontWeightAxis.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/FocusRing.qml ui/ArtworkFocus.qml ui/CastLight.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
+    ui/ConfirmationDialog.qml ui/SideSheet.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml
@@ -116,7 +117,7 @@ endforeach()
 
 set(ARINN_MUSIC_FILES ui/screens/music/qmldir ui/screens/music/MusicView.qml
     ui/screens/music/MusicButton.qml ui/screens/music/MusicArtwork.qml
-    ui/screens/music/MusicDialog.qml ui/screens/music/MusicRoomView.qml
+    ui/screens/music/MusicRoomView.qml
     ui/screens/music/MusicShelf.qml ui/screens/music/MusicCard.qml
     ui/screens/music/MusicSourcesSheet.qml ui/screens/music/MusicSourceMark.qml
     ui/screens/music/MusicAllView.qml ui/screens/music/MusicDetailHeader.qml

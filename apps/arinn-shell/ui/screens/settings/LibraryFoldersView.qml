@@ -510,64 +510,32 @@ FocusScope {
                     role: "meta"
                 }
             }
-            // LF-6, LF-7: the power-confirm dialog.
-            Rectangle {
+            // LF-6, LF-7: the shared confirmation frame; the setting owns removal.
+            Ui.ConfirmationDialog {
                 id: confirm
                 objectName: "foldersConfirm"
-                anchors.fill: parent
-                visible: false
-                color: Qt.rgba(0, 0, 0, 0.58)
-                MouseArea { anchors.fill: parent; onClicked: root.cancelRemove() }
-                Rectangle {
-                    anchors.centerIn: parent
-                    width: 900
-                    height: confirmColumn.implicitHeight + 112
-                    radius: 48
-                    color: Qt.rgba(0.161, 0.165, 0.188, 0.94)
-                    border.width: 1
-                    border.color: Qt.rgba(1, 1, 1, 0.10)
-                    MouseArea { anchors.fill: parent }
-                    Column {
-                        id: confirmColumn
-                        x: 56; y: 56
-                        width: parent.width - 112
-                        spacing: 24
-                        Ui.UiText {
-                            objectName: "foldersConfirmTitle"
-                            width: parent.width
-                            text: (root.library ? qsTr("Remove “%1” from the library?")
-                                                : qsTr("Remove “%1” from the list?")).arg(root.nameOf(root.removing))
-                            role: "title"; font.pixelSize: 48
-                            wrapMode: Text.WordWrap
-                        }
-                        Ui.UiText {
-                            width: parent.width
-                            text: root.library ? qsTr("Its films and series leave the library. Nothing is deleted from the disk.")
-                                               : qsTr("Nothing is deleted from the disk.")
-                            color: Ui.Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                        }
-                        Row {
-                            spacing: 20
-                            Ui.ActionButton {
-                                id: cancelButton
-                                objectName: "foldersConfirmCancel"
-                                height: 96
-                                text: qsTr("Cancel")
-                                pointerMode: root.pointerMode
-                                onActivated: root.cancelRemove()
-                            }
-                            Ui.ActionButton {
-                                id: confirmButton
-                                objectName: "foldersConfirmRemove"
-                                height: 96
-                                destructive: true
-                                text: qsTr("Remove")
-                                pointerMode: root.pointerMode
-                                onActivated: root.confirmRemove()
-                            }
-                        }
-                    }
+                titleItem.objectName: "foldersConfirmTitle"
+                title: (root.library ? qsTr("Remove “%1” from the library?")
+                                     : qsTr("Remove “%1” from the list?")).arg(root.nameOf(root.removing))
+                body: root.library ? qsTr("Its films and series leave the library. Nothing is deleted from the disk.")
+                                   : qsTr("Nothing is deleted from the disk.")
+                onDismissed: root.cancelRemove()
+                Ui.ActionButton {
+                    id: cancelButton
+                    objectName: "foldersConfirmCancel"
+                    height: 96
+                    text: qsTr("Cancel")
+                    pointerMode: root.pointerMode
+                    onActivated: root.cancelRemove()
+                }
+                Ui.ActionButton {
+                    id: confirmButton
+                    objectName: "foldersConfirmRemove"
+                    height: 96
+                    destructive: true
+                    text: qsTr("Remove")
+                    pointerMode: root.pointerMode
+                    onActivated: root.confirmRemove()
                 }
             }
         }

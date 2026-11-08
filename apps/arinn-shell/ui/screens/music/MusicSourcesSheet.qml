@@ -336,22 +336,9 @@ FocusScope {
             }
         }
     }
-    Rectangle {
-        anchors.fill: parent
-        color: Ui.Theme.scrim
-        MouseArea {
-            anchors.fill: parent
-            onClicked: root.close()
-        }
-    }
-    Rectangle {
-        objectName: "musicSourcesSheet"
-        x: parent.width - width
-        width: 720
-        height: parent.height
-        color: Ui.Theme.dialogSurface
-        border.color: Ui.Theme.dialogLine
-        MouseArea { anchors.fill: parent }
+    Ui.SideSheet {
+        plate.objectName: "musicSourcesSheet"
+        onDismissed: root.close()
         Ui.UiText {
             x: 64
             y: 72
@@ -544,7 +531,7 @@ FocusScope {
         }
     }
     // Turning off the source that plays stops its music (#842).
-    MusicDialog {
+    Ui.ConfirmationDialog {
         objectName: "musicTurnOffDialog"
         visible: root.turningOff.length > 0
         z: 2
@@ -584,7 +571,7 @@ FocusScope {
             }
         }
     }
-    MusicDialog {
+    Ui.ConfirmationDialog {
         objectName: "musicDisconnectDialog"
         visible: root.disconnecting.length > 0
         z: 2

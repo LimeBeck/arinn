@@ -714,8 +714,8 @@ TestCase {
         compare(view.width,1920);compare(view.height,1080);
         view.requestPlay("track-1");
         const dialog=findChild(view,"musicReplaceDialog");tryCompare(dialog,"visible",true);
-        verify(covers(findChild(dialog,"musicDialogScrim"),view),"the scrim covers the screen");
-        const plate=findChild(dialog,"musicDialogPlate");
+        verify(covers(findChild(dialog,"confirmationScrim"),view),"the scrim covers the screen");
+        const plate=findChild(dialog,"confirmationPlate");
         compare(plate.width,900);compare(plate.radius,48);
         const centre=plate.mapToItem(view,plate.width/2,plate.height/2);
         compare(Math.round(centre.x),960);compare(Math.round(centre.y),540);
@@ -816,8 +816,8 @@ TestCase {
         view.mode="catalogue";wait(0);
         const plate=findChild(view,"musicSearch").parent;compare(plate.radius,Ui.Theme.containerRadius);
         view.requestPlay("track-1");
-        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogScrim").color,Ui.Theme.scrim);
-        compare(findChild(findChild(view,"musicReplaceDialog"),"musicDialogPlate").radius,Ui.Theme.dialogRadius);
+        compare(findChild(findChild(view,"musicReplaceDialog"),"confirmationScrim").color,Ui.Theme.scrim);
+        compare(findChild(findChild(view,"musicReplaceDialog"),"confirmationPlate").radius,Ui.Theme.dialogRadius);
         const art=createTemporaryObject(artworkFactory,suite);compare(art.radius,Ui.Theme.stillRadius);
     }
     // An album, artist or playlist title is content: Playfair Display with

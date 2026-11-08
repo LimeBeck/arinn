@@ -9,6 +9,9 @@ import "../.." as Ui
 // (MusicRoom.stable); once focus leaves, the shelf takes the room's order.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     property var room: null
     property var shelf: ({})
     property var shown: []
@@ -99,6 +102,7 @@ FocusScope {
     }
     ListView {
         id: list
+        onContentXChanged: if (visible) root.scrolled()
         objectName: "musicShelfCards"
         y: 56
         width: Ui.Theme.canvasWidth
@@ -124,6 +128,8 @@ FocusScope {
             height: root.cardHeight + Ui.Theme.contentCaptionHeight
             focus: ListView.isCurrentItem
             MusicCard {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
                 anchors.fill: parent
                 visible: !slot.allTile
                 focus: !slot.allTile
@@ -132,13 +138,18 @@ FocusScope {
                 artworkWidth: root.cardWidth
                 artworkHeight: root.cardHeight
                 round: root.round
-                rowBrightness: root.rowBrightness
+                rowBrightness: activeFocus ? 1 : root.rowBrightness
+                onActiveFocusChanged: if (activeFocus) list.currentIndex = slot.index
                 playing: !!slot.entry && slot.entry.key === root.playingKey
                 playingImage: root.playingImage
                 onActivated: root.activated(slot.entry)
             }
             // The All tile opens the whole list for this shelf (mh-11).
             Ui.Surface {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 objectName: "musicShelfAll"
                 visible: slot.allTile
                 focus: slot.allTile
@@ -146,7 +157,8 @@ FocusScope {
                 height: root.cardHeight
                 shapeRole: "container"
                 cornerRadius: Ui.Theme.containerRadius
-                rowBrightness: root.rowBrightness
+                rowBrightness: activeFocus ? 1 : root.rowBrightness
+                onActiveFocusChanged: if (activeFocus) list.currentIndex = slot.index
                 text: qsTr("All")
                 onActivated: root.allRequested(root.shelfId)
                 contentItem: Item {

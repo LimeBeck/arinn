@@ -1450,6 +1450,7 @@ Window {
         }
         Music.MusicView {
             id: musicView
+            ownsFocus: root.focusedScreen === "music"
             catalog: musicCatalog
             room: musicRoom
             objectName: "productionMusic"

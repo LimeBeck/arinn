@@ -5,6 +5,8 @@ import "../.." as Ui
 
 Ui.Surface {
     id: root
+    hoverMotionRevision: Ui.InputMode.pointerRevision
+    onDpadRequested: Ui.InputMode.keyPressed()
     property bool selected: false
     property string iconName: "play"
     implicitWidth: 80

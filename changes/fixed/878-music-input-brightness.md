@@ -1,0 +1,2 @@
+- Music controls now follow the shared pointer/D-pad mode, retain the two-second key cooldown and suppress hover after scrolling, shelf refreshes and modal transitions. Hover selects the current list/grid entry so remote navigation continues from it, while covered screens keep their focus owner.
+- Music artwork now reflects row brightness: full light for the focused card, dimmer neighbors and other rows, with captions and playing markers kept readable.

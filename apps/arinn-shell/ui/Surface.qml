@@ -13,6 +13,14 @@ T.AbstractButton {
     // The enclosing focus/input scope owns these, including scroll suppression.
     property bool pointerMode: false
     property bool hoverFocusEnabled: true
+    // Optional scope-supplied movement token. A deferred hover callback may
+    // outlive scroll suppression; it must not reuse an old movement then.
+    property int hoverMotionRevision: -1
+    property int lastHoverMotionRevision: -1
+    Component.onCompleted: lastHoverMotionRevision = hoverMotionRevision
+    // Every opted-in control consumes the movement after hit testing, even
+    // when it is not hovered. A later geometry change is not another move.
+    onHoverMotionRevisionChanged: if (hoverMotionRevision >= 0) Qt.callLater(focusFromHover)
     // "content", "action", "container", "object", or "" for a control that
     // sets its own plate. Content and objects rise from the bottom edge.
     property string shapeRole: ""
@@ -92,16 +100,18 @@ T.AbstractButton {
         radius: root.cornerRadius
     }
     function focusFromHover() {
-        if (hoverTracker.hovered && pointerMode && hoverFocusEnabled && enabled)
+        const moved = hoverMotionRevision < 0 || hoverMotionRevision !== lastHoverMotionRevision;
+        lastHoverMotionRevision = hoverMotionRevision;
+        if (moved && hoverTracker.hovered && pointerMode && hoverFocusEnabled && enabled)
             Focus.take(root, Qt.MouseFocusReason);
     }
     // The parent input scope and this handler receive the same move. Defer the
     // check until its pointer-mode update has propagated, regardless of order.
-    onPointerModeChanged: if (pointerMode) Qt.callLater(focusFromHover)
+    onPointerModeChanged: if (pointerMode && hoverMotionRevision < 0) Qt.callLater(focusFromHover)
     HoverHandler {
         id: hoverTracker
-        onHoveredChanged: Qt.callLater(root.focusFromHover)
-        onPointChanged: Qt.callLater(root.focusFromHover)
+        onHoveredChanged: if (root.hoverMotionRevision < 0) Qt.callLater(root.focusFromHover)
+        onPointChanged: if (root.hoverMotionRevision < 0) Qt.callLater(root.focusFromHover)
     }
     Behavior on scale {
         NumberAnimation {

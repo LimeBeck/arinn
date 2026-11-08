@@ -8,6 +8,9 @@ import "../.." as Ui
 // rows with a line icon. Back closes it; the view restores focus to More.
 FocusScope {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
+    signal scrolled()
     // [{id, label, icon, selected}], in the brief's order.
     property var actions: []
     signal activated(string id)
@@ -76,6 +79,7 @@ FocusScope {
         }
         ListView {
             id: list
+            onContentYChanged: if (visible) root.scrolled()
             objectName: "musicMoreActions"
             x: 48
             y: 180
@@ -87,6 +91,10 @@ FocusScope {
             model: rowModel
             delegate: Ui.Surface {
                 id: row
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 required property string actionKey
                 required property int index
                 readonly property var moreAction: root.actions.find(item => item.id === actionKey) || ({})
@@ -98,6 +106,7 @@ FocusScope {
                 width: list.width
                 height: 96
                 focus: ListView.isCurrentItem
+                onActiveFocusChanged: if (activeFocus) list.currentIndex = index
                 text: moreAction.label || ""
                 // While a command is in flight the row ignores presses and
                 // shows it.

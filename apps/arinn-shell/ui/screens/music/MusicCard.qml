@@ -8,6 +8,8 @@ import "../.." as Ui
 // 16:9 card, an artist a round portrait, everything else a square cover.
 Ui.Surface {
     id: root
+    hoverMotionRevision: Ui.InputMode.pointerRevision
+    onDpadRequested: Ui.InputMode.keyPressed()
     property var entry: ({})
     property real artworkWidth: 240
     property real artworkHeight: 240
@@ -78,6 +80,16 @@ Ui.Surface {
         }
         // The playing chip (brief, Continue card): three Ember bars in a
         // neutral chip, a status mark, never a focus mark.
+        Rectangle {
+            objectName: "musicCardRowShade"
+            width: root.artworkWidth
+            height: root.artworkHeight
+            radius: root.cornerRadius
+            color: "black"
+            // Content shades the artwork, never the caption or status chip.
+            opacity: root.activeFocus ? 0 : Math.max(0, Math.min(1, 1 - root.rowBrightness))
+            Behavior on opacity { NumberAnimation { duration: Ui.Theme.focusDuration } }
+        }
         Rectangle {
             objectName: "musicCardPlaying"
             x: 16

@@ -11,6 +11,8 @@ import "../.." as Ui
 // it never plays. There is no Shuffle: the protocol has no shuffle action.
 Item {
     id: root
+    property bool pointerMode: Ui.InputMode.pointerActive
+    property bool hoverFocusEnabled: true
     // The room entry the detail was opened from.
     property var entry: ({})
     // The tracks the detail lists, for the length in the meta line.
@@ -135,6 +137,10 @@ Item {
         spacing: 16
         Ui.ActionButton {
             id: listen
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicDetailListen"
             primary: true
             visible: root.canListen
@@ -145,6 +151,10 @@ Item {
         }
         Ui.ActionButton {
             id: radio
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicDetailRadio"
             visible: root.canRadio
             text: root.kind === "artist" ? qsTr("Radio from artist")

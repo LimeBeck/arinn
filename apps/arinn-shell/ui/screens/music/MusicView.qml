@@ -7,6 +7,21 @@ import "../.." as Ui
 
 FocusScope {
     id: root
+    // Main owns cross-screen focus; every local Music scope forwards this
+    // one input contract (ADR-0076/0095).
+    property bool ownsFocus: true
+    property bool pointerMode: Ui.InputMode.pointerActive
+    readonly property bool hoverFocusEnabled: ownsFocus && !hoverDelay.running
+    readonly property bool contentHoverFocusEnabled: hoverFocusEnabled && !overlayOpen
+        && !namingPlaylist && !pickingSource && !typing
+    Timer { id: hoverDelay; interval: 500 }
+    onOverlayOpenChanged: hoverDelay.restart()
+    onNamingPlaylistChanged: hoverDelay.restart()
+    onPickingSourceChanged: hoverDelay.restart()
+    HoverHandler {
+        onPointChanged: Ui.InputMode.pointerMoved(point.scenePosition)
+        cursorShape: root.pointerMode ? Qt.ArrowCursor : Qt.BlankCursor
+    }
     // The logical canvas, as every section screen: without a size the
     // background, the dialog scrims and the keyboard panel anchored to the
     // bottom collapsed to nothing in the shell (#756 M6, M7).
@@ -422,9 +437,12 @@ FocusScope {
     // The More sheet (brief *More sheet*): only the session's actions. The
     // Menu key keeps global navigation and never opens it.
     property bool moreOpen: false
-    onModeChanged: if (mode !== "player") {
-        moreOpen = false;
-        pinAskedFor = [];
+    onModeChanged: {
+        hoverDelay.restart();
+        if (mode !== "player") {
+            moreOpen = false;
+            pinAskedFor = [];
+        }
     }
     readonly property var moreActions: {
         const rows = [];
@@ -780,6 +798,8 @@ FocusScope {
             backRequested();
     }
     Keys.onPressed: event => {
+        if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Up, Qt.Key_Down].includes(event.key))
+            Ui.InputMode.keyPressed();
         if ((namingPlaylist && !typing) || queueOccurrence || deletingPlaylist) {
             if ([Qt.Key_Escape, Qt.Key_Back, Qt.Key_Backspace].includes(event.key))
                 root.back();
@@ -863,6 +883,8 @@ FocusScope {
     // The detail header (#801): backdrop, cover, title and pills.
     MusicDetailHeader {
         id: detailHeader
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
         objectName: "musicDetailHeader"
         visible: root.detailView
         entry: root.detailEntry
@@ -922,6 +944,10 @@ FocusScope {
         visible: root.mode === "catalogue" && !root.detailView
         Ui.ActionButton {
             id: sourcePicker
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicSourcePicker"
             // The room has no source switch (MH-5): its Sources sheet holds
             // the sources.
@@ -959,6 +985,10 @@ FocusScope {
             id: facets
             model: (root.selected.facets || []).filter(id => !!root.facetLabels[id])
             Ui.ActionButton {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.contentHoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 required property string modelData
                 required property int index
                 objectName: "musicFacet-" + index
@@ -1042,6 +1072,10 @@ FocusScope {
         }
         Ui.KeyboardButton {
             id: searchKeyboardButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicKeyboard"
             x: parent.width - width - 12
             anchors.verticalCenter: parent.verticalCenter
@@ -1065,6 +1099,10 @@ FocusScope {
         visible: root.mode === "catalogue" && !root.detailView
         Ui.ActionButton {
             id: openPlayerButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicOpenPlayer"
             KeyNavigation.left: searchKeyboardButton
             KeyNavigation.right: settingsButton
@@ -1079,6 +1117,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: detailPlay
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicPlayGroup"
             width: Math.max(240, implicitWidth)
             height: 76
@@ -1092,6 +1134,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: settingsButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicSettings"
             KeyNavigation.left: detailPlay.visible ? detailPlay
                 : openPlayerButton.visible ? openPlayerButton
@@ -1106,6 +1152,10 @@ FocusScope {
     }
     Ui.ActionButton {
         id: disconnectButton
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
+        hoverMotionRevision: Ui.InputMode.pointerRevision
+        onDpadRequested: Ui.InputMode.keyPressed()
         objectName: "musicDisconnect"
         KeyNavigation.up: tracks.count ? tracks : search
         KeyNavigation.left: rescanButton.visible ? rescanButton : null
@@ -1120,6 +1170,10 @@ FocusScope {
     }
     Ui.ActionButton {
         id: rescanButton
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
+        hoverMotionRevision: Ui.InputMode.pointerRevision
+        onDpadRequested: Ui.InputMode.keyPressed()
         objectName: "musicRescan"
         KeyNavigation.up: tracks.count ? tracks : search
         KeyNavigation.right: disconnectButton.visible ? disconnectButton : settingsButton
@@ -1153,6 +1207,10 @@ FocusScope {
         visible: root.mode === "catalogue" && root.parentId.length > 0
         Ui.ActionButton {
             id: saveGroup
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicSavePlaylist"
             visible: (root.selected.actions || []).includes("save_playlist")
             text: qsTr("Save playlist")
@@ -1165,6 +1223,10 @@ FocusScope {
         }
         Ui.ActionButton {
             id: removeGroup
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicDeletePlaylist"
             visible: (root.selected.actions || []).includes("delete_playlist") && root.parentKind === "playlist"
             text: qsTr("Delete playlist")
@@ -1181,6 +1243,7 @@ FocusScope {
     }
     ListView {
         id: tracks
+        onContentYChanged: if (visible) hoverDelay.restart()
         objectName: "musicEntries"
         x: 120
         // In a detail the tracks start below the pills and end above the
@@ -1217,6 +1280,10 @@ FocusScope {
         keyNavigationEnabled: true
         delegate: Ui.Surface {
             id: entry
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             shapeRole: "container"
             focusScale: 1
             focusLift: 0
@@ -1225,6 +1292,7 @@ FocusScope {
             width: tracks.width - 8
             height: 90
             focus: tracks.currentIndex === index
+            onActiveFocusChanged: if (activeFocus) tracks.currentIndex = index
             readonly property bool playingRow: root.detailView && !!modelData.id
                 && root.catalog.activeSourceId === root.catalog.sourceId
                 && ["playing", "paused", "loading"].includes(root.player.playback)
@@ -1347,6 +1415,10 @@ FocusScope {
         }
         footer: Ui.ActionButton {
             id: loadMoreButton
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.contentHoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicLoadMore"
             Keys.onUpPressed: Ui.Focus.take(tracks.currentItem || tracks)
             Keys.onDownPressed: if (!root.detailView)
@@ -1415,6 +1487,10 @@ FocusScope {
             spacing: 24
             Ui.ActionButton {
                 id: authorizeButton
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.contentHoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 objectName: "musicAuthorize"
                 KeyNavigation.up: sourcePicker
                 KeyNavigation.right: cancelAuthButton
@@ -1424,6 +1500,10 @@ FocusScope {
             }
             Ui.ActionButton {
                 id: connectButton
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.contentHoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 objectName: "musicConnect"
                 KeyNavigation.up: sourcePicker
                 KeyNavigation.right: settingsButton
@@ -1433,6 +1513,10 @@ FocusScope {
             }
             Ui.ActionButton {
                 id: cancelAuthButton
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.contentHoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 objectName: "musicCancelAuth"
                 KeyNavigation.up: sourcePicker
                 KeyNavigation.left: authorizeButton.visible ? authorizeButton : null
@@ -1655,6 +1739,10 @@ FocusScope {
                 spacing: 20
                 MusicButton {
                     id: previousButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicPrevious"
                     anchors.verticalCenter: parent.verticalCenter
                     width: 96
@@ -1669,6 +1757,10 @@ FocusScope {
                 }
                 MusicButton {
                     id: playButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     anchors.verticalCenter: parent.verticalCenter
                     KeyNavigation.left: previousButton
                     KeyNavigation.right: nextButton
@@ -1692,6 +1784,10 @@ FocusScope {
                 }
                 MusicButton {
                     id: nextButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicNext"
                     anchors.verticalCenter: parent.verticalCenter
                     width: 96
@@ -1709,6 +1805,10 @@ FocusScope {
                 // only as a stronger plate (M18), with pending and failure.
                 MusicPill {
                     id: likeButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicLike"
                     anchors.verticalCenter: parent.verticalCenter
                     readonly property bool liked: root.player.feedback === "liked"
@@ -1742,6 +1842,10 @@ FocusScope {
                 }
                 MusicPill {
                     id: queueButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicQueue"
                     anchors.verticalCenter: parent.verticalCenter
                     iconName: "queue_music"
@@ -1754,6 +1858,10 @@ FocusScope {
                 }
                 MusicButton {
                     id: moreButton
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.contentHoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicMore"
                     anchors.verticalCenter: parent.verticalCenter
                     width: 96
@@ -1788,6 +1896,10 @@ FocusScope {
             }
             Ui.ActionButton {
                 id: retryPlaybackButton
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.contentHoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 objectName: "musicRetryPlayback"
                 visible: root.canRetryPlayback
                 // Recovered or busy, the row hides; focus moves on instead of
@@ -1829,6 +1941,9 @@ FocusScope {
     }
     MusicQueueSheet {
         id: queueSheet
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled && !root.queueOccurrence && !root.namingPlaylist && !root.pendingPlay
+        onScrolled: if (visible) hoverDelay.restart()
         objectName: "musicQueueView"
         z: 20
         visible: root.mode === "queue"
@@ -1849,6 +1964,9 @@ FocusScope {
     }
     MusicMoreSheet {
         id: moreSheet
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled
+        onScrolled: if (visible) hoverDelay.restart()
         objectName: "musicMoreView"
         z: 20
         visible: root.moreOpen
@@ -1864,12 +1982,20 @@ FocusScope {
         onDismissed: root.back()
         Ui.ActionButton {
             id: queueKeep
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicKeepOccurrence"
             text: qsTr("Cancel")
             onActivated: root.back()
         }
         Ui.ActionButton {
             id: queueRemove
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicRemoveOccurrence"
             text: qsTr("Remove")
             onActivated: {
@@ -1887,11 +2013,19 @@ FocusScope {
         onDismissed: root.back()
         Ui.ActionButton {
             id: keepPlaylist
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             text: qsTr("Cancel")
             onActivated: root.back()
         }
         Ui.ActionButton {
             id: deletePlaylist
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             text: qsTr("Delete playlist")
             destructive: true
             onActivated: {
@@ -1950,6 +2084,10 @@ FocusScope {
                 }
                 Ui.KeyboardButton {
                     id: playlistKeyboard
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicPlaylistKeyboard"
                     anchors.right: parent.right
                     anchors.rightMargin: 12
@@ -1963,6 +2101,10 @@ FocusScope {
                 spacing: 24
                 Ui.ActionButton {
                     id: playlistCancel
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     text: qsTr("Cancel")
                     onActivated: root.closePlaylist()
                     KeyNavigation.right: playlistSave
@@ -1970,6 +2112,10 @@ FocusScope {
                 }
                 Ui.ActionButton {
                     id: playlistSave
+                    pointerMode: root.pointerMode
+                    hoverFocusEnabled: root.hoverFocusEnabled
+                    hoverMotionRevision: Ui.InputMode.pointerRevision
+                    onDpadRequested: Ui.InputMode.keyPressed()
                     objectName: "musicConfirmPlaylist"
                     text: qsTr("Save")
                     enabled: playlistName.text.trim().length > 0
@@ -2015,6 +2161,7 @@ FocusScope {
         }
         ListView {
             id: sourceList
+            onContentYChanged: if (visible) hoverDelay.restart()
             objectName: "musicSourceList"
             x: 120
             y: 180
@@ -2025,11 +2172,16 @@ FocusScope {
             keyNavigationEnabled: true
             model: root.catalog.sources
             delegate: Ui.ActionButton {
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
                 required property var modelData
                 required property int index
                 width: sourceList.width
                 height: 82
                 focus: sourceList.currentIndex === index
+                onActiveFocusChanged: if (activeFocus) sourceList.currentIndex = index
                 text: modelData.name
                 onActivated: {
                     root.typing = false;
@@ -2054,12 +2206,20 @@ FocusScope {
         onDismissed: root.back()
         Ui.ActionButton {
             id: cancelReplace
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicKeepQueue"
             text: qsTr("Cancel")
             onActivated: root.cancelReplacement()
         }
         Ui.ActionButton {
             id: confirmReplace
+            pointerMode: root.pointerMode
+            hoverFocusEnabled: root.hoverFocusEnabled
+            hoverMotionRevision: Ui.InputMode.pointerRevision
+            onDpadRequested: Ui.InputMode.keyPressed()
             objectName: "musicReplaceQueue"
             text: qsTr("Replace and play")
             onActivated: {
@@ -2074,6 +2234,9 @@ FocusScope {
     // The Music root and its All lists (#800).
     MusicRoomView {
         id: roomView
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.hoverFocusEnabled && !root.pendingPlay && !root.namingPlaylist && !root.deletingPlaylist && !root.queueOccurrence
+        onScrolled: if (visible) hoverDelay.restart()
         objectName: "musicRoom"
         // Under the confirm dialogs (z 20 and above), over the catalogue.
         z: 15
@@ -2100,6 +2263,9 @@ FocusScope {
     }
     MusicAllView {
         id: allView
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
+        onScrolled: if (visible) hoverDelay.restart()
         objectName: "musicAll"
         z: 15
         visible: root.mode === "all" && !!root.room
@@ -2112,6 +2278,9 @@ FocusScope {
     // Find over every source (#801, MH-10).
     MusicSearchView {
         id: searchView
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
+        onScrolled: if (visible) hoverDelay.restart()
         objectName: "musicSearchResults"
         z: 15
         y: 280

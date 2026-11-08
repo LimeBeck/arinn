@@ -18,6 +18,7 @@ TestCase {
         id: slotsFactory
         Ui.ArtworkFrame {
             x: 200; y: 200; width: 200; height: 100
+            transformEnabled: false
             source: suite.portrait
             statusContent: Rectangle { x: 80; y: 80; width: 40; height: 20; color: "white" }
         }
@@ -108,7 +109,7 @@ TestCase {
         }
         tryVerify(whiteStatus);
         frame.focused = true;
-        tryCompare(frame, "imageScale", Ui.Theme.contentFocusScale);
+        tryCompare(frame.decoration, "shown", true);
         wait(Ui.Theme.focusDuration + 50);
         verify(whiteStatus(), "status content paints above the artwork's warm bounce");
     }

@@ -334,10 +334,10 @@ impl Local {
     }
     async fn reconcile_locked(&self) -> Result<(), ErrorCode> {
         let state = self.playback.state().await;
-        if !state
+        if state
             .station
             .as_ref()
-            .is_some_and(|s| s.id == LIBRARY_STATION)
+            .is_none_or(|s| s.id != LIBRARY_STATION)
         {
             return Ok(());
         }

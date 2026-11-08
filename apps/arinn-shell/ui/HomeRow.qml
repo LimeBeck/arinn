@@ -426,20 +426,14 @@ FocusScope {
                             // in the content face on Charcoal, not a letter (#725).
                             Component {
                                 id: titleCard
-                                Surface {
+                                CaptionedCard {
                                     id: posterCard
                                     objectName: "entry-" + entryLoader.modelData.id
                                     shapeRole: "content"
-                                    // Only the plate lifts and the caption stays, as on
-                                    // ContentCard; at the row's start it grows from its
-                                    // left edge (#837).
-                                    focusScale: 1
-                                    focusLift: 0
-                                    property real imageFocus: activeFocus ? 1 : 0
-                                    Behavior on imageFocus {
-                                        NumberAnimation { duration: Theme.focusDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easing }
-                                    }
-                                    readonly property bool alignStart: Math.abs(slot.safeLeft) < 1
+                                    alignStart: Math.abs(slot.safeLeft) < 1
+                                    artworkHeight: root.artworkHeight
+                                    captionGap: 14
+                                    artworkFrame.bounce: false
                                     width: entryLoader.width; height: entryLoader.height
                                     cornerRadius: Theme.posterRadius
                                     text: entryLoader.modelData.title || ""
@@ -453,91 +447,57 @@ FocusScope {
                                     onActiveFocusChanged: if (activeFocus) entryLoader.chosen()
                                     onActivated: root.activated(entryLoader.modelData.id)
                                     onDpadRequested: root.dpadRequested()
-                                    contentItem: Item {
-                                        Item {
-                                            id: titleFrame
-                                            objectName: "cardFrame"
-                                            width: parent.width
-                                            height: root.artworkHeight
-                                            transform: [
-                                                Scale {
-                                                    origin.x: posterCard.alignStart ? 0 : titleFrame.width / 2
-                                                    origin.y: titleFrame.height
-                                                    xScale: 1 + (posterCard.pointerMode ? (Theme.contentFocusScale - 1) / 2 : Theme.contentFocusScale - 1) * posterCard.imageFocus
-                                                    yScale: xScale
-                                                },
-                                                Translate {
-                                                    x: posterCard.alignStart ? (Theme.matThickness + Theme.rimThickness) * (1 + (Theme.contentFocusScale - 1) * posterCard.imageFocus) * posterCard.imageFocus : 0
-                                                    y: (posterCard.pointerMode ? -2 : Theme.contentFocusLift) * posterCard.imageFocus
-                                                }
-                                            ]
-                                            Rectangle {
-                                                anchors.fill: parent
-                                                radius: posterCard.cornerRadius
-                                                gradient: Gradient {
-                                                    GradientStop { position: 0; color: Theme.background }
-                                                    GradientStop { position: 1; color: Theme.chip }
-                                                }
-                                            }
-                                            UiText {
-                                                objectName: "titleCardTitle"
-                                                x: 18; width: parent.width - 36
-                                                anchors.bottom: parent.bottom
-                                                anchors.bottomMargin: 18
-                                                text: posterCard.busy ? qsTr("Loading…") : posterCard.text
-                                                role: "meta"
-                                                font.family: Theme.contentFontFamily
-                                                font.pixelSize: 26
-                                                font.weight: 600
-                                                font.features: ({ "tnum": 1, "lnum": 1 })
-                                                lineHeight: 1.15
-                                                color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                                                wrapMode: Text.WordWrap
-                                                maximumLineCount: 4
-                                                elide: Text.ElideRight
-                                            }
-                                            Rectangle {
-                                                objectName: "rowShade"
-                                                anchors.fill: parent
-                                                radius: posterCard.cornerRadius
-                                                color: "black"
-                                                opacity: Math.max(0, 1 - posterCard.rowBrightness)
-                                                z: 8
-                                            }
-                                            // A title card is a flat plate: no bounce, and no
-                                            // cast between it and its caption (#837).
-                                            ArtworkFocus {
-                                                shown: posterCard.activeFocus
-                                                bounce: false
-                                                artworkRadius: posterCard.cornerRadius
+                                    artworkContent: Item {
+                                        anchors.fill: parent
+                                        Rectangle {
+                                            anchors.fill: parent
+                                            radius: posterCard.cornerRadius
+                                            gradient: Gradient {
+                                                GradientStop { position: 0; color: Theme.background }
+                                                GradientStop { position: 1; color: Theme.chip }
                                             }
                                         }
-                                        Column {
-                                            objectName: "cardCaption"
-                                            y: root.artworkHeight + 14
+                                        UiText {
+                                            objectName: "titleCardTitle"
+                                            x: 18; width: parent.width - 36
+                                            anchors.bottom: parent.bottom
+                                            anchors.bottomMargin: 18
+                                            text: posterCard.busy ? qsTr("Loading…") : posterCard.text
+                                            role: "meta"
+                                            font.family: Theme.contentFontFamily
+                                            font.pixelSize: 26
+                                            font.weight: 600
+                                            font.features: ({ "tnum": 1, "lnum": 1 })
+                                            lineHeight: 1.15
+                                            color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                                            wrapMode: Text.WordWrap
+                                            maximumLineCount: 4
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                    caption: Column {
+                                        width: parent.width
+                                        spacing: 4
+                                        UiText {
+                                            objectName: "cardTitle"
                                             width: parent.width
-                                            spacing: 4
-                                            UiText {
-                                                objectName: "cardTitle"
-                                                width: parent.width
-                                                text: posterCard.busy ? qsTr("Loading…") : posterCard.text
-                                                role: "caption"
-                                                font.pixelSize: 24
-                                                font.weight: 500
-                                                color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                                                wrapMode: Text.NoWrap
-                                                maximumLineCount: 1
-                                                elide: Text.ElideRight
-                                            }
-                                            UiText {
-                                                width: parent.width
-                                                visible: (entryLoader.modelData.subtitle || "").length > 0
-                                                text: entryLoader.modelData.subtitle || ""
-                                                role: "caption"
-                                                color: Theme.textHint
-                                                maximumLineCount: 1
-                                                elide: Text.ElideRight
-                                            }
+                                            text: posterCard.busy ? qsTr("Loading…") : posterCard.text
+                                            role: "caption"
+                                            font.pixelSize: 24
+                                            font.weight: 500
+                                            color: posterCard.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                                            wrapMode: Text.NoWrap
+                                            maximumLineCount: 1
+                                            elide: Text.ElideRight
+                                        }
+                                        UiText {
+                                            width: parent.width
+                                            visible: (entryLoader.modelData.subtitle || "").length > 0
+                                            text: entryLoader.modelData.subtitle || ""
+                                            role: "caption"
+                                            color: Theme.textHint
+                                            maximumLineCount: 1
+                                            elide: Text.ElideRight
                                         }
                                     }
                                 }

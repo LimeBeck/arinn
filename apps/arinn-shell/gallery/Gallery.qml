@@ -82,9 +82,9 @@ Window {
                 onActivated: root.lastAction = qsTr("Captioned card requested — fixture only")
             }
         }
-        Ui.UiText { x: 120; y: 530; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
+        Ui.UiText { x: 120; y: 580; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
         Row {
-            x: 120; y: 588; spacing: 32
+            x: 120; y: 628; spacing: 32
             Ui.AppTile {
                 id: tile
                 text: qsTr("Library"); monogram: "L"

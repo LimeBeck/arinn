@@ -44,6 +44,7 @@ set(ARINN_PRESENTATION_FILES
     ui/qmldir ui/Theme.qml ui/Focus.qml ui/InputMode.qml ui/UiText.qml ui/FontWeightAxis.qml ui/LogicalCanvas.qml
     ui/Surface.qml ui/FocusRing.qml ui/ArtworkFocus.qml ui/CastLight.qml ui/ActionButton.qml ui/ContentCard.qml ui/AppTile.qml
     ui/ConfirmationDialog.qml ui/SideSheet.qml ui/IconButton.qml ui/ArtworkFrame.qml ui/CaptionedCard.qml
+    ui/TextField.qml ui/TextFieldFrame.qml
     ui/HomeRow.qml ui/HomeView.qml ui/BrandLockup.qml ui/BrandButton.qml
     ui/ProgressTrack.qml ui/Skeleton.qml ui/StatusPane.qml ui/LaunchOverlay.qml
     ui/AmbientGlow.qml ui/ActivityBackground.qml ui/VolumeHud.qml ui/OnScreenKeyboard.qml ui/KeyboardButton.qml ui/LineIcon.qml

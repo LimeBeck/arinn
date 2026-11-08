@@ -143,6 +143,14 @@ that button; Save and Cancel stay available. `KeyboardMonitor` reports a
 keyboard only when an input device of that type is present. Arrow keys and other
 remote navigation do not mark one. The first character key enables the field.
 
+Text-field presentation uses the shared `TextField` primitive and
+`TextFieldFrame` composition: the normal string sheet and full-screen
+string/path typing layers share the plate, caret, keyboard button and trailing
+counter slot with Browse and Music. The native editor remains the on-screen
+keyboard target; validation, Unicode character limits, drafts, commits,
+Back/Home and placement above the panel remain owned here. Inline path editors
+reuse the same text primitive without adding a second plate.
+
 A single path, and a path list that is not a list of folders, stay inline text
 fields with Add and Remove. A list of folders (`multiple` and `directory`) opens
 the Library folders screen and the folder picker instead

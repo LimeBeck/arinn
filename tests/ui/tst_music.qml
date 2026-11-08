@@ -813,7 +813,7 @@ TestCase {
         compare(findChild(findChild(view,"musicQueue"),"musicPillIcon").name,"queue_music");
         compare(iconOf(findChild(view,"musicMore")).name,"more_horiz");
         view.mode="catalogue";wait(0);
-        const plate=findChild(view,"musicSearch").parent;compare(plate.radius,Ui.Theme.containerRadius);
+        const plate=findChild(view,"musicSearchFrame");compare(plate.radius,Ui.Theme.containerRadius);
         view.requestPlay("track-1");
         compare(findChild(findChild(view,"musicReplaceDialog"),"confirmationScrim").color,Ui.Theme.scrim);
         compare(findChild(findChild(view,"musicReplaceDialog"),"confirmationPlate").radius,Ui.Theme.dialogRadius);

@@ -6,6 +6,7 @@ import QtQuick
 FocusScope {
     id: root
 
+    readonly property var keyboardButton: fieldPlate.keyboardButton
     property string text: ""
     property string kind: ""
     property string resolvedUrl: ""
@@ -178,7 +179,7 @@ FocusScope {
         font.weight: 700
     }
 
-    Rectangle {
+    Ui.TextFieldFrame {
         id: fieldPlate
 
         x: 120
@@ -186,82 +187,43 @@ FocusScope {
         width: 1480
         height: 132
         radius: 34
-        // The field's plate brightens and takes the rim whenever focus is in
-        // the field or on its keyboard button, so the first focus is visible
-        // (#756 C28).
-        readonly property bool focused: field.activeFocus || keyboardButton.activeFocus || root.keyboardOpen
-        color: Qt.rgba(1, 1, 1, focused ? 0.12 : 0.07)
-        Ui.FocusRing {
-            objectName: "browseFieldRim"
-            shown: fieldPlate.focused
-            radius: fieldPlate.radius
-        }
-
-        TextInput {
+        editor: field
+        keyboardOpen: root.keyboardOpen
+        keyboardEnabled: !root.browserUnavailable
+        keyboardButton.objectName: "browseKeyboard"
+        rim.objectName: "browseFieldRim"
+        onKeyboardRequested: root.keyboardOpen ? root.hideKeyboard() : root.showKeyboard()
+        Ui.TextField {
             id: field
 
             objectName: "browseInput"
-            x: 32
             // Dimmed without a way to type; the keyboard button stays bright.
             opacity: root.browserUnavailable || !(root.canType || root.keyboardOpen) ? 0.6 : 1
-            width: keyboardButton.x - x - 24
+            width: parent.width
             height: 80
             anchors.verticalCenter: parent.verticalCenter
             text: root.text
-            color: Ui.Theme.textPrimary
-            font.family: Ui.Theme.fontFamily
             font.pixelSize: 48
             font.weight: 500
-            Ui.FontWeightAxis {}
-            verticalAlignment: TextInput.AlignVCenter
-            clip: true
             selectByMouse: true
-            // The panel types here without focus; the caret stays visible.
-            cursorVisible: activeFocus || root.keyboardOpen
-            cursorDelegate: Rectangle {
-                width: 4
-                color: Ui.Theme.ember
-                visible: field.cursorVisible
-            }
             enabled: !root.browserUnavailable && !root.busy && (root.canType || root.keyboardOpen)
             onTextEdited: root.textEdited(text)
+            onSubmitted: if (root.valid && !root.busy) root.openRequested()
             Keys.onPressed: (event) => {
                 if (event.key === Qt.Key_Home && event.modifiers === Qt.NoModifier) {
                     // TextInput would take Home as cursor movement (#329).
                     if (!event.isAutoRepeat) root.homeRequested();
                     event.accepted = true;
-                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    if (!event.isAutoRepeat && root.valid && !root.busy)
-                        root.openRequested();
-
-                    event.accepted = true;
                 }
             }
 
-            Ui.UiText {
-                anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Website address or what to find")
-                font.pixelSize: 48
-                color: Ui.Theme.textHint
-                visible: !field.text.length
-            }
-
+            placeholderText: qsTr("Website address or what to find")
+            errorText: root.kind === "invalid" ? intent.text : ""
         }
-
-        Ui.KeyboardButton {
-            id: keyboardButton
-
-            objectName: "browseKeyboard"
-            x: parent.width - width - 24
-            anchors.verticalCenter: parent.verticalCenter
-            panelOpen: root.keyboardOpen
-            enabled: !root.browserUnavailable
-            onActivated: root.keyboardOpen ? root.hideKeyboard() : root.showKeyboard()
-        }
-
     }
 
     Ui.UiText {
+        id: intent
         objectName: "browseIntent"
         x: 152
         y: fieldPlate.y + 160

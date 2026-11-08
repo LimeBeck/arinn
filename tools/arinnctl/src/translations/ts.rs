@@ -323,7 +323,7 @@ pub fn check(document: &Document) -> Result<Report> {
         ensure!(keys.insert(key), "Duplicate TS lookup key");
         let expected = placeholders(&m.source)?;
         ensure!(
-            !expected.counts.is_empty() == m.numerus,
+            expected.counts.is_empty() != m.numerus,
             "Source numerus metadata does not match its placeholders"
         );
         if !m.finished {

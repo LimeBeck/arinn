@@ -10,6 +10,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
+#include <QQmlProperty>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QScopeGuard>
@@ -243,6 +244,7 @@ public:
   QList<FolderMemberWire> folderMembers;
   bool pagedHierarchy = false, staleHierarchy = false, rejectHierarchy = false;
   int descriptionReads = 0, descriptionDelayMs = 0;
+  int statusDelayMs = 0;
   bool staleDescription = false, rejectDescription = false;
   QString descriptionText = QStringLiteral("Русский <b>plot</b>");
   int hierarchyReads = 0;
@@ -456,7 +458,13 @@ public:
                                         QStringLiteral("fixture")));
       return true;
     }
-    bus.send(message.createReply(QVariant::fromValue(body)));
+    const auto reply = message.createReply(QVariant::fromValue(body));
+    if (message.member() == QLatin1String("Status") && statusDelayMs > 0) {
+      message.setDelayedReply(true);
+      QTimer::singleShot(statusDelayMs, this, [bus, reply] { bus.send(reply); });
+    } else {
+      bus.send(reply);
+    }
     return true;
   }
 };
@@ -2211,7 +2219,9 @@ private slots:
 
   void deferredRowRetryUnderTheMenuKeepsItsFocus() {
     LibraryDaemon daemon;
-    QVERIFY(registerBus(daemon));
+    daemon.statusDelayMs = 250;
+    DescriptionFixtureBus fixtureBus;
+    QVERIFY(fixtureBus.install(daemon));
     ShellStandIn backend;
     SessionGuardStandIn guard;
     QQmlApplicationEngine engine;
@@ -2235,13 +2245,20 @@ private slots:
                           {QStringLiteral("progress"), 0.5},
                           {QStringLiteral("importState"), QStringLiteral("pending")}};
     home->setProperty("screen", QStringLiteral("downloads"));
-    // Let the start-up catalogue load settle before replacing its jobs.
-    QTest::qWait(200);
-    downloads->setProperty("viewState", QStringLiteral("populated"));
-    downloads->setProperty("jobs", QVariantList{job});
+    // These rows are a synthetic focus fixture. QQmlProperty::write detaches
+    // the live bindings; QObject::setProperty leaves them active, so late
+    // download/library startup replies can otherwise replace the fixture.
+    QVERIFY(QQmlProperty(downloads, QStringLiteral("viewState"))
+                .write(QStringLiteral("populated")));
+    QVERIFY(QQmlProperty(downloads, QStringLiteral("jobs"))
+                .write(QVariantList{job}));
     auto row = findItem(downloads, QStringLiteral("job-job-1"));
     QVERIFY(row);
     QTRY_VERIFY(row->hasActiveFocus());
+    auto catalog = window->findChild<QObject *>(QStringLiteral("downloadCatalog"));
+    QVERIFY(catalog);
+    QTRY_COMPARE(catalog->property("downloadsState").toString(),
+                 QStringLiteral("unavailable"));
     QTest::qWait(100);
     QCOMPARE(downloads->property("viewState").toString(), QStringLiteral("populated"));
 

@@ -7,6 +7,8 @@ import "../.." as Ui
 
 FocusScope {
     id: root
+    readonly property var playlistKeyboard: playlistField.keyboardButton
+    readonly property var searchKeyboardButton: searchField.keyboardButton
     // Main owns cross-screen focus; every local Music scope forwards this
     // one input contract (ADR-0076/0095).
     property bool ownsFocus: true
@@ -1008,37 +1010,51 @@ FocusScope {
             }
         }
     }
-    Rectangle {
+    Ui.TextFieldFrame {
+        id: searchField
+        objectName: "musicSearchFrame"
         enabled: !root.pendingPlay
         x: 120
         y: root.mode === "search" ? 180 : 278
         width: root.mode === "search" ? Ui.Theme.canvasWidth - Ui.Theme.safeLeft - Ui.Theme.safeRight : catalogueActions.x - 40 - x
         height: 76
         radius: Ui.Theme.containerRadius
-        color: Ui.Theme.plate
+        restingColor: Ui.Theme.plate
+        focusedColor: restingColor
+        rimEnabled: false
+        inputInset: 14
+        rightInset: 12
+        gap: 16
+        keyboardHeight: 64
+        editor: search
+        keyboardOpen: root.typing && !root.namingPlaylist
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: root.contentHoverFocusEnabled
+        hoverMotionRevision: Ui.InputMode.pointerRevision
+        onDpadRequested: Ui.InputMode.keyPressed()
+        keyboardButton.objectName: "musicKeyboard"
+        onKeyboardRequested: root.typing ? root.finishTyping() : root.startTyping()
+        onKeyboardKeyPressed: event => {
+            if (event.key === Qt.Key_Left) {
+                Ui.Focus.take(search);
+                event.accepted = true;
+            } else if (event.key === Qt.Key_Down) {
+                root.belowSearch();
+                event.accepted = true;
+            } else if (event.key === Qt.Key_Right) {
+                Ui.Focus.take(detailPlay.visible ? detailPlay : openPlayerButton.visible ? openPlayerButton : settingsButton);
+                event.accepted = true;
+            }
+        }
         visible: (root.mode === "catalogue" && !root.detailView) || root.mode === "search"
-        T.TextField {
+        Ui.TextField {
             id: search
             objectName: "musicSearch"
             anchors.fill: parent
-            anchors.margins: 14
-            anchors.rightMargin: searchKeyboardButton.width + 28
+            anchors.topMargin: 14
+            anchors.bottomMargin: 14
             placeholderText: qsTr("Search this source")
             font.pixelSize: 28
-            color: Ui.Theme.textPrimary
-            placeholderTextColor: Ui.Theme.textHint
-            background: Rectangle {
-                color: "transparent"
-            }
-            Ui.UiText {
-                anchors.fill: parent
-                visible: !search.text.length && !search.preeditText.length
-                text: search.placeholderText
-                role: "control"
-                font.pixelSize: 28
-                color: Ui.Theme.textHint
-                verticalAlignment: Text.AlignVCenter
-            }
             onTextChanged: {
                 searchDelay.forMode = root.mode;
                 searchDelay.restart();
@@ -1054,8 +1070,7 @@ FocusScope {
                 else
                     event.accepted = false;
             }
-            Keys.onReturnPressed: root.startTyping()
-            Keys.onEnterPressed: root.startTyping()
+            onSubmitted: root.startTyping()
             Timer {
                 id: searchDelay
                 interval: 350
@@ -1069,24 +1084,6 @@ FocusScope {
                 else if (forMode === root.mode && !root.detailView)
                     root.browse(root.facet, root.parentId, search.text)
             }
-        }
-        Ui.KeyboardButton {
-            id: searchKeyboardButton
-            pointerMode: root.pointerMode
-            hoverFocusEnabled: root.contentHoverFocusEnabled
-            hoverMotionRevision: Ui.InputMode.pointerRevision
-            onDpadRequested: Ui.InputMode.keyPressed()
-            objectName: "musicKeyboard"
-            x: parent.width - width - 12
-            anchors.verticalCenter: parent.verticalCenter
-            height: 64
-            KeyNavigation.right: detailPlay.visible ? detailPlay
-                : openPlayerButton.visible ? openPlayerButton
-                : settingsButton
-            panelOpen: root.typing
-            onActivated: root.typing ? root.finishTyping() : root.startTyping()
-            Keys.onDownPressed: root.belowSearch()
-            Keys.onLeftPressed: Ui.Focus.take(search)
         }
     }
     // Labels set the widths, so longer translations fit (#756 M25); the row
@@ -2056,45 +2053,48 @@ FocusScope {
                 text: qsTr("Save playlist")
                 role: "title"
             }
-            Rectangle {
+            Ui.TextFieldFrame {
+                id: playlistField
                 width: 1200
                 height: 100
                 radius: Ui.Theme.containerRadius
-                color: Ui.Theme.plateContainer
-                TextInput {
+                inputInset: 24
+                rightInset: 12
+                restingColor: Ui.Theme.plateContainer
+                focusedColor: Ui.Theme.plateContainer
+                rimEnabled: false
+                editor: playlistName
+                keyboardOpen: root.typing && root.namingPlaylist
+                pointerMode: root.pointerMode
+                hoverFocusEnabled: root.hoverFocusEnabled
+                hoverMotionRevision: Ui.InputMode.pointerRevision
+                onDpadRequested: Ui.InputMode.keyPressed()
+                keyboardButton.objectName: "musicPlaylistKeyboard"
+                onKeyboardRequested: root.startTyping(playlistName)
+                onKeyboardKeyPressed: event => {
+                    if (event.key === Qt.Key_Left) {
+                        Ui.Focus.take(playlistName);
+                        event.accepted = true;
+                    } else if (event.key === Qt.Key_Down) {
+                        Ui.Focus.take(playlistSave);
+                        event.accepted = true;
+                    }
+                }
+                Ui.TextField {
                     id: playlistName
                     objectName: "musicPlaylistName"
-                    x: 24
-                    y: 20
-                    width: 820
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.min(820, parent.width)
                     height: 60
-                    font.family: Ui.Theme.fontFamily
                     font.pixelSize: 36
-                    color: Ui.Theme.textPrimary
-                    clip: true
                     maximumLength: 128
-                    Keys.onReturnPressed: Ui.Focus.take(playlistSave)
-                    Keys.onEnterPressed: Ui.Focus.take(playlistSave)
+                    onSubmitted: Ui.Focus.take(playlistSave)
                     Keys.onRightPressed: event => {
                         if (cursorPosition === length)
                             Ui.Focus.take(playlistKeyboard);
                         else
                             event.accepted = false;
                     }
-                }
-                Ui.KeyboardButton {
-                    id: playlistKeyboard
-                    pointerMode: root.pointerMode
-                    hoverFocusEnabled: root.hoverFocusEnabled
-                    hoverMotionRevision: Ui.InputMode.pointerRevision
-                    onDpadRequested: Ui.InputMode.keyPressed()
-                    objectName: "musicPlaylistKeyboard"
-                    anchors.right: parent.right
-                    anchors.rightMargin: 12
-                    anchors.verticalCenter: parent.verticalCenter
-                    onActivated: root.startTyping(playlistName)
-                    Keys.onLeftPressed: Ui.Focus.take(playlistName)
-                    Keys.onDownPressed: Ui.Focus.take(playlistSave)
                 }
             }
             Row {

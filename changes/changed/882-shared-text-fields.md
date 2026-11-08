@@ -1,0 +1,1 @@
+- Browse, Music search and playlist naming, and Settings editors now share native text-field presentation and keyboard framing. Placeholder, caret, error/read-only states, keyboard intents and counter spacing use the same foundation while each screen retains validation, Unicode limits, persistence and navigation.

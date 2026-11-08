@@ -9,6 +9,9 @@ import "../../" as Ui
 // binds SettingsCatalog). This view does not call a daemon or a provider.
 FocusScope {
     id: root
+    readonly property var stringKeyboardButton: stringFieldFrame.keyboardButton
+    readonly property var stringTypingButton: stringTypingFrame.keyboardButton
+    readonly property var pathTypingButton: pathTypingFrame.keyboardButton
     width: 1920
     height: 1080
     property string screenState: "ready"
@@ -1685,17 +1688,14 @@ FocusScope {
                                                    : (root.valueUnsupported(row) ? Ui.Theme.error : Ui.Theme.textSecondary)
                                             text: root.displayValue(row)
                                         }
-                                        TextInput {
+                                        Ui.TextField {
                                             id: simpleEditor
                                             objectName: rowScope.simpleRow && row.type === "path" ? "editor-" + rowScope.key : ""
                                             visible: row.type === "path" && root.editingKey === rowScope.key && root.editingPart === "main"
                                             width: 220
                                             anchors.verticalCenter: parent.verticalCenter
                                             horizontalAlignment: Text.AlignRight
-                                            color: Ui.Theme.textPrimary
-                                            font.family: Ui.Theme.fontFamily
                                             font.pixelSize: 26
-                                            clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(simpleEditor, simpleKeyboard)
                                             onTextChanged: if (visible && activeFocus && !root.expandTyped(simpleEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
@@ -1909,18 +1909,14 @@ FocusScope {
                                                     role: "meta"
                                                     color: Ui.Theme.error
                                                 }
-                                                TextInput {
+                                                Ui.TextField {
                                                     id: pathEditor
                                                     anchors.fill: parent
                                                     anchors.leftMargin: 20
                                                     anchors.rightMargin: pathItemKeyboard.width + 32
                                                     objectName: "editor-" + rowScope.key + "-" + index
                                                     visible: root.editingKey === rowScope.key && root.editingPart === "path:" + index
-                                                    color: Ui.Theme.textPrimary
-                                                    font.family: Ui.Theme.fontFamily
                                                     font.pixelSize: 26
-                                                    clip: true
-                                                    verticalAlignment: Text.AlignVCenter
                                                     onVisibleChanged: if (visible) root.pathEditorOpened(pathEditor, pathItemKeyboard)
                                                     onTextChanged: if (visible && activeFocus && !root.expandTyped(pathEditor)) root.editingDraft = text
                                                     Keys.onPressed: event => root.editorKeys(event)
@@ -1990,7 +1986,7 @@ FocusScope {
                                             verticalAlignment: Text.AlignVCenter
                                             role: "meta"
                                         }
-                                        TextInput {
+                                        Ui.TextField {
                                             id: addEditor
                                             anchors.centerIn: parent
                                             // Clear of the keyboard pill on the right.
@@ -1998,10 +1994,7 @@ FocusScope {
                                             objectName: rowScope.multiple ? "editor-" + rowScope.key + "-add" : ""
                                             visible: root.editingKey === rowScope.key && root.editingPart === "add"
                                             horizontalAlignment: Text.AlignHCenter
-                                            color: Ui.Theme.textPrimary
-                                            font.family: Ui.Theme.fontFamily
                                             font.pixelSize: 26
-                                            clip: true
                                             onVisibleChanged: if (visible) root.pathEditorOpened(addEditor, addKeyboard)
                                             onTextChanged: if (visible && activeFocus && !root.expandTyped(addEditor)) root.editingDraft = text
                                             Keys.onPressed: event => root.editorKeys(event)
@@ -2386,11 +2379,20 @@ FocusScope {
                     visible: root.stringSheet
                     width: parent.width
                     spacing: 16
-                    Rectangle {
+                    Ui.TextFieldFrame {
+                        id: stringFieldFrame
                         width: parent.width
                         height: 112
                         radius: 30
-                        color: Qt.rgba(1, 1, 1, 0.1)
+                        restingColor: Qt.rgba(1, 1, 1, 0.1)
+                        focusedColor: restingColor
+                        rimEnabled: false
+                        inputInset: 28
+                        rightInset: 14
+                        gap: 26
+                        editor: stringField
+                        keyboardButton.objectName: "stringKeyboard"
+                        onKeyboardRequested: root.startStringTyping()
                         // Keys the field and its keyboard button leave unhandled.
                         Keys.onPressed: event => {
                             if (root.homeKey(event)) return;
@@ -2415,18 +2417,13 @@ FocusScope {
                             }
                             event.accepted = true;
                         }
-                        TextInput {
+                        Ui.TextField {
                             id: stringField
+                            errorText: stringError.visible ? stringError.text : ""
                             objectName: root.stringSheet ? "editor-" + root.editingKey : ""
                             anchors.fill: parent
-                            anchors.leftMargin: 28
-                            anchors.rightMargin: stringKeyboardButton.width + 40
                             opacity: root.keyboardReady ? 1 : 0.6
-                            verticalAlignment: Text.AlignVCenter
-                            color: Ui.Theme.textPrimary
-                            font.family: Ui.Theme.fontFamily
                             font.pixelSize: 36
-                            clip: true
                             enabled: root.keyboardReady
                             onVisibleChanged: if (visible) {
                                 text = root.editingDraft;
@@ -2458,13 +2455,6 @@ FocusScope {
                                 } else root.noteStringEdit();
                             }
                         }
-                        Ui.KeyboardButton {
-                            id: stringKeyboardButton
-                            objectName: "stringKeyboard"
-                            x: parent.width - width - 14
-                            anchors.verticalCenter: parent.verticalCenter
-                            onActivated: root.startStringTyping()
-                        }
                     }
                     Ui.UiText {
                         objectName: "stringCounter"
@@ -2479,6 +2469,7 @@ FocusScope {
                         }
                     }
                     Ui.UiText {
+                        id: stringError
                         objectName: "stringError"
                         visible: root.stringRowData !== null && !!root.stringRowData.error
                                  && root.hiddenStringError !== root.rowKey(root.stringRowData) + "\n" + root.stringRowData.error
@@ -2615,62 +2606,49 @@ FocusScope {
                 wrapMode: Text.NoWrap
             }
         }
-        Rectangle {
+        Ui.TextFieldFrame {
+            id: stringTypingFrame
             x: 120
             y: 160
             width: 1680
             height: 132
             radius: 34
-            color: Qt.rgba(1, 1, 1, 0.12)
-            border.width: 3
-            border.color: Ui.Theme.ring
-            TextInput {
+            restingColor: Qt.rgba(1, 1, 1, 0.12)
+            focusedColor: restingColor
+            rimEnabled: false
+            outlineWidth: 3
+            editor: stringTypingInput
+            keyboardOpen: true
+            keyboardButton.objectName: "stringTypingKeyboard"
+            onKeyboardRequested: root.finishStringTyping(false)
+            Ui.TextField {
                 id: stringTypingInput
+                errorText: stringTypingError.text
                 objectName: "stringTypingInput"
-                x: 32
-                // Ends before the counter so the caret stays in view.
-                width: (stringTypingCounter.visible ? stringTypingCounter.x
-                                                    : stringTypingButton.x) - x - 24
+                width: parent.width
                 height: 80
                 anchors.verticalCenter: parent.verticalCenter
-                font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
-                Ui.FontWeightAxis {}
-                color: Ui.Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                clip: true
-                cursorVisible: stringTypingLayer.visible
-                cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: stringTypingInput.cursorVisible }
                 onTextChanged: if (stringTypingLayer.visible) {
                     root.editingDraft = text;
                     stringField.text = text;
                     root.noteStringEdit();
                 }
             }
-            Ui.UiText {
+            trailing: Ui.UiText {
                 // From 75% of a limit up to 64 (KB-4); error-coloured at the limit.
                 id: stringTypingCounter
                 objectName: "stringTypingCounter"
-                anchors.right: stringTypingButton.left
-                anchors.rightMargin: 24
-                anchors.verticalCenter: parent.verticalCenter
                 visible: stringTypingLayer.limit > 0 && stringTypingLayer.limit <= 64
                          && stringTypingLayer.count >= Math.ceil(stringTypingLayer.limit * 0.75)
                 text: stringTypingLayer.count + " / " + stringTypingLayer.limit
                 role: "meta"
                 color: stringTypingLayer.count >= stringTypingLayer.limit ? Ui.Theme.error : Ui.Theme.textSecondary
             }
-            Ui.KeyboardButton {
-                id: stringTypingButton
-                objectName: "stringTypingKeyboard"
-                x: parent.width - width - 24
-                anchors.verticalCenter: parent.verticalCenter
-                panelOpen: true
-                onActivated: root.finishStringTyping(false)
-            }
         }
         Ui.UiText {
+            id: stringTypingError
             objectName: "stringTypingError"
             x: 152
             y: 320
@@ -2754,45 +2732,36 @@ FocusScope {
                 wrapMode: Text.NoWrap
             }
         }
-        Rectangle {
+        Ui.TextFieldFrame {
+            id: pathTypingFrame
             objectName: "pathTypingField"
             x: 120
             y: 160
             width: 1680
             height: 132
             radius: 34
-            color: Qt.rgba(1, 1, 1, 0.12)
-            border.width: 3
-            border.color: Ui.Theme.ring
-            TextInput {
+            restingColor: Qt.rgba(1, 1, 1, 0.12)
+            focusedColor: restingColor
+            rimEnabled: false
+            outlineWidth: 3
+            editor: pathTypingInput
+            keyboardOpen: true
+            keyboardButton.objectName: "pathTypingKeyboard"
+            onKeyboardRequested: root.finishPathTyping(false)
+            Ui.TextField {
                 id: pathTypingInput
+                errorText: root.pathHint
                 objectName: "pathTypingInput"
-                x: 32
-                width: pathTypingButton.x - x - 24
+                width: parent.width
                 height: 80
                 anchors.verticalCenter: parent.verticalCenter
-                font.family: Ui.Theme.fontFamily
                 font.pixelSize: 48
                 font.weight: 500
-                Ui.FontWeightAxis {}
-                color: Ui.Theme.textPrimary
-                verticalAlignment: TextInput.AlignVCenter
-                clip: true
-                cursorVisible: pathTypingLayer.visible
-                cursorDelegate: Rectangle { width: 4; color: Ui.Theme.ember; visible: pathTypingInput.cursorVisible }
                 onTextChanged: if (pathTypingLayer.visible && !root.expandTyped(pathTypingInput)) {
                     root.editingDraft = text;
                     const editor = root.pathControl("editor");
                     if (editor) editor.text = text;
                 }
-            }
-            Ui.KeyboardButton {
-                id: pathTypingButton
-                objectName: "pathTypingKeyboard"
-                x: parent.width - width - 24
-                anchors.verticalCenter: parent.verticalCenter
-                panelOpen: true
-                onActivated: root.finishPathTyping(false)
             }
         }
         Ui.UiText {

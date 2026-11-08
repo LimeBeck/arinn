@@ -171,6 +171,22 @@ Window {
             text: root.lastAction
             role: "meta"; color: Ui.Theme.textSecondary
         }
+        Ui.TextFieldFrame {
+            x: 1100; y: 120; width: 700; height: 96
+            radius: Ui.Theme.containerRadius
+            editor: galleryInput
+            pointerMode: root.pointerMode
+            onDpadRequested: root.pointerMode = false
+            onKeyboardRequested: root.lastAction = qsTr("Keyboard requested — fixture only")
+            Ui.TextField {
+                id: galleryInput
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width; height: 72
+                font.pixelSize: 28
+                placeholderText: qsTr("A shared native text field")
+                onSubmitted: root.lastAction = qsTr("Text submitted — fixture only")
+            }
+        }
         Ui.UiText {
             x: 120; y: 992
             text: qsTr("Development fixtures · no applications are launched")

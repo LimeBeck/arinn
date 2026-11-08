@@ -45,8 +45,10 @@ Surface {
         height: root.presentation === "pill" ? 4 : 8
         radius: height / 2
         anchors.horizontalCenter: parent.horizontalCenter
-        y: parent.height - (root.presentation === "pill" ? 11 : 6)
+        y: parent.height - (root.presentation === "pill" ? 11 : root.presentation === "action" ? 12 : 6)
         color: Theme.ember
-        visible: root.selected && !root.activeFocus
+        // Music's selected source/order stays marked while it has focus;
+        // Library's accepted dot/underline roles hide their mark in focus.
+        visible: root.selected && (root.presentation === "action" || !root.activeFocus)
     }
 }

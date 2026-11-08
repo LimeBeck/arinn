@@ -27,7 +27,7 @@ TestCase {
         verify(marker.visible);
         Ui.Focus.take(button);
         tryCompare(button, "activeFocus", true);
-        compare(marker.visible, false);
+        compare(marker.visible, data.role === "action");
         compare(button.selected, true);
         const expected = data.role === "pill" ? Ui.Theme.textPrimary : Ui.Theme.ink;
         // Theme's OKLCH colour may cross QColor's float/RGB conversion.

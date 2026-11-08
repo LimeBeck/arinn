@@ -146,5 +146,5 @@ Item {
         bounce: root.bounce
         artworkRadius: root.radius
     }
-    Item { id: statusSlot; anchors.fill: parent }
+    Item { id: statusSlot; anchors.fill: parent; z: 31 }
 }

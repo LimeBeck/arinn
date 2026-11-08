@@ -15,6 +15,14 @@ TestCase {
     readonly property string portrait: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABQAAAAeCAIAAACjcKk8AAAAJUlEQVR42mPQ0LhDNmIY1TwyNN+hQPeo5lHNg1nzaGEwqpkQAgBlZb8/WLTFKQAAAABJRU5ErkJggg=="
     Component { id: frameFactory; Ui.ArtworkFrame { x: 200; y: 200; width: 200; height: 100 } }
     Component {
+        id: slotsFactory
+        Ui.ArtworkFrame {
+            x: 200; y: 200; width: 200; height: 100
+            source: suite.portrait
+            statusContent: Rectangle { x: 80; y: 80; width: 40; height: 20; color: "white" }
+        }
+    }
+    Component {
         id: musicFactory
         Music.MusicCard {
             x: 120; y: 200
@@ -90,5 +98,18 @@ TestCase {
         verify(bounds.x <= at.x - rim);
         verify(bounds.y <= at.y - rim);
         verify(bounds.x + bounds.width >= at.x + mat.width * card.imageScale + rim);
+    }
+    function test_status_slot_stays_above_shade_and_focus_bounce() {
+        const frame = createTemporaryObject(slotsFactory, suite, {rowBrightness: 0.62});
+        tryCompare(frame, "loaded", true);
+        function whiteStatus() {
+            const pixels = grabImage(frame);
+            return pixels.red(100, 95) === 255 && pixels.green(100, 95) === 255 && pixels.blue(100, 95) === 255;
+        }
+        tryVerify(whiteStatus);
+        frame.focused = true;
+        tryCompare(frame, "imageScale", Ui.Theme.contentFocusScale);
+        wait(Ui.Theme.focusDuration + 50);
+        verify(whiteStatus(), "status content paints above the artwork's warm bounce");
     }
 }

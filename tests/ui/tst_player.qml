@@ -330,9 +330,12 @@ TestCase {
     function test_shared_transport_buttons_keep_the_osd_keyboard_owner() {
         player.canPrevious = true
         player.canNext = true
-        wait(0) // The newly visible controls first join the Row layout.
         const previous = child("previousButton")
         const toggle = child("playpauseButton")
+        // A zero-delay event turn need not run the positioner's polish on
+        // every Qt version. Click only after the changed Row is laid out.
+        verify(waitForPolish(previous.parent))
+        verify(waitForRendering(previous))
         mouseClick(previous, previous.width / 2, previous.height / 2)
         compare(previouses.count, 1)
         compare(player.osdFocus, "previous")

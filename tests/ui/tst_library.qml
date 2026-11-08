@@ -236,7 +236,7 @@ TestCase {
         focused("poster-a");
         compare(child("missing-a").visible, false);
         compare(child("missing-d").visible, true);
-        compare(child("missing-d").parent.text, "Delta");
+        compare(child("poster-d").text, "Delta");
         compare(child("missingLabel-d").text, "No file");
         compare(child("missing-d").height, 40);
         verify(child("missing-d").y > child("poster-d").height * 0.7);
@@ -543,13 +543,17 @@ TestCase {
         focused("tab-films");
         keyClick(Qt.Key_Down);
         focused("poster-a");
-        // The caption stays under the image, so it lifts with the poster.
-        compare(child("posterCaption-a").lift, child("poster-a").lift);
+        // Artwork lifts inside the stationary captioned control (ADR-0136).
+        const captionAt = child("posterCaption-a").mapToItem(library, 0, 0);
         library.pointerMode = false;
-        compare(child("posterCaption-a").lift, Ui.Theme.contentFocusLift);
+        tryCompare(child("poster-a"), "imageLift", Ui.Theme.contentFocusLift);
         library.pointerMode = true;
-        compare(child("posterCaption-a").lift, -2);
-        tryVerify(function() { return child("poster-a").scale > 1.01; });
+        tryCompare(child("poster-a"), "imageLift", -2);
+        tryVerify(function() { return child("poster-a").imageScale > 1.01; });
+        const pointerCaption = child("posterCaption-a").mapToItem(library, 0, 0);
+        compare(pointerCaption.x, captionAt.x);
+        compare(pointerCaption.y, captionAt.y);
+        compare(child("poster-a").scale, 1);
         keyClick(Qt.Key_Up);
         focused("tab-films");
         keyClick(Qt.Key_Right);

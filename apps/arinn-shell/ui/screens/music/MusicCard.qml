@@ -6,13 +6,13 @@ import "../.." as Ui
 // One entry on a music shelf (brief mh-01): the artwork, then the title and
 // a subtitle that starts with the source mark (MH-1, MH-10). A station is a
 // 16:9 card, an artist a round portrait, everything else a square cover.
-Ui.Surface {
+Ui.CaptionedCard {
     id: root
     hoverMotionRevision: Ui.InputMode.pointerRevision
     onDpadRequested: Ui.InputMode.keyPressed()
     property var entry: ({})
     property real artworkWidth: 240
-    property real artworkHeight: 240
+    artworkHeight: 240
     property bool round: false
     // The entry is the one that plays: the playing chip sits on its artwork.
     property bool playing: false
@@ -20,11 +20,10 @@ Ui.Surface {
     // cover shows it (#843). Then the neutral chip with the station glyph.
     property string playingImage: ""
     readonly property string kind: entry.kind || ""
-    shapeRole: "content"
     text: entry.title || ""
     cornerRadius: round ? artworkWidth / 2 : Ui.Theme.stillRadius
     implicitWidth: artworkWidth
-    implicitHeight: artworkHeight + Ui.Theme.contentCaptionHeight
+    captionGap: 12
     // Dimmed as one layer, so the chip under the glyph never shows through
     // (#843).
     opacity: entry.available === false ? 0.6 : 1
@@ -32,27 +31,24 @@ Ui.Surface {
     // The focus mat and rim paint outside the card: the layer takes them in
     // (Codex review of #848).
     readonly property real focusBleed: Ui.Theme.matThickness + Ui.Theme.rimThickness + 2
+        + Math.max(artworkWidth / 2, artworkHeight) * (Ui.Theme.contentFocusScale - 1)
+        + Math.abs(Ui.Theme.contentFocusLift)
     layer.sourceRect: Qt.rect(-focusBleed, -focusBleed, width + 2 * focusBleed,
                               height + 2 * focusBleed)
-    contentItem: Item {
-        MusicArtwork {
-            id: art
-            objectName: "musicCardArtwork"
-            width: root.artworkWidth
-            height: root.artworkHeight
-            radius: root.cornerRadius
-            // The card draws its own placeholder chip below: one glyph (#843).
-            placeholder: false
-            source: root.entry.image
-                || (root.playing && root.kind === "station" ? root.playingImage : "")
-            // Focus as on every content card (ADR-0136): the mat, then the
-            // rim from below (#838).
-            Ui.ArtworkFocus {
-                objectName: "musicCardFocus"
-                shown: root.activeFocus
-                artworkRadius: root.cornerRadius
-            }
-        }
+    artworkFrame.cache: false
+    artworkFrame.objectName: "musicCardArtwork"
+    artworkFrame.placeholderColor: Ui.Theme.plateObject
+    artworkFrame.decoration.objectName: "musicCardFocus"
+    artworkFrame.shade.objectName: "musicCardRowShade"
+    MusicArtwork {
+        id: art
+        objectName: "musicCardArtworkRetryPolicy"
+        frame: root.artworkFrame
+        source: root.entry.image
+            || (root.playing && root.kind === "station" ? root.playingImage : "")
+    }
+    artworkContent: Item {
+        anchors.fill: parent
         // An artist without a portrait: its initial in a neutral chip.
         Rectangle {
             objectName: "musicCardMonogram"
@@ -61,7 +57,7 @@ Ui.Surface {
             radius: root.cornerRadius
             color: Ui.Theme.chip
             border.color: Ui.Theme.chipLine
-            visible: !art.loaded
+            visible: !root.artworkFrame.loaded
             Ui.UiText {
                 anchors.centerIn: parent
                 role: "title"
@@ -78,18 +74,9 @@ Ui.Surface {
                 visible: root.kind !== "artist"
             }
         }
-        // The playing chip (brief, Continue card): three Ember bars in a
-        // neutral chip, a status mark, never a focus mark.
-        Rectangle {
-            objectName: "musicCardRowShade"
-            width: root.artworkWidth
-            height: root.artworkHeight
-            radius: root.cornerRadius
-            color: "black"
-            // Content shades the artwork, never the caption or status chip.
-            opacity: root.activeFocus ? 0 : Math.max(0, Math.min(1, 1 - root.rowBrightness))
-            Behavior on opacity { NumberAnimation { duration: Ui.Theme.focusDuration } }
-        }
+    }
+    artworkStatus: Item {
+        anchors.fill: parent
         Rectangle {
             objectName: "musicCardPlaying"
             x: 16
@@ -115,44 +102,43 @@ Ui.Surface {
                 }
             }
         }
-        Column {
-            y: root.artworkHeight + 12
-            width: root.artworkWidth
-            spacing: 4
+    }
+    caption: Column {
+        width: parent.width
+        spacing: 4
+        Ui.UiText {
+            objectName: "musicCardTitle"
+            width: parent.width
+            role: "meta"
+            color: root.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+            text: root.entry.title || ""
+            textFormat: Text.PlainText
+            maximumLineCount: 1
+            elide: Text.ElideRight
+        }
+        Row {
+            spacing: 8
+            width: parent.width
+            MusicSourceMark {
+                objectName: "musicCardSource"
+                local: root.entry.local === true
+                name: root.entry.providerName || ""
+            }
             Ui.UiText {
-                objectName: "musicCardTitle"
-                width: parent.width
-                role: "meta"
-                color: root.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                text: root.entry.title || ""
+                objectName: "musicCardSubtitle"
+                width: parent.width - 38
+                anchors.verticalCenter: parent.verticalCenter
+                role: "caption"
+                color: Ui.Theme.textHint
+                // A service is named after its mark, so two services and
+                // their unmerged duplicates stay apart (brief, MH-10).
+                text: [root.entry.local === true ? "" : (root.entry.providerName || ""),
+                       root.entry.available === false ? qsTr("Unavailable in this source")
+                       : root.kind === "album" || root.kind === "track" ? (root.entry.artist || "") : ""]
+                    .filter(part => part.length).join(" · ")
                 textFormat: Text.PlainText
                 maximumLineCount: 1
                 elide: Text.ElideRight
-            }
-            Row {
-                spacing: 8
-                width: parent.width
-                MusicSourceMark {
-                    objectName: "musicCardSource"
-                    local: root.entry.local === true
-                    name: root.entry.providerName || ""
-                }
-                Ui.UiText {
-                    objectName: "musicCardSubtitle"
-                    width: parent.width - 38
-                    anchors.verticalCenter: parent.verticalCenter
-                    role: "caption"
-                    color: Ui.Theme.textHint
-                    // A service is named after its mark, so two services and
-                    // their unmerged duplicates stay apart (brief, MH-10).
-                    text: [root.entry.local === true ? "" : (root.entry.providerName || ""),
-                           root.entry.available === false ? qsTr("Unavailable in this source")
-                           : root.kind === "album" || root.kind === "track" ? (root.entry.artist || "") : ""]
-                        .filter(part => part.length).join(" · ")
-                    textFormat: Text.PlainText
-                    maximumLineCount: 1
-                    elide: Text.ElideRight
-                }
             }
         }
     }

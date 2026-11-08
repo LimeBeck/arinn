@@ -129,13 +129,13 @@ TestCase {
         tryCompare(second, "activeFocus", true);
         compare(list.currentIndex, 1);
         compare(second.pointerMode, true);
-        tryCompare(second, "scale", 1 + (Ui.Theme.contentFocusScale - 1) / 2);
+        tryCompare(second, "imageScale", 1 + (Ui.Theme.contentFocusScale - 1) / 2);
         keyClick(Qt.Key_Right);
         tryCompare(list, "currentIndex", 2);
         compare(Ui.InputMode.pointerActive, false);
         const third = findChild(list.currentItem, "musicShelfCard");
         tryCompare(third, "activeFocus", true);
-        tryCompare(third, "scale", Ui.Theme.contentFocusScale);
+        tryCompare(third, "imageScale", Ui.Theme.contentFocusScale);
     }
     function test_music_key_cooldown_waits_for_genuine_motion() {
         const view = pointerRoom();
@@ -1334,7 +1334,7 @@ TestCase {
         keyClick(Qt.Key_Down);const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
         const area=findChild(view,"musicShelves");
         const first=albums.focusedCard;verify(first);const card=findChild(first,"musicShelfCard");
-        tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+        tryCompare(card,"imageScale",Ui.Theme.contentFocusScale);
         // The card, its mat and rim and its caption lie right of the clip.
         const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
         const clipLeft=area.mapToItem(view,0,0).x;
@@ -1353,7 +1353,7 @@ TestCase {
         compare(stops[1].position,Ui.Theme.edgeFadeStart/Ui.Theme.edgeFadeEnd);compare(stops[1].color.a,1);compare(stops[2].color.a,0);
         // Review of #848: a scrolled focused card stops right of the fade,
         // its mat and rim included.
-        const scrolled=findChild(albums.focusedCard,"musicShelfCard");tryCompare(scrolled,"scale",Ui.Theme.contentFocusScale);
+        const scrolled=findChild(albums.focusedCard,"musicShelfCard");tryCompare(scrolled,"imageScale",Ui.Theme.contentFocusScale);
         const scrolledMat=findChild(scrolled,"focusMat");
         tryVerify(()=>scrolledMat.mapToItem(view,0,0).x-Ui.Theme.rimThickness>=Ui.Theme.edgeFadeEnd);
         // Rows scrolled up fade under the hero; the focused shelf's title
@@ -1382,7 +1382,7 @@ TestCase {
         for(let i=0;i<3;i++)keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Return);compare(view.mode,"all");
         const all=findChild(view,"musicAll");const grid=findChild(all,"musicAllGrid");tryCompare(grid,"activeFocus",true);
-        const card=grid.currentItem;tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+        const card=grid.currentItem;tryCompare(card,"imageScale",Ui.Theme.contentFocusScale);
         const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
         const clip=findChild(all,"musicAllClip");const box=clip.mapToItem(view,0,0);const at=mat.mapToItem(view,0,0);
         verify(at.x-Ui.Theme.rimThickness>=box.x,"left "+at.x+" clip "+box.x);
@@ -1404,7 +1404,7 @@ TestCase {
         const columns=Math.floor(grid.width/grid.cellWidth);verify(columns>=2,"columns "+columns);
         for(const index of [0,columns-1]) {
             grid.currentIndex=index;const card=grid.currentItem;tryCompare(card,"activeFocus",true);
-            tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+            tryCompare(card,"imageScale",Ui.Theme.contentFocusScale);
             const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
             const at=mat.mapToItem(view,0,0),end=mat.mapToItem(view,mat.width,0);
             verify(at.x-Ui.Theme.rimThickness>=box.x,index+": left "+at.x+" clip "+box.x);
@@ -1630,7 +1630,7 @@ TestCase {
         view.forceActiveFocus();findChild(view,"musicRoom").focusInitial();
         const albums=findChild(view,"musicShelf-albums");tryCompare(albums,"activeFocus",true);
         for(let i=0;i<7;i++){keyClick(Qt.Key_Right);
-            const card=findChild(albums.focusedCard,"musicShelfCard");tryCompare(card,"scale",Ui.Theme.contentFocusScale);
+            const card=findChild(albums.focusedCard,"musicShelfCard");tryCompare(card,"imageScale",Ui.Theme.contentFocusScale);
             const mat=findChild(card,"focusMat");tryCompare(mat,"opacity",1);
             tryVerify(()=>mat.mapToItem(view,mat.width,0).x+Ui.Theme.rimThickness<=1920-Ui.Theme.safeRight,
                       2000,"card "+(i+1)+": "+mat.mapToItem(view,mat.width,0).x);}

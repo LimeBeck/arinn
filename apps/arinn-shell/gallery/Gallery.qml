@@ -63,7 +63,23 @@ Window {
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.down: unavailable
             }
-            Ui.Skeleton { width: 352 }
+            Ui.CaptionedCard {
+                width: 280
+                artworkHeight: 225
+                artwork: Qt.resolvedUrl("fixture-artwork.svg")
+                text: qsTr("Artwork and caption slots")
+                pointerMode: root.pointerMode
+                KeyNavigation.left: pending
+                KeyNavigation.down: unavailable
+                caption: Ui.UiText {
+                    width: parent.width
+                    text: qsTr("Stationary caption")
+                    role: "caption"
+                    maximumLineCount: 1
+                    elide: Text.ElideRight
+                }
+                onActivated: root.lastAction = qsTr("Captioned card requested — fixture only")
+            }
         }
         Ui.UiText { x: 120; y: 530; text: qsTr("Favorites / actions"); role: "eyebrow"; color: Ui.Theme.textSecondary }
         Row {

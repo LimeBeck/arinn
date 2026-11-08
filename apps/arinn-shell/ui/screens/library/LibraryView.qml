@@ -4,7 +4,6 @@
 import QtQuick
 import QtQuick.Window
 import "../.." as Ui
-import "../../artwork.js" as Artwork
 
 // Catalogue presentation. Properties are presentation data; signals are
 // intents. This screen does not call a daemon, a bus or a provider.
@@ -299,74 +298,16 @@ FocusScope {
             hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
         return Qt.hsla((hash % 360) / 360, 0.42, 0.34, 1);
     }
-    // A rounded backing does not clip an Image. Paint the crop through
-    // the same software-compatible mask used by ContentCard and Downloads.
-    component RoundedArtwork: Item {
-        id: artworkSlot
-        property alias source: picture.source
-        // Preserve the Image-like contract used by native image consumers.
-        // Ready means the rounded canvas has drawn the current source.
-        readonly property int status: picture.status === Image.Ready && !ready ? Image.Loading : picture.status
-        visible: picture.status === Image.Ready
+    // Thin Image-like adapter for episode stills. The shared frame owns
+    // bounded loading, source release and the software-compatible crop.
+    component RoundedArtwork: Ui.ArtworkFrame {
         property real cornerRadius: 0
-        readonly property bool ready: picture.status === Image.Ready && artworkCanvas.showsArtwork
-                && artworkCanvas.loadedSource === picture.source.toString()
-        onCornerRadiusChanged: artworkCanvas.requestPaint()
-        Image {
-            id: picture
-            anchors.fill: parent
-            asynchronous: true
-            cache: false
-            visible: false
-            // Decode only what the cell covers, not the full poster (#611).
-            sourceSize: Artwork.sourceSize(source, width, height)
-            onStatusChanged: artworkCanvas.syncSource()
-            onSourceChanged: Qt.callLater(artworkCanvas.syncSource)
-        }
-        Canvas {
-            id: artworkCanvas
-            objectName: "roundedArtworkCanvas"
-            anchors.fill: parent
-            opacity: artworkSlot.ready ? 1 : 0
-            property string loadedSource: ""
-            property bool showsArtwork: false
-            // The canvas copy is decoded at the Image's decoded size, which
-            // covers the cell (#611), so the crop uses the same pixels.
-            property size loadedSize: Qt.size(0, 0)
-            function syncSource() {
-                const ready = picture.status === Image.Ready;
-                const next = ready ? picture.source.toString() : "";
-                const size = ready ? Qt.size(picture.implicitWidth, picture.implicitHeight) : Qt.size(0, 0);
-                if (loadedSource !== next || loadedSize.width !== size.width
-                        || loadedSize.height !== size.height) {
-                    showsArtwork = false;
-                    if (loadedSource.length) unloadImage(loadedSource);
-                    loadedSource = next;
-                    loadedSize = size;
-                }
-                if (available && next.length && !isImageLoaded(next)
-                        && !isImageLoading(next) && !isImageError(next))
-                    Artwork.loadCopy(artworkCanvas, picture);
-                requestPaint();
-            }
-            onAvailableChanged: syncSource()
-            onImageLoaded: requestPaint()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d");
-                ctx.reset();
-                const image = loadedSource;
-                if (!image.length || picture.status !== Image.Ready
-                        || image !== picture.source.toString() || !isImageLoaded(image)) {
-                    showsArtwork = false;
-                    return;
-                }
-                Artwork.clipRounded(ctx, width, height, artworkSlot.cornerRadius);
-                showsArtwork = Artwork.drawCover(ctx, image, picture.implicitWidth,
-                                                 picture.implicitHeight, width, height);
-            }
-        }
+        radius: cornerRadius
+        cache: false
+        transformEnabled: false
+        placeholderColor: "transparent"
+        visible: imageReady
+        canvas.objectName: "roundedArtworkCanvas"
     }
     // The handoff's `movie` icon on a missing-artwork plate (§05 Library).
     component FilmGlyph: Item {
@@ -1257,18 +1198,14 @@ FocusScope {
                         function focusPoster() {
                             Ui.Focus.take(poster);
                         }
-                        Ui.Surface {
+                        Ui.CaptionedCard {
                             id: poster
                             objectName: "poster-" + modelData.id
                             width: root.posterWidth
                             height: root.posterHeight
                             cornerRadius: Ui.Theme.posterRadius
-                            focusScale: modelData.kind === "folder" ? 1.02 : Ui.Theme.contentFocusScale
-                            focusLift: modelData.kind === "folder" ? 0 : Ui.Theme.contentFocusLift
-                            liftFromBottom: modelData.kind !== "folder"
                             rimEnabled: modelData.kind === "folder"
                             shapeRole: modelData.kind === "folder" ? "container" : "content"
-                            transform: Translate { y: modelData.kind === "folder" ? 0 : poster.lift }
                             text: modelData.title || ""
                             enabled: modelData.enabled !== false
                             busy: !!modelData.busy || (root.operationPending && root.launchingId === modelData.id)
@@ -1286,34 +1223,28 @@ FocusScope {
                                 }
                             }
                             onActivated: root.openEntry(modelData.id)
-                            contentItem: Item {
+                            artworkHeight: root.posterHeight
+                            captionGap: 16
+                            captionHeight: 112
+                            artwork: cell.posterHasSource ? modelData.artwork : ""
+                            artworkFrame.cache: false
+                            artworkFrame.placeholderColor: "transparent"
+                            artworkFrame.focusScale: modelData.kind === "folder" ? 1.02 : Ui.Theme.contentFocusScale
+                            artworkFrame.focusLift: modelData.kind === "folder" ? 0 : Ui.Theme.contentFocusLift
+                            artworkFrame.decorationEnabled: modelData.kind !== "folder"
+                            artworkFrame.imageDisplay.objectName: "posterImage-" + modelData.id
+                            artworkFrame.canvas.objectName: "roundedArtworkCanvas"
+                            readonly property var posterImage: artworkFrame
+                            artworkContent: Item {
+                                anchors.fill: parent
                                 Rectangle {
                                     anchors.fill: parent
                                     radius: poster.cornerRadius
-                                    visible: !posterImage.ready
+                                    visible: !poster.posterImage.ready
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: modelData.kind === "folder" ? "#292c31" : Qt.rgba(0.29, 0.29, 0.31, 1) }
                                         GradientStop { position: 1.0; color: modelData.kind === "folder" ? "#17191d" : Qt.rgba(0.21, 0.21, 0.23, 1) }
                                     }
-                                }
-                                RoundedArtwork {
-                                    id: posterImage
-                                    objectName: "posterImage-" + modelData.id
-                                    anchors.fill: parent
-                                    cornerRadius: poster.cornerRadius
-                                    source: cell.posterHasSource ? modelData.artwork : ""
-                                }
-                                Ui.ArtworkFocus {
-                                    shown: poster.activeFocus && modelData.kind !== "folder"
-                                    artworkRadius: poster.cornerRadius
-                                }
-                                Ui.CastLight {
-                                    z: -1
-                                    shown: poster.activeFocus && modelData.kind !== "folder"
-                                    width: parent.width * Ui.Theme.castWidthRatio
-                                    anchors.horizontalCenter: parent.horizontalCenter
-                                    anchors.top: parent.bottom
-                                    anchors.topMargin: -Math.round(Ui.Theme.castHeight * 0.4)
                                 }
                                 Item {
                                     objectName: "posterPlate-" + modelData.id
@@ -1322,7 +1253,7 @@ FocusScope {
                                     anchors.rightMargin: 20
                                     anchors.topMargin: 22
                                     anchors.bottomMargin: 22
-                                    visible: !posterImage.ready
+                                    visible: !poster.posterImage.ready
                                     FilmGlyph {
                                         objectName: "posterGlyph-" + modelData.id
                                         visible: modelData.kind !== "folder"
@@ -1370,71 +1301,71 @@ FocusScope {
                                     }
                                 }
                             }
-                            Rectangle {
-                                objectName: "missing-" + modelData.id
-                                visible: !!modelData.missing
-                                z: 40
-                                x: 14
-                                y: parent.height - height - 14
-                                height: 40
-                                radius: 20
-                                width: Math.min(parent.width - 28, missingRow.implicitWidth + 20)
-                                color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.72)
-                                Row {
-                                    id: missingRow
-                                    anchors.centerIn: parent
-                                    spacing: 6
-                                    Text {
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        text: "!"
-                                        font.pixelSize: 18
-                                        font.weight: 700
-                                        color: Ui.Theme.error
-                                    }
-                                    Ui.UiText {
-                                        id: missingLabel
-                                        objectName: "missingLabel-" + modelData.id
-                                        text: modelData.kind === "folder" ? qsTr("Unavailable") : qsTr("No file")
-                                        font.pixelSize: 20
-                                        font.weight: 600
-                                        color: Ui.Theme.error
+                            artworkStatus: Item {
+                                anchors.fill: parent
+                                Rectangle {
+                                    objectName: "missing-" + modelData.id
+                                    visible: !!modelData.missing
+                                    z: 40
+                                    x: 14
+                                    y: parent.height - height - 14
+                                    height: 40
+                                    radius: 20
+                                    width: Math.min(parent.width - 28, missingRow.implicitWidth + 20)
+                                    color: Qt.rgba(8 / 255, 9 / 255, 11 / 255, 0.72)
+                                    Row {
+                                        id: missingRow
+                                        anchors.centerIn: parent
+                                        spacing: 6
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            text: "!"
+                                            font.pixelSize: 18
+                                            font.weight: 700
+                                            color: Ui.Theme.error
+                                        }
+                                        Ui.UiText {
+                                            id: missingLabel
+                                            objectName: "missingLabel-" + modelData.id
+                                            text: modelData.kind === "folder" ? qsTr("Unavailable") : qsTr("No file")
+                                            font.pixelSize: 20
+                                            font.weight: 600
+                                            color: Ui.Theme.error
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Item {
-                            id: caption
-                            objectName: "posterCaption-" + modelData.id
-                            property real lift: poster.lift
-                            x: 4
-                            y: root.posterHeight + 16
-                            width: parent.width - 8
-                            height: 96
-                            transform: Translate { y: caption.lift }
-                            Ui.UiText {
-                                id: posterLabel
-                                objectName: "posterLabel-" + modelData.id
-                                width: parent.width
-                                text: modelData.title || ""
-                                font.pixelSize: 26
-                                font.weight: poster.activeFocus ? 600 : 500
-                                color: poster.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                            }
-                            Ui.UiText {
-                                objectName: "posterYear-" + modelData.id
-                                anchors.top: posterLabel.bottom
-                                anchors.topMargin: 4
-                                width: parent.width
-                                text: modelData.kind === "folder" ? (modelData.missing ? qsTr("Unavailable") : qsTr("Folder"))
-                                    : modelData.year !== undefined && modelData.year !== null && String(modelData.year).length
-                                      ? String(modelData.year) : (modelData.subtitle || "")
-                                font.pixelSize: 24
-                                font.weight: 500
-                                color: Ui.Theme.textHint
-                                maximumLineCount: 1
-                                elide: Text.ElideRight
+                            caption: Item {
+                                id: caption
+                                objectName: "posterCaption-" + modelData.id
+                                x: 4
+                                width: parent.width - 8
+                                height: 96
+                                Ui.UiText {
+                                    id: posterLabel
+                                    objectName: "posterLabel-" + modelData.id
+                                    width: parent.width
+                                    text: modelData.title || ""
+                                    font.pixelSize: 26
+                                    font.weight: poster.activeFocus ? 600 : 500
+                                    color: poster.activeFocus ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
+                                    maximumLineCount: 2
+                                    elide: Text.ElideRight
+                                }
+                                Ui.UiText {
+                                    objectName: "posterYear-" + modelData.id
+                                    anchors.top: posterLabel.bottom
+                                    anchors.topMargin: 4
+                                    width: parent.width
+                                    text: modelData.kind === "folder" ? (modelData.missing ? qsTr("Unavailable") : qsTr("Folder"))
+                                        : modelData.year !== undefined && modelData.year !== null && String(modelData.year).length
+                                          ? String(modelData.year) : (modelData.subtitle || "")
+                                    font.pixelSize: 24
+                                    font.weight: 500
+                                    color: Ui.Theme.textHint
+                                    maximumLineCount: 1
+                                    elide: Text.ElideRight
+                                }
                             }
                         }
                     }

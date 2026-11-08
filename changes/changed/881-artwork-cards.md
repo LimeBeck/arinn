@@ -1,0 +1,1 @@
+Content, Music, Home title and Library poster cards now compose the shared artwork frame and stationary caption layout. Image focus, rounded loading/crop, placeholders, source release and row light share one implementation; feature markers, progress and music retries remain in their owners. Music and Library poster captions no longer move with artwork focus.

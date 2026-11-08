@@ -92,6 +92,25 @@ TestCase {
         view.clockText = "";
         compare(clock.text, view.liveClock);
     }
+    function test_row_uses_shared_activation_and_state_guards() {
+        const row = child("row-t2");
+        focused("row-t2");
+        row.busy = true;
+        keyClick(Qt.Key_Return);
+        compare(activates.count, 0);
+        row.busy = false;
+        keyPress(Qt.Key_Return);
+        compare(activates.count, 0);
+        keyRelease(Qt.Key_Return);
+        compare(activates.count, 1);
+        keyRelease(Qt.Key_Return);
+        compare(activates.count, 1);
+        keyClick(Qt.Key_Space);
+        compare(activates.count, 2);
+        row.enabled = false;
+        mouseClick(row, 100, 50);
+        compare(activates.count, 2);
+    }
     function test_focus_move_stays_inside() {
         focused("row-t2");
         compare(view.focusedWindowId, "w1");

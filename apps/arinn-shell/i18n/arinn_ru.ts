@@ -527,6 +527,14 @@
         <source>Save or close</source>
         <translation>Сохранить или закрыть</translation>
     </message>
+    <message>
+        <source>Save as shortcut</source>
+        <translation>Сохранить как ярлык</translation>
+    </message>
+    <message>
+        <source>Close tab</source>
+        <translation>Закрыть вкладку</translation>
+    </message>
 </context>
 <context>
     <name>CloseFlow</name>

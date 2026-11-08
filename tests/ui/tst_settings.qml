@@ -104,6 +104,21 @@ TestCase {
         focused("category-media");
     }
     function init() { createView(); }
+    function test_row_uses_shared_activation_and_state_guards() {
+        keyClick(Qt.Key_Right);
+        focused("setting-library-scan");
+        const row = child("setting-library-scan");
+        row.busy = true;
+        keyClick(Qt.Key_Return);
+        compare(changes.count, 0);
+        row.busy = false;
+        keyPress(Qt.Key_Return);
+        compare(changes.count, 0);
+        keyRelease(Qt.Key_Return);
+        compare(changes.count, 1);
+        keyRelease(Qt.Key_Return);
+        compare(changes.count, 1);
+    }
     function cleanup() {
         changes.target = null;
         dismissals.target = null;

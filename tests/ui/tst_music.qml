@@ -1773,7 +1773,8 @@ TestCase {
         for(let i=0;i<3;i++)keyClick(Qt.Key_Right);
         keyClick(Qt.Key_Return);compare(view.mode,"all");
         const all=findChild(view,"musicAll");tryCompare(findChild(all,"musicAllGrid"),"activeFocus",true);
-        compare(all.entries.length,3);compare(findChild(all,"musicAllTab-0").text,"● All");
+        compare(all.entries.length,3);compare(findChild(all,"musicAllTab-0").text,"All");
+        compare(findChild(all,"musicAllTab-0").selected,true);
         Ui.Focus.take(findChild(all,"musicAllTab-2"));keyClick(Qt.Key_Return);compare(all.entries.length,1);
         // Back returns to the shelf's All tile.
         keyClick(Qt.Key_Escape);compare(view.mode,"root");

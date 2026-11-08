@@ -18,12 +18,16 @@ import QtQuick
 Canvas {
     id: root
     property string name: ""
+    // Settings categories use filled symbols; other consumers keep lines.
+    property string variant: "line"
     property color color: Theme.textPrimary
     implicitWidth: 38
     implicitHeight: 38
     onNameChanged: requestPaint()
+    onVariantChanged: requestPaint()
     onColorChanged: requestPaint()
     onWidthChanged: requestPaint()
+    onHeightChanged: requestPaint()
     onPaint: {
         const ctx = getContext("2d");
         ctx.reset();
@@ -35,7 +39,45 @@ Canvas {
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
         ctx.beginPath();
+        const cut = draw => {
+            ctx.globalCompositeOperation = "destination-out";
+            ctx.beginPath(); draw(); ctx.fill();
+            ctx.globalCompositeOperation = "source-over";
+        };
+        const triangle = (x, top, bottom, tip) => {
+            ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.lineTo(tip, (top + bottom) / 2); ctx.closePath();
+        };
         switch (root.name) {
+        case "video_library":
+            ctx.rect(2, 6, 2, 16); ctx.rect(2, 20, 16, 2); ctx.fill();
+            ctx.beginPath(); ctx.roundedRect(6, 2, 16, 16, 2, 2); ctx.fill();
+            cut(() => triangle(11.5, 5.5, 14.5, 17.5));
+            break;
+        case "play_circle":
+            ctx.arc(12, 12, 10, 0, Math.PI * 2); ctx.fill();
+            cut(() => triangle(9.5, 7.5, 16.5, 16.5));
+            break;
+        case "palette":
+            ctx.arc(12, 12, 10, 0, Math.PI * 2); ctx.fill();
+            cut(() => {
+                for (const hole of [[6.5, 11.5], [9.5, 7], [14.5, 7], [17.5, 11.5]]) {
+                    ctx.moveTo(hole[0] + 1.6, hole[1]);
+                    ctx.arc(hole[0], hole[1], 1.6, 0, Math.PI * 2);
+                }
+            });
+            cut(() => ctx.arc(17, 18, 2.6, 0, Math.PI * 2));
+            break;
+        case "wifi":
+            ctx.lineWidth = 2.4;
+            for (const radius of [4.8, 9.6, 14.4]) {
+                ctx.beginPath(); ctx.arc(12, 20.5, radius, Math.PI * 1.25, Math.PI * 1.75); ctx.stroke();
+            }
+            ctx.beginPath(); ctx.arc(12, 19, 2, 0, Math.PI * 2); ctx.fill();
+            break;
+        case "bedtime":
+            ctx.arc(11.4, 12, 7.6, 0.7, 5.7);
+            ctx.arc(16.4, 10.1, 6.3, 4.6, 1.5, true); ctx.fill();
+            break;
         case "play":
             ctx.moveTo(7,4);ctx.lineTo(20,12);ctx.lineTo(7,20);ctx.closePath();ctx.fill();break;
         case "pause":
@@ -125,11 +167,17 @@ Canvas {
             ctx.stroke();
             break;
         case "volume_up":
+        case "volume_off":
             // The filled speaker with two arcs, as Settings draws it.
             ctx.moveTo(3, 9); ctx.lineTo(7, 9); ctx.lineTo(12, 4); ctx.lineTo(12, 20); ctx.lineTo(7, 15); ctx.lineTo(3, 15);
             ctx.closePath();
             ctx.fill();
             ctx.beginPath();
+            if (root.name === "volume_off") {
+                ctx.moveTo(16, 9); ctx.lineTo(22, 15);
+                ctx.moveTo(22, 9); ctx.lineTo(16, 15); ctx.stroke();
+                break;
+            }
             ctx.arc(12, 12, 4.5, -0.85, 0.85);
             ctx.stroke();
             ctx.beginPath();
@@ -159,13 +207,31 @@ Canvas {
             ctx.stroke();
             break;
         case "apps":
+            if (root.variant === "filled") {
+                for (const y of [5, 12, 19]) {
+                    for (const x of [5, 12, 19]) {
+                        ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
+                    }
+                }
+                break;
+            }
             ctx.roundedRect(3.5, 3.5, 7, 7, 1.5, 1.5);
             ctx.roundedRect(13.5, 3.5, 7, 7, 1.5, 1.5);
             ctx.roundedRect(3.5, 13.5, 7, 7, 1.5, 1.5);
             ctx.roundedRect(13.5, 13.5, 7, 7, 1.5, 1.5);
             ctx.stroke();
             break;
+        case "memory":
         case "settings":
+            if (root.variant === "filled" || root.name === "memory") {
+                ctx.arc(12, 12, 7.5, 0, Math.PI * 2); ctx.fill();
+                for (let i = 0; i < 8; ++i) {
+                    ctx.save(); ctx.translate(12, 12); ctx.rotate(i * Math.PI / 4);
+                    ctx.beginPath(); ctx.roundedRect(-2, -10.5, 4, 5, 1, 1); ctx.fill(); ctx.restore();
+                }
+                cut(() => ctx.arc(12, 12, 3.2, 0, Math.PI * 2));
+                break;
+            }
             ctx.moveTo(4, 7); ctx.lineTo(20, 7);
             ctx.moveTo(4, 12); ctx.lineTo(20, 12);
             ctx.moveTo(4, 17); ctx.lineTo(20, 17);
@@ -286,6 +352,12 @@ Canvas {
             ctx.moveTo(12, 3); ctx.lineTo(12, 12);
             ctx.stroke();
             break;
+        default:
+            // Unknown provider category symbols retain Settings' neutral dot.
+            if (root.variant === "filled") {
+                ctx.arc(12, 12, 6, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
     }
 }

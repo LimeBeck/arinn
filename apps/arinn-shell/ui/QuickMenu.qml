@@ -248,79 +248,6 @@ FocusScope {
     }
     MouseArea { anchors.fill: parent; onClicked: root.backRequested() }
 
-    component Glyph: Canvas {
-        id: glyph
-        property string kind: ""
-        property color ink: Theme.textPrimary
-        width: 38; height: 38
-        onInkChanged: requestPaint()
-        onKindChanged: requestPaint()
-        Component.onCompleted: requestPaint()
-        onPaint: {
-            const ctx = getContext("2d");
-            ctx.clearRect(0, 0, width, height);
-            ctx.strokeStyle = ink;
-            ctx.fillStyle = ink;
-            ctx.lineWidth = 2.6;
-            ctx.lineCap = "round";
-            ctx.lineJoin = "round";
-            const cx = width / 2, cy = height / 2;
-            ctx.beginPath();
-            if (kind === "pause") {
-                ctx.fillRect(cx - 9, cy - 11, 6, 22);
-                ctx.fillRect(cx + 3, cy - 11, 6, 22);
-            } else if (kind === "play") {
-                ctx.moveTo(cx - 7, cy - 12); ctx.lineTo(cx + 11, cy); ctx.lineTo(cx - 7, cy + 12);
-                ctx.closePath(); ctx.fill();
-            } else if (kind === "previous" || kind === "next") {
-                const s = kind === "next" ? 1 : -1;
-                ctx.moveTo(cx - 8 * s, cy - 10); ctx.lineTo(cx + 5 * s, cy); ctx.lineTo(cx - 8 * s, cy + 10);
-                ctx.closePath(); ctx.fill();
-                ctx.fillRect(s > 0 ? cx + 6 : cx - 10, cy - 10, 4, 20);
-            } else if (kind === "sound" || kind === "muted") {
-                ctx.moveTo(cx - 14, cy - 5); ctx.lineTo(cx - 8, cy - 5); ctx.lineTo(cx, cy - 12);
-                ctx.lineTo(cx, cy + 12); ctx.lineTo(cx - 8, cy + 5); ctx.lineTo(cx - 14, cy + 5);
-                ctx.closePath(); ctx.fill();
-                ctx.beginPath();
-                if (kind === "muted") {
-                    ctx.moveTo(cx + 5, cy - 5); ctx.lineTo(cx + 14, cy + 5);
-                    ctx.moveTo(cx + 14, cy - 5); ctx.lineTo(cx + 5, cy + 5);
-                } else {
-                    ctx.arc(cx + 2, cy, 8, -0.9, 0.9);
-                    ctx.moveTo(cx + 2 + 14 * Math.cos(-0.9), cy + 14 * Math.sin(-0.9));
-                    ctx.arc(cx + 2, cy, 14, -0.9, 0.9);
-                }
-                ctx.stroke();
-            } else if (kind === "network") {
-                ctx.arc(cx, cy + 9, 2.6, 0, Math.PI * 2); ctx.fill();
-                for (let part = 0; part < 3; ++part) {
-                    ctx.beginPath();
-                    ctx.arc(cx, cy + 9, 7 + part * 6, Math.PI * 1.22, Math.PI * 1.78);
-                    ctx.stroke();
-                }
-            } else if (kind === "sleep") {
-                ctx.arc(cx - 1, cy, 12, 0.7, 5.7);
-                ctx.arc(cx + 7, cy - 3, 10, 4.6, 1.5, true);
-                ctx.fill();
-            } else if (kind === "power") {
-                ctx.arc(cx, cy + 2, 11, 0.85, Math.PI - 0.85, true);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(cx, cy - 13); ctx.lineTo(cx, cy + 2);
-                ctx.stroke();
-            } else if (kind === "home") {
-                ctx.moveTo(cx - 12, cy - 1); ctx.lineTo(cx, cy - 12); ctx.lineTo(cx + 12, cy - 1);
-                ctx.moveTo(cx - 8, cy - 4); ctx.lineTo(cx - 8, cy + 11); ctx.lineTo(cx + 8, cy + 11);
-                ctx.lineTo(cx + 8, cy - 4);
-                ctx.stroke();
-            } else if (kind === "close") {
-                ctx.moveTo(cx - 9, cy - 9); ctx.lineTo(cx + 9, cy + 9);
-                ctx.moveTo(cx + 9, cy - 9); ctx.lineTo(cx - 9, cy + 9);
-                ctx.stroke();
-            }
-        }
-    }
-
     // A round button 64 on the media card.
     component CardButton: IconButton {
         id: button
@@ -355,10 +282,11 @@ FocusScope {
                 x: 28; anchors.verticalCenter: parent.verticalCenter
                 width: 64; height: 64; radius: 32
                 color: Qt.rgba(1, 1, 1, 0.08)
-                Glyph {
+                LineIcon {
                     anchors.centerIn: parent
-                    kind: row.glyph
-                    ink: row.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                    name: row.glyph === "sound" ? "volume_up" : row.glyph === "muted" ? "volume_off"
+                        : row.glyph === "network" ? "wifi" : row.glyph === "sleep" ? "bedtime" : row.glyph
+                    color: row.activeFocus ? Theme.textPrimary : Theme.textSecondary
                 }
             }
             Column {
@@ -641,11 +569,11 @@ FocusScope {
                             elide: Text.ElideRight; maximumLineCount: 1; wrapMode: Text.NoWrap
                         }
                     }
-                    Glyph {
+                    LineIcon {
                         anchors.right: parent.right; anchors.rightMargin: 28
                         anchors.verticalCenter: parent.verticalCenter
-                        kind: otherRow.rowPlaying ? "pause" : "play"
-                        ink: otherRow.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                        name: otherRow.rowPlaying ? "pause" : "play"
+                        color: otherRow.activeFocus ? Theme.textPrimary : Theme.textSecondary
                     }
                 }
             }
@@ -683,7 +611,7 @@ FocusScope {
                     x: 28; anchors.verticalCenter: parent.verticalCenter
                     width: 64; height: 64; radius: 32
                     color: Qt.rgba(1, 1, 1, 0.08)
-                    Glyph { anchors.centerIn: parent; kind: "network"; ink: Theme.textSecondary }
+                    LineIcon { anchors.centerIn: parent; name: "wifi"; color: Theme.textSecondary }
                 }
                 Column {
                     x: networkPlate.x + networkPlate.width + 24

@@ -151,6 +151,12 @@ keyboard target; validation, Unicode character limits, drafts, commits,
 Back/Home and placement above the panel remain owned here. Inline path editors
 reuse the same text primitive without adding a second plate.
 
+Settings rows, categories, options and string actions also reuse Surface's
+activation/disabled/busy contract through a local geometry wrapper. Feature
+handlers retain neighbour selection, validation and persistence. Category icons
+select LineIcon's filled variant, including the existing punched-out shapes;
+there is no Settings-owned icon painter.
+
 A single path, and a path list that is not a list of folders, stay inline text
 fields with Add and Remove. A list of folders (`multiple` and `directory`) opens
 the Library folders screen and the folder picker instead

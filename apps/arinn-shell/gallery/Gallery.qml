@@ -15,6 +15,7 @@ Window {
     property bool pointerMode: false
     property bool dialogOpen: false
     property bool sheetOpen: false
+    property string selectedExample: "films"
     property string lastAction: qsTr("Arrows to navigate · Enter to select")
     Component.onCompleted: Ui.Focus.take(media)
     Ui.LogicalCanvas {
@@ -162,8 +163,27 @@ Window {
                 pointerMode: root.pointerMode
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.left: sheetLauncher
+                KeyNavigation.right: tabExample
                 KeyNavigation.up: action
                 onActivated: root.lastAction = qsTr("Selection changed — fixture only")
+            }
+            Ui.TabButton {
+                id: tabExample
+                text: qsTr("Films")
+                selected: root.selectedExample === "films"
+                pointerMode: root.pointerMode
+                KeyNavigation.left: iconExample
+                KeyNavigation.right: pillExample
+                onActivated: root.selectedExample = "films"
+            }
+            Ui.TabButton {
+                id: pillExample
+                text: qsTr("Folders")
+                presentation: "pill"
+                selected: root.selectedExample === "folders"
+                pointerMode: root.pointerMode
+                KeyNavigation.left: tabExample
+                onActivated: root.selectedExample = "folders"
             }
         }
         Ui.UiText {

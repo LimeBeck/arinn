@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import QtQuick
-import QtQuick.Templates as T
 import "../../" as Ui
 
 // Settings presentation. Categories and rows come from the caller (the shell
@@ -237,7 +236,7 @@ FocusScope {
         return hasBound(row, "maxItems") && pathList(row).length >= Number(row.constraints.maxItems);
     }
     // Whether OK on this part of the row does something. It mirrors the
-    // handlers: the main control's onClicked with openOptions, openInteger,
+    // handlers: the main control's onActivated with openOptions, openInteger,
     // openString and openEditor, and Add's `full` guard.
     function partActionable(row, part) {
         if (!canEdit(row)) return false;
@@ -889,102 +888,6 @@ FocusScope {
         if (index >= 0) focusPart(index, partsFor(activeRows[index])[0] || "main");
         else if (categories.length) focusCategory(categoryIndex);
     }
-    // Filled category icons after the Material Symbols the handoff draws
-    // (se-lf-1, 38 px), painted on a 24-unit grid. Cut-outs are punched with
-    // destination-out, so the icon shows the plate behind it (#566).
-    function paintIcon(ctx, name) {
-        ctx.clearRect(0, 0, 38, 38);
-        ctx.save();
-        ctx.scale(38 / 24, 38 / 24);
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        const cut = draw => {
-            ctx.globalCompositeOperation = "destination-out";
-            ctx.beginPath();
-            draw();
-            ctx.fill();
-            ctx.globalCompositeOperation = "source-over";
-        };
-        const triangle = (x, top, bottom, tip) => {
-            ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.lineTo(tip, (top + bottom) / 2); ctx.closePath();
-        };
-        if (name === "video_library") {
-            ctx.beginPath();
-            ctx.rect(2, 6, 2, 16);
-            ctx.rect(2, 20, 16, 2);
-            ctx.fill();
-            ctx.beginPath();
-            ctx.roundedRect(6, 2, 16, 16, 2, 2);
-            ctx.fill();
-            cut(() => triangle(11.5, 5.5, 14.5, 17.5));
-        } else if (name === "play_circle") {
-            ctx.beginPath();
-            ctx.arc(12, 12, 10, 0, Math.PI * 2);
-            ctx.fill();
-            cut(() => triangle(9.5, 7.5, 16.5, 16.5));
-        } else if (name === "volume_up") {
-            ctx.beginPath();
-            ctx.moveTo(3, 9); ctx.lineTo(7, 9); ctx.lineTo(12, 4); ctx.lineTo(12, 20); ctx.lineTo(7, 15); ctx.lineTo(3, 15);
-            ctx.closePath();
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(12, 12, 4.5, -0.85, 0.85);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(12, 12, 8.5, -0.95, 0.95);
-            ctx.stroke();
-        } else if (name === "wifi") {
-            ctx.lineWidth = 2.4;
-            for (const radius of [4.8, 9.6, 14.4]) {
-                ctx.beginPath();
-                ctx.arc(12, 20.5, radius, Math.PI * 1.25, Math.PI * 1.75);
-                ctx.stroke();
-            }
-            ctx.beginPath();
-            ctx.arc(12, 19, 2, 0, Math.PI * 2);
-            ctx.fill();
-        } else if (name === "apps") {
-            for (const y of [5, 12, 19]) {
-                for (const x of [5, 12, 19]) {
-                    ctx.beginPath();
-                    ctx.arc(x, y, 2.2, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-            }
-        } else if (name === "palette") {
-            ctx.beginPath();
-            ctx.arc(12, 12, 10, 0, Math.PI * 2);
-            ctx.fill();
-            cut(() => {
-                for (const hole of [[6.5, 11.5], [9.5, 7], [14.5, 7], [17.5, 11.5]]) {
-                    ctx.moveTo(hole[0] + 1.6, hole[1]);
-                    ctx.arc(hole[0], hole[1], 1.6, 0, Math.PI * 2);
-                }
-            });
-            cut(() => ctx.arc(17, 18, 2.6, 0, Math.PI * 2));
-        } else if (name === "memory" || name === "settings") {
-            // The handoff draws the System category (`memory`) as a gear.
-            ctx.beginPath();
-            ctx.arc(12, 12, 7.5, 0, Math.PI * 2);
-            ctx.fill();
-            for (let i = 0; i < 8; ++i) {
-                ctx.save();
-                ctx.translate(12, 12);
-                ctx.rotate(i * Math.PI / 4);
-                ctx.beginPath();
-                ctx.roundedRect(-2, -10.5, 4, 5, 1, 1);
-                ctx.fill();
-                ctx.restore();
-            }
-            cut(() => ctx.arc(12, 12, 3.2, 0, Math.PI * 2));
-        } else {
-            ctx.beginPath();
-            ctx.arc(12, 12, 6, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.restore();
-    }
     function focusCategory(index) {
         if (!categories.length || hardBlocked) return;
         const leaving = rowByKey(focusedRowKey);
@@ -1161,17 +1064,18 @@ FocusScope {
         if (detailFocused) focusPart(rowFocusIndex, partName);
         else focusCategory(categoryIndex);
     }
-    function selectKey(button, event, release) {
-        if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter) return false;
-        if (!release) {
-            if (!event.isAutoRepeat && button.enabled) button.down = true;
-        } else if (!event.isAutoRepeat) {
-            const invoke = button.down && button.enabled;
-            button.down = false;
-            if (invoke) button.clicked();
-        }
-        event.accepted = true;
-        return true;
+    // Shared activation/state, with the existing stationary Settings geometry.
+    // The screen continues to own neighbour selection and row persistence.
+    component SettingsControl: Ui.Surface {
+        shapeRole: "container"
+        cornerRadius: Ui.Theme.containerRadius
+        focusScale: 1
+        focusLift: 0
+        scale: 1
+        rimEnabled: false
+        opacity: 1
+        pointerMode: root.pointerMode
+        hoverFocusEnabled: false
     }
 
     onRowsChanged: watchRows()
@@ -1298,7 +1202,7 @@ FocusScope {
         Repeater {
             id: categoryRepeater
             model: root.categories
-            delegate: T.AbstractButton {
+            delegate: SettingsControl {
                 id: categoryButton
                 required property var modelData
                 required property int index
@@ -1311,38 +1215,25 @@ FocusScope {
                 activeFocusOnTab: false
                 text: modelData.title || ""
                 focus: index === root.categoryIndex && !root.detailFocused && !root.hardBlocked
-                onClicked: {
+                onActivated: {
                     root.focusCategory(index);
                     root.moveHorizontal(1);
                 }
-                Keys.onPressed: event => root.selectKey(categoryButton, event, false)
-                Keys.onReleased: event => root.selectKey(categoryButton, event, true)
                 background: Rectangle {
                     radius: Ui.Theme.containerRadius
                     color: categoryButton.activeFocus ? Ui.Theme.plateContainer : "transparent"
                 }
                 Ui.FocusRing { shown: categoryButton.activeFocus; radius: Ui.Theme.containerRadius }
                 contentItem: Item {
-                    Canvas {
+                    Ui.LineIcon {
                         id: categoryIcon
                         objectName: "categoryIcon-" + modelData.id
                         x: 26
                         y: (parent.height - height) / 2
-                        width: 38
-                        height: 38
-                        property string glyph: modelData.icon || ""
-                        property color ink: (categoryButton.activeFocus || categoryButton.chosen)
-                                             ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-                        onGlyphChanged: requestPaint()
-                        onInkChanged: requestPaint()
-                        onPaint: {
-                            const ctx = getContext("2d");
-                            ctx.reset();
-                            ctx.strokeStyle = ink;
-                            ctx.fillStyle = ink;
-                            root.paintIcon(ctx, glyph);
-                        }
-                        Component.onCompleted: requestPaint()
+                        width: 38; height: 38
+                        name: modelData.icon || ""
+                        variant: "filled"
+                        color: categoryButton.activeFocus || categoryButton.chosen ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
                     }
                     Ui.UiText {
                         x: 86
@@ -1544,8 +1435,9 @@ FocusScope {
                             id: rowBody
                             width: parent.width
                             spacing: 8
-                            T.AbstractButton {
+                            SettingsControl {
                                 id: settingButton
+                                busy: !!row.pending && !rowScope.locked
                                 visible: rowScope.simpleRow
                                 width: rowScope.width
                                 height: Math.max(112, simpleText.implicitHeight + 40)
@@ -1556,7 +1448,7 @@ FocusScope {
                                 opacity: row.pending && !rowScope.locked ? 0.72 : 1
                                 text: row.title || ""
                                 objectName: rowScope.simpleRow ? "setting-" + rowScope.key : ""
-                                onClicked: {
+                                onActivated: {
                                     if (!root.canEdit(row)) return;
                                     if (row.type === "boolean" && !root.valueUnsupported(row))
                                         root.beginSave(row, !row.currentValue, row.currentValue ? qsTr("Off") : qsTr("On"));
@@ -1571,8 +1463,6 @@ FocusScope {
                                     else if (row.type === "path")
                                         root.openEditor(row, "main", row.currentValue || "");
                                 }
-                                Keys.onPressed: event => root.selectKey(settingButton, event, false)
-                                Keys.onReleased: event => root.selectKey(settingButton, event, true)
                                 background: Rectangle {
                                     radius: Ui.Theme.containerRadius
                                     color: settingButton.activeFocus
@@ -1864,8 +1754,10 @@ FocusScope {
                                         property alias keyboard: pathItemKeyboard
                                         width: pathColumn.width
                                         spacing: 8
-                                        T.AbstractButton {
+                                        SettingsControl {
                                             id: pathButton
+                                            text: String(root.pathList(row)[index] || "")
+                                            busy: !!row.pending
                                             objectName: "path-" + rowScope.key + "-" + index
                                             width: parent.width - 160
                                             height: pathRow.unavailable ? 112 : 72
@@ -1874,9 +1766,7 @@ FocusScope {
                                             focus: rowScope.wants("path:" + index)
                                             activeFocusOnTab: false
                                             opacity: row.enabled === false || row.pending ? 0.45 : 1
-                                            onClicked: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
-                                            Keys.onPressed: event => root.selectKey(pathButton, event, false)
-                                            Keys.onReleased: event => root.selectKey(pathButton, event, true)
+                                            onActivated: root.openEditor(row, "path:" + index, root.pathList(row)[index] || "")
                                             background: Rectangle { radius: Ui.Theme.containerRadius; color: pathButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
                                             Ui.FocusRing { shown: pathButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Item {
@@ -1933,8 +1823,9 @@ FocusScope {
                                                 }
                                             }
                                         }
-                                        T.AbstractButton {
+                                        SettingsControl {
                                             id: removeButton
+                                            busy: !!row.pending
                                             objectName: "remove-" + rowScope.key + "-" + index
                                             width: 152
                                             height: pathButton.height
@@ -1944,9 +1835,7 @@ FocusScope {
                                             activeFocusOnTab: false
                                             opacity: root.canEdit(row) ? 1 : 0.45
                                             text: qsTr("Remove")
-                                            onClicked: root.removePath(row, index)
-                                            Keys.onPressed: event => root.selectKey(removeButton, event, false)
-                                            Keys.onReleased: event => root.selectKey(removeButton, event, true)
+                                            onActivated: root.removePath(row, index)
                                             background: Rectangle { radius: Ui.Theme.containerRadius; color: removeButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
                                             Ui.FocusRing { shown: removeButton.activeFocus; radius: Ui.Theme.containerRadius }
                                             contentItem: Ui.UiText {
@@ -1958,8 +1847,9 @@ FocusScope {
                                         }
                                     }
                                 }
-                                T.AbstractButton {
+                                SettingsControl {
                                     id: addButton
+                                    busy: !!row.pending
                                     objectName: rowScope.multiple ? "add-" + rowScope.key : ""
                                     visible: rowScope.multiple
                                     width: parent.width
@@ -1971,9 +1861,7 @@ FocusScope {
                                     readonly property bool full: root.pathFull(row)
                                     opacity: !root.canEdit(row) || full ? 0.45 : 1
                                     text: qsTr("Add path")
-                                    onClicked: if (!full) root.openEditor(row, "add", "")
-                                    Keys.onPressed: event => root.selectKey(addButton, event, false)
-                                    Keys.onReleased: event => root.selectKey(addButton, event, true)
+                                    onActivated: if (!full) root.openEditor(row, "add", "")
                                     background: Rectangle { radius: Ui.Theme.containerRadius; color: addButton.activeFocus ? Ui.Theme.plateContainer : "transparent" }
                                     Ui.FocusRing { shown: addButton.activeFocus; radius: Ui.Theme.containerRadius }
                                     contentItem: Item {
@@ -2125,12 +2013,12 @@ FocusScope {
                         Repeater {
                             id: optionRepeater
                             model: root.choosingOptions
-                            delegate: T.AbstractButton {
+                            delegate: SettingsControl {
                                 id: optionButton
                                 required property var modelData
                                 required property int index
                                 readonly property bool current: root.choosingRow && modelData.value === root.choosingRow.currentValue
-                                readonly property bool busy: root.saveSlow && root.awaitingKey === root.choosingKey
+                                busy: root.saveSlow && root.awaitingKey === root.choosingKey
                                                           && modelData.value === root.awaitingValue
                                 objectName: "option-" + index
                                 width: parent.width
@@ -2139,7 +2027,7 @@ FocusScope {
                                 focusPolicy: Qt.StrongFocus
                                 activeFocusOnTab: false
                                 text: modelData.title || modelData.value || ""
-                                onClicked: {
+                                onActivated: {
                                     root.focusOption(index);
                                     root.chooseOption();
                                 }
@@ -2156,12 +2044,6 @@ FocusScope {
                                         event.accepted = true;
                                     } else if (event.key === Qt.Key_PageDown || event.key === Qt.Key_ChannelDown) {
                                         root.pageOptions(1);
-                                        event.accepted = true;
-                                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                        if (!event.isAutoRepeat) {
-                                            root.optionIndex = index;
-                                            root.chooseOption();
-                                        }
                                         event.accepted = true;
                                     } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace || event.key === Qt.Key_Back || event.key === Qt.Key_Left) {
                                         root.closeOptions();
@@ -2481,20 +2363,18 @@ FocusScope {
                     }
                     Row {
                         spacing: 16
-                        T.AbstractButton {
+                        SettingsControl {
                             id: stringSave
+                            text: saveLabel.text
                             objectName: "stringSave"
                             height: 88
                             width: Math.max(180, saveLabel.implicitWidth + 48)
                             padding: 0
                             focusPolicy: Qt.StrongFocus
                             activeFocusOnTab: false
-                            onClicked: root.commitString()
+                            onActivated: root.commitString()
                             Keys.onPressed: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                    if (!event.isAutoRepeat) root.commitString();
-                                    event.accepted = true;
-                                } else if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
+                                if (event.key === Qt.Key_Right || event.key === Qt.Key_Down) {
                                     root.stringPart = "cancel";
                                     Ui.Focus.take(stringCancel);
                                     event.accepted = true;
@@ -2519,17 +2399,18 @@ FocusScope {
                                 color: stringSave.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
                             }
                         }
-                        T.AbstractButton {
+                        SettingsControl {
                             id: stringCancel
+                            text: cancelLabel.text
                             objectName: "stringCancel"
                             height: 88
                             width: Math.max(180, cancelLabel.implicitWidth + 48)
                             padding: 0
                             focusPolicy: Qt.StrongFocus
                             activeFocusOnTab: false
-                            onClicked: root.cancelEditor()
+                            onActivated: root.cancelEditor()
                             Keys.onPressed: event => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
                                     if (!event.isAutoRepeat) root.cancelEditor();
                                     event.accepted = true;
                                 } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Up) {

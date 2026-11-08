@@ -365,82 +365,15 @@ FocusScope {
             ctx.lineTo(3, 6); ctx.closePath(); ctx.stroke();
         }
     }
-    // View, category and season pills are containers: no plate at rest, an
-    // 8% plate and a rim in focus (ADR-0136). The pill radius stays 32.
-    component LibraryPill: Ui.Surface {
-        id: pill
-        property bool selected: false
-        property string labelName: objectName + "Label"
+    // Keep accepted container/underline versus text-tab/dot roles explicit.
+    component LibraryPill: Ui.TabButton {
+        presentation: "pill"
         property string underlineName: objectName + "Underline"
-        implicitWidth: label.implicitWidth + 56
-        implicitHeight: 64
-        height: 64
-        cornerRadius: 32
-        focusScale: 1
-        focusLift: 0
-        liftFromBottom: false
-        shapeRole: "container"
-        restingColor: "transparent"
-        focusedColor: Ui.Theme.plateContainer
-        transform: Translate { y: 0 }
-        background: Rectangle { radius: 32; color: pill.activeFocus ? pill.focusedColor : "transparent" }
-        contentItem: Ui.UiText {
-            id: label
-            objectName: pill.labelName
-            text: pill.text
-            font.pixelSize: 28
-            font.weight: 600
-            color: pill.activeFocus || pill.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        Rectangle {
-            objectName: pill.underlineName
-            x: 28; width: parent.width - 56
-            y: parent.height - 11; height: 4; radius: 2
-            color: Ui.Theme.ember
-            visible: pill.selected && !pill.activeFocus
-        }
+        markerName: underlineName
     }
-    // Catalogue tabs are text tabs (ADR-0140, Hearth light brief *Library*):
-    // a white pill with ink text in focus; the selected tab is `text-1` with
-    // an Ember dot under its label. No plate and no rim otherwise.
-    component LibraryTab: Ui.Surface {
-        id: tab
-        property bool selected: false
-        property string labelName: objectName + "Label"
+    component LibraryTab: Ui.TabButton {
         property string dotName: objectName + "Dot"
-        implicitWidth: label.implicitWidth + 56
-        implicitHeight: 64
-        height: 64
-        cornerRadius: 32
-        focusScale: 1
-        focusLift: 0
-        liftFromBottom: false
-        shapeRole: "action"
-        rimEnabled: false
-        restingColor: "transparent"
-        focusedColor: Ui.Theme.textPrimary
-        transform: Translate { y: 0 }
-        contentItem: Ui.UiText {
-            id: label
-            objectName: tab.labelName
-            text: tab.text
-            font.pixelSize: 28
-            font.weight: 600
-            color: tab.activeFocus ? Ui.Theme.ink
-                 : tab.selected ? Ui.Theme.textPrimary : Ui.Theme.textSecondary
-            horizontalAlignment: Text.AlignHCenter
-            verticalAlignment: Text.AlignVCenter
-        }
-        Rectangle {
-            objectName: tab.dotName
-            width: 8; height: 8; radius: 4
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: parent.height - 6
-            color: Ui.Theme.ember
-            visible: tab.selected && !tab.activeFocus
-        }
+        markerName: dotName
     }
     function chooseView(folders) {
         if (folders && !hasFolderView) return;

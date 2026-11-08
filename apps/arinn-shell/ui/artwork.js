@@ -38,13 +38,21 @@ function loadCopy(canvas, image) {
         canvas.loadImage(image.source);
 }
 
-// Draws an iw×ih image over w×h with a centre crop, as
-// Image.PreserveAspectCrop does. Returns false when there is nothing to draw.
+// Draws the Canvas copy over w×h with a centre crop, as
+// Image.PreserveAspectCrop does. iw/ih are retained for existing callers, but
+// belong to a separate Image and can already describe another decoded size.
+// Snapshot the loaded Canvas image so both crop dimensions and drawn pixels
+// come from the same copy (#716). No fetch or decode is started here.
 function drawCover(ctx, image, iw, ih, w, h) {
-    if (!(iw > 0 && ih > 0 && w > 0 && h > 0))
+    if (!(w > 0 && h > 0))
+        return false;
+    const copy = ctx.createImageData(String(image));
+    iw = copy.width;
+    ih = copy.height;
+    if (!(iw > 0 && ih > 0))
         return false;
     const scale = Math.max(w / iw, h / ih);
     const sw = w / scale, sh = h / scale;
-    ctx.drawImage(image, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, w, h);
+    ctx.drawImage(copy, (iw - sw) / 2, (ih - sh) / 2, sw, sh, 0, 0, w, h);
     return true;
 }

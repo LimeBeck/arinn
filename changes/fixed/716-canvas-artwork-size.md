@@ -1,0 +1,1 @@
+Artwork centre cropping now uses the Canvas copy's own pixels and dimensions, preventing drawImage size errors and incorrect crops when a separate Image has already changed source or decoded size.

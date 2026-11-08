@@ -148,7 +148,7 @@ TestCase {
     }
     function test_pointer_and_dpad_keyboard_focus() {
         const frame = createTemporaryObject(frameFactory, suite, {pointerMode: true});
-        wait(0); // Polish the translated keyboard label and its hit rectangle.
+        verify(waitForRendering(frame.keyboardButton));
         mouseMove(frame.keyboardButton, 30, 30);
         mouseMove(frame.keyboardButton, 31, 30);
         tryCompare(frame.keyboardButton, "activeFocus", true);

@@ -18,5 +18,5 @@ serde_json.workspace = true
 uuid.workspace = true
 zbus.workspace = true
 serde.workspace = true
-quick-xml = "0.41"
+quick-xml = "0.42"
 sha2.workspace = true

@@ -86,18 +86,26 @@ FocusScope {
 
     // A round transport button of the OSD row: plate at rest, the white fill
     // with ink in focus (Hearth light brief, *Player OSD*; #756 C21).
-    component TransportButton: Rectangle {
+    component TransportButton: Ui.IconButton {
         required property string key
-        property string icon: ""
         readonly property bool focusedButton: root.osdFocus === key && root.sheetKind === ""
         objectName: key + "Button"
-        width: 76; height: 76; radius: 38
-        color: focusedButton ? Ui.Theme.textPrimary : Ui.Theme.plate
-        Ui.LineIcon {
-            anchors.centerIn: parent
-            width: 36; height: 36
-            name: parent.icon
-            color: parent.focusedButton ? Ui.Theme.ink : Ui.Theme.textPrimary
+        width: 76; height: 76
+        iconSize: 36
+        // The OSD keeps its existing virtual focus model and keyboard owner.
+        highlighted: focusedButton
+        focusPolicy: Qt.NoFocus
+        hoverFocusEnabled: false
+        focusScale: 1
+        focusLift: 0
+        restingColor: focusedButton ? Ui.Theme.textPrimary : Ui.Theme.plate
+        enabled: root.transportReady && root.sheetKind === ""
+        opacity: 1
+        text: key === "playpause" ? (root.playing ? qsTr("Pause") : qsTr("Play"))
+              : key === "previous" ? qsTr("Previous") : qsTr("Next")
+        onActivated: {
+            root.osdFocus = key;
+            root.onOk();
         }
     }
 
@@ -773,9 +781,9 @@ FocusScope {
                         // Round transport buttons, then the track chips. Focus is
                         // the white fill with ink (Hearth light brief, *Player
                         // OSD*; #756 C21).
-                        TransportButton { key: "playpause"; icon: root.playing ? "pause" : "play" }
-                        TransportButton { key: "previous"; icon: "skip_previous"; visible: root.canPrevious }
-                        TransportButton { key: "next"; icon: "skip_next"; visible: root.canNext }
+                        TransportButton { key: "playpause"; iconName: root.playing ? "pause" : "play" }
+                        TransportButton { key: "previous"; iconName: "skip_previous"; visible: root.canPrevious }
+                        TransportButton { key: "next"; iconName: "skip_next"; visible: root.canNext }
                         Rectangle {
                             objectName: "subtitlePill"
                             visible: root.tracksSupported

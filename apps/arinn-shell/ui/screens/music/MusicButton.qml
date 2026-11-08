@@ -3,21 +3,20 @@
 import QtQuick
 import "../.." as Ui
 
-Ui.Surface {
+Ui.IconButton {
     id: root
     hoverMotionRevision: Ui.InputMode.pointerRevision
     onDpadRequested: Ui.InputMode.keyPressed()
-    property bool selected: false
-    property string iconName: "play"
+    iconName: "play"
     implicitWidth: 80
     implicitHeight: 80
     width: 80
     height: 80
     // A circle at every size: 96 and 120 in Now playing's row (#840, MH-3).
     cornerRadius: width / 2
-    shapeRole: "action"
-    restingColor: selected ? Ui.Theme.platePrimary : Ui.Theme.plateAction
-    focusedColor: Ui.Theme.textPrimary
+    focusScale: 1.06
+    focusLift: -6
+    iconSize: width >= 96 ? 48 : 32
     Ui.UiText {
         anchors.top: parent.bottom
         anchors.topMargin: 14
@@ -30,14 +29,5 @@ Ui.Surface {
         horizontalAlignment: Text.AlignHCenter
         maximumLineCount: 1
         elide: Text.ElideRight
-    }
-    contentItem: Item {
-        Ui.LineIcon {
-            anchors.centerIn: parent
-            width: root.width >= 96 ? 48 : 32
-            height: width
-            name: root.iconName
-            color: root.activeFocus ? Ui.Theme.ink : Ui.Theme.textPrimary
-        }
     }
 }

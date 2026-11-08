@@ -798,8 +798,7 @@ TestCase {
     }
 
     function iconOf(button) {
-        for(const child of button.contentItem.children) if(child.name!==undefined) return child;
-        return null;
+        return button.iconItem;
     }
     // One icon set: the music buttons and the artwork placeholder draw
     // LineIcon glyphs (#756 M23); scrims and radii are theme tokens (M22).

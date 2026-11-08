@@ -1885,6 +1885,22 @@
         <source>Back closes</source>
         <translation>«Назад» закрывает</translation>
     </message>
+    <message>
+        <source>Pause</source>
+        <translation>Пауза</translation>
+    </message>
+    <message>
+        <source>Play</source>
+        <translation>Воспроизвести</translation>
+    </message>
+    <message>
+        <source>Previous</source>
+        <translation>Предыдущий</translation>
+    </message>
+    <message>
+        <source>Next</source>
+        <translation>Следующий</translation>
+    </message>
 </context>
 <context>
     <name>PowerMenu</name>

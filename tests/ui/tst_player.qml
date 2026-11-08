@@ -131,7 +131,7 @@ TestCase {
         compare(child("videoLabel").visible, true)
         compare(child("subtitlePill").color, Ui.Theme.plate)
         compare(child("audioPill").color, Ui.Theme.plate)
-        compare(child("playpauseButton").color, Ui.Theme.plate)
+        tryCompare(child("playpauseButton").background, "color", Ui.Theme.plate)
         // Focus is the white fill with ink (#756 C21).
         player.osdFocus = "audio"
         compare(child("audioPill").color, Ui.Theme.textPrimary)
@@ -308,7 +308,7 @@ TestCase {
         player.canNext = true
         keyClick(Qt.Key_Down)
         compare(player.osdFocus, "playpause")
-        compare(child("playpauseButton").color, Ui.Theme.textPrimary)
+        tryCompare(child("playpauseButton").background, "color", Ui.Theme.textPrimary)
         const toggles = plays.count + pauses.count
         keyClick(Qt.Key_Return)
         compare(plays.count + pauses.count, toggles + 1)
@@ -325,6 +325,34 @@ TestCase {
         player.canNext = false
         compare(child("nextButton").visible, false)
         compare(seeks.count, 0)
+    }
+
+    function test_shared_transport_buttons_keep_the_osd_keyboard_owner() {
+        player.canPrevious = true
+        player.canNext = true
+        wait(0) // The newly visible controls first join the Row layout.
+        const previous = child("previousButton")
+        const toggle = child("playpauseButton")
+        mouseClick(previous, previous.width / 2, previous.height / 2)
+        compare(previouses.count, 1)
+        compare(player.osdFocus, "previous")
+        verify(player.activeFocus)
+        verify(!previous.activeFocus)
+        compare(toggle.Accessible.name, "Play")
+        keyClick(Qt.Key_Right)
+        compare(player.osdFocus, "next")
+        keyClick(Qt.Key_Return)
+        compare(nexts.count, 1)
+        mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+        compare(plays.count, 1)
+        player.playing = true
+        compare(toggle.Accessible.name, "Pause")
+        mouseClick(toggle, toggle.width / 2, toggle.height / 2)
+        compare(pauses.count, 1)
+        player.sheetKind = "audio"
+        mouseClick(previous, previous.width / 2, previous.height / 2)
+        compare(previouses.count, 1)
+        compare(audioPicks.count, 0)
     }
 
     function test_missing_tracks_are_unavailable() {

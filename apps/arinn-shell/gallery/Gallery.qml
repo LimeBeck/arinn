@@ -113,6 +113,7 @@ Window {
             Ui.ActionButton {
                 id: dialogLauncher
                 text: qsTr("Confirmation dialog")
+                iconName: "check"
                 pointerMode: root.pointerMode
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.up: tile
@@ -125,14 +126,28 @@ Window {
             Ui.ActionButton {
                 id: sheetLauncher
                 text: qsTr("Side sheet")
+                iconName: "queue_music"
                 pointerMode: root.pointerMode
                 onDpadRequested: root.pointerMode = false
                 KeyNavigation.up: action
                 KeyNavigation.left: dialogLauncher
+                KeyNavigation.right: iconExample
                 onActivated: {
                     root.sheetOpen = true;
                     Qt.callLater(() => Ui.Focus.take(sheetClose));
                 }
+            }
+            Ui.IconButton {
+                id: iconExample
+                text: checked ? qsTr("Liked") : qsTr("Like")
+                iconName: checked ? "favorite_fill" : "favorite"
+                checkable: true
+                selected: checked
+                pointerMode: root.pointerMode
+                onDpadRequested: root.pointerMode = false
+                KeyNavigation.left: sheetLauncher
+                KeyNavigation.up: action
+                onActivated: root.lastAction = qsTr("Selection changed — fixture only")
             }
         }
         Ui.UiText {

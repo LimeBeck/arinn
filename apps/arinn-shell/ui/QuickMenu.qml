@@ -322,25 +322,17 @@ FocusScope {
     }
 
     // A round button 64 on the media card.
-    component CardButton: Surface {
+    component CardButton: IconButton {
         id: button
         property string glyph: ""
         width: 64; height: 64
-        shapeRole: "action"
-        cornerRadius: 32
+        iconName: glyph === "previous" ? "skip_previous" : glyph === "next" ? "skip_next" : glyph
+        iconSize: 38
         focusScale: 1.06; focusLift: 0; liftFromBottom: false
         pointerMode: root.pointerMode
         Accessible.name: text
         onActiveFocusChanged: if (activeFocus) root.lastFocused = button
         onEnabledChanged: Qt.callLater(() => root.settle(button))
-        opacity: enabled ? 1 : 0.4
-        contentItem: Item {
-            Glyph {
-                anchors.centerIn: parent
-                kind: button.glyph
-                ink: button.activeFocus ? Theme.ink : Theme.textPrimary
-            }
-        }
     }
     component SheetRow: Surface {
         id: row

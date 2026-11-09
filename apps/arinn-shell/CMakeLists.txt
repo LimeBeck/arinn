@@ -256,7 +256,9 @@ set(ARINN_MAIN_QML_TEST_TARGETS
     arinn-media-catalog-test arinn-library-catalog-test arinn-quick-menu-test
     arinn-launch-screen-test arinn-external-keyboard-test)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(QRENCODE REQUIRED IMPORTED_TARGET libqrencode)
+# The session lifecycle test is declared in platform/session. Its Qt autogen
+# dependencies must be able to resolve this target from that directory too.
+pkg_check_modules(QRENCODE REQUIRED IMPORTED_TARGET GLOBAL libqrencode)
 foreach(target arinn-shell arinn-ui-test ${ARINN_MAIN_QML_TEST_TARGETS})
     target_sources(${target} PRIVATE verification_qr.cpp verification_qr.h)
     target_link_libraries(${target} PRIVATE PkgConfig::QRENCODE)

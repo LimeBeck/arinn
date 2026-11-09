@@ -299,17 +299,9 @@ impl<S: CredentialStore + 'static> Service<S> {
         let this = self.clone();
         tokio::spawn(async move {
             let mut cleanup = this.connection_gate.lock().await;
-            if let Some(previous) = cleanup.clone() {
-                if browser.close(&previous).await.is_err() {
-                    let mut a = this.account.lock().await;
-                    if a.epoch == epoch {
-                        a.state.account = "disconnected".into();
-                        a.state.actions = vec!["connect".into()];
-                        a.state.error = Some(ErrorCode::Unavailable);
-                        a.state.revision += 1;
-                    }
-                    return;
-                }
+            if let Some(previous) = cleanup.as_deref()
+                && browser.close(previous).await.is_ok()
+            {
                 *cleanup = None;
             }
             if this.account.lock().await.epoch != epoch {
@@ -317,25 +309,38 @@ impl<S: CredentialStore + 'static> Service<S> {
             }
             let request = uuid::Uuid::new_v4().to_string();
             let mut opened = false;
-            *cleanup = Some(request.clone());
             let result=async {
                 let attempt=auth.start_prepared(start).await?;
                 let url=attempt.prompt.verification_url.clone();
-                let (open,requested)=tokio::sync::oneshot::channel();
-                {
+                let requested = {
                     let mut a=this.account.lock().await;
                     if a.epoch!=epoch {return Err(auth::Error::Cancelled);}
                     let remaining=attempt.remaining_seconds().max(1);
                     a.state.prompt=Some(Prompt {verification_url:url.clone(),user_code:attempt.prompt.user_code.clone(),expires_in:remaining});
                     a.prompt_deadline=Some(tokio::time::Instant::now()+std::time::Duration::from_secs(remaining));
-                    a.browser_request=Some(open);
-                    a.state.actions=vec!["authorize".into(),"cancel".into()];a.state.revision+=1;
-                }
+                    a.state.revision += 1;
+                    // A retained browser lease fences only another browser open.
+                    // The code can still be confirmed on a phone.
+                    if cleanup.is_none() {
+                        let (open, requested) = tokio::sync::oneshot::channel();
+                        a.browser_request = Some(open);
+                        a.state.actions = vec!["authorize".into(), "cancel".into()];
+                        Some(requested)
+                    } else {
+                        a.browser_request = None;
+                        a.state.actions = vec!["cancel".into()];
+                        None
+                    }
+                };
+                let Some(requested) = requested else {
+                    return auth.complete(attempt).await;
+                };
                 let completion=auth.complete(attempt);tokio::pin!(completion);
                 tokio::select! {
                     result=&mut completion=>result,
                     requested=requested=>{
                         requested.map_err(|_|auth::Error::Cancelled)?;
+                        *cleanup = Some(request.clone());
                         browser.open(&url,&request).await.map_err(|_|auth::Error::Unavailable)?;
                         opened=true;
                         if this.account.lock().await.epoch!=epoch {return Err(auth::Error::Cancelled);}
@@ -344,10 +349,15 @@ impl<S: CredentialStore + 'static> Service<S> {
                 }
             }.await;
             // An already dispatched window mutation is settled and closed before Home.
-            let closed = browser.close(&request).await;
-            if closed.is_ok() {
-                *cleanup = None;
-            }
+            let closed = if cleanup.as_deref() == Some(request.as_str()) {
+                let result = browser.close(&request).await;
+                if result.is_ok() {
+                    *cleanup = None;
+                }
+                result
+            } else {
+                Ok(())
+            };
             let result = result.and_then(|_| {
                 closed
                     .as_ref()
@@ -1026,6 +1036,53 @@ mod tests {
         assert_ne!(calls[0].1, calls[3].1);
         assert!(service.connection_gate.lock().await.is_none());
         assert_eq!(oauth.finish().len(), 4);
+        assert_eq!(music.finish().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_retained_browser_lease_does_not_block_phone_sign_in() {
+        use crate::auth::tests::{MemoryStore, Mock, code, reply, token};
+        let oauth = Mock::new(vec![reply(200, code()), reply(200, token())]);
+        let music = crate::tests::Mock::new(vec![
+            (
+                200,
+                serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+            ),
+            (
+                200,
+                serde_json::json!({"result":{"library":{"tracks":[]}}}).to_string(),
+            ),
+        ]);
+        let browser = Arc::new(BrowserFixture::default());
+        browser
+            .fail_close
+            .store(true, std::sync::atomic::Ordering::Release);
+        let mut service = Service::new(Some(Arc::new(oauth.client(MemoryStore::default()))))
+            .browser(browser.clone());
+        service.test_api = Some(music.api.clone());
+        *service.connection_gate.lock().await = Some("previous-request".into());
+
+        service.connect().await.unwrap();
+        wait_for_prompt(&service).await;
+        assert_eq!(service.snapshot().await.actions, vec!["cancel"]);
+        assert_eq!(service.authorize().await, Err(ErrorCode::Conflict));
+        tokio::time::timeout(std::time::Duration::from_secs(8), async {
+            while service.snapshot().await.account == "connecting" {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(service.snapshot().await.account, "connected");
+        assert_eq!(
+            service.connection_gate.lock().await.as_deref(),
+            Some("previous-request")
+        );
+        assert_eq!(
+            *browser.calls.lock().unwrap(),
+            vec![(String::from("close"), String::from("previous-request"))]
+        );
+        assert_eq!(oauth.finish().len(), 2);
         assert_eq!(music.finish().len(), 2);
     }
 }

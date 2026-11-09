@@ -18,6 +18,7 @@ Build-Depends:
  libcurl4-openssl-dev,
  libunwind-dev,
  libssl-dev,
+ libqrencode-dev,
  dbus-daemon <!nocheck>,
  ffmpeg <!nocheck>,
  libglib2.0-bin <!nocheck>,

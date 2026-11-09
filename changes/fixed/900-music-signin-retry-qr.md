@@ -1,0 +1,1 @@
+- Music sign-in can request a fresh device code after a browser cleanup failure. The phone prompt shows the verification address as a QR code with the short code beside it ([#900](https://github.com/LimeBeck/arinn/issues/900)).

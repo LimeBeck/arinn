@@ -239,7 +239,10 @@ keeps its behaviour rules and the [proposed protocol](../plugin-api/music.md)
 its interface. Provider
 processes own playback and credentials; no user token, stream URL or local media
 path may cross the shell interface. Yandex uses provider-hosted device-code
-sign-in and Secret Service storage. The owner authorized the CloudMus-compatible
+sign-in and Secret Service storage. A device-code prompt shows a QR code for
+its public HTTPS verification address alongside the written address and short
+code. The short code is entered separately on the verification page.
+The owner authorized the CloudMus-compatible
 SDK application registration (including its embedded secret) on 2026-11-04,
 superseding the own-public-client-only constraint. The browser confirms the short
 code; the provider receives and stores the user's token automatically, closes the

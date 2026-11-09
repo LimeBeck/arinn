@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import QtQuick
 import QtQuick.Window
+import Arinn.Shell 1.0
 import "../.." as Ui
 
 // The Sources sheet (brief mh-01, MH-5): every music source with its mark,
@@ -470,17 +471,30 @@ FocusScope {
                         text: root.failureFor(sourceRow.modelData.id) || sourceRow.modelData.error || ""
                     }
                     // A pending sign-in shows where to confirm and its code.
-                    Ui.UiText {
-                        objectName: "musicSourcePrompt"
+                    Row {
                         width: parent.width
                         visible: !!sourceRow.modelData.prompt && !!sourceRow.modelData.prompt.verification_url
-                        role: "meta"
-                        color: Ui.Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                        textFormat: Text.PlainText
-                        text: visible ? qsTr("Open %1 on your phone and enter %2")
-                            .arg(sourceRow.modelData.prompt.verification_url)
-                            .arg(sourceRow.modelData.prompt.user_code || "") : ""
+                        spacing: 24
+                        Ui.UiText {
+                            objectName: "musicSourcePrompt"
+                            width: parent.width - (sourceQr.visible ? sourceQr.width + parent.spacing : 0)
+                            role: "meta"
+                            color: Ui.Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            textFormat: Text.PlainText
+                            text: sourceRow.modelData.prompt ? qsTr("Open %1 on your phone and enter %2")
+                                .arg(sourceRow.modelData.prompt.verification_url)
+                                .arg(sourceRow.modelData.prompt.user_code || "") : ""
+                        }
+                        VerificationQr {
+                            id: sourceQr
+                            objectName: "musicSourceVerificationQr"
+                            width: 192
+                            height: width
+                            visible: valid
+                            verificationUrl: sourceRow.modelData.prompt
+                                ? sourceRow.modelData.prompt.verification_url || "" : ""
+                        }
                     }
                     Row {
                         spacing: 16

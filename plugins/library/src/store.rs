@@ -2625,10 +2625,13 @@ mod tests {
             .unwrap()
             .id;
         PROGRESS_SQL.lock().unwrap().clear();
-        store.conn.trace_v2(
-            rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
-            Some(capture_progress_sql),
-        );
+        store
+            .conn
+            .trace_v2(
+                rusqlite::trace::TraceEventCodes::SQLITE_TRACE_STMT,
+                Some(capture_progress_sql),
+            )
+            .unwrap();
         store.set_progress(&id, 1_000, -1, false).unwrap();
         let queries = PROGRESS_SQL.lock().unwrap();
         assert!(

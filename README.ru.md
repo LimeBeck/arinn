@@ -105,10 +105,10 @@ Arinn (древнескандинавское «очаг») объединяет
 - шина графической сессии; описанный автозапуск использует пользовательские службы systemd. Лаунчеры отдельной сессии поддерживают прямой запуск без пользовательского менеджера служб ([жизненный цикл](docs/architecture/session-lifecycle.md));
 - пульт, клавиатура или аэромышь со стандартными клавишами.
 
-Для сборки: Rust (edition 2024), CMake ≥ 3.24, Ninja, компилятор C++20, Qt 6 ≥ 6.8 (Quick, Quick Controls, Quick Test, DBus, Test, SVG, Multimedia и Linguist tools), Python 3, `qdbus6`, libcurl, libunwind и OpenSSL; Node.js нужен для тестов адаптеров. Sentry native и toml++ загружаются с проверкой контрольных сумм. Диагностика по умолчанию выключена; [настройка и ограничения](docs/architecture/telemetry.md).
+Для сборки: Rust (edition 2024), CMake ≥ 3.24, Ninja, компилятор C++20, Qt 6 ≥ 6.8 (Quick, Quick Controls, Quick Test, DBus, Test, SVG, Multimedia и Linguist tools), Python 3, `qdbus6`, pkg-config и файлы разработки libcurl, libunwind, OpenSSL и libqrencode. Node.js нужен для тестов адаптеров. Sentry native и toml++ загружаются с проверкой контрольных сумм. Диагностика по умолчанию выключена; [настройка и ограничения](docs/architecture/telemetry.md).
 
 ```sh
-sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools python nodejs curl libunwind openssl
+sudo pacman -S --needed rust cmake ninja pkgconf qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools python nodejs curl libunwind openssl qrencode
 ```
 
 Для воспроизведения медиа и музыки установите `mpv`, для анализа локальных файлов — `ffmpeg`. Transmission и внешние приложения устанавливаются отдельно.

@@ -125,13 +125,13 @@ Building from source:
 - CMake ≥ 3.24, Ninja and a C++20 compiler;
 - Qt 6 ≥ 6.8, the minimum supported Qt ([ADR-0104](docs/adr/0104-qt-floor-and-prebuilt-ci-images.md)): Quick, Quick Controls, Quick Test, DBus, Test, SVG, Multimedia and Linguist tools;
 - Python 3, `qdbus6`; Node.js for the adapter tests;
-- libcurl, libunwind and OpenSSL development files. CMake downloads checksum-pinned
+- pkg-config and development files for libcurl, libunwind, OpenSSL and libqrencode. CMake downloads checksum-pinned
   Sentry native and toml++ sources; telemetry stays disabled at runtime by default.
 
 On Arch/EndeavourOS:
 
 ```sh
-sudo pacman -S --needed rust cmake ninja qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools python nodejs curl libunwind openssl
+sudo pacman -S --needed rust cmake ninja pkgconf qt6-base qt6-declarative qt6-svg qt6-multimedia qt6-tools python nodejs curl libunwind openssl qrencode
 ```
 
 Install `mpv` for managed media/music playback and `ffmpeg` for local media probing.

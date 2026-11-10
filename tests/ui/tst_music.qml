@@ -688,11 +688,13 @@ TestCase {
 
     function test_browser_confirmation_is_reachable_after_the_short_code_is_shown() {
         const catalog=createTemporaryObject(catalogFactory,suite);
-        catalog.state={account:"connecting",facets:[],actions:["authorize","cancel"],prompt:{verification_url:"https://fixture.invalid/device",user_code:"FIXTURE",expires_in:300}};
+        const origin="https://fixture.invalid/";
+        const address=origin+"a".repeat(2048-origin.length);
+        catalog.state={account:"connecting",facets:[],actions:["authorize","cancel"],prompt:{verification_url:address,user_code:"FIXTURE",expires_in:300}};
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.focusInitial();
         const qr=findChild(view,"musicAccountVerificationQr");
         tryCompare(qr,"visible",true);
-        compare(qr.verificationUrl,"https://fixture.invalid/device");
+        compare(qr.verificationUrl,address);
         verify(inside(qr,view));
         tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
         keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);

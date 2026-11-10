@@ -377,6 +377,29 @@ fn only_the_exact_short_device_address_is_normalized() {
 }
 
 #[test]
+fn prompt_verification_address_is_bounded_after_url_encoding() {
+    let origin = "https://oauth.yandex.ru/";
+    let boundary = format!(
+        "{origin}{}",
+        "a".repeat(VERIFICATION_URL_LIMIT - origin.len())
+    );
+    let mut response = code();
+    response["verification_url"] = json!(boundary);
+    let attempt = parse_code(response, 0).unwrap();
+    assert_eq!(attempt.prompt.verification_url, boundary);
+
+    let unicode = format!("{origin}{}", "é".repeat(400));
+    assert!(unicode.len() < VERIFICATION_URL_LIMIT);
+    assert!(Url::parse(&unicode).unwrap().as_str().len() > VERIFICATION_URL_LIMIT);
+    let mut response = code();
+    response["verification_url"] = json!(unicode);
+    assert!(matches!(
+        parse_code(response, 0),
+        Err(Error::InvalidResponse)
+    ));
+}
+
+#[test]
 fn prompt_validation_excludes_secrets_and_untrusted_verification_hosts() {
     let mut boundary = code();
     boundary["interval"] = json!(120);

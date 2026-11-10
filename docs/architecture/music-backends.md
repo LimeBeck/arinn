@@ -300,8 +300,10 @@ The production connection must:
   the normal connection path.
 - Render the verification address as a QR code in the shell using libqrencode
   (Arch `qrencode`, Debian build dependency `libqrencode-dev`). The encoder
-  runs locally on the bounded HTTPS address, without user information, query or
-  fragment. The short code is displayed separately as text.
+  runs locally on the HTTPS address, without user information, query or
+  fragment. The provider checks the 2,048-byte limit after URL normalization so
+  the shell can encode the address it receives. The short code is displayed
+  separately as text.
 - Store credentials through the agreed secure provider storage lifecycle,
   restore the connection across restarts and remove local credentials on
   disconnect. Expired or revoked access must offer a new sign-in.

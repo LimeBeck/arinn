@@ -12,7 +12,9 @@
 
 namespace {
 constexpr int quietZone = 4;
-constexpr int maximumUrlBytes = 256;
+// Covers the provider's canonical verification URL limit and fits byte-mode
+// QR codes with medium error correction.
+constexpr int maximumUrlBytes = 2048;
 
 QImage encode(const QString &address) {
   if (address.size() > maximumUrlBytes)

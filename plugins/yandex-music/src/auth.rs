@@ -20,6 +20,8 @@ use tokio::{
 };
 
 const RESPONSE_LIMIT: usize = 16 * 1024;
+// Keep the canonical address within the shell's verification QR byte limit.
+const VERIFICATION_URL_LIMIT: usize = 2048;
 const PENDING: u8 = 0;
 pub(crate) const ACCEPTED: u8 = 1;
 const REVOKED: u8 = 2;
@@ -597,8 +599,11 @@ fn parse_code(v: Value, generation: u64) -> Result<Attempt, Error> {
     } else {
         raw
     };
+    if raw.len() > VERIFICATION_URL_LIMIT {
+        return Err(Error::InvalidResponse);
+    }
     let url = Url::parse(raw).map_err(|_| Error::InvalidResponse)?;
-    if raw.len() > 2048
+    if url.as_str().len() > VERIFICATION_URL_LIMIT
         || url.scheme() != "https"
         || url.host_str() != Some("oauth.yandex.ru")
         || !url.username().is_empty()

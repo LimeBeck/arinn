@@ -481,6 +481,7 @@ FocusScope {
                             role: "meta"
                             color: Ui.Theme.textSecondary
                             wrapMode: Text.WordWrap
+                            clip: true
                             textFormat: Text.PlainText
                             text: sourceRow.modelData.prompt ? qsTr("Open %1 on your phone and enter %2")
                                 .arg(sourceRow.modelData.prompt.verification_url)

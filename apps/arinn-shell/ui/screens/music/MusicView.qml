@@ -1472,6 +1472,7 @@ FocusScope {
             role: "body"
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
+            clip: true
             text: root.selected.account === "restricted" ? qsTr("Sign-in succeeded, but this application cannot access music.")
                 : root.selected.account === "unavailable" ? qsTr("Sign-in succeeded. Music is temporarily unavailable; try again.")
                 : root.selected.prompt ? root.selected.prompt.verification_url

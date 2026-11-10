@@ -696,16 +696,27 @@ TestCase {
         tryCompare(qr,"visible",true);
         compare(qr.verificationUrl,address);
         verify(inside(qr,view));
+        const explanation=findChild(view,"musicAccountExplanation");
+        verify(explanation.clip);
+        verify(explanation.mapToItem(view,explanation.width,0).x<=qr.x);
         tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
         keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"authorize");
     }
 
-    function test_sources_phone_prompt_shows_only_the_verification_address_as_qr() {
+    function test_sources_phone_prompt_shows_only_the_verification_address_as_qr_data() {
+        const origin="https://fixture.invalid/";
+        return [
+            {tag:"short",address:origin+"device"},
+            {tag:"max",address:origin+"a".repeat(2048-origin.length)}
+        ];
+    }
+
+    function test_sources_phone_prompt_shows_only_the_verification_address_as_qr(data) {
         const catalog=createTemporaryObject(catalogFactory,suite);
         const room=createTemporaryObject(roomFactory,suite);
-        const prompt={verification_url:"https://fixture.invalid/device",user_code:"FIXTURE",expires_in:300};
+        const prompt={verification_url:data.address,user_code:"FIXTURE",expires_in:300};
         const source={id:"account",name:"Fixture service",local:false,status:"connecting",
             actions:["cancel"],busy:false,prompt:prompt};
         room.connected=false;room.shelves=[];room.sources=[source];
@@ -717,7 +728,10 @@ TestCase {
         const qr=findChild(sheet,"musicSourceVerificationQr");
         tryCompare(qr,"visible",true);
         compare(qr.verificationUrl,prompt.verification_url);
-        verify(findChild(sheet,"musicSourcePrompt").text.includes(prompt.user_code));
+        const instructions=findChild(sheet,"musicSourcePrompt");
+        verify(instructions.text.includes(prompt.user_code));
+        verify(instructions.clip);
+        verify(instructions.x+instructions.width<=qr.x);
         tryCompare(findChild(sheet,"musicSourceAction-cancel"),"activeFocus",true);
 
         room.sources=[Object.assign({},source,{prompt:Object.assign({},prompt,

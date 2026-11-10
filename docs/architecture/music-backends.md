@@ -292,10 +292,18 @@ The production connection must:
 - Allow cancellation and retry after expiry or failure. Cancellation,
   disconnect or a newer attempt must invalidate late authorization results;
   they must not store credentials or reconnect the account.
+- Keep the phone prompt available when a prior browser lease cannot yet be
+  closed. Its lease remains tracked, and another browser open waits for cleanup.
 - Keep device credentials, access tokens and polling inside the provider. Only
   the bounded verification prompt and account state reach the generic UI.
   Never collect the account password or require manual access-token copying as
   the normal connection path.
+- Render the verification address as a QR code in the shell using libqrencode
+  (Arch `qrencode`, Debian build dependency `libqrencode-dev`). The encoder
+  runs locally on the HTTPS address, without user information, query or
+  fragment. The provider checks the 2,048-byte limit after URL normalization so
+  the shell can encode the address it receives. The short code is displayed
+  separately as text.
 - Store credentials through the agreed secure provider storage lifecycle,
   restore the connection across restarts and remove local credentials on
   disconnect. Expired or revoked access must offer a new sign-in.

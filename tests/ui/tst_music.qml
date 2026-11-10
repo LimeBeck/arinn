@@ -688,12 +688,62 @@ TestCase {
 
     function test_browser_confirmation_is_reachable_after_the_short_code_is_shown() {
         const catalog=createTemporaryObject(catalogFactory,suite);
-        catalog.state={account:"connecting",facets:[],actions:["authorize","cancel"],prompt:{verification_url:"https://fixture.invalid/device",user_code:"FIXTURE",expires_in:300}};
+        const origin="https://fixture.invalid/";
+        const address=origin+"a".repeat(2048-origin.length);
+        catalog.state={account:"connecting",facets:[],actions:["authorize","cancel"],prompt:{verification_url:address,user_code:"FIXTURE",expires_in:300}};
         const view=createTemporaryObject(viewFactory,suite,{catalog:catalog});verify(view);view.focusInitial();
+        const qr=findChild(view,"musicAccountVerificationQr");
+        tryCompare(qr,"visible",true);
+        compare(qr.verificationUrl,address);
+        verify(inside(qr,view));
+        const explanation=findChild(view,"musicAccountExplanation");
+        verify(explanation.clip);
+        verify(explanation.mapToItem(view,explanation.width,0).x<=qr.x);
         tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
         keyClick(Qt.Key_Right);tryCompare(findChild(view,"musicCancelAuth"),"activeFocus",true);
         keyClick(Qt.Key_Left);tryCompare(findChild(view,"musicAuthorize"),"activeFocus",true);
         keyClick(Qt.Key_Return);compare(catalog.commands[0],"authorize");
+    }
+
+    function test_sources_phone_prompt_shows_only_the_verification_address_as_qr_data() {
+        const origin="https://fixture.invalid/";
+        return [
+            {tag:"short",address:origin+"device"},
+            {tag:"max",address:origin+"a".repeat(2048-origin.length)}
+        ];
+    }
+
+    function test_sources_phone_prompt_shows_only_the_verification_address_as_qr(data) {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const room=createTemporaryObject(roomFactory,suite);
+        const prompt={verification_url:data.address,user_code:"FIXTURE",expires_in:300};
+        const source={id:"account",name:"Fixture service",local:false,status:"connecting",
+            actions:["cancel"],busy:false,prompt:prompt};
+        room.connected=false;room.shelves=[];room.sources=[source];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});verify(view);
+        view.forceActiveFocus();
+        verify(Ui.Focus.take(findChild(view,"musicSources")));
+        keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");tryCompare(sheet,"visible",true);
+        const qr=findChild(sheet,"musicSourceVerificationQr");
+        tryCompare(qr,"visible",true);
+        compare(qr.verificationUrl,prompt.verification_url);
+        const instructions=findChild(sheet,"musicSourcePrompt");
+        verify(instructions.text.includes(prompt.user_code));
+        verify(instructions.clip);
+        verify(instructions.x+instructions.width<=qr.x);
+        tryCompare(findChild(sheet,"musicSourceAction-cancel"),"activeFocus",true);
+
+        room.sources=[Object.assign({},source,{prompt:Object.assign({},prompt,
+            {verification_url:"https://fixture.invalid/device?code=FIXTURE"})})];
+        tryVerify(() => {
+            const currentQr=findChild(sheet,"musicSourceVerificationQr");
+            return currentQr && !currentQr.visible;
+        });
+        room.sources=[Object.assign({},source,{status:"signin",prompt:null,actions:["connect"]})];
+        tryCompare(findChild(sheet,"musicSourceAction-connect"),"activeFocus",true);
+        keyClick(Qt.Key_Return);
+        compare(room.commands,["account:connect"]);
     }
 
     function covers(item,view) {

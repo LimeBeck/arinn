@@ -3,6 +3,7 @@
 import QtQuick
 import QtQuick.Templates as T
 import QtQuick.Window
+import Arinn.Shell 1.0
 import "../.." as Ui
 
 FocusScope {
@@ -1436,7 +1437,18 @@ FocusScope {
         visible: root.mode === "catalogue" && tracks.visible && tracks.count > 0 && !root.detailView
         text: qsTr("%1 of %2").arg(tracks.currentIndex + 1).arg(tracks.count)
     }
+    VerificationQr {
+        objectName: "musicAccountVerificationQr"
+        x: 1460
+        y: accountPanel.y
+        width: 192
+        height: width
+        visible: accountPanel.visible && valid
+        verificationUrl: accountPanel.visible && root.selected.prompt
+            ? root.selected.prompt.verification_url || "" : ""
+    }
     Column {
+        id: accountPanel
         x: 120
         y: 420
         width: 1300
@@ -1460,6 +1472,7 @@ FocusScope {
             role: "body"
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
+            clip: true
             text: root.selected.account === "restricted" ? qsTr("Sign-in succeeded, but this application cannot access music.")
                 : root.selected.account === "unavailable" ? qsTr("Sign-in succeeded. Music is temporarily unavailable; try again.")
                 : root.selected.prompt ? root.selected.prompt.verification_url

@@ -1,0 +1,1 @@
+- Update bundled SQLite to fix CVE-2026-119375, an information disclosure issue when opening a crafted database and WAL pair ([#899](https://github.com/LimeBeck/arinn/issues/899)).

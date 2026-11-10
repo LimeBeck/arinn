@@ -8,24 +8,18 @@ use arinn_plugin_library::{MountTables, Rules, Settings, Store, scan_shared, to_
 use arinn_protocol::{library::ImportCandidate, production::EntityRef, validation::ErrorCode};
 use std::{
     fs,
-    os::unix::fs::PermissionsExt,
+    os::unix::fs::{DirBuilderExt, PermissionsExt},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
+use uuid::Uuid;
 
 struct Scratch(PathBuf);
 impl Scratch {
     fn new() -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "arinn-library-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).unwrap();
+        let path = std::env::temp_dir().join(format!("arinn-library-{}", Uuid::new_v4()));
+        fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
         Self(path)
     }
     fn path(&self) -> &Path {
@@ -36,6 +30,31 @@ impl Drop for Scratch {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn concurrent_catalogue_fixtures_own_distinct_directories() {
+    use std::{collections::HashSet, sync::Barrier, thread};
+
+    const WORKERS: usize = 8;
+    let start = Barrier::new(WORKERS);
+    let fixtures: Vec<_> = thread::scope(|scope| {
+        let workers: Vec<_> = (0..WORKERS)
+            .map(|_| {
+                scope.spawn(|| {
+                    start.wait();
+                    (0..16).map(|_| Scratch::new()).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| worker.join().unwrap())
+            .collect()
+    });
+
+    let paths: HashSet<_> = fixtures.iter().map(Scratch::path).collect();
+    assert_eq!(paths.len(), fixtures.len());
 }
 
 fn settings(root: &Path, probe: bool, ffprobe: PathBuf) -> Settings {

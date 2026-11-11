@@ -41,7 +41,10 @@ Russian catalogue and local partial overlays
   General fixed provider text uses the additive sidecar in
   [ADR-0135](../adr/0135-localized-provider-texts.md). A private client cache
   renders only explicitly associated fields; an omitted association keeps
-  plaintext even when it equals a known fixed label. Provider setting texts
+  plaintext even when it equals a known fixed label. During a music position
+  refresh, the shell can keep the previous localized playback snapshot for up
+  to three seconds while it resolves the new revision. Other playback changes
+  and language changes update the presentation immediately. Provider setting texts
   (title, description, option titles, unit) can come with a translation table
   ([ADR-0129](../adr/0129-provider-setting-translations.md)): the Settings screen
   looks each text up in a personal overlay, then in the provider's table by

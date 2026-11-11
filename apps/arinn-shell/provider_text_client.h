@@ -76,10 +76,6 @@ class ProviderTextClient final : public QObject {
   static constexpr qsizetype referenceBudget = 4 * 1024 * 1024;
   static constexpr qsizetype dictionaryBudget = 8 * 1024 * 1024;
 
-  QString locale() const {
-    const auto raw = qApp->property("arinn.translationLocale").toString();
-    return LocalTranslations::validLocale(raw) ? raw : LocalTranslations::currentLocaleTag();
-  }
   bool current(const std::shared_ptr<Provider> &p, quint64 epoch) const {
     return epoch == m_epoch && !m_owner.isEmpty() && m_providers.value({p->id, p->generation}) == p &&
            (!m_registryKnown || m_identities.value(p->id).first == p->generation);
@@ -537,6 +533,10 @@ class ProviderTextClient final : public QObject {
     });
   }
 public:
+  QString locale() const {
+    const auto raw = qApp->property("arinn.translationLocale").toString();
+    return LocalTranslations::validLocale(raw) ? raw : LocalTranslations::currentLocaleTag();
+  }
   class Presentation {
     ProviderTextClient *m_client = nullptr;
     QObject *m_owner = nullptr;
@@ -577,7 +577,8 @@ public:
   }
   QString translate(const QString &provider, const QString &generation, const QString &scope,
                     const QString &id, quint64 revision, const QString &field, const QString &fallback,
-                    std::optional<QString> displayFallback = {}) {
+                    std::optional<QString> displayFallback = {}, bool *pending = nullptr) {
+    if (pending) *pending = false;
     const auto plain = displayFallback.value_or(fallback);
     if (m_owner.isEmpty() || generation.isEmpty() || !ProviderMessages::text(fallback)) return plain;
     if (m_registryKnown && m_identities.value(provider).first != generation) return plain;
@@ -607,6 +608,7 @@ public:
       it->owned = true;
     }
     schedule();
+    if (pending) *pending = !p->unsupported && !it->complete;
     if (!p->catalog || !it->reference) return plain;
     QList<const ProviderMessages::Dictionary *> dictionaries;
     for (const auto &file : p->localPaths)

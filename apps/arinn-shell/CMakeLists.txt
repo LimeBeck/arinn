@@ -395,7 +395,7 @@ target_compile_definitions(arinn-music-catalog-test PRIVATE
     ARINN_DAEMON_XML="${PROJECT_SOURCE_DIR}/docs/plugin-api/daemon1.xml")
 add_test(NAME music-catalog COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-catalog-test>)
 qt_add_executable(arinn-music-localization-test music_localization_test.cpp
-    music_room.cpp music_room.h asset_images.cpp asset_images.h)
+    music_catalog.cpp music_catalog.h music_room.cpp music_room.h asset_images.cpp asset_images.h)
 target_link_libraries(arinn-music-localization-test PRIVATE Qt6::DBus Qt6::Quick Qt6::Test)
 target_compile_definitions(arinn-music-localization-test PRIVATE ARINN_SHELL_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}")
 add_test(NAME music-localization COMMAND dbus-run-session -- $<TARGET_FILE:arinn-music-localization-test>)

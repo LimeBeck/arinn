@@ -73,14 +73,21 @@ QString sourceName(const QString &plugin, const QString &name) {
       return QCoreApplication::translate("MusicCatalog", entry.name);
   return name;
 }
-QVariantMap translatedState(QVariantMap state, const QString &provider, const QString &generation) {
+QVariantMap translatedState(QVariantMap state, const QString &provider,
+                            const QString &generation, bool *pending = nullptr) {
   auto station = state.value(QStringLiteral("station")).toMap();
   if (!station.isEmpty()) {
     station.insert(QStringLiteral("title"), ProviderTextClient::instance()->translate(
         provider, generation, QStringLiteral("music.station"), station.value(QStringLiteral("id")).toString(),
-        state.value(QStringLiteral("revision")).toULongLong(), QStringLiteral("title"), station.value(QStringLiteral("title")).toString()));
+        state.value(QStringLiteral("revision")).toULongLong(), QStringLiteral("title"),
+        station.value(QStringLiteral("title")).toString(), {}, pending));
     state.insert(QStringLiteral("station"), station);
   }
+  return state;
+}
+QVariantMap withoutProgress(QVariantMap state) {
+  state.remove(QStringLiteral("revision"));
+  state.remove(QStringLiteral("position_us"));
   return state;
 }
 void registerMusic() {
@@ -90,7 +97,10 @@ Q_COREAPP_STARTUP_FUNCTION(registerMusic)
 } // namespace
 MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
   const auto presentation = [this] { emit presentationChanged(); updateProblems(); };
-  new LanguageChangeObserver(this, presentation);
+  new LanguageChangeObserver(this, [this, presentation] {
+    m_activePresentation.reset();
+    presentation();
+  });
   ProviderTextClient::instance()->observe(this, presentation);
   for (auto changed : {&MusicCatalog::sourcesChanged, &MusicCatalog::entriesChanged,
                        &MusicCatalog::stateChanged, &MusicCatalog::activeChanged, &MusicCatalog::statusChanged})
@@ -124,6 +134,7 @@ MusicCatalog::MusicCatalog(QObject *parent) : QObject(parent) {
     m_entries.clear();
     m_state.clear();
     m_active.clear();
+    m_activePresentation.reset();
     m_activeId.clear();
     m_activeGeneration.clear();
     m_next.clear();
@@ -175,8 +186,36 @@ QVariantMap MusicCatalog::state() const {
   return translatedState(m_state, m_sourceId, m_generation);
 }
 QVariantMap MusicCatalog::activeState() const {
-  const auto presentation = ProviderTextClient::instance()->presentation(this, QStringLiteral("active"));
-  return translatedState(m_active, m_activeId, m_activeGeneration);
+  auto *textClient = ProviderTextClient::instance();
+  const auto presentation = textClient->presentation(this, QStringLiteral("active"));
+  const auto locale = textClient->locale();
+  const QLocale formattingLocale;
+  bool pending = false;
+  const auto localized = translatedState(m_active, m_activeId, m_activeGeneration, &pending);
+  // Keep the previous presentation during a position-only refresh. Resolve the
+  // new revision separately so a changed or omitted association takes effect.
+  if (pending && m_activePresentation &&
+      m_activePresentation->provider == m_activeId &&
+      m_activePresentation->generation == m_activeGeneration &&
+      m_activePresentation->locale == locale &&
+      m_activePresentation->formattingLocale == formattingLocale &&
+      withoutProgress(m_activePresentation->original) == withoutProgress(m_active)) {
+    auto &deadline = m_activePresentation->waitForTranslation;
+    if (!deadline) {
+      constexpr int translationTimeoutMs = 3000;
+      deadline.emplace(translationTimeoutMs, Qt::PreciseTimer);
+      QTimer::singleShot(translationTimeoutMs, Qt::PreciseTimer, this,
+                         &MusicCatalog::presentationChanged);
+    }
+    if (!deadline->hasExpired())
+      return m_activePresentation->localized;
+  }
+  if (localized != m_active)
+    m_activePresentation = ActivePresentation{
+        m_activeId, m_activeGeneration, locale, formattingLocale, m_active, localized, {}};
+  else
+    m_activePresentation.reset();
+  return localized;
 }
 // "Source · Station · Playing": the station tells a continuous station from an
 // album or a playlist on the Home card (music brief, #756 M24).
@@ -652,6 +691,7 @@ void MusicCatalog::readActive() {
         m_activeKnown = true;
         if (none) {
           m_active.clear();
+          m_activePresentation.reset();
           m_activeId.clear();
           m_activeGeneration.clear();
           m_activeSeen = std::max(m_activeSeen, commandsDone);

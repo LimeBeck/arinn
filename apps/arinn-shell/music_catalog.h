@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 #pragma once
 #include <QDeadlineTimer>
+#include <QLocale>
 #include <QMap>
 #include <QPair>
 #include <QObject>
@@ -176,6 +177,13 @@ private:
   QVariantMap m_state;
   QVariantMap m_active;
   QString m_activeId, m_activeGeneration;
+  struct ActivePresentation {
+    QString provider, generation, locale;
+    QLocale formattingLocale;
+    QVariantMap original, localized;
+    std::optional<QDeadlineTimer> waitForTranslation;
+  };
+  mutable std::optional<ActivePresentation> m_activePresentation;
   QString m_sourceId, m_path, m_generation, m_error,
       m_facet = QStringLiteral("albums"), m_parent, m_search, m_next;
   quint64 m_commandTicket = 0, m_epoch = 0, m_registryTicket = 0,

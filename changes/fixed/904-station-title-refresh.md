@@ -1,0 +1,1 @@
+- Keep a localized music station title steady as playback progress refreshes ([#904](https://github.com/LimeBeck/arinn/issues/904)).

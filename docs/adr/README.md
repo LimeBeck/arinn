@@ -160,4 +160,5 @@ The rules are defined by [ADR-0028](0028-documentation-governance.md). In short:
 | [0143](0143-music-station-pins.md) | Music station pins in the daemon's favorites | Accepted | — |
 | [0144](0144-live-interface-language-and-local-overlays.md) | Live interface language and local translation overlays | Accepted | — |
 | [0145](0145-scoped-website-and-visual-pr-checks.md) | Scoped website and visual-fixture pull request checks | Proposed | — |
+| [0146](0146-restore-music-connections-from-locked-credential-storage.md) | Restore music connections from locked credential storage | Proposed | — |
 <!-- register:end -->

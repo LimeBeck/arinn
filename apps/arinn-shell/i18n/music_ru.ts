@@ -101,6 +101,22 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   <context>
     <name>MusicView</name>
     <message>
+      <source>Credential storage is locked</source>
+      <translation>Хранилище учётных данных заблокировано</translation>
+    </message>
+    <message>
+      <source>Restoring your connection…</source>
+      <translation>Восстанавливаем подключение…</translation>
+    </message>
+    <message>
+      <source>Unlock credential storage to restore your saved connection.</source>
+      <translation>Разблокируйте хранилище учётных данных, чтобы восстановить подключение.</translation>
+    </message>
+    <message>
+      <source>Unlock credential storage</source>
+      <translation>Разблокировать хранилище</translation>
+    </message>
+    <message>
       <source>Another command is in progress.</source>
       <translation>Выполняется другая команда.</translation>
     </message>
@@ -617,6 +633,14 @@ SPDX-License-Identifier: GPL-3.0-or-later -->
   </context>
   <context>
     <name>MusicSourcesSheet</name>
+    <message>
+      <source>Credential storage is locked</source>
+      <translation>Хранилище учётных данных заблокировано</translation>
+    </message>
+    <message>
+      <source>Unlock credential storage</source>
+      <translation>Разблокировать хранилище</translation>
+    </message>
     <message>
       <source>Turn off</source>
       <translation>Выключить</translation>

@@ -1449,6 +1449,10 @@ FocusScope {
     }
     Column {
         id: accountPanel
+        readonly property var actions: root.selected.actions || []
+        readonly property bool locked: actions.includes("unlock")
+        readonly property bool unlocking: root.selected.account === "connecting"
+            && !root.selected.prompt && actions.length === 0
         x: 120
         y: 420
         width: 1300
@@ -1460,7 +1464,9 @@ FocusScope {
             objectName: "musicAccountHeading"
             width: parent.width
             role: "section"
-            text: root.selected.account === "restricted" ? qsTr("Music access was denied")
+            text: accountPanel.locked ? qsTr("Credential storage is locked")
+                : accountPanel.unlocking ? qsTr("Restoring your connection…")
+                : root.selected.account === "restricted" ? qsTr("Music access was denied")
                 : root.selected.account === "unavailable" ? qsTr("Music is temporarily unavailable")
                 : root.selected.account === "connecting" ? qsTr("Confirm sign-in")
                 : root.selected.account === "unconfigured" ? qsTr("Connection is not available yet")
@@ -1473,7 +1479,9 @@ FocusScope {
             textFormat: Text.PlainText
             wrapMode: Text.WordWrap
             clip: true
-            text: root.selected.account === "restricted" ? qsTr("Sign-in succeeded, but this application cannot access music.")
+            visible: !accountPanel.unlocking
+            text: accountPanel.locked ? qsTr("Unlock credential storage to restore your saved connection.")
+                : root.selected.account === "restricted" ? qsTr("Sign-in succeeded, but this application cannot access music.")
                 : root.selected.account === "unavailable" ? qsTr("Sign-in succeeded. Music is temporarily unavailable; try again.")
                 : root.selected.prompt ? root.selected.prompt.verification_url
                 : root.selected.account === "connecting" ? qsTr("Complete sign-in in the browser. Arinn will check music access and return here.")
@@ -1517,9 +1525,9 @@ FocusScope {
                 objectName: "musicConnect"
                 KeyNavigation.up: sourcePicker
                 KeyNavigation.right: settingsButton
-                visible: (root.selected.actions || []).includes("connect")
-                text: qsTr("Connect")
-                onActivated: root.catalog.command("connect")
+                visible: accountPanel.locked || accountPanel.actions.includes("connect")
+                text: accountPanel.locked ? qsTr("Unlock credential storage") : qsTr("Connect")
+                onActivated: root.catalog.command(accountPanel.locked ? "unlock" : "connect")
             }
             Ui.ActionButton {
                 id: cancelAuthButton

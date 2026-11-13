@@ -23,6 +23,7 @@ pub const ACTIONS: &[&str] = &[
     "retry",
     "pin",
     "connect",
+    "unlock",
     "authorize",
     "cancel",
     "disconnect",
@@ -356,6 +357,7 @@ impl Command {
             "radio",
             "pin",
             "connect",
+            "unlock",
             "authorize",
             "cancel",
             "disconnect",
@@ -369,6 +371,21 @@ impl Command {
             return Err(ErrorCode::InvalidArgument);
         }
         if self.action == "remove" && self.occurrence.is_empty() {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        if self.action == "unlock"
+            && (self.position_us != 0
+                || [
+                    &self.session,
+                    &self.entity,
+                    &self.occurrence,
+                    &self.replaces_provider,
+                    &self.replaces_session,
+                    &self.text,
+                ]
+                .iter()
+                .any(|value| !value.is_empty()))
+        {
             return Err(ErrorCode::InvalidArgument);
         }
         Ok(())
@@ -402,6 +419,23 @@ pub trait MusicProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unlock_is_a_sessionless_account_action() {
+        let mut command = Command {
+            request_id: uuid::Uuid::new_v4().to_string(),
+            action: "unlock".into(),
+            session: String::new(),
+            entity: String::new(),
+            occurrence: String::new(),
+            position_us: 0,
+            replaces_provider: String::new(),
+            replaces_session: String::new(),
+            text: String::new(),
+        };
+        assert_eq!(command.validate(), Ok(()));
+        command.replaces_provider = "other-source".into();
+        assert_eq!(command.validate(), Err(ErrorCode::InvalidArgument));
+    }
     #[test]
     fn state_rejects_secret_fields_duplicate_occurrences_and_unsafe_prompts() {
         let state = State::default();

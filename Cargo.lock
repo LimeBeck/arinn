@@ -217,6 +217,7 @@ dependencies = [
  "arinn-music-common",
  "arinn-plugin-sdk",
  "arinn-protocol",
+ "futures-util",
  "md-5",
  "reqwest 0.12.28",
  "roxmltree",

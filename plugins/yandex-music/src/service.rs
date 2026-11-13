@@ -23,6 +23,7 @@ const DEFAULT_CLIENT_ID: &str = crate::compatibility::CLIENT_ID;
 struct Account {
     state: State,
     epoch: u64,
+    unlock_task: Option<tokio::task::AbortHandle>,
     prompt_deadline: Option<tokio::time::Instant>,
     browser_request: Option<tokio::sync::oneshot::Sender<()>>,
 }
@@ -63,6 +64,7 @@ impl<S: CredentialStore + 'static> Service<S> {
             projection: Arc::new(Mutex::new(None)),
             account: Arc::new(Mutex::new(Account {
                 epoch: 0,
+                unlock_task: None,
                 prompt_deadline: None,
                 browser_request: None,
                 state: State {
@@ -94,6 +96,7 @@ impl<S: CredentialStore + 'static> Service<S> {
             Err(error) => Self {
                 account: Arc::new(Mutex::new(Account {
                     epoch: 0,
+                    unlock_task: None,
                     prompt_deadline: None,
                     browser_request: None,
                     state: State {
@@ -153,10 +156,17 @@ impl<S: CredentialStore + 'static> Service<S> {
         let Some(auth) = &self.auth else {
             return;
         };
-        let shown = self.account.lock().await.state.account.clone();
-        if ["connected", "connecting", "restricted", "unavailable"].contains(&shown.as_str())
-            || auth.api().await.is_err()
-        {
+        let preserve = {
+            let account = self.account.lock().await;
+            ["connected", "connecting", "restricted", "unavailable"]
+                .contains(&account.state.account.as_str())
+                || account
+                    .state
+                    .actions
+                    .iter()
+                    .any(|action| action == "unlock")
+        };
+        if preserve || auth.api().await.is_err() {
             return;
         }
         if let Err(error) = auth.disconnect().await {
@@ -203,6 +213,7 @@ impl<S: CredentialStore + 'static> Service<S> {
             return;
         }
         account.browser_request = None;
+        account.unlock_task = None;
         account.state.prompt = None;
         account.prompt_deadline = None;
         account.state.revision += 1;
@@ -247,8 +258,11 @@ impl<S: CredentialStore + 'static> Service<S> {
             return;
         };
         let result = auth.restore_prepared(start).await;
+        self.finish_restore(0, result).await;
+    }
+    async fn finish_restore(&self, epoch: u64, result: Result<bool, auth::Error>) {
         let mut account = self.account.lock().await;
-        if account.epoch != 0 {
+        if account.epoch != epoch {
             drop(account);
             if result == Ok(true) {
                 self.reconcile().await;
@@ -258,17 +272,69 @@ impl<S: CredentialStore + 'static> Service<S> {
         match result {
             Ok(true) => {
                 account.state.account = "connecting".into();
-                account.state.actions = vec!["cancel".into()];
+                if account.unlock_task.is_none() {
+                    account.state.actions = vec!["cancel".into()];
+                }
                 account.state.revision += 1;
                 drop(account);
-                self.finish_connection(0, self.connection_api().await).await;
+                self.finish_connection(epoch, self.connection_api().await)
+                    .await;
             }
-            Ok(false) => {}
-            Err(error) => {
-                account.state.error = Some(normalize(error));
+            outcome => {
+                account.unlock_task = None;
+                account.state.account = "disconnected".into();
+                account.state.actions = vec![if outcome == Err(auth::Error::Locked) {
+                    "unlock".into()
+                } else {
+                    "connect".into()
+                }];
+                account.state.error = outcome.err().map(normalize);
                 account.state.revision += 1;
             }
         }
+    }
+    async fn unlock(&self) -> Result<(), ErrorCode> {
+        let auth = self.auth.clone().ok_or(ErrorCode::Unsupported)?;
+        let mut account = self.account.lock().await;
+        if !account
+            .state
+            .actions
+            .iter()
+            .any(|action| action == "unlock")
+        {
+            return Err(ErrorCode::Conflict);
+        }
+        account.epoch += 1;
+        account.state.revision += 1;
+        account.state.account = "connecting".into();
+        account.state.actions.clear();
+        account.state.error = None;
+        let (epoch, start) = (account.epoch, auth.prepare());
+        let this = self.clone();
+        let task = tokio::spawn(async move {
+            match auth.unlock_storage().await {
+                Ok(()) => {
+                    this.finish_restore(epoch, auth.restore_prepared(start).await)
+                        .await
+                }
+                Err(error) => {
+                    let mut account = this.account.lock().await;
+                    if account.epoch == epoch {
+                        account.unlock_task = None;
+                        account.state.account = "disconnected".into();
+                        account.state.actions = vec!["unlock".into()];
+                        account.state.error = Some(if error == auth::Error::Cancelled {
+                            ErrorCode::PermissionDenied
+                        } else {
+                            normalize(error)
+                        });
+                        account.state.revision += 1;
+                    }
+                }
+            }
+        });
+        account.unlock_task = Some(task.abort_handle());
+        Ok(())
     }
     async fn connect(&self) -> Result<(), ErrorCode> {
         let auth = self.auth.clone().ok_or(ErrorCode::Unsupported)?;
@@ -280,7 +346,10 @@ impl<S: CredentialStore + 'static> Service<S> {
         };
         let (epoch, start) = {
             let mut a = self.account.lock().await;
-            if a.state.account == "connected" && !reconnect {
+            if a.unlock_task.is_some()
+                || a.state.actions.iter().any(|action| action == "unlock")
+                || (a.state.account == "connected" && !reconnect)
+            {
                 return Err(ErrorCode::Conflict);
             }
             auth.cancel();
@@ -309,8 +378,10 @@ impl<S: CredentialStore + 'static> Service<S> {
             }
             let request = uuid::Uuid::new_v4().to_string();
             let mut opened = false;
+            let mut signin_started = false;
             let result=async {
                 let attempt=auth.start_prepared(start).await?;
+                signin_started = true;
                 let url=attempt.prompt.verification_url.clone();
                 let requested = {
                     let mut a=this.account.lock().await;
@@ -391,7 +462,12 @@ impl<S: CredentialStore + 'static> Service<S> {
                             "disconnected"
                         }
                         .into();
-                        a.state.actions = vec!["connect".into()];
+                        a.state.actions =
+                            vec![if error == auth::Error::Locked && !signin_started {
+                                "unlock".into()
+                            } else {
+                                "connect".into()
+                            }];
                         a.state.error = Some(normalize(error));
                     }
                 }
@@ -428,7 +504,7 @@ impl<S: CredentialStore + 'static> Service<S> {
     }
     async fn cancel(&self) {
         let mut a = self.account.lock().await;
-        if a.state.account != "connecting" {
+        if a.state.account != "connecting" || a.unlock_task.is_some() {
             return;
         }
         if let Some(auth) = &self.auth {
@@ -563,12 +639,18 @@ impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
         Box::pin(async move {
             match command.action.as_str() {
                 "connect" => self.connect().await?,
+                "unlock" => self.unlock().await?,
                 "authorize" => self.authorize().await?,
                 "cancel" => self.cancel().await,
                 "disconnect" => {
                     let auth = self.auth.as_ref().ok_or(ErrorCode::Unsupported)?;
                     {
                         let mut a = self.account.lock().await;
+                        if a.unlock_task.is_some()
+                            || a.state.actions.iter().any(|action| action == "unlock")
+                        {
+                            return Err(ErrorCode::Conflict);
+                        }
                         auth.cancel();
                         a.epoch += 1;
                         a.state.prompt = None;
@@ -605,6 +687,17 @@ impl<S: CredentialStore + 'static> MusicHandler for Service<S> {
     }
     fn reset(&self) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
         Box::pin(async move {
+            {
+                let mut account = self.account.lock().await;
+                if let Some(task) = account.unlock_task.take() {
+                    task.abort();
+                    account.epoch += 1;
+                    account.state.revision += 1;
+                    account.state.account = "disconnected".into();
+                    account.state.actions = vec!["unlock".into()];
+                    account.state.error = Some(ErrorCode::PermissionDenied);
+                }
+            }
             self.cancel().await;
             if let Some(runtime) = &self.runtime {
                 let _ = runtime.playback.stop().await;
@@ -643,14 +736,9 @@ pub async fn serve(connection: zbus::Connection) -> Result<(), ErrorCode> {
         let reference = paths::group("account", &provider).replace(':', "-");
         let store = SecretService::new(bus, &reference, &directory.join("oauth-approval"))
             .map_err(normalize)?;
-        let client_secret = if client_id == crate::compatibility::CLIENT_ID {
-            Some(crate::compatibility::CLIENT_SECRET.to_owned())
-        } else {
-            tokio::runtime::Handle::current()
-                .block_on(store.application_secret(&client_id))
-                .map_err(normalize)?
-        };
-        DeviceAuth::new(&client_id, client_secret.as_deref(), &device, store)
+        let client_secret = (client_id == crate::compatibility::CLIENT_ID)
+            .then_some(crate::compatibility::CLIENT_SECRET);
+        DeviceAuth::new(&client_id, client_secret, &device, store)
             .map(|auth| Some(Arc::new(auth)))
             .map_err(normalize)
     })
@@ -882,6 +970,90 @@ mod tests {
         assert_eq!(state.account, "connected");
         assert_eq!(state.error, None);
         assert_eq!(mock.finish().len(), 2);
+    }
+    #[tokio::test]
+    async fn locked_account_recovers_the_saved_grant_without_starting_sign_in() {
+        use crate::auth::tests::MemoryStore;
+        use std::sync::atomic::{AtomicU8, Ordering};
+
+        struct LockedStore {
+            saved: MemoryStore,
+            prompt: Arc<AtomicU8>,
+        }
+        impl CredentialStore for LockedStore {
+            async fn load(&self) -> Result<Option<auth::Credentials>, auth::Error> {
+                if self.prompt.load(Ordering::SeqCst) < 2 {
+                    return Err(auth::Error::Locked);
+                }
+                self.saved.load().await
+            }
+            async fn save(&self, _: &auth::Credentials) -> Result<(), auth::Error> {
+                panic!("Recovery must never save an OAuth grant")
+            }
+            async fn clear(&self) -> Result<(), auth::Error> {
+                panic!("Recovery must never clear a valid OAuth grant")
+            }
+            async fn unlock(&self, _: Option<&str>) -> Result<(), auth::Error> {
+                match self.prompt.fetch_add(1, Ordering::SeqCst) {
+                    0 => Err(auth::Error::Cancelled),
+                    1 => Ok(()),
+                    _ => panic!("Recovery must issue one prompt per click"),
+                }
+            }
+        }
+
+        let music = crate::tests::Mock::new(vec![
+            (
+                200,
+                serde_json::json!({"result":{"account":{"uid":123}}}).to_string(),
+            ),
+            (
+                200,
+                serde_json::json!({"result":{"library":{"tracks":[]}}}).to_string(),
+            ),
+        ]);
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "nonce": uuid::Uuid::new_v4().to_string(),
+            "access_token": "synthetic-token",
+            "client_id": "synthetic-client",
+        }))
+        .unwrap();
+        let saved = MemoryStore::default();
+        *saved.bytes.lock().unwrap() = Some(bytes.clone());
+        let prompt = Arc::new(AtomicU8::new(0));
+        let store = LockedStore {
+            saved: saved.clone(),
+            prompt: prompt.clone(),
+        };
+        let auth = Arc::new(DeviceAuth::new("synthetic-client", None, "device", store).unwrap());
+        let browser = Arc::new(BrowserFixture::default());
+        let mut service = Service::new(Some(auth.clone())).browser(browser.clone());
+        service.test_api = Some(music.api.clone());
+        service.restore(Some(auth.prepare())).await;
+        assert_eq!(service.snapshot().await.actions, ["unlock"]);
+        assert_eq!(prompt.load(Ordering::SeqCst), 0);
+
+        service.unlock().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while service.snapshot().await.actions != ["unlock"] {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*saved.bytes.lock().unwrap(), Some(bytes.clone()));
+
+        service.unlock().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while service.snapshot().await.account != "connected" {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(*saved.bytes.lock().unwrap(), Some(bytes));
+        assert!(browser.calls.lock().unwrap().is_empty());
+        assert_eq!(music.finish().len(), 2);
     }
     #[derive(Default)]
     struct BrowserFixture {

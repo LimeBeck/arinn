@@ -76,6 +76,15 @@ pub trait CredentialStore: Send + Sync {
     fn load(&self) -> impl Future<Output = Result<Option<Credentials>, Error>> + Send;
     fn save(&self, credentials: &Credentials) -> impl Future<Output = Result<(), Error>> + Send;
     fn clear(&self) -> impl Future<Output = Result<(), Error>> + Send;
+    fn application_secret(
+        &self,
+        _client_id: &str,
+    ) -> impl Future<Output = Result<Option<String>, Error>> + Send {
+        async { Ok(None) }
+    }
+    fn unlock(&self, _client_id: Option<&str>) -> impl Future<Output = Result<(), Error>> + Send {
+        async { Err(Error::Locked) }
+    }
     /// Synchronous local approval checkpoint after the remote write succeeds.
     fn commit(&self, _credentials: &Credentials) -> Result<(), Error> {
         Ok(())
@@ -107,6 +116,7 @@ pub struct Attempt {
     owner: Arc<()>,
     generation: u64,
     device_code: String,
+    client_secret: Option<String>,
     pub prompt: Prompt,
     deadline: Instant,
     interval: Duration,
@@ -274,7 +284,7 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
             return Err(Error::InvalidInput);
         }
         let generation = start.generation;
-        self.current(generation)?;
+        let client_secret = self.guard(generation, self.application_secret()).await?;
         {
             let mut active = self.session.gate.lock().await;
             self.current(generation)?;
@@ -317,6 +327,7 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
         }
         let mut attempt = parse_code(value, generation)?;
         attempt.owner = self.owner.clone();
+        attempt.client_secret = client_secret;
         // Include network time in code lifetime; never extend the server grant.
         attempt.deadline = begun + Duration::from_secs(attempt.prompt.expires_in);
         if Instant::now() >= attempt.deadline {
@@ -357,7 +368,7 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
                 ("code", attempt.device_code.as_str()),
                 ("client_id", self.client_id.as_str()),
             ];
-            if let Some(secret) = &self.client_secret {
+            if let Some(secret) = &attempt.client_secret {
                 fields.push(("client_secret", secret));
             }
             let response = self
@@ -451,7 +462,7 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
             return Err(Error::InvalidInput);
         }
         let generation = start.generation;
-        self.current(generation)?;
+        self.guard(generation, self.application_secret()).await?;
         let mut active = self.session.gate.lock().await;
         self.current(generation)?;
         if active
@@ -482,6 +493,32 @@ impl<S: CredentialStore + 'static> DeviceAuth<S> {
             credentials,
         });
         Ok(active.is_some())
+    }
+
+    pub async fn unlock_storage(&self) -> Result<(), Error> {
+        self.session
+            .store
+            .unlock(
+                self.client_secret
+                    .is_none()
+                    .then_some(self.client_id.as_str()),
+            )
+            .await
+    }
+
+    async fn application_secret(&self) -> Result<Option<String>, Error> {
+        if let Some(secret) = &self.client_secret {
+            return Ok(Some(secret.clone()));
+        }
+        let value = self
+            .session
+            .store
+            .application_secret(&self.client_id)
+            .await?;
+        if value.as_deref().is_some_and(|value| !secret(value)) {
+            return Err(Error::InvalidInput);
+        }
+        Ok(value)
     }
 
     pub async fn disconnect(&self) -> Result<(), Error> {
@@ -628,6 +665,7 @@ fn parse_code(v: Value, generation: u64) -> Result<Attempt, Error> {
         owner: Arc::new(()),
         generation,
         device_code,
+        client_secret: None,
         prompt: Prompt {
             verification_url: url.to_string(),
             user_code,

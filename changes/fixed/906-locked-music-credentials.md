@@ -1,0 +1,1 @@
+- Music Sources can open the system credential-store unlock dialog and restore a saved music connection after desktop autologin.

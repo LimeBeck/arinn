@@ -16,6 +16,8 @@
 
 namespace {
 constexpr auto service = "org.arinn.Daemon1";
+const QStringList sourceActions{"connect", "unlock", "authorize", "cancel",
+                                "scan", "disconnect"};
 // The longest search the protocol takes, in UTF-8 bytes (music.md).
 constexpr int maxQuery = 1024;
 QJsonObject object(const QDBusMessage &reply) {
@@ -800,14 +802,13 @@ bool MusicRoom::loading() const {
 
 QVariantList MusicRoom::sources() const {
   QVariantList rows;
-  static const QStringList housekeeping{"connect", "authorize", "cancel", "scan",
-                                        "disconnect"};
   for (const auto &id : m_order) {
     const auto found = m_sources.find(id);
     if (found == m_sources.end())
       continue;
     const auto &source = found->second;
     const auto account = source.state.value("account").toString();
+    const auto advertisedActions = source.state.value("actions").toStringList();
     const bool local = account == QLatin1String("local");
     QString status, reason;
     if (source.stateFailed || !source.ready) {
@@ -825,6 +826,8 @@ QVariantList MusicRoom::sources() const {
       reason = tr("The service is not responding.");
     } else if (account == QLatin1String("connecting")) {
       status = QStringLiteral("connecting");
+    } else if (advertisedActions.contains(QLatin1String("unlock"))) {
+      status = QStringLiteral("locked");
     } else if (account == QLatin1String("disconnected") ||
                account == QLatin1String("expired") ||
                account == QLatin1String("unconfigured")) {
@@ -835,8 +838,8 @@ QVariantList MusicRoom::sources() const {
       status = QStringLiteral("connected");
     }
     QStringList actions;
-    for (const auto &action : source.state.value("actions").toStringList())
-      if (housekeeping.contains(action))
+    for (const auto &action : advertisedActions)
+      if (sourceActions.contains(action))
         actions.append(action);
     rows.append(QVariantMap{{"id", id},
                             {"name", source.name},
@@ -877,9 +880,7 @@ void MusicRoom::sourceCommand(const QString &id, const QString &action) {
   if (found == m_sources.end())
     return;
   auto &source = found->second;
-  static const QStringList housekeeping{"connect", "authorize", "cancel", "scan",
-                                        "disconnect"};
-  if (source.commandBusy || !housekeeping.contains(action) ||
+  if (source.commandBusy || !sourceActions.contains(action) ||
       !source.state.value("actions").toStringList().contains(action))
     return;
   source.commandBusy = true;

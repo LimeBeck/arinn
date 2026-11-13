@@ -746,6 +746,24 @@ TestCase {
         compare(room.commands,["account:connect"]);
     }
 
+    function test_locked_source_offers_unlock_from_the_sources_sheet() {
+        const catalog=createTemporaryObject(catalogFactory,suite);
+        const room=createTemporaryObject(roomFactory,suite);
+        room.connected=false;room.shelves=[];
+        room.sources=[{id:"account",name:"Fixture service",local:false,status:"locked",
+            actions:["unlock"],busy:false}];
+        const view=createTemporaryObject(roomViewFactory,suite,{catalog:catalog,room:room});
+        verify(view);
+        view.forceActiveFocus();
+        verify(Ui.Focus.take(findChild(view,"musicSources")));
+        keyClick(Qt.Key_Return);
+        const sheet=findChild(view,"musicSourcesOverlay");
+        tryCompare(sheet,"visible",true);
+        tryCompare(findChild(sheet,"musicSourceAction-unlock"),"activeFocus",true);
+        keyClick(Qt.Key_Return);
+        compare(room.commands,["account:unlock"]);
+    }
+
     function covers(item,view) {
         const origin=item.mapToItem(view,0,0);
         return origin.x<=0 && origin.y<=0 && origin.x+item.width>=view.width && origin.y+item.height>=view.height;

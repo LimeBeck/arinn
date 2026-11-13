@@ -65,8 +65,13 @@ offers one station, `station:library` ("All my music, shuffled"), in its
 occurrence, position_us, replaces_provider, replaces_session and text. The last two
 fields default to empty for non-replacing commands. Known actions are play,
 pause, resume, stop, previous, next, seek, remove, like, dislike, radio, retry,
-pin, connect, authorize, cancel, disconnect, scan, save_playlist and delete_playlist; providers advertise only implemented
+pin, connect, unlock, authorize, cancel, disconnect, scan, save_playlist and delete_playlist; providers advertise only implemented
 actions. Removal addresses an upcoming occurrence. Times are microseconds.
+An `unlock` command requests the provider's system credential prompt for a
+locked connection. Only `request_id` and `action` are populated. Providers
+accept it only while advertised. The command acknowledges starting recovery;
+subsequent state reports its outcome. The system prompt handles cancellation.
+The action neither starts sign-in nor takes a password.
 `text` defaults to empty, is at most 1024 bytes without control characters and
 must contain a nonblank playlist name for save_playlist. Saving a group uses
 entity; saving the finite remaining queue uses session and an empty entity.

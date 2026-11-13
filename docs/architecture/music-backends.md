@@ -338,8 +338,14 @@ after restart. Cancellation/disconnect revoke that approval before fallible
 remote cleanup; a timed-out or dropped remote write can finish later but cannot
 activate the abandoned grant. Stale nonce-specific cleanup preserves a newer
 grant. Keyring calls have deadlines, cleanup is bounded, known sessions close
-on error/drop, and locked/ambiguous storage fails without opening prompts or
-falling back to plaintext credentials.
+on error/drop, and no credential falls back to plaintext storage. A locked
+approved grant or application secret advertises `unlock` without prompting at
+startup. On that user action the provider asks Secret Service to unlock the
+matching items only, follows the system prompt if required, and rereads the
+approved grant. The prompt and its completion belong to the same D-Bus name
+owner. Dismissal or an unavailable prompt leaves the saved grant intact.
+Ambiguous items fail closed. Recovery verifies Music API access before
+reporting connected ([ADR-0146](../adr/0146-restore-music-connections-from-locked-credential-storage.md)).
 
 The provider process and connection UI are integrated. The compatibility identity
 still needs live qualification for device flow, Music API access and audio. The
@@ -603,7 +609,7 @@ MH-5, MH-9, MH-10; the [music Hearth light brief](../design/briefs/music-hearth-
     waited for first, with its own 15 s.
 - A source whose state cannot be read leaves the shelves, and the *Sources*
   sheet says why. The sheet shows each source's state and its `connect`,
-  `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by
+  `unlock`, `authorize`, `cancel`, `scan` (*Refresh*) and `disconnect` pills by
   capability, sent through `MusicRoom.sourceCommand`; *Disconnect* asks first
   with Cancel focused. A command the source refuses shows a note under that
   source until the next command, the account state changes or the source

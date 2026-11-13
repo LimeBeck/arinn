@@ -242,6 +242,11 @@ path may cross the shell interface. Yandex uses provider-hosted device-code
 sign-in and Secret Service storage. A device-code prompt shows a QR code for
 its public HTTPS verification address alongside the written address and short
 code. The short code is entered separately on the verification page.
+When a source cannot read a saved connection because its credential storage
+is locked, *Sources* offers **Unlock credential storage**. The system's prompt
+handles the password. After unlock, the provider attempts to restore the saved
+connection and verify music access. Dismissing the prompt keeps the saved
+connection and lets the user retry ([ADR-0146](../adr/0146-restore-music-connections-from-locked-credential-storage.md)).
 The owner authorized the CloudMus-compatible
 SDK application registration (including its embedded secret) on 2026-11-04,
 superseding the own-public-client-only constraint. The browser confirms the short

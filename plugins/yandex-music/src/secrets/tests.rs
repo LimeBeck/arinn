@@ -10,6 +10,7 @@ use std::{
 use tokio::sync::Notify;
 
 const SESSION: &str = "/org/freedesktop/secrets/session/test";
+const PROMPT: &str = "/org/freedesktop/secrets/prompt/test";
 const ITEMS: [&str; 2] = [
     "/org/freedesktop/secrets/collection/foreign/one",
     "/org/freedesktop/secrets/collection/foreign/two",
@@ -30,6 +31,8 @@ struct State {
     opened: u32,
     closed: u32,
     stall_get: bool,
+    dismiss_prompt: bool,
+    unlock_requests: Vec<Vec<OwnedObjectPath>>,
 }
 struct Shared {
     state: StdMutex<State>,
@@ -47,9 +50,42 @@ impl Shared {
         }
     }
 }
+struct Prompt(Arc<Shared>);
+#[zbus::interface(name = "org.freedesktop.Secret.Prompt")]
+impl Prompt {
+    async fn prompt(
+        &self,
+        window_id: &str,
+        #[zbus(signal_emitter)] emitter: zbus::object_server::SignalEmitter<'_>,
+    ) -> zbus::fdo::Result<()> {
+        assert_eq!(window_id, "");
+        let dismissed = {
+            let mut state = self.0.state.lock().unwrap();
+            if !state.dismiss_prompt {
+                state.locked = false;
+            }
+            state.dismiss_prompt
+        };
+        // Complete within the method call to exercise subscribing before Prompt.
+        Self::completed(&emitter, dismissed, OwnedValue::from(Str::from(""))).await?;
+        Ok(())
+    }
+
+    #[zbus(signal)]
+    async fn completed(
+        emitter: &zbus::object_server::SignalEmitter<'_>,
+        dismissed: bool,
+        result: OwnedValue,
+    ) -> zbus::Result<()>;
+}
 struct Service(Arc<Shared>);
 #[zbus::interface(name = "org.freedesktop.Secret.Service")]
 impl Service {
+    fn unlock(&self, items: Vec<OwnedObjectPath>) -> (Vec<OwnedObjectPath>, OwnedObjectPath) {
+        self.0.state.lock().unwrap().unlock_requests.push(items);
+        (vec![], path(PROMPT))
+    }
+
     fn open_session(&self, algorithm: &str, _input: OwnedValue) -> (OwnedValue, OwnedObjectPath) {
         assert_eq!(algorithm, "plain");
         self.0.state.lock().unwrap().opened += 1;
@@ -197,6 +233,8 @@ impl Fixture {
             .unwrap()
             .serve_at(SESSION, Session(shared.clone()))
             .unwrap()
+            .serve_at(PROMPT, Prompt(shared.clone()))
+            .unwrap()
             .serve_at(ITEMS[0], Item(shared.clone(), ITEMS[0]))
             .unwrap()
             .serve_at(ITEMS[1], Item(shared.clone(), ITEMS[1]))
@@ -243,6 +281,40 @@ impl Drop for Fixture {
 }
 fn credentials() -> Credentials {
     Credentials::decode(&serde_json::to_vec(&serde_json::json!({"nonce":uuid::Uuid::new_v4().to_string(),"access_token":"synthetic-access-token","expires_at":null})).unwrap()).unwrap()
+}
+
+#[tokio::test]
+async fn unlock_prompts_for_the_approved_grant_and_keeps_it_on_dismissal() {
+    let f = Fixture::new(Shared::new()).await;
+    let store = f.store();
+    let approved = credentials();
+    store.save(&approved).await.unwrap();
+    store.commit(&approved).unwrap();
+    store.save(&credentials()).await.unwrap();
+    {
+        let mut state = f.shared.state.lock().unwrap();
+        state.locked = true;
+        state.dismiss_prompt = true;
+    }
+    assert!(matches!(store.load().await, Err(Error::Locked)));
+    assert_eq!(store.unlock(None).await, Err(Error::Cancelled));
+    assert_eq!(
+        store.checkpoint().unwrap().as_deref(),
+        Some(approved.nonce())
+    );
+    assert!(matches!(store.load().await, Err(Error::Locked)));
+    f.shared.state.lock().unwrap().dismiss_prompt = false;
+    assert_eq!(store.unlock(None).await, Ok(()));
+    assert_eq!(
+        store.load().await.unwrap().unwrap().nonce(),
+        approved.nonce()
+    );
+    let state = f.shared.state.lock().unwrap();
+    assert_eq!(
+        state.unlock_requests,
+        [vec![path(ITEMS[0])], vec![path(ITEMS[0])]]
+    );
+    assert_eq!(state.records.len(), 2);
 }
 
 #[tokio::test]

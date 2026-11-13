@@ -739,6 +739,7 @@ void MusicCatalog::send(const QString &action, const QString &entity,
   m_stateBusy = false;
   emit statusChanged();
   const auto epoch = m_epoch, commandTicket = ++m_commandTicket;
+  const bool unlock = action == QLatin1String("unlock");
   const QJsonObject payload{
       {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
       {"action", action},
@@ -746,8 +747,8 @@ void MusicCatalog::send(const QString &action, const QString &entity,
       {"entity", entity},
       {"occurrence", occurrence},
       {"position_us", positionUs},
-      {"replaces_provider", m_activeId},
-      {"replaces_session", m_active.value("session").toString()},
+      {"replaces_provider", unlock ? QString() : m_activeId},
+      {"replaces_session", unlock ? QString() : m_active.value("session").toString()},
       {"text", text}};
   auto message = call(endpoint, "org.arinn.Music1", "Command");
   message << generation

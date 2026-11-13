@@ -280,6 +280,7 @@ FocusScope {
     }
     function label(action) {
         return action === "connect" ? qsTr("Connect")
+            : action === "unlock" ? qsTr("Unlock credential storage")
             : action === "authorize" ? qsTr("Sign in")
             : action === "cancel" ? qsTr("Cancel sign-in")
             : action === "scan" ? qsTr("Refresh")
@@ -293,6 +294,7 @@ FocusScope {
             : status === "connected" ? qsTr("Connected")
             : status === "scanning" ? qsTr("Scanning the library…")
             : status === "signin" ? qsTr("Needs sign-in")
+            : status === "locked" ? qsTr("Credential storage is locked")
             : status === "connecting" ? qsTr("Connecting…")
             : source.reason ? qsTr("Unavailable · %1").arg(source.reason)
             : qsTr("Unavailable");

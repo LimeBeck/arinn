@@ -5,6 +5,7 @@
 //! The checkpoint contains a random nonce, never a token or account identity.
 use crate::auth::{CredentialStore, Credentials, Error};
 use arinn_music_common::storage::Storage;
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -21,6 +22,7 @@ const SERVICE: &str = "org.freedesktop.secrets";
 const PATH: &str = "/org/freedesktop/secrets";
 const INTERFACE: &str = "org.freedesktop.Secret.Service";
 const CALL_LIMIT: Duration = Duration::from_secs(3);
+const PROMPT_LIMIT: Duration = Duration::from_secs(120);
 
 #[derive(Serialize, Deserialize, Type)]
 struct Secret(OwnedObjectPath, Vec<u8>, Vec<u8>, String);
@@ -71,6 +73,18 @@ impl Drop for SessionGuard {
                     ),
                 )
                 .await;
+            });
+        }
+    }
+}
+
+struct PromptGuard(Option<zbus::Proxy<'static>>);
+impl Drop for PromptGuard {
+    fn drop(&mut self) {
+        if let Some(proxy) = self.0.take() {
+            tokio::spawn(async move {
+                let _ =
+                    tokio::time::timeout(CALL_LIMIT, proxy.call::<_, _, ()>("Dismiss", &())).await;
             });
         }
     }
@@ -162,13 +176,120 @@ impl SecretService {
             closed: false,
         })
     }
-    /// Read an administrator-provisioned application secret; never expose it
-    /// through settings, diagnostics, prompts or the music wire model.
-    pub async fn application_secret(&self, client_id: &str) -> Result<Option<String>, Error> {
-        let attributes = HashMap::from([
+    fn application_attributes(client_id: &str) -> HashMap<String, String> {
+        HashMap::from([
             ("application".to_owned(), "arinn-yandex-client".to_owned()),
             ("client-id".to_owned(), client_id.to_owned()),
-        ]);
+        ])
+    }
+
+    async fn unlock_items(&self, client_id: Option<&str>) -> Result<(), Error> {
+        let mut selectors = Vec::new();
+        if let Some(nonce) = self.checkpoint()? {
+            selectors.push(self.attributes(Some(&nonce)));
+        }
+        if let Some(client_id) = client_id {
+            selectors.push(Self::application_attributes(client_id));
+        }
+        if selectors.is_empty() {
+            return Ok(());
+        }
+        // Resolve the name once. A replacement Secret Service must never
+        // receive item or prompt paths from the previous owner.
+        let service = SERVICE.try_into().map_err(|_| Error::Storage)?;
+        let owner = tokio::time::timeout(CALL_LIMIT, async {
+            let bus = zbus::fdo::DBusProxy::new(&self.connection).await?;
+            bus.get_name_owner(service).await
+        })
+        .await
+        .map_err(|_| Error::Storage)?
+        .map_err(|_| Error::Storage)?;
+        let mut locked = Vec::new();
+        for attributes in selectors {
+            let reply = tokio::time::timeout(
+                CALL_LIMIT,
+                self.connection.call_method(
+                    Some(owner.as_str()),
+                    PATH,
+                    Some(INTERFACE),
+                    "SearchItems",
+                    &attributes,
+                ),
+            )
+            .await
+            .map_err(|_| Error::Storage)?
+            .map_err(|_| Error::Storage)?;
+            let (open, closed): (Vec<OwnedObjectPath>, Vec<OwnedObjectPath>) =
+                reply.body().deserialize().map_err(|_| Error::Storage)?;
+            if open.len() + closed.len() > 1 {
+                return Err(Error::Storage);
+            }
+            for item in closed {
+                if !locked.contains(&item) {
+                    locked.push(item);
+                }
+            }
+        }
+        if locked.is_empty() {
+            return Ok(());
+        }
+        let reply = tokio::time::timeout(
+            CALL_LIMIT,
+            self.connection.call_method(
+                Some(owner.as_str()),
+                PATH,
+                Some(INTERFACE),
+                "Unlock",
+                &(locked,),
+            ),
+        )
+        .await
+        .map_err(|_| Error::Storage)?
+        .map_err(|_| Error::Storage)?;
+        let (_, prompt): (Vec<OwnedObjectPath>, OwnedObjectPath) =
+            reply.body().deserialize().map_err(|_| Error::Storage)?;
+        if prompt.as_str() == "/" {
+            return Ok(());
+        }
+        let proxy = tokio::time::timeout(
+            CALL_LIMIT,
+            zbus::Proxy::new_owned(
+                self.connection.clone(),
+                owner.to_string(),
+                prompt,
+                "org.freedesktop.Secret.Prompt",
+            ),
+        )
+        .await
+        .map_err(|_| Error::Storage)?
+        .map_err(|_| Error::Storage)?;
+        let mut guard = PromptGuard(Some(proxy.clone()));
+        let mut completed = tokio::time::timeout(CALL_LIMIT, proxy.receive_signal("Completed"))
+            .await
+            .map_err(|_| Error::Storage)?
+            .map_err(|_| Error::Storage)?;
+        tokio::time::timeout(CALL_LIMIT, proxy.call::<_, _, ()>("Prompt", &("",)))
+            .await
+            .map_err(|_| Error::Storage)?
+            .map_err(|_| Error::Storage)?;
+        let signal = tokio::time::timeout(PROMPT_LIMIT, completed.next())
+            .await
+            .map_err(|_| Error::Storage)?
+            .ok_or(Error::Storage)?;
+        let (dismissed, _): (bool, OwnedValue) =
+            signal.body().deserialize().map_err(|_| Error::Storage)?;
+        guard.0 = None;
+        if dismissed {
+            Err(Error::Cancelled)
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Read an administrator-provisioned application secret; never expose it
+    /// through settings, diagnostics, prompts or the music wire model.
+    async fn read_application_secret(&self, client_id: &str) -> Result<Option<String>, Error> {
+        let attributes = Self::application_attributes(client_id);
         let reply = match tokio::time::timeout(
             CALL_LIMIT,
             self.connection.call_method(
@@ -268,6 +389,12 @@ fn read_checkpoint(storage: &Storage) -> Result<Option<String>, Error> {
     Ok(state.nonce)
 }
 impl CredentialStore for SecretService {
+    async fn application_secret(&self, client_id: &str) -> Result<Option<String>, Error> {
+        self.read_application_secret(client_id).await
+    }
+    async fn unlock(&self, client_id: Option<&str>) -> Result<(), Error> {
+        self.unlock_items(client_id).await
+    }
     async fn load(&self) -> Result<Option<Credentials>, Error> {
         let Some(nonce) = self.checkpoint()? else {
             return Ok(None);
